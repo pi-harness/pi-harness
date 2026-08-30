@@ -20,13 +20,13 @@ export const Config: z<ResourcesPluginConfig> = z.object({
 
 export default {
   name: "pi-resources",
-  inject: ["piHarnessLaunch", "piModels"],
+  inject: ["piHarnessLaunch", "piModelRuntime"],
   Config,
   async apply(context: Context, config: ResourcesPluginConfig) {
     const services = await createAgentSessionServices({
       cwd: context.piHarnessLaunch.cwd,
       agentDir: context.piHarnessLaunch.agentDir,
-      modelRuntime: context.piModels.runtime,
+      modelRuntime: context.piModelRuntime.runtime,
       resourceLoaderOptions: {
         noExtensions: config.noExtensions ?? false,
         noSkills: config.noSkills ?? false,

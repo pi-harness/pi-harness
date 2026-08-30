@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "allowImportingTsExtensions": false,
+    "baseUrl": ".",
     "declaration": true,
     "declarationMap": true,
     "erasableSyntaxOnly": true,
@@ -12,6 +13,11 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@pi-harness/core": [
+        "packages/core/src/index.ts"
+      ]
+    },
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true,

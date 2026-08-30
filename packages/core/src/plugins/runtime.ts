@@ -16,15 +16,23 @@ export default {
   inject: ["piModels", "piResources", "piSession", "piTools"],
   Config,
   async apply(context: Context, config: RuntimePluginConfig) {
-    const tools = context.piTools.snapshot();
+    const tools = context.piTools.acquire();
+    context.effect(() => () => tools.release());
+    const requestedTools = [...tools.names, ...tools.customTools.map((tool) => tool.name)];
     const { session } = await createAgentSessionFromServices({
       services: context.piResources,
       sessionManager: context.piSession.manager,
       model: context.piModels.model,
       thinkingLevel: config.thinkingLevel ?? "medium",
-      tools: tools.names,
+      tools: requestedTools,
       customTools: tools.customTools,
     });
+    const activeTools = new Set(session.getAllTools().map((tool) => tool.name));
+    const missingTools = requestedTools.filter((name) => !activeTools.has(name));
+    if (missingTools.length > 0) {
+      session.dispose();
+      throw new Error(`Pi tools are not registered: ${missingTools.join(", ")}`);
+    }
     const runtime = new PiRuntime(session);
     context.provide("piRuntime", runtime);
     context.effect(() => {
