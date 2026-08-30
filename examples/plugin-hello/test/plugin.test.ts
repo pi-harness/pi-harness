@@ -33,4 +33,28 @@ describe("hello plugin", () => {
     expect(tools.snapshot().customTools).toEqual([]);
     expect(context.get("piHelloTool")).toBeUndefined();
   });
+
+  test("can reload after a dependent runtime releases its tool snapshot", async () => {
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    contexts.push(context);
+    context.provide("piTools", tools);
+    const helloFiber = context.plugin(helloPlugin);
+    await helloFiber;
+    const runtimeFiber = context.plugin({
+      inject: ["piTools", "piHelloTool"],
+      apply(runtimeContext) {
+        const lease = runtimeContext.piTools.acquire();
+        runtimeContext.effect(() => () => lease.release());
+      },
+    });
+    await runtimeFiber;
+
+    await helloFiber.dispose();
+
+    expect(tools.snapshot().customTools).toEqual([]);
+    const reloaded = context.plugin(helloPlugin);
+    await reloaded;
+    expect(tools.snapshot().customTools.map((tool) => tool.name)).toEqual(["hello"]);
+  });
 });

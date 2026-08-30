@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli, type CliEnvironment } from "./main.js";
-import { shouldRelaunchForDevelopmentProfile } from "./relaunch.js";
+import { shouldRelaunchForDevelopmentProfile, superviseDevelopmentProcess } from "./relaunch.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
@@ -17,6 +16,10 @@ const environment: CliEnvironment = {
   stdin: process.stdin,
   stdout: process.stdout,
   stderr: process.stderr,
+  shutdownTimeoutMs: 5_000,
+  forceExit(code) {
+    process.exit(code);
+  },
   onSignal(listener) {
     const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
     const handlers = signals.map((signal) => {
@@ -32,9 +35,7 @@ const environment: CliEnvironment = {
 
 const args = process.argv.slice(2);
 if (shouldRelaunchForDevelopmentProfile(args, process.execArgv)) {
-  const child = spawnSync(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], { stdio: "inherit" });
-  if (child.error !== undefined) throw child.error;
-  process.exitCode = child.status ?? (child.signal === "SIGINT" ? 130 : child.signal === "SIGHUP" ? 129 : child.signal === "SIGTERM" ? 143 : 1);
+  process.exitCode = await superviseDevelopmentProcess(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], { stdio: "inherit" });
 } else {
   process.exitCode = await runCli(args, environment);
 }

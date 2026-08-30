@@ -58,6 +58,7 @@ describe("packaged profiles", () => {
     const plugins = {
       models: import.meta.resolve("@pi-harness/core/plugins/models"),
       resources: import.meta.resolve("@pi-harness/core/plugins/resources"),
+      model: import.meta.resolve("@pi-harness/core/plugins/model"),
       session: import.meta.resolve("@pi-harness/core/plugins/session"),
       tools: import.meta.resolve("@pi-harness/core/plugins/tools"),
       hello: import.meta.resolve("@pi-harness/plugin-hello"),
@@ -67,6 +68,7 @@ describe("packaged profiles", () => {
     await writeFile(configPath, JSON.stringify([
       { id: "models", name: plugins.models, config: { provider: "deepseek", model: "deepseek-v4-flash", refreshOnCreate: false } },
       { id: "resources", name: plugins.resources, config: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } },
+      { id: "model", name: plugins.model, config: {} },
       { id: "session", name: plugins.session, config: { storage: "memory" } },
       { id: "tools", name: plugins.tools, config: { names: [] } },
       { id: "hello", name: plugins.hello, config: {} },

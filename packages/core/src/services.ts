@@ -15,6 +15,12 @@ export interface PiModelsService {
   readonly model: Model<Api>;
 }
 
+export interface PiModelRuntimeService {
+  readonly runtime: ModelRuntime;
+  readonly provider: string;
+  readonly model: string;
+}
+
 export type PiResourcesService = AgentSessionServices;
 
 export interface PiSessionService {
@@ -33,17 +39,21 @@ export interface PiToolsSnapshot {
   readonly customTools: ToolDefinition[];
 }
 
+export interface PiToolsLease extends PiToolsSnapshot {
+  release(): void;
+}
+
 export class PiToolRegistry {
   readonly #names: string[];
   readonly #customTools = new Map<string, ToolDefinition>();
-  #sealed = false;
+  #leases = 0;
 
   constructor(names: readonly string[] = []) {
     this.#names = [...names];
   }
 
   register(tool: ToolDefinition): () => void {
-    if (this.#sealed) throw new Error(`Pi tool registry is sealed; declare a Cordis injection that activates ${tool.name} before pi-runtime`);
+    if (this.#leases > 0) throw new Error(`Pi tool registry is leased by pi-runtime; declare a Cordis injection that activates ${tool.name} before pi-runtime`);
     if (this.#names.includes(tool.name) || this.#customTools.has(tool.name)) throw new Error(`Pi tool is already registered: ${tool.name}`);
     this.#customTools.set(tool.name, tool);
     return () => {
@@ -55,15 +65,24 @@ export class PiToolRegistry {
     return { names: [...this.#names], customTools: [...this.#customTools.values()] };
   }
 
-  seal(): PiToolsSnapshot {
-    this.#sealed = true;
-    return this.snapshot();
+  acquire(): PiToolsLease {
+    this.#leases += 1;
+    let released = false;
+    return {
+      ...this.snapshot(),
+      release: () => {
+        if (released) return;
+        released = true;
+        this.#leases -= 1;
+      },
+    };
   }
 }
 
 declare module "@deepseek-ai/cordis" {
   interface Context {
     piHarnessLaunch: PiHarnessLaunch;
+    piModelRuntime: PiModelRuntimeService;
     piModels: PiModelsService;
     piResources: PiResourcesService;
     piSession: PiSessionService;

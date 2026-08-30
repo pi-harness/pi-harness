@@ -37,4 +37,8 @@ describe("Pi runtime plugin", () => {
 
     await expect(runtime.prompt("too late")).rejects.toThrow(/disposed/);
   });
+
+  test("fails activation when configured core tools are unknown to Pi", async () => {
+    await expect(createTestRuntimeContext([], ["not-a-pi-tool"])).rejects.toThrow(/not-a-pi-tool/);
+  });
 });

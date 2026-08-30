@@ -72,4 +72,16 @@ describe("stdio application plugin", () => {
     expect(exitCode).toBe(1);
     expect(stdio.errors.join("")).toContain("provider failed");
   });
+
+  test("reports non-error resource diagnostics instead of dropping them", async () => {
+    const { context } = await createTestRuntimeContext([]);
+    contexts.push(context);
+    (context.piResources.diagnostics as unknown as Array<{ type: "warning"; message: string }>).push({ type: "warning", message: "extension warning" });
+    const stdio = captureStdio("");
+    provideStdioContext(context, stdio);
+
+    await context.plugin(stdioPlugin);
+
+    expect(stdio.errors).toEqual(["Resource warning: extension warning\n"]);
+  });
 });

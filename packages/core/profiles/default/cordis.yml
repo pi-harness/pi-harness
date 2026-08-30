@@ -11,6 +11,9 @@
     - id: resources
       name: "@pi-harness/core/plugins/resources"
       config: {}
+    - id: model
+      name: "@pi-harness/core/plugins/model"
+      config: {}
     - id: session
       name: "@pi-harness/core/plugins/session"
       config:

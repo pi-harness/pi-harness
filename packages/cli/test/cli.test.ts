@@ -9,12 +9,14 @@ import { runCli, type CliEnvironment } from "../src/main.js";
 interface TestEnvironment extends CliEnvironment {
   readonly output: string[];
   readonly errors: string[];
+  readonly forcedExitCodes: number[];
   emitSignal(signal: NodeJS.Signals): void;
 }
 
-function createEnvironment(cwd = process.cwd(), input = ""): TestEnvironment {
+function createEnvironment(cwd = process.cwd(), input = "", shutdownTimeoutMs = 5_000): TestEnvironment {
   const output: string[] = [];
   const errors: string[] = [];
+  const forcedExitCodes: number[] = [];
   const signals = new Set<(signal: NodeJS.Signals) => void>();
   return {
     cwd,
@@ -25,6 +27,11 @@ function createEnvironment(cwd = process.cwd(), input = ""): TestEnvironment {
     stderr: new Writable({ write(chunk, _encoding, callback) { errors.push(String(chunk)); callback(); } }),
     output,
     errors,
+    forcedExitCodes,
+    shutdownTimeoutMs,
+    forceExit(code) {
+      forcedExitCodes.push(code);
+    },
     onSignal(listener) {
       signals.add(listener);
       return () => signals.delete(listener);
@@ -110,6 +117,29 @@ describe("runCli", () => {
 
     await expect(result).resolves.toBe(130);
     await expect(readFile(markerPath, "utf8")).resolves.toBe("started:run:disposed");
+  });
+
+  test("handles SIGTERM while the Cordis plugin tree is still starting", async () => {
+    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { async apply(_ctx, config) { writeFileSync(config.markerPath, "starting"); await new Promise(() => {}); } };`);
+    const environment = createEnvironment(profile.directory, "", 50);
+    const result = runCli(["--config", profile.configPath], environment);
+    await waitForFileContent(join(profile.directory, "marker.txt"), "starting");
+
+    environment.emitSignal("SIGTERM");
+
+    await expect(result).resolves.toBe(143);
+  });
+
+  test("forces the bin exit when a Cordis disposer exceeds the shutdown deadline", async () => {
+    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => async () => new Promise(() => {})); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`);
+    const environment = createEnvironment(profile.directory, "", 25);
+    const result = runCli(["--config", profile.configPath], environment);
+    await waitForFileContent(join(profile.directory, "marker.txt"), "started");
+
+    environment.emitSignal("SIGTERM");
+
+    await expect(result).resolves.toBe(143);
+    expect(environment.forcedExitCodes).toEqual([143]);
   });
 
   test("returns a usage error for a missing config", async () => {

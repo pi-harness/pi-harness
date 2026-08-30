@@ -12,6 +12,8 @@ class ReadonlyInclude extends Include {
 export interface BootHarnessOptions {
   configPath: string;
   prepare?: (context: Context) => Promise<void> | void;
+  onFullReload?: () => void;
+  signal?: AbortSignal;
 }
 
 export interface BootedHarness {
@@ -71,10 +73,16 @@ async function mountProfile(context: Context, configPath: string): Promise<void>
 export async function bootHarness(options: BootHarnessOptions): Promise<BootedHarness> {
   const configPath = resolve(options.configPath);
   const context = new Context();
+  const abort = () => {
+    void context.fiber.dispose().catch(() => {});
+  };
+  if (options.signal?.aborted) throw new Error("Pi Harness startup was aborted", { cause: options.signal.reason });
+  options.signal?.addEventListener("abort", abort, { once: true });
   let stage = "host preparation";
   try {
     context.baseUrl = `${pathToFileURL(dirname(configPath)).href}/`;
     await context.plugin(Loader);
+    if (options.onFullReload !== undefined) context.loader.exit = options.onFullReload;
     await options.prepare?.(context);
     stage = "plugin tree activation";
     await mountProfile(context, configPath);
@@ -83,6 +91,8 @@ export async function bootHarness(options: BootHarnessOptions): Promise<BootedHa
   } catch (cause) {
     await context.fiber.dispose();
     throw new Error(`Pi Harness ${stage} failed: ${formatError(cause)}`, { cause });
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
   }
   return {
     context,

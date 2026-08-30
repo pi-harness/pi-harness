@@ -27,8 +27,9 @@ pih launcher
     ├── Loader
     └── Include(profile YAML)
         └── Group
-            ├── models      -> piModels
-            ├── resources   -> piResources
+            ├── models      -> piModelRuntime
+            ├── resources   -> piResources + extension providers
+            ├── model       -> piModels
             ├── session     -> piSession
             ├── tools       -> piTools
             ├── runtime     -> piRuntime
@@ -55,7 +56,7 @@ pih --profile default --dump-config
 
 Launcher options are `--profile`, `--config`, `--dump-config`, `--help`, and `--version`. Remaining arguments are passed unchanged to the active application plugin. The bundled stdio application accepts `--prompt <text>`, a positional prompt, or piped stdin.
 
-The built-in development profile watches the invocation working directory and the launcher automatically restarts it with Node's `--expose-internals` flag, which Cordis HMR requires. Production does not expose Node internals. A custom profile that mounts `@deepseek-ai/cordis-plugin-hmr` must start the CLI entry with `node --expose-internals`.
+The built-in development profile watches the invocation working directory and the launcher automatically supervises a child process with Node's `--expose-internals` flag, which Cordis HMR requires. Cordis performs partial plugin reloads in place and requests a supervised process restart when a framework module changes. Production does not expose Node internals. A custom profile that mounts `@deepseek-ai/cordis-plugin-hmr` must start the CLI entry with `node --expose-internals`.
 
 ## Profiles
 
@@ -80,7 +81,7 @@ export default {
 };
 ```
 
-Custom tools are a startup contract. The runtime seals the tool registry when it creates the Pi session, so a profile must make runtime activation depend on every tool plugin's marker:
+Custom tools are a startup contract. The runtime leases an immutable tool snapshot while its Pi session exists, so a profile must make runtime activation depend on every tool plugin's marker:
 
 ```yaml
 - id: tools
@@ -98,14 +99,14 @@ Custom tools are a startup contract. The runtime seals the tool registry when it
     thinkingLevel: medium
 ```
 
-This uses Cordis injection for deterministic ordering. A late contribution fails startup instead of being silently omitted from the active AgentSession.
+This uses Cordis injection for deterministic ordering. A late contribution fails startup instead of being silently omitted from the active AgentSession. When HMR unloads a tool marker, Cordis first disposes the dependent runtime and releases its snapshot; the reloaded tool plugin can then register against the same lifecycle-owned registry.
 
 ## Failure and security boundaries
 
 - A profile can load arbitrary Node.js modules. Treat profile files and plugin packages as executable code.
 - Missing modules, invalid configuration, unresolved injections, model lookup failures, and plugin activation failures abort startup and dispose the partial tree.
 - The runtime does not fall back to a different model or storage backend.
-- Signals abort the active Pi run before the Cordis tree is disposed.
+- Signals cancel startup or abort the active Pi run before the Cordis tree is disposed. Runtime abort and root disposal have a five-second deadline, after which the executable forces the signal-compatible exit code.
 - The production profile excludes HMR. Development HMR grants access to Node internal ESM loader APIs only in the relaunched development process.
 - Existing Pi resources and extensions under `PI_AGENT_DIR` participate in startup and shutdown. Use an isolated agent directory for deterministic tests.
 

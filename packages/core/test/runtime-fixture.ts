@@ -10,7 +10,7 @@ import runtimePlugin from "../src/plugins/runtime.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 
-export async function createTestRuntimeContext(responses: FauxResponseStep[]): Promise<{ context: Context; faux: FauxProviderHandle }> {
+export async function createTestRuntimeContext(responses: FauxResponseStep[], toolNames: string[] = []): Promise<{ context: Context; faux: FauxProviderHandle }> {
   const cwd = await mkdtemp(join(tmpdir(), "pi-harness-runtime-"));
   const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-runtime-agent-"));
   const context = new Context();
@@ -21,10 +21,11 @@ export async function createTestRuntimeContext(responses: FauxResponseStep[]): P
   modelRuntime.registerNativeProvider(faux.provider);
   const model = modelRuntime.getModel("pi-harness-test", "deterministic");
   if (model === undefined) throw new Error("Faux model registration failed");
-  context.provide("piModels", { runtime: modelRuntime, model });
+  context.provide("piModelRuntime", { runtime: modelRuntime, provider: "pi-harness-test", model: "deterministic" });
   await context.plugin(resourcesPlugin, { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+  context.provide("piModels", { runtime: modelRuntime, model });
   await context.plugin(sessionPlugin, { storage: "memory" });
-  await context.plugin(toolsPlugin, { names: [] });
+  await context.plugin(toolsPlugin, { names: toolNames });
   await context.plugin(runtimePlugin, { thinkingLevel: "off" });
   return { context, faux };
 }

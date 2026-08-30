@@ -72,4 +72,15 @@ describe("bootHarness", () => {
 
     await expect(readFile(profile.profilePath, "utf8")).resolves.toBe(source);
   });
+
+  test("forwards Cordis full-reload requests to the host", async () => {
+    const profile = await createProfile([]);
+    let reloads = 0;
+    const harness = await bootHarness({ configPath: profile.profilePath, onFullReload() { reloads += 1; } });
+    booted.push(harness);
+
+    harness.context.loader.exit();
+
+    expect(reloads).toBe(1);
+  });
 });
