@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(booted.splice(0).map(async (harness) => harness.dispose()));
 });
 
-async function bootProfile(profile: string): Promise<BootedHarness> {
+async function bootProfile(profile: string): Promise<{ harness: BootedHarness; cwd: string }> {
   const cwd = await mkdtemp(join(tmpdir(), "pi-harness-profile-cwd-"));
   const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-profile-agent-"));
   const configPath = await resolveProfileConfig({ profile });
@@ -25,12 +25,12 @@ async function bootProfile(profile: string): Promise<BootedHarness> {
     },
   });
   booted.push(harness);
-  return harness;
+  return { harness, cwd };
 }
 
 describe("packaged profiles", () => {
   test("boots the default production profile without HMR", async () => {
-    const harness = await bootProfile("default");
+    const { harness } = await bootProfile("default");
     const names = [...harness.context.loader.entries()].map((entry) => entry.options.name);
 
     expect(harness.context.get("piModels")?.model.provider).toBe("deepseek");
@@ -40,14 +40,14 @@ describe("packaged profiles", () => {
   });
 
   test("boots the development profile with logger, timer, and HMR plugins", async () => {
-    const harness = await bootProfile("development");
+    const { harness, cwd } = await bootProfile("development");
     const entries = [...harness.context.loader.entries()];
     const names = entries.map((entry) => entry.options.name);
     const timer = entries.find((entry) => entry.options.name === "@deepseek-ai/cordis-plugin-timer");
     const hmr = entries.find((entry) => entry.options.name === "@deepseek-ai/cordis-plugin-hmr");
 
     expect(timer?.fiber?.ctx.get("timer")).toBeDefined();
-    expect(hmr?.fiber?.ctx.get("hmr")).toBeDefined();
+    expect(hmr?.fiber?.ctx.get("hmr")).toMatchObject({ baseDir: cwd });
     expect(names).toEqual(expect.arrayContaining(["@deepseek-ai/cordis-plugin-logger-console", "@deepseek-ai/cordis-plugin-timer", "@deepseek-ai/cordis-plugin-hmr"]));
   });
 });

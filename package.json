@@ -11,11 +11,11 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/cli",
+    "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli",
     "clean": "npm run clean --workspaces --if-present",
     "lint": "eslint .",
     "test": "vitest run",
-    "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/cli"
+    "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

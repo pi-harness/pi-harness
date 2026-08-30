@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runCli, type CliEnvironment } from "./main.js";
+import { shouldRelaunchForDevelopmentProfile } from "./relaunch.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
@@ -27,4 +30,11 @@ const environment: CliEnvironment = {
   },
 };
 
-process.exitCode = await runCli(process.argv.slice(2), environment);
+const args = process.argv.slice(2);
+if (shouldRelaunchForDevelopmentProfile(args, process.execArgv)) {
+  const child = spawnSync(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], { stdio: "inherit" });
+  if (child.error !== undefined) throw child.error;
+  process.exitCode = child.status ?? (child.signal === "SIGINT" ? 130 : child.signal === "SIGHUP" ? 129 : child.signal === "SIGTERM" ? 143 : 1);
+} else {
+  process.exitCode = await runCli(args, environment);
+}
