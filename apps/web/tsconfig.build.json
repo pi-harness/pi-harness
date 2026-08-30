@@ -1,0 +1,1 @@
+{"extends":"../../tsconfig.build.json","compilerOptions":{"outDir":"server-dist","paths":{},"rootDir":"src/server","lib":["ES2023","DOM","DOM.Iterable"]},"include":["src/server/**/*.ts"]}

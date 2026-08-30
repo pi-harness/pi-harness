@@ -1,0 +1,22 @@
+{
+  "name": "@pi-harness/web-app",
+  "version": "0.1.0",
+  "description": "Patchable Web application bundle for Pi Harness",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": ["dist", "cordis.patch.yml"],
+  "engines": {"node": ">=22.19.0"},
+  "scripts": {"build": "tsc -p tsconfig.build.json", "typecheck": "tsc -p tsconfig.json"},
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@pi-harness/host-webserver": "0.1.0"
+  }
+}

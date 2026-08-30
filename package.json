@@ -5,17 +5,20 @@
   "type": "module",
   "workspaces": [
     "packages/*",
+    "apps/*",
     "examples/*"
   ],
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
-    "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli",
+    "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
+    "build:web": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
+    "web": "npm run build:web && node apps/web/server-dist/bin.js",
     "clean": "npm run clean --workspaces --if-present",
     "lint": "eslint .",
     "test": "npm run build && vitest run",
-    "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli"
+    "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

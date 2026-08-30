@@ -1,6 +1,6 @@
 # Pi Harness
 
-Pi Harness is a plugin-first command-line host for [Pi](https://github.com/earendil-works/pi) built on the published DeepSeek Cordis stack. The launcher only resolves a profile, provides process services, handles signals, and disposes the root context. Models, resources, sessions, tools, the Pi runtime, application surfaces, logging, timers, and HMR are Cordis plugins.
+Pi Harness is a plugin-first web host for [Pi](https://github.com/earendil-works/pi) built on the published DeepSeek Cordis stack. The browser console, HTTP API, static asset server, models, resources, sessions, tools, runtime, logging, timers, and HMR are Cordis plugins. A CLI surface remains available for scripted and terminal workflows.
 
 ## Requirements
 
@@ -17,12 +17,21 @@ node packages/cli/dist/bin.js --help
 node packages/cli/dist/bin.js "Explain this repository"
 ```
 
+## Run the web console
+
+```sh
+npm ci
+npm run web
+```
+
+The web launcher builds the Vite browser bundle, starts the Cordis host, and prints a local URL (by default `http://127.0.0.1:3080`). Set `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, and `PI_AGENT_DIR` to change the bind address, port, or Pi state directory. The browser surface is served by the `@pi-harness/web-app` plugin and talks to `@pi-harness/api-gateway` over `/api/status`, `/api/session`, and `/api/prompt`.
+
 The default profile selects `deepseek/deepseek-v4-flash`, stores JSONL sessions under `$PI_AGENT_DIR/sessions`, and loads Pi resources from the current project and agent directory. `PI_AGENT_DIR` defaults to `~/.pi/agent`.
 
 ## Architecture
 
 ```text
-pih launcher
+web launcher / CLI launcher
 └── Cordis Context
     ├── Loader
     └── Include(profile YAML)
@@ -33,7 +42,10 @@ pih launcher
             ├── session     -> piSession
             ├── tools       -> piTools
             ├── runtime     -> piRuntime
-            └── stdio       -> piApplication
+            ├── webserver  -> webServer
+            ├── api        -> HTTP JSON routes
+            ├── web-app    -> static Vite bundle + SPA fallback
+            └── stdio      -> piApplication
 ```
 
 Cordis owns module loading, configuration validation, dependency injection, activation ordering, lifecycle effects, rollback, grouping, and development HMR. Pi owns model discovery, project resources, session persistence, tool execution, provider calls, and agent events. There is no parallel plugin registry or lifecycle abstraction.
@@ -127,5 +139,10 @@ The repository currently has no GitHub Actions workflow because the target organ
 
 - `packages/core`: Cordis boot host, typed Pi services, runtime plugins, and built-in profiles
 - `packages/cli`: launcher argument, process, stdio, signal, and development re-exec handling
+- `packages/host-webserver`: Cordis-owned HTTP server and route lifecycle
+- `packages/api-gateway`: JSON API plugin for status, sessions, and prompts
+- `packages/client-web`: browser-side Cordis plugin tree and console surface
+- `packages/bundle-web-app`: static frontend and SPA fallback plugin
+- `apps/web`: Vite entrypoint and production web launcher
 - `examples/plugin-hello`: lifecycle-safe external Pi tool plugin
 - `docs/plans`: accepted architecture and implementation plan
