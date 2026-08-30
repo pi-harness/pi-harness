@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import webServerPlugin from "@pi-harness/host-webserver";
@@ -69,5 +72,95 @@ describe("API gateway plugin", () => {
       messages: [{ role: "user", content: "hello", timestamp: 1 }, { role: "assistant" }],
       events: [{ type: "tool_execution_start", toolName: "read" }],
     });
+  });
+
+  test("opens an event stream with the current trajectory snapshot", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    type Listener = (event: { type: string; [key: string]: unknown }) => void;
+    const listeners = new Set<Listener>();
+    const session = {
+      sessionId: "stream-session",
+      sessionFile: undefined,
+      messages: [],
+      subscribe(listener: Listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/events");
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const reader = response.body?.getReader();
+    const first = await reader?.read();
+    const text = new TextDecoder().decode(first?.value);
+    expect(text).toContain('"type":"snapshot"');
+    expect(text).toContain('"sessionId":"stream-session"');
+    const next = reader?.read();
+    listeners.forEach((listener) => listener({ type: "tool_execution_start", toolName: "read" }));
+    const second = await next;
+    expect(new TextDecoder().decode(second?.value)).toContain('"type":"event"');
+    await reader?.cancel();
+  });
+
+  test("creates a new session through the live AgentSession", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    let sessionId = "old-session";
+    let resetCount = 0;
+    const session = {
+      get sessionId() { return sessionId; },
+      sessionFile: undefined,
+      messages: [{ role: "user", content: "old" }],
+      isStreaming: false,
+      sessionManager: { newSession() { sessionId = "new-session"; resetCount += 1; }, getEntries: () => [] },
+      agent: { state: { messages: [{ role: "user", content: "old" }] } },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const sessions = await fetch(context.webServer.url + "/api/sessions");
+    expect(sessions.status).toBe(200);
+    await expect(sessions.json()).resolves.toEqual({ items: [] });
+    const response = await fetch(context.webServer.url + "/api/session/new", { method: "POST" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ sessionId: "new-session", messages: [] });
+    expect(resetCount).toBe(1);
+  });
+
+  test("opens a persisted session from the session list", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-sessions-"));
+    const path = join(directory, "2026-08-30T00-00-00-000Z_target.jsonl");
+    await writeFile(path, `${JSON.stringify({ type: "session", version: 3, id: "target-session", timestamp: new Date().toISOString(), cwd: "/tmp" })}\n${JSON.stringify({ type: "message", id: "message-1", parentId: null, timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "saved" }], provider: "test", model: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } })}\n`, "utf8");
+    let openedPath = "";
+    const session = {
+      sessionId: "active-session",
+      sessionFile: "/tmp/active.jsonl",
+      messages: [],
+      isStreaming: false,
+      sessionManager: { setSessionFile(nextPath: string) { openedPath = nextPath; }, getEntries: () => [], isPersisted: () => true, getSessionDir: () => directory, buildSessionContext: () => ({ messages: [] }) },
+      agent: { state: { messages: [] } },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+    expect(response.status).toBe(200);
+    expect(openedPath).toBe(path);
   });
 });
