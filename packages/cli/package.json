@@ -1,0 +1,25 @@
+{
+  "name": "@pi-harness/cli",
+  "version": "0.1.0",
+  "description": "Plugin-first Pi Harness CLI",
+  "type": "module",
+  "bin": {
+    "pih": "./dist/bin.js"
+  },
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@pi-harness/core": "0.1.0"
+  }
+}
