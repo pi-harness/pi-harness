@@ -16,7 +16,7 @@ export function installFileDiff(root: HTMLElement): () => void {
       if (row.querySelector("[data-file-diff]")) return;
       const path = row.querySelector("code")?.textContent?.trim();
       if (!path) return;
-      const button = document.createElement("button");
+      const button = row.querySelector<HTMLButtonElement>("button") ?? document.createElement("button");
       button.type = "button";
       button.dataset.fileDiff = "true";
       button.textContent = "查看差异";
@@ -32,7 +32,7 @@ export function installFileDiff(root: HTMLElement): () => void {
           raw.textContent = error instanceof Error ? error.message : String(error);
         }).finally(() => { button.disabled = false; });
       });
-      row.append(button);
+      if (!button.parentElement) row.append(button);
     });
   };
   const observer = new MutationObserver(attach);
