@@ -1,5 +1,5 @@
 import type { Context } from "@deepseek-ai/cordis";
-import type { AgentSessionServices, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, AgentSessionServices, ExtensionError, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -19,6 +19,13 @@ export type PiResourcesService = AgentSessionServices;
 
 export interface PiSessionService {
   readonly manager: SessionManager;
+}
+
+export interface PiRuntimeService {
+  readonly session: AgentSession;
+  prompt(text: string): Promise<void>;
+  abort(): Promise<void>;
+  dispose(): Promise<void>;
 }
 
 export interface PiToolsSnapshot {
@@ -54,6 +61,12 @@ declare module "@deepseek-ai/cordis" {
     piResources: PiResourcesService;
     piSession: PiSessionService;
     piTools: PiToolRegistry;
+    piRuntime: PiRuntimeService;
+  }
+
+  interface Events {
+    "pi/session-event"(event: AgentSessionEvent): void;
+    "pi/extension-error"(error: ExtensionError): void;
   }
 }
 
