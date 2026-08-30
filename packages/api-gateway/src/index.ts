@@ -53,7 +53,7 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
 function createStatus(services: ApiServices, events: readonly AgentSessionEvent[]) {
   const activeModel = services.runtime.session.model ?? services.models.model;
   return {
-    status: "ready",
+    status: services.runtime.session.isStreaming ? "running" : "ready",
     model: activeModel.provider + "/" + activeModel.id,
     messages: services.runtime.session.messages.length,
     events: events.length,
@@ -292,7 +292,8 @@ export default {
             return;
           }
           manager.setSessionFile(target.path);
-          services.runtime.session.agent.state.messages = manager.buildSessionContext().messages;
+          if (typeof services.runtime.session.reload === "function") await services.runtime.session.reload();
+          else services.runtime.session.agent.state.messages = manager.buildSessionContext().messages;
           events.length = 0;
           for (const client of eventClients) writeSse(client, { type: "session", sessionId: services.runtime.session.sessionId, events: [] });
           sendJson(response, 200, jsonSafe({ sessionId: services.runtime.session.sessionId, sessionFile: services.runtime.session.sessionFile, messages: services.runtime.session.messages, events: [] }));
