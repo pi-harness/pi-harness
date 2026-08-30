@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
@@ -76,6 +77,12 @@ function writeSse(response: ServerResponse, payload: unknown): void {
 function gitStatus(cwd: string): Promise<string> {
   return new Promise((resolve) => {
     execFile("git", ["status", "--short", "--untracked-files=all"], { cwd, maxBuffer: 512 * 1024 }, (error, stdout) => resolve(error ? "" : stdout));
+  });
+}
+
+function gitDiff(cwd: string, path: string): Promise<string> {
+  return new Promise((resolveOutput) => {
+    execFile("git", ["diff", "--no-ext-diff", "--", path], { cwd, maxBuffer: 1024 * 1024 }, (error, stdout) => resolveOutput(error && stdout.length === 0 ? "" : stdout));
   });
 }
 
@@ -158,6 +165,29 @@ export default {
           return { path: line.slice(3), status, label: status === "??" ? "untracked" : status.includes("D") ? "deleted" : status.includes("A") ? "added" : "modified" };
         });
         sendJson(response, 200, { items });
+      },
+    });
+    const disposeFileDiff = services.webServer.register({
+      path: "/api/files/diff",
+      async handler(request, response) {
+        if (request.method !== "GET") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        const url = new URL(request.url ?? "/api/files/diff", "http://localhost");
+        const requested = url.searchParams.get("path");
+        if (requested === null || requested.trim() === "") {
+          sendJson(response, 400, { error: "path is required" });
+          return;
+        }
+        const root = resolve(services.launch.cwd);
+        const absolute = resolve(root, requested);
+        const relativePath = relative(root, absolute);
+        if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(".." + "/")) {
+          sendJson(response, 400, { error: "path must stay inside the workspace" });
+          return;
+        }
+        sendJson(response, 200, { path: relativePath, diff: await gitDiff(root, relativePath) });
       },
     });
     const disposeEvents = services.webServer.register({
@@ -323,6 +353,7 @@ export default {
       disposeModels();
       disposeModel();
       disposeFiles();
+      disposeFileDiff();
       disposePrompt();
       disposeAbort();
       disposeSession();

@@ -226,5 +226,13 @@ describe("API gateway plugin", () => {
     expect(response.status).toBe(200);
     const payload = await response.json() as { items?: unknown };
     expect(Array.isArray(payload.items)).toBe(true);
+
+    const diff = await fetch(context.webServer.url + "/api/files/diff?path=README.md");
+    expect(diff.status).toBe(200);
+    const diffPayload = await diff.json() as { path?: unknown; diff?: unknown };
+    expect(diffPayload.path).toBe("README.md");
+    expect(typeof diffPayload.diff).toBe("string");
+    const invalid = await fetch(context.webServer.url + "/api/files/diff?path=../secrets.txt");
+    expect(invalid.status).toBe(400);
   });
 });
