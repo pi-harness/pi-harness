@@ -29,10 +29,16 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   shuttingDown = true;
   startupAbort.abort(signal);
   if (harness !== undefined) {
+    let disposed = false;
     await Promise.race([
-      harness.dispose(),
+      harness.dispose().then(() => { disposed = true; }),
       new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
     ]);
+    if (!disposed) {
+      process.stderr.write("Pi Harness web shutdown timed out\n");
+      process.exit(signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143);
+      return;
+    }
   }
   process.exitCode = signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143;
   resolveExit?.();
