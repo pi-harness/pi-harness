@@ -17,8 +17,8 @@ function captureStdio(input: string): PiHarnessStdio & { output: string[]; error
   return {
     output,
     errors,
-    async readPrompt() {
-      return input;
+    readPrompt() {
+      return Promise.resolve(input);
     },
     writeOutput(text) {
       output.push(text);

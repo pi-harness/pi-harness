@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CliUsageError, parseLauncherArgs } from "../src/args.js";
+import { parseLauncherArgs } from "../src/args.js";
 
 describe("parseLauncherArgs", () => {
   test("uses the default profile and forwards application arguments", () => {

@@ -10,18 +10,25 @@ export const helloTool = defineTool({
   parameters: Type.Object({
     name: Type.String({ description: "The name to greet." }),
   }),
-  async execute(_toolCallId, params) {
-    return {
+  execute(_toolCallId, params) {
+    return Promise.resolve({
       content: [{ type: "text", text: `Hello, ${params.name}!` }],
       details: undefined,
-    };
+    });
   },
 });
+
+declare module "@deepseek-ai/cordis" {
+  interface Context {
+    piHelloTool: typeof helloTool;
+  }
+}
 
 export default {
   name: "pi-hello",
   inject: ["piTools"],
   apply(context: Context) {
     context.effect(() => context.piTools.register(helloTool));
+    context.provide("piHelloTool", helloTool);
   },
 };

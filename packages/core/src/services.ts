@@ -36,12 +36,14 @@ export interface PiToolsSnapshot {
 export class PiToolRegistry {
   readonly #names: string[];
   readonly #customTools = new Map<string, ToolDefinition>();
+  #sealed = false;
 
   constructor(names: readonly string[] = []) {
     this.#names = [...names];
   }
 
   register(tool: ToolDefinition): () => void {
+    if (this.#sealed) throw new Error(`Pi tool registry is sealed; declare a Cordis injection that activates ${tool.name} before pi-runtime`);
     if (this.#names.includes(tool.name) || this.#customTools.has(tool.name)) throw new Error(`Pi tool is already registered: ${tool.name}`);
     this.#customTools.set(tool.name, tool);
     return () => {
@@ -51,6 +53,11 @@ export class PiToolRegistry {
 
   snapshot(): PiToolsSnapshot {
     return { names: [...this.#names], customTools: [...this.#customTools.values()] };
+  }
+
+  seal(): PiToolsSnapshot {
+    this.#sealed = true;
+    return this.snapshot();
   }
 }
 

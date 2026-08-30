@@ -16,13 +16,13 @@ export default {
   inject: ["piModels", "piResources", "piSession", "piTools"],
   Config,
   async apply(context: Context, config: RuntimePluginConfig) {
-    const tools = context.piTools.snapshot();
+    const tools = context.piTools.seal();
     const { session } = await createAgentSessionFromServices({
       services: context.piResources,
       sessionManager: context.piSession.manager,
       model: context.piModels.model,
       thinkingLevel: config.thinkingLevel ?? "medium",
-      tools: tools.names,
+      tools: [...tools.names, ...tools.customTools.map((tool) => tool.name)],
       customTools: tools.customTools,
     });
     const runtime = new PiRuntime(session);

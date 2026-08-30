@@ -1,4 +1,4 @@
-import { Context } from "@deepseek-ai/cordis";
+import type { Context } from "@deepseek-ai/cordis";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { afterEach, describe, expect, test } from "vitest";
 import { createTestRuntimeContext } from "./runtime-fixture.js";

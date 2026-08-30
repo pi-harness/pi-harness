@@ -2,8 +2,10 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
-import { provideLaunchContext } from "../src/services.js";
+import { PiToolRegistry, provideLaunchContext } from "../src/services.js";
 import modelsPlugin from "../src/plugins/models.js";
 import resourcesPlugin from "../src/plugins/resources.js";
 import sessionPlugin from "../src/plugins/session.js";
@@ -77,5 +79,21 @@ describe("Pi domain plugins", () => {
     await context.plugin(toolsPlugin, { names: ["read", "bash", "edit", "write"] });
 
     expect(context.get("piTools")?.snapshot()).toEqual({ names: ["read", "bash", "edit", "write"], customTools: [] });
+  });
+
+  test("rejects tool contributions after the runtime seals its startup snapshot", () => {
+    const tools = new PiToolRegistry();
+    const lateTool = defineTool({
+      name: "late",
+      label: "Late",
+      description: "A tool registered after runtime startup.",
+      parameters: Type.Object({}),
+      execute() {
+        return Promise.resolve({ content: [{ type: "text", text: "late" }], details: undefined });
+      },
+    });
+
+    expect(tools.seal()).toEqual({ names: [], customTools: [] });
+    expect(() => tools.register(lateTool)).toThrow(/sealed/);
   });
 });

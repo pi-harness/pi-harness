@@ -26,9 +26,11 @@ describe("hello plugin", () => {
         description: "Greet a person by name.",
       }),
     ]);
+    expect(context.get("piHelloTool")).toBeDefined();
 
     await fiber.dispose();
 
     expect(tools.snapshot().customTools).toEqual([]);
+    expect(context.get("piHelloTool")).toBeUndefined();
   });
 });
