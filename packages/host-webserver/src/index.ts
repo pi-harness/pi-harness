@@ -36,6 +36,10 @@ function notFound(response: ServerResponse): void {
   response.end(JSON.stringify({ error: "Not found" }));
 }
 
+function hostForUrl(host: string): string {
+  return host.includes(":") && !host.startsWith("[") ? "[" + host + "]" : host;
+}
+
 export default {
   name: "pi-webserver",
   async apply(context: Context, config: WebServerConfig) {
@@ -44,7 +48,7 @@ export default {
     const routes = new Map<string, WebRoute["handler"]>();
     let fallback: WebRoute["handler"] | undefined;
     const server = createServer((request, response) => {
-      const path = new URL(request.url ?? "/", "http://" + host).pathname;
+      const path = new URL(request.url ?? "/", "http://" + hostForUrl(host)).pathname;
       const handler = routes.get(path) ?? fallback;
       if (handler === undefined) {
         notFound(response);
@@ -71,7 +75,7 @@ export default {
     const service: WebServer = {
       host,
       port: address.port,
-      url: "http://" + host + ":" + address.port,
+      url: "http://" + hostForUrl(host) + ":" + address.port,
       register(route) {
         const path = normalizePath(route.path);
         if (routes.has(path)) throw new Error("Web route already registered: " + path);

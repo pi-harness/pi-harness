@@ -1,6 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { pipeline } from "node:stream/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import "@pi-harness/host-webserver";
@@ -33,7 +34,14 @@ async function sendFile(path: string, response: ServerResponse): Promise<void> {
   const info = await stat(path);
   if (!info.isFile()) throw new Error("Not a file");
   response.writeHead(200, { "content-type": contentType(path), "content-length": info.size, "cache-control": "no-cache" });
-  createReadStream(path).pipe(response);
+  await pipeline(createReadStream(path), response);
+}
+
+async function sendSafeFile(root: string, path: string, response: ServerResponse): Promise<void> {
+  const [rootReal, pathReal] = await Promise.all([realpath(root), realpath(path)]);
+  const rootWithSlash = rootReal.endsWith("/") ? rootReal : rootReal + "/";
+  if (pathReal !== rootReal && !pathReal.startsWith(rootWithSlash)) throw new Error("Static file escapes web root");
+  await sendFile(pathReal, response);
 }
 
 export default {
@@ -48,13 +56,13 @@ export default {
       const index = join(root, "index.html");
       if (requested !== undefined) {
         try {
-          await sendFile(requested, response);
+          await sendSafeFile(root, requested, response);
           return;
         } catch {
           // SPA fallback below.
         }
       }
-      await sendFile(index, response);
+      await sendSafeFile(root, index, response);
     });
     context.effect(() => dispose);
   },

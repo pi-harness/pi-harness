@@ -120,10 +120,11 @@ const conversationPlugin = {
     if (messages.length > 0) {
       context.clientSurface.messages.replaceChildren();
       for (const message of messages) {
-        const value = message as { role?: unknown };
+        const value = message as { role?: unknown; content?: unknown };
         const element = document.createElement("div");
         element.className = "message " + (value.role === "user" ? "user" : "assistant");
-        element.textContent = typeof value.role === "string" ? value.role + " message" : "session message";
+        const content = typeof value.content === "string" ? value.content : typeof value.role === "string" ? value.role + " message" : "session message";
+        element.textContent = content;
         context.clientSurface.messages.append(element);
       }
     }
@@ -146,7 +147,7 @@ const composerPlugin = {
       context.clientSurface.messages.append(element);
       context.clientSurface.messages.scrollTop = context.clientSurface.messages.scrollHeight;
     };
-    context.clientSurface.composer.addEventListener("submit", (event) => {
+    const submit = (event: SubmitEvent) => {
       event.preventDefault();
       const value = context.clientSurface.prompt.value.trim();
       if (!value || context.clientSurface.send.disabled) return;
@@ -165,12 +166,18 @@ const composerPlugin = {
         context.clientSurface.send.disabled = false;
         context.clientSurface.prompt.focus();
       });
-    });
-    context.clientSurface.prompt.addEventListener("keydown", (event) => {
+    };
+    const keydown = (event: KeyboardEvent) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         context.clientSurface.composer.requestSubmit();
       }
+    };
+    context.clientSurface.composer.addEventListener("submit", submit);
+    context.clientSurface.prompt.addEventListener("keydown", keydown);
+    context.effect(() => () => {
+      context.clientSurface.composer.removeEventListener("submit", submit);
+      context.clientSurface.prompt.removeEventListener("keydown", keydown);
     });
   },
 };
@@ -207,5 +214,9 @@ export class AppWebEntry {
       this.context.plugin(composerPlugin),
       this.context.plugin(clockPlugin),
     ]);
+  }
+
+  async dispose(): Promise<void> {
+    await this.context.fiber.dispose();
   }
 }

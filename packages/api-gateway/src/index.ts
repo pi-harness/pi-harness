@@ -67,23 +67,19 @@ export default {
           sendJson(response, 409, { error: "Another prompt is already running" });
           return;
         }
+        busy = true;
+        let unsubscribe: (() => void) | undefined;
         try {
           const payload = JSON.parse(await bodyText(request)) as { prompt?: unknown };
           if (typeof payload.prompt !== "string" || payload.prompt.trim().length === 0) {
             sendJson(response, 400, { error: "Prompt must be a non-empty string" });
             return;
           }
-          busy = true;
           const chunks: string[] = [];
-          const unsubscribe = services.runtime.session.subscribe((event) => {
+          unsubscribe = services.runtime.session.subscribe((event) => {
             if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") chunks.push(event.assistantMessageEvent.delta);
           });
-          try {
-            await services.runtime.prompt(payload.prompt);
-          } finally {
-            unsubscribe();
-            busy = false;
-          }
+          await services.runtime.prompt(payload.prompt);
           const last = services.runtime.session.messages.at(-1);
           if (last?.role === "assistant" && (last.stopReason === "error" || last.stopReason === "aborted")) {
             sendJson(response, 502, { error: last.errorMessage ?? "Request " + last.stopReason });
@@ -91,8 +87,10 @@ export default {
           }
           sendJson(response, 200, { reply: chunks.join(""), messages: services.runtime.session.messages.length });
         } catch (error) {
-          busy = false;
           sendJson(response, 400, { error: errorText(error) });
+        } finally {
+          unsubscribe?.();
+          busy = false;
         }
       },
     });
