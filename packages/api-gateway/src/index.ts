@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
@@ -35,11 +36,27 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function createStatus(services: ApiServices) {
+function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "undefined") return null;
+  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== "object") return Object.prototype.toString.call(value);
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => jsonSafe(item, seen));
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonSafe(item, seen)]));
+}
+
+function createStatus(services: ApiServices, events: readonly AgentSessionEvent[]) {
   return {
     status: "ready",
     model: services.models.model.provider + "/" + services.models.model.id,
     messages: services.runtime.session.messages.length,
+    events: events.length,
+    sessionId: services.runtime.session.sessionId,
+    sessionFile: services.runtime.session.sessionFile,
     cwd: services.launch.cwd,
     agentDir: services.launch.agentDir,
     plugins: services.loader ? [...services.loader.entries()].filter((entry) => !entry.disabled).map((entry) => entry.options.name) : [],
@@ -58,10 +75,14 @@ export default {
       loader: context.reflect.get("loader") as Loader | undefined,
     };
     let busy = false;
+    const events: AgentSessionEvent[] = [];
+    const unsubscribeEvents = services.runtime.session.subscribe((event) => {
+      events.push(event);
+    });
     const disposeStatus = services.webServer.register({
       path: "/api/status",
       handler(_request, response) {
-        sendJson(response, 200, createStatus(services));
+        sendJson(response, 200, createStatus(services, events));
       },
     });
     const disposePrompt = services.webServer.register({
@@ -101,13 +122,22 @@ export default {
     const disposeSession = services.webServer.register({
       path: "/api/session",
       handler(_request, response) {
-        sendJson(response, 200, { messages: services.runtime.session.messages });
+        const session = services.runtime.session;
+        const sessionManager = session.sessionManager;
+        sendJson(response, 200, jsonSafe({
+          sessionId: session.sessionId,
+          sessionFile: session.sessionFile,
+          messages: session.messages,
+          entries: typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [],
+          events,
+        }));
       },
     });
     context.effect(() => () => {
       disposeStatus();
       disposePrompt();
       disposeSession();
+      unsubscribeEvents();
     });
   },
 };
