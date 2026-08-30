@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
+import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
 
@@ -8,6 +9,7 @@ interface ApiServices {
   readonly models: PiModelsService;
   readonly launch: PiHarnessLaunch;
   readonly webServer: WebServer;
+  readonly loader: Loader | undefined;
 }
 
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
@@ -40,6 +42,7 @@ function createStatus(services: ApiServices) {
     messages: services.runtime.session.messages.length,
     cwd: services.launch.cwd,
     agentDir: services.launch.agentDir,
+    plugins: services.loader ? [...services.loader.entries()].filter((entry) => !entry.disabled).map((entry) => entry.options.name) : [],
   };
 }
 
@@ -52,6 +55,7 @@ export default {
       models: context.piModels,
       launch: context.piHarnessLaunch,
       webServer: context.webServer,
+      loader: context.reflect.get("loader") as Loader | undefined,
     };
     let busy = false;
     const disposeStatus = services.webServer.register({
