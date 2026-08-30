@@ -11,10 +11,15 @@
   "engines": {
     "node": ">=22.19.0"
   },
+  "bin": {
+    "pih": "./packages/cli/dist/bin.js",
+    "pi-harness": "./apps/web/server-dist/bin.js"
+  },
   "scripts": {
     "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
     "build:web": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
     "web": "npm run build:web && node apps/web/server-dist/bin.js",
+    "prepare": "npm run build:web",
     "clean": "npm run clean --workspaces --if-present",
     "lint": "eslint .",
     "test": "npm run build && vitest run",
