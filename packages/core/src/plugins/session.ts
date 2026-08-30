@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -21,7 +21,7 @@ export default {
     const storage = config.storage ?? "jsonl";
     const manager = storage === "memory"
       ? SessionManager.inMemory(context.piHarnessLaunch.cwd)
-      : SessionManager.create(context.piHarnessLaunch.cwd, config.directory === undefined ? undefined : resolve(context.piHarnessLaunch.cwd, config.directory));
+      : SessionManager.create(context.piHarnessLaunch.cwd, config.directory === undefined ? join(context.piHarnessLaunch.agentDir, "sessions") : resolve(context.piHarnessLaunch.cwd, config.directory));
     context.provide("piSession", { manager });
   },
 };

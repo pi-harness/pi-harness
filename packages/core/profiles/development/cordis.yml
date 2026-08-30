@@ -1,0 +1,42 @@
+- id: logger
+  name: "@deepseek-ai/cordis-plugin-logger-console"
+  config: {}
+- id: timer
+  name: "@deepseek-ai/cordis-plugin-timer"
+  config: {}
+- id: hmr
+  name: "@deepseek-ai/cordis-plugin-hmr"
+  config:
+    root: []
+- id: agent
+  name: cordis:group
+  group: true
+  config:
+    - id: models
+      name: "@pi-harness/core/plugins/models"
+      config:
+        provider: deepseek
+        model: deepseek-v4-flash
+        refreshOnCreate: false
+    - id: resources
+      name: "@pi-harness/core/plugins/resources"
+      config: {}
+    - id: session
+      name: "@pi-harness/core/plugins/session"
+      config:
+        storage: jsonl
+    - id: tools
+      name: "@pi-harness/core/plugins/tools"
+      config:
+        names:
+          - read
+          - bash
+          - edit
+          - write
+    - id: runtime
+      name: "@pi-harness/core/plugins/runtime"
+      config:
+        thinkingLevel: medium
+    - id: stdio
+      name: "@pi-harness/core/plugins/stdio"
+      config: {}

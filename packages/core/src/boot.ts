@@ -5,6 +5,10 @@ import Group from "@deepseek-ai/cordis-plugin-group";
 import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader, { type EntryOptions } from "@deepseek-ai/cordis-plugin-loader";
 
+class ReadonlyInclude extends Include {
+  override write(): void {}
+}
+
 export interface BootHarnessOptions {
   configPath: string;
   prepare?: (context: Context) => Promise<void> | void;
@@ -54,7 +58,7 @@ async function assertEntriesActivated(context: Context): Promise<void> {
 }
 
 async function mountProfile(context: Context, configPath: string): Promise<void> {
-  context.loader.builtins.include = Include;
+  context.loader.builtins.include = ReadonlyInclude;
   context.loader.builtins.group = Group;
   const root: EntryOptions = {
     id: "profile",

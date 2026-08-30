@@ -7,4 +7,7 @@ export default defineConfig({
       "@pi-harness/core": fileURLToPath(new URL("./packages/core/src/index.ts", import.meta.url)),
     },
   },
+  test: {
+    execArgv: ["--expose-internals"],
+  },
 });

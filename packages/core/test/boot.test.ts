@@ -60,4 +60,16 @@ describe("bootHarness", () => {
     await expect(bootHarness({ configPath: profile.profilePath })).rejects.toThrow(/fixture activation failed/);
     await expect(readFile(markerPath, "utf8")).resolves.toBe("started:disposed");
   });
+
+  test("does not rewrite a profile when a nested group rolls back", async () => {
+    const profile = await createProfile([]);
+    const active = await createPlugin(profile.directory, "active", `export default function active(ctx) { ctx.provide("fixtureNestedReady", true); }`);
+    const failure = await createPlugin(profile.directory, "nested-failure", `export default { inject: ["fixtureNestedReady"], apply() { throw new Error("nested activation failed"); } };`);
+    const source = JSON.stringify([{ id: "fixture-group", name: "cordis:group", group: true, config: [{ id: "active", name: active }, { id: "nested-failure", name: failure }] }]);
+    await writeFile(profile.profilePath, source, "utf8");
+
+    await expect(bootHarness({ configPath: profile.profilePath })).rejects.toThrow(/nested activation failed/);
+
+    await expect(readFile(profile.profilePath, "utf8")).resolves.toBe(source);
+  });
 });

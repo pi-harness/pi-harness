@@ -63,6 +63,14 @@ describe("Pi domain plugins", () => {
     expect(context.get("piSession")?.manager.getSessionDir()).toBe(directory);
   });
 
+  test("keeps the default JSONL session under the configured agent directory", async () => {
+    const { context, agentDir } = await createContext();
+
+    await context.plugin(sessionPlugin, { storage: "jsonl" });
+
+    expect(context.get("piSession")?.manager.getSessionDir()).toBe(join(agentDir, "sessions"));
+  });
+
   test("contributes Pi's core tools through a lifecycle-owned registry", async () => {
     const { context } = await createContext();
 
