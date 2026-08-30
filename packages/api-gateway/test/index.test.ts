@@ -163,4 +163,68 @@ describe("API gateway plugin", () => {
     expect(response.status).toBe(200);
     expect(openedPath).toBe(path);
   });
+
+  test("lists and selects models through the live Pi session", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const first = { provider: "test", id: "one", name: "Test One", reasoning: false, contextWindow: 8_000 };
+    const second = { provider: "test", id: "two", name: "Test Two", reasoning: true, contextWindow: 16_000 };
+    let selected = "one";
+    const session = {
+      sessionId: "model-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      get model() { return selected === "one" ? first : second; },
+      setModel(model: { id: string }) { selected = model.id; return Promise.resolve(); },
+      subscribe: () => () => {},
+    };
+    const modelRuntime = { getModels: () => [first, second], getModel: (_provider: string, id: string) => id === "two" ? second : id === "one" ? first : undefined };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: first, runtime: modelRuntime } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    await expect(fetch(context.webServer.url + "/api/models")).resolves.toMatchObject({ status: 200 });
+    const list = await fetch(context.webServer.url + "/api/models");
+    await expect(list.json()).resolves.toMatchObject({ items: [{ id: "one", active: true }, { id: "two", active: false }] });
+    const response = await fetch(context.webServer.url + "/api/model", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "test", model: "two" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ model: { id: "two", active: true } });
+    expect(selected).toBe("two");
+  });
+
+  test("aborts a running prompt through the web API", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    let aborted = false;
+    const session = { sessionId: "abort-session", sessionFile: undefined, messages: [], isStreaming: true, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => { aborted = true; session.isStreaming = false; return Promise.resolve(); }, dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/abort", { method: "POST" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ aborted: true });
+    expect(aborted).toBe(true);
+  });
+
+  test("reports workspace file status without exposing a fake action", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "files-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/files");
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { items?: unknown };
+    expect(Array.isArray(payload.items)).toBe(true);
+  });
 });

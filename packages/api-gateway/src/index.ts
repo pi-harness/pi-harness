@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -50,9 +51,10 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
 }
 
 function createStatus(services: ApiServices, events: readonly AgentSessionEvent[]) {
+  const activeModel = services.runtime.session.model ?? services.models.model;
   return {
     status: "ready",
-    model: services.models.model.provider + "/" + services.models.model.id,
+    model: activeModel.provider + "/" + activeModel.id,
     messages: services.runtime.session.messages.length,
     events: events.length,
     sessionId: services.runtime.session.sessionId,
@@ -63,8 +65,18 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
   };
 }
 
+function modelSummary(model: { provider: string; id: string; name?: string; reasoning?: boolean; contextWindow?: number }, active: boolean) {
+  return { provider: model.provider, id: model.id, name: model.name ?? model.id, reasoning: model.reasoning ?? false, contextWindow: model.contextWindow ?? null, active };
+}
+
 function writeSse(response: ServerResponse, payload: unknown): void {
   response.write(`data: ${JSON.stringify(jsonSafe(payload))}\n\n`);
+}
+
+function gitStatus(cwd: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile("git", ["status", "--short", "--untracked-files=all"], { cwd, maxBuffer: 512 * 1024 }, (error, stdout) => resolve(error ? "" : stdout));
+  });
 }
 
 export default {
@@ -95,6 +107,57 @@ export default {
       path: "/api/status",
       handler(_request, response) {
         sendJson(response, 200, createStatus(services, events));
+      },
+    });
+    const disposeModels = services.webServer.register({
+      path: "/api/models",
+      handler(_request, response) {
+        const active = services.runtime.session.model ?? services.models.model;
+        sendJson(response, 200, jsonSafe({ items: services.models.runtime.getModels().map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)) }));
+      },
+    });
+    const disposeModel = services.webServer.register({
+      path: "/api/model",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        if (services.runtime.session.isStreaming) {
+          sendJson(response, 409, { error: "Cannot change model while a prompt is running" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { provider?: unknown; model?: unknown };
+          if (typeof payload.provider !== "string" || typeof payload.model !== "string" || payload.provider.trim() === "" || payload.model.trim() === "") {
+            sendJson(response, 400, { error: "provider and model are required" });
+            return;
+          }
+          const model = services.models.runtime.getModel(payload.provider, payload.model);
+          if (model === undefined) {
+            sendJson(response, 404, { error: `Model not found: ${payload.provider}/${payload.model}` });
+            return;
+          }
+          if (typeof services.runtime.session.setModel !== "function") {
+            sendJson(response, 501, { error: "The active Pi session does not support model switching" });
+            return;
+          }
+          await services.runtime.session.setModel(model);
+          sendJson(response, 200, jsonSafe({ model: modelSummary(model, true) }));
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeFiles = services.webServer.register({
+      path: "/api/files",
+      async handler(_request, response) {
+        const output = await gitStatus(services.launch.cwd);
+        const items = output.split("\n").map((line) => line.trimEnd()).filter((line) => line.length > 0).map((line) => {
+          const status = line.slice(0, 2).trim() || "??";
+          return { path: line.slice(3), status, label: status === "??" ? "untracked" : status.includes("D") ? "deleted" : status.includes("A") ? "added" : "modified" };
+        });
+        sendJson(response, 200, { items });
       },
     });
     const disposeEvents = services.webServer.register({
@@ -148,6 +211,22 @@ export default {
         } finally {
           unsubscribe?.();
           busy = false;
+        }
+      },
+    });
+    const disposeAbort = services.webServer.register({
+      path: "/api/abort",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const wasStreaming = services.runtime.session.isStreaming;
+          await services.runtime.abort();
+          sendJson(response, 200, { aborted: wasStreaming });
+        } catch (error) {
+          sendJson(response, 500, { error: errorText(error) });
         }
       },
     });
@@ -240,7 +319,11 @@ export default {
     context.effect(() => () => {
       disposeStatus();
       disposeEvents();
+      disposeModels();
+      disposeModel();
+      disposeFiles();
       disposePrompt();
+      disposeAbort();
       disposeSession();
       disposeNewSession();
       disposeOpenSession();

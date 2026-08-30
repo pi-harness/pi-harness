@@ -24,7 +24,7 @@ npm ci
 npm run web
 ```
 
-The web launcher builds the Vite browser bundle, starts the Cordis host, and prints a local URL (by default `http://127.0.0.1:3080`). Set `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, and `PI_AGENT_DIR` to change the bind address, port, or Pi state directory. The browser surface is served by the `@pi-harness/web-app` plugin and talks to `@pi-harness/api-gateway` over `/api/status`, `/api/session`, and `/api/prompt`. The launcher refuses non-loopback hosts unless `PI_HARNESS_ALLOW_REMOTE=1` is explicitly set on a trusted network; the API is intended for local use and has no user authentication layer.
+The web launcher builds the Vite browser bundle, starts the Cordis host, and prints a local URL (by default `http://127.0.0.1:3080`). Set `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, and `PI_AGENT_DIR` to change the bind address, port, or Pi state directory. The browser surface is served by the `@pi-harness/web-app` plugin and talks to `@pi-harness/api-gateway` over `/api/status`, `/api/session`, `/api/sessions`, `/api/session/new`, `/api/session/open`, `/api/models`, `/api/model`, `/api/files`, `/api/prompt`, `/api/abort`, and the `/api/events` Server-Sent Events stream. The launcher refuses non-loopback hosts unless `PI_HARNESS_ALLOW_REMOTE=1` is explicitly set on a trusted network; the API is intended for local use and has no user authentication layer.
 
 The default profile selects `deepseek/deepseek-v4-flash`, stores JSONL sessions under `$PI_AGENT_DIR/sessions`, and loads Pi resources from the current project and agent directory. `PI_AGENT_DIR` defaults to `~/.pi/agent`.
 
@@ -140,7 +140,7 @@ The repository currently has no GitHub Actions workflow because the target organ
 - `packages/core`: Cordis boot host, typed Pi services, runtime plugins, and built-in profiles
 - `packages/cli`: launcher argument, process, stdio, signal, and development re-exec handling
 - `packages/host-webserver`: Cordis-owned HTTP server and route lifecycle
-- `packages/api-gateway`: JSON API plugin for status, sessions, and prompts
+- `packages/api-gateway`: Cordis API plugin for status, live sessions, model selection, workspace files, prompts, abort, and SSE events
 - `packages/client-web`: browser-side Cordis plugin tree and console surface
 - `packages/bundle-web-app`: static frontend and SPA fallback plugin
 - `apps/web`: Vite entrypoint and production web launcher
