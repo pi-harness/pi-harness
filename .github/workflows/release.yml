@@ -8,10 +8,13 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: npm-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: npm
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
@@ -38,6 +41,10 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
+            exit 1
+          fi
           npm publish --access public --provenance
           for workspace in core host-webserver web-app client-web api-gateway cli; do
             npm publish --workspace "@pi-harness/$workspace" --access public --provenance
