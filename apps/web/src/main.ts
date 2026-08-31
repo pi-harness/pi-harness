@@ -1,4 +1,5 @@
 import { AppWebEntry } from "@pi-harness/client-web";
+import "./tailwind.css";
 import "./style.css";
 import "./runtime.css";
 
