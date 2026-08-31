@@ -7,6 +7,7 @@ import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-codin
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
+import { MARKETPLACE_CAPABILITIES, searchMarketplace } from "./marketplace.js";
 
 interface ApiServices {
   readonly runtime: PiRuntimeService;
@@ -226,6 +227,23 @@ export default {
       handler(_request, response) {
         const items = services.loader ? [...services.loader.entries()].map(pluginSummary) : [];
         sendJson(response, 200, jsonSafe({ items }));
+      },
+    });
+    const disposeMarketplace = services.webServer.register({
+      path: "/api/marketplace",
+      handler(request, response) {
+        if (request.method !== "GET") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        const url = new URL(request.url ?? "/api/marketplace", "http://localhost");
+        const query = url.searchParams.get("q") ?? "";
+        const capability = url.searchParams.get("capability") ?? "";
+        if (query.length > 120 || capability.length > 80) {
+          sendJson(response, 400, { error: "Marketplace filters are too long" });
+          return;
+        }
+        sendJson(response, 200, { items: searchMarketplace(query, capability), capabilities: MARKETPLACE_CAPABILITIES });
       },
     });
     const disposeCommands = services.webServer.register({
@@ -557,6 +575,7 @@ export default {
       disposeProviderTest();
       disposeProviderRefresh();
       disposePlugins();
+      disposeMarketplace();
       disposeCommands();
       disposeModel();
       disposeFiles();
