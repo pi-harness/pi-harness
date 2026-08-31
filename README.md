@@ -133,7 +133,11 @@ npm run build
 
 `npm test` builds every workspace before running Vitest, so Loader integration tests resolve the same package exports shipped to users. Tests use real Cordis contexts and real Pi sessions; deterministic provider fixtures avoid paid network requests.
 
-The repository currently has no GitHub Actions workflow because the target organization has no self-hosted runner attached. Local commands above are the release gate until runner infrastructure is available.
+## Release
+
+Publishing is triggered by a GitHub Release with a tag pointing at the release commit. The `Publish packages` workflow checks out that tag, runs the complete test, lint, and diff gate, then publishes the root `pi-harness-workspace` package and six public workspaces to npm with provenance: `@pi-harness/core`, `@pi-harness/host-webserver`, `@pi-harness/web-app`, `@pi-harness/client-web`, `@pi-harness/api-gateway`, and `@pi-harness/cli`. The web app and example plugin workspaces are private and are never published.
+
+Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and uses `npm publish --provenance`; `id-token: write` remains enabled for provenance attestations. The token must be allowed to publish the seven package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. Bump all published workspace versions together, update their internal `@pi-harness/*` dependency versions, commit the change, push it, and create the GitHub Release from that commit.
 
 ## Workspace layout
 
