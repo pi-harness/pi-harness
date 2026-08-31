@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-hello",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Example Cordis plugin that contributes a Pi tool",
   "private": true,
   "type": "module",
@@ -27,6 +27,6 @@
     "@deepseek-ai/cordis": "4.0.1",
     "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4",
-    "@pi-harness/core": "0.1.0"
+    "@pi-harness/core": "0.1.1"
   }
 }
