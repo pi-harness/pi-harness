@@ -1,4 +1,6 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -7,6 +9,7 @@ import webServerPlugin from "@pi-harness/host-webserver";
 import apiPlugin from "../src/index.js";
 
 const contexts: Context[] = [];
+const execFile = promisify(execFileCallback);
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
@@ -197,6 +200,25 @@ describe("API gateway plugin", () => {
     expect(selected).toBe("two");
   });
 
+  test("only exposes the active and configured providers", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const active = { provider: "active", id: "one", name: "Active", reasoning: false, contextWindow: 8_000 };
+    const configured = { provider: "configured", id: "one", name: "Configured", reasoning: false, contextWindow: 8_000 };
+    const hidden = { provider: "hidden", id: "one", name: "Hidden", reasoning: false, contextWindow: 8_000 };
+    const session = { sessionId: "provider-filter-session", sessionFile: undefined, messages: [], isStreaming: false, model: active, subscribe: () => () => {} };
+    const modelRuntime = { getProviders: () => [{ id: "active", name: "Active" }, { id: "configured", name: "Configured" }, { id: "hidden", name: "Hidden" }], getModels: (provider?: string) => provider === "configured" ? [configured] : provider === "hidden" ? [hidden] : [active], getProviderAuthStatus: (provider: string) => provider === "configured" ? { configured: true, source: "environment" } : { configured: false }, getModel: () => active };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: active, runtime: modelRuntime } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/providers");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ items: [{ provider: "active" }, { provider: "configured" }] });
+  });
+
   test("lists commands from the live extension registry", async () => {
     const context = new Context();
     contexts.push(context);
@@ -258,5 +280,48 @@ describe("API gateway plugin", () => {
     expect(typeof diffPayload.diff).toBe("string");
     const invalid = await fetch(context.webServer.url + "/api/files/diff?path=../secrets.txt");
     expect(invalid.status).toBe(400);
+  });
+
+  test("commits selected workspace files only after an explicit message", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-commit-"));
+    await execFile("git", ["init", "-q"], { cwd: directory });
+    await execFile("git", ["config", "user.email", "pi-harness@test.invalid"], { cwd: directory });
+    await execFile("git", ["config", "user.name", "Pi Harness Test"], { cwd: directory });
+    await writeFile(join(directory, "README.md"), "before\n", "utf8");
+    await execFile("git", ["add", "README.md"], { cwd: directory });
+    await execFile("git", ["commit", "-qm", "initial"], { cwd: directory });
+    await writeFile(join(directory, "README.md"), "after\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "commit-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const missingMessage = await fetch(context.webServer.url + "/api/files/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: ["README.md"] }) });
+    expect(missingMessage.status).toBe(400);
+    const response = await fetch(context.webServer.url + "/api/files/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: ["README.md"], message: "Update README" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ committed: true, message: "Update README" });
+    await expect(execFile("git", ["status", "--porcelain"], { cwd: directory })).resolves.toMatchObject({ stdout: "" });
+  });
+
+  test("rejects destructive workspace revert without explicit confirmation", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-revert-"));
+    await execFile("git", ["init", "-q"], { cwd: directory });
+    await writeFile(join(directory, "scratch.txt"), "discard me\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "revert-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/files/revert", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: ["scratch.txt"] }) });
+    expect(response.status).toBe(400);
   });
 });

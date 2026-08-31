@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { rm } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
@@ -93,6 +94,28 @@ function gitDiff(cwd: string, path: string): Promise<string> {
   });
 }
 
+function gitCommand(cwd: string, args: readonly string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolveResult) => {
+    execFile("git", [...args], { cwd, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+      const code = error && typeof error.code === "number" ? error.code : error ? 1 : 0;
+      resolveResult({ stdout, stderr, code });
+    });
+  });
+}
+
+function workspacePaths(root: string, paths: unknown): string[] | Error {
+  if (!Array.isArray(paths) || paths.length === 0 || paths.some((path) => typeof path !== "string" || path.trim() === "")) return new Error("paths must be a non-empty array of strings");
+  const normalized: string[] = [];
+  for (const path of paths) {
+    const requested = path as string;
+    const absolute = resolve(root, requested);
+    const relativePath = relative(root, absolute);
+    if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith("../")) return new Error("path must stay inside the workspace");
+    normalized.push(relativePath);
+  }
+  return [...new Set(normalized)];
+}
+
 export default {
   name: "pi-api-gateway",
   inject: ["webServer", "piRuntime", "piModels", "piHarnessLaunch"],
@@ -134,7 +157,65 @@ export default {
       path: "/api/providers",
       handler(_request, response) {
         const active = services.runtime.session.model ?? services.models.model;
-        sendJson(response, 200, jsonSafe({ items: [{ provider: active.provider, activeModel: modelSummary(active, true) }] }));
+        const runtime = services.models.runtime as typeof services.models.runtime & { getProviders?: () => readonly { id: string; name?: string }[]; getProviderAuthStatus?: (provider: string) => unknown };
+        const providers = typeof runtime.getProviders === "function" ? runtime.getProviders() : [{ id: active.provider, name: active.provider }];
+        const visible = providers.filter((provider) => {
+          if (provider.id === active.provider) return true;
+          if (typeof runtime.getProviderAuthStatus !== "function") return false;
+          const auth = runtime.getProviderAuthStatus(provider.id);
+          return typeof auth === "object" && auth !== null && (auth as { configured?: unknown }).configured === true;
+        });
+        sendJson(response, 200, jsonSafe({ items: visible.map((provider) => ({ provider: provider.id, name: provider.name ?? provider.id, active: provider.id === active.provider, auth: typeof runtime.getProviderAuthStatus === "function" ? runtime.getProviderAuthStatus(provider.id) : undefined, activeModel: provider.id === active.provider ? modelSummary(active, true) : undefined, models: services.models.runtime.getModels(provider.id).map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)) })) }));
+      },
+    });
+    const disposeProviderTest = services.webServer.register({
+      path: "/api/providers/test",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { provider?: unknown };
+          if (typeof payload.provider !== "string" || payload.provider.trim() === "") {
+            sendJson(response, 400, { error: "provider is required" });
+            return;
+          }
+          const runtime = services.models.runtime as typeof services.models.runtime & { checkAuth?: (provider: string) => Promise<unknown> };
+          if (typeof runtime.checkAuth !== "function") {
+            sendJson(response, 501, { error: "The active model runtime does not support provider checks" });
+            return;
+          }
+          const auth = await runtime.checkAuth(payload.provider);
+          sendJson(response, 200, jsonSafe({ provider: payload.provider, reachable: auth !== undefined, auth }));
+        } catch (error) {
+          sendJson(response, 502, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeProviderRefresh = services.webServer.register({
+      path: "/api/providers/refresh",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { provider?: unknown };
+          if (typeof payload.provider !== "string" || payload.provider.trim() === "") {
+            sendJson(response, 400, { error: "provider is required" });
+            return;
+          }
+          const runtime = services.models.runtime as typeof services.models.runtime & { getAvailable?: (provider: string) => Promise<readonly unknown[]> };
+          if (typeof runtime.getAvailable !== "function") {
+            sendJson(response, 501, { error: "The active model runtime does not support provider refresh" });
+            return;
+          }
+          const models = await runtime.getAvailable(payload.provider);
+          sendJson(response, 200, jsonSafe({ provider: payload.provider, models }));
+        } catch (error) {
+          sendJson(response, 502, { error: errorText(error) });
+        }
       },
     });
     const disposePlugins = services.webServer.register({
@@ -217,6 +298,76 @@ export default {
           return;
         }
         sendJson(response, 200, { path: relativePath, diff: await gitDiff(root, relativePath) });
+      },
+    });
+    const disposeFileCommit = services.webServer.register({
+      path: "/api/files/commit",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { paths?: unknown; message?: unknown };
+          const paths = workspacePaths(resolve(services.launch.cwd), payload.paths);
+          if (paths instanceof Error) {
+            sendJson(response, 400, { error: paths.message });
+            return;
+          }
+          if (typeof payload.message !== "string" || payload.message.trim() === "") {
+            sendJson(response, 400, { error: "message is required" });
+            return;
+          }
+          const root = resolve(services.launch.cwd);
+          const add = await gitCommand(root, ["add", "-A", "--", ...paths]);
+          if (add.code !== 0) {
+            sendJson(response, 409, { error: add.stderr.trim() || "Unable to stage workspace files" });
+            return;
+          }
+          const commit = await gitCommand(root, ["commit", "-m", payload.message.trim(), "--", ...paths]);
+          if (commit.code !== 0) {
+            sendJson(response, 409, { error: commit.stdout.trim() || commit.stderr.trim() || "Nothing to commit" });
+            return;
+          }
+          const head = await gitCommand(root, ["rev-parse", "--short", "HEAD"]);
+          sendJson(response, 200, { committed: true, message: payload.message.trim(), commit: head.stdout.trim() });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeFileRevert = services.webServer.register({
+      path: "/api/files/revert",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { paths?: unknown; confirm?: unknown };
+          if (payload.confirm !== true) {
+            sendJson(response, 400, { error: "confirm must be true to discard workspace changes" });
+            return;
+          }
+          const root = resolve(services.launch.cwd);
+          const paths = workspacePaths(root, payload.paths);
+          if (paths instanceof Error) {
+            sendJson(response, 400, { error: paths.message });
+            return;
+          }
+          const untracked = await gitCommand(root, ["ls-files", "--others", "--exclude-standard", "--", ...paths]);
+          const restore = await gitCommand(root, ["restore", "--worktree", "--staged", "--", ...paths]);
+          if (restore.code !== 0 && !restore.stderr.includes("pathspec")) {
+            sendJson(response, 409, { error: restore.stderr.trim() || "Unable to restore workspace files" });
+            return;
+          }
+          for (const path of untracked.stdout.split("\n").map((item) => item.trim()).filter(Boolean)) {
+            await rm(resolve(root, path), { recursive: true, force: true });
+          }
+          sendJson(response, 200, { reverted: true, paths });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
       },
     });
     const disposeEvents = services.webServer.register({
@@ -381,11 +532,15 @@ export default {
       disposeEvents();
       disposeModels();
       disposeProviders();
+      disposeProviderTest();
+      disposeProviderRefresh();
       disposePlugins();
       disposeCommands();
       disposeModel();
       disposeFiles();
       disposeFileDiff();
+      disposeFileCommit();
+      disposeFileRevert();
       disposePrompt();
       disposeAbort();
       disposeSession();
