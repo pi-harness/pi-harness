@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { createAgentSessionFromServices } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionRuntime, type AgentSession, type CreateAgentSessionRuntimeFactory } from "@earendil-works/pi-coding-agent";
 import { PiRuntime } from "../runtime.js";
 
 export interface RuntimePluginConfig {
@@ -19,39 +19,55 @@ export default {
     const tools = context.piTools.acquire();
     context.effect(() => () => tools.release());
     const requestedTools = [...tools.names, ...tools.customTools.map((tool) => tool.name)];
-    const { session } = await createAgentSessionFromServices({
-      services: context.piResources,
+    const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+      const services = cwd === context.piResources.cwd ? context.piResources : await context.piResources.createForCwd(cwd);
+      const result = await createAgentSessionFromServices({
+        services,
+        sessionManager,
+        ...(sessionStartEvent === undefined ? {} : { sessionStartEvent }),
+        model: context.piModels.model,
+        thinkingLevel: config.thinkingLevel ?? "medium",
+        tools: requestedTools,
+        customTools: tools.customTools,
+      });
+      return { ...result, services, diagnostics: services.diagnostics };
+    };
+    const sessionRuntime = await createAgentSessionRuntime(createRuntime, {
+      cwd: context.piResources.cwd,
+      agentDir: context.piResources.agentDir,
       sessionManager: context.piSession.manager,
-      model: context.piModels.model,
-      thinkingLevel: config.thinkingLevel ?? "medium",
-      tools: requestedTools,
-      customTools: tools.customTools,
     });
-    const activeTools = new Set(session.getAllTools().map((tool) => tool.name));
-    const missingTools = requestedTools.filter((name) => !activeTools.has(name));
-    if (missingTools.length > 0) {
-      session.dispose();
-      throw new Error(`Pi tools are not registered: ${missingTools.join(", ")}`);
-    }
-    const runtime = new PiRuntime(session);
+    const runtime = new PiRuntime(sessionRuntime);
+    const bindSession = async (session: AgentSession): Promise<void> => {
+      const activeTools = new Set(session.getAllTools().map((tool) => tool.name));
+      const missingTools = requestedTools.filter((name) => !activeTools.has(name));
+      if (missingTools.length > 0) throw new Error(`Pi tools are not registered: ${missingTools.join(", ")}`);
+      await session.bindExtensions({
+        mode: "print",
+        abortHandler: () => {
+          void runtime.abort();
+        },
+        onError: (error) => {
+          context.emit("pi/extension-error", error);
+        },
+      });
+    };
     context.provide("piRuntime", runtime);
-    context.effect(() => {
-      const unsubscribe = session.subscribe((event) => {
+    let unsubscribe: (() => void) | undefined;
+    const rebindSession = async (session: AgentSession): Promise<void> => {
+      unsubscribe?.();
+      await bindSession(session);
+      unsubscribe = session.subscribe((event) => {
         context.emit("pi/session-event", event);
       });
+    };
+    sessionRuntime.setRebindSession(rebindSession);
+    await rebindSession(sessionRuntime.session);
+    context.effect(() => {
       return async () => {
-        unsubscribe();
+        unsubscribe?.();
         await runtime.dispose();
       };
-    });
-    await session.bindExtensions({
-      mode: "print",
-      abortHandler: () => {
-        void runtime.abort();
-      },
-      onError: (error) => {
-        context.emit("pi/extension-error", error);
-      },
     });
   },
 };

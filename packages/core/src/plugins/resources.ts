@@ -37,6 +37,21 @@ export default {
     });
     const errors = services.diagnostics.filter((diagnostic) => diagnostic.type === "error");
     if (errors.length > 0) throw new Error(`Pi resource loading failed:\n${errors.map((diagnostic) => diagnostic.message).join("\n")}`);
-    context.provide("piResources", services);
+    const resourceLoaderOptions = {
+      noExtensions: config.noExtensions ?? false,
+      noSkills: config.noSkills ?? false,
+      noPromptTemplates: config.noPromptTemplates ?? false,
+      noThemes: config.noThemes ?? false,
+      noContextFiles: config.noContextFiles ?? false,
+    };
+    context.provide("piResources", {
+      ...services,
+      createForCwd: (cwd: string) => createAgentSessionServices({
+        cwd,
+        agentDir: context.piHarnessLaunch.agentDir,
+        modelRuntime: context.piModelRuntime.runtime,
+        resourceLoaderOptions,
+      }),
+    });
   },
 };
