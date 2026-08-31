@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/host-webserver",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cordis route-registration service for the Pi Harness web host",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,8 +11,17 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
-  "engines": {"node": ">=22.19.0"},
-  "scripts": {"build": "tsc -p tsconfig.build.json", "typecheck": "tsc -p tsconfig.json"},
-  "dependencies": {"@deepseek-ai/cordis": "4.0.1"}
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
 }

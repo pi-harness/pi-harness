@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plugin-first Pi Harness CLI",
   "type": "module",
   "bin": {
@@ -20,6 +20,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@pi-harness/core": "0.1.0"
+    "@pi-harness/core": "0.1.1"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/api-gateway",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cordis HTTP API routes for the Pi Harness browser client",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,12 +11,19 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
-  "engines": {"node": ">=22.19.0"},
-  "scripts": {"build": "tsc -p tsconfig.build.json", "typecheck": "tsc -p tsconfig.json"},
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@pi-harness/core": "0.1.0",
-    "@pi-harness/host-webserver": "0.1.0"
+    "@pi-harness/core": "0.1.1",
+    "@pi-harness/host-webserver": "0.1.1"
   }
 }

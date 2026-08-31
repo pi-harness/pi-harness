@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/client-web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Browser-side Cordis client plugins for the Pi Harness web surface",
   "type": "module",
   "main": "./dist/index.js",
