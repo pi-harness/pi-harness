@@ -47,7 +47,7 @@ jobs:
             echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
             exit 1
           fi
-          for workspace in core host-webserver web-app client-web api-gateway cli; do
+          for workspace in core host-webserver bundle-web-app client-web api-gateway cli; do
             package_name=$(node -p "require('./packages/$workspace/package.json').name")
             package_version=$(node -p "require('./packages/$workspace/package.json').version")
             if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
