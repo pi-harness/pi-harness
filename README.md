@@ -22,7 +22,7 @@ node packages/cli/dist/bin.js "Explain this repository"
 Users install the single entry package; the scoped `@pi-harness/*` packages are implementation dependencies pulled in automatically.
 
 ```sh
-npm install --global @pi-harness/harness
+npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
@@ -144,7 +144,7 @@ npm run build
 
 ## Release
 
-Publishing is triggered by a push to `main` (including a merged pull request), or manually with `workflow_dispatch`. The `Release packages` workflow runs the complete test, lint, and diff gate, publishes the user-facing `@pi-harness/harness` package and its six public implementation workspaces to npm, skips package versions that already exist, and creates a matching GitHub Release tag. Users install only `@pi-harness/harness`; the web app and example plugin workspaces are private and are never published.
+Publishing is triggered by a push to `main` (including a merged pull request), or manually with `workflow_dispatch`. The `Release packages` workflow runs the complete test, lint, and diff gate, publishes the user-facing `@pi-harness/pi-harness` package and its six public implementation workspaces to npm, skips package versions that already exist, and creates a matching GitHub Release tag. Users install only `@pi-harness/pi-harness`; the web app and example plugin workspaces are private and are never published.
 
 Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and publishes to npm without provenance because this repository is private and npm rejects provenance attestations from private GitHub sources. The token must be allowed to publish the entry package and six implementation package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. Bump all published package versions together and update their internal `@pi-harness/*` dependency versions before merging to `main`; the merge then publishes and creates the matching GitHub Release automatically.
 
