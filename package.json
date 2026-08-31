@@ -1,5 +1,5 @@
 {
-  "name": "@pi-harness/harness",
+  "name": "@pi-harness/pi-harness",
   "version": "0.1.0",
   "type": "module",
   "workspaces": [

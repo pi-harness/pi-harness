@@ -37,7 +37,7 @@ jobs:
 
       - name: Read release version
         id: metadata
-        run: echo "version=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync("package.json", "utf8")).version)')" >> "$GITHUB_OUTPUT"
 
       - name: Publish public workspaces
         env:
