@@ -135,9 +135,9 @@ npm run build
 
 ## Release
 
-Publishing is triggered by a GitHub Release with a tag pointing at the release commit. The `Publish packages` workflow checks out that tag, runs the complete test, lint, and diff gate, then publishes the root `pi-harness-workspace` package and six public workspaces to npm with provenance: `@pi-harness/core`, `@pi-harness/host-webserver`, `@pi-harness/web-app`, `@pi-harness/client-web`, `@pi-harness/api-gateway`, and `@pi-harness/cli`. The web app and example plugin workspaces are private and are never published.
+Publishing is triggered by a push to `main` (including a merged pull request), or manually with `workflow_dispatch`. The `Release packages` workflow runs the complete test, lint, and diff gate, publishes the root `pi-harness-workspace` package and six public workspaces to npm with provenance, skips package versions that already exist, and creates a matching GitHub Release tag. The web app and example plugin workspaces are private and are never published.
 
-Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and uses `npm publish --provenance`; `id-token: write` remains enabled for provenance attestations. The token must be allowed to publish the seven package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. Bump all published workspace versions together, update their internal `@pi-harness/*` dependency versions, commit the change, push it, and create the GitHub Release from that commit.
+Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and uses `npm publish --provenance`; `id-token: write` remains enabled for provenance attestations. The token must be allowed to publish the seven package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. Bump all published workspace versions together and update their internal `@pi-harness/*` dependency versions before merging to `main`; the merge then publishes and creates the matching GitHub Release automatically.
 
 ## Workspace layout
 

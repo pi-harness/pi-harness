@@ -1,25 +1,24 @@
-name: Publish packages
+name: Release packages
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 concurrency:
-  group: npm-release-${{ github.event.release.tag_name }}
+  group: npm-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout release tag
+      - name: Checkout main
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -37,6 +36,10 @@ jobs:
           npm run lint
           git diff --check
 
+      - name: Read release version
+        id: metadata
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
       - name: Publish public workspaces
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -45,7 +48,30 @@ jobs:
             echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
             exit 1
           fi
-          npm publish --access public --provenance
           for workspace in core host-webserver web-app client-web api-gateway cli; do
-            npm publish --workspace "@pi-harness/$workspace" --access public --provenance
+            package_name=$(node -p "require('./packages/$workspace/package.json').name")
+            package_version=$(node -p "require('./packages/$workspace/package.json').version")
+            if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$package_name@$package_version already exists; skipping"
+            else
+              npm publish --workspace "$package_name" --access public --provenance
+            fi
           done
+          package_name=$(node -p "require('./package.json').name")
+          package_version=$(node -p "require('./package.json').version")
+          if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "$package_name@$package_version already exists; skipping"
+          else
+            npm publish --access public --provenance
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.metadata.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists; skipping"
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          fi
