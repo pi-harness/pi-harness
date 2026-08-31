@@ -123,6 +123,13 @@ export default {
         sendJson(response, 200, jsonSafe({ items: services.models.runtime.getModels().map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)) }));
       },
     });
+    const disposeProviders = services.webServer.register({
+      path: "/api/providers",
+      handler(_request, response) {
+        const active = services.runtime.session.model ?? services.models.model;
+        sendJson(response, 200, jsonSafe({ items: [{ provider: active.provider, activeModel: modelSummary(active, true) }] }));
+      },
+    });
     const disposeModel = services.webServer.register({
       path: "/api/model",
       async handler(request, response) {
@@ -351,6 +358,7 @@ export default {
       disposeStatus();
       disposeEvents();
       disposeModels();
+      disposeProviders();
       disposeModel();
       disposeFiles();
       disposeFileDiff();

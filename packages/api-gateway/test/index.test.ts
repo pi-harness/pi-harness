@@ -189,6 +189,8 @@ describe("API gateway plugin", () => {
     await expect(fetch(context.webServer.url + "/api/models")).resolves.toMatchObject({ status: 200 });
     const list = await fetch(context.webServer.url + "/api/models");
     await expect(list.json()).resolves.toMatchObject({ items: [{ id: "one", active: true }, { id: "two", active: false }] });
+    const providers = await fetch(context.webServer.url + "/api/providers");
+    await expect(providers.json()).resolves.toMatchObject({ items: [{ provider: "test", activeModel: { id: "one", active: true } }] });
     const response = await fetch(context.webServer.url + "/api/model", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "test", model: "two" }) });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ model: { id: "two", active: true } });
