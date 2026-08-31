@@ -7,7 +7,7 @@ import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-codin
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
-import { MARKETPLACE_CAPABILITIES, searchMarketplace } from "./marketplace.js";
+import { MARKETPLACE_CAPABILITIES, paginateMarketplace, searchMarketplace } from "./marketplace.js";
 
 interface ApiServices {
   readonly runtime: PiRuntimeService;
@@ -239,11 +239,13 @@ export default {
         const url = new URL(request.url ?? "/api/marketplace", "http://localhost");
         const query = url.searchParams.get("q") ?? "";
         const capability = url.searchParams.get("capability") ?? "";
-        if (query.length > 120 || capability.length > 80) {
-          sendJson(response, 400, { error: "Marketplace filters are too long" });
+        const page = Number(url.searchParams.get("page") ?? "0");
+        const pageSize = Number(url.searchParams.get("pageSize") ?? "24");
+        if (query.length > 120 || capability.length > 80 || !Number.isInteger(page) || page < 0 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+          sendJson(response, 400, { error: "Invalid marketplace query" });
           return;
         }
-        sendJson(response, 200, { items: searchMarketplace(query, capability), capabilities: MARKETPLACE_CAPABILITIES });
+        sendJson(response, 200, { ...paginateMarketplace(searchMarketplace(query, capability), page, pageSize), capabilities: MARKETPLACE_CAPABILITIES });
       },
     });
     const disposeCommands = services.webServer.register({

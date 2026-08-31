@@ -292,14 +292,17 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=scheduling");
+    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=scheduling&page=0&pageSize=1");
     expect(response.status).toBe(200);
-    const payload = await response.json() as { items?: readonly { packageName?: unknown; status?: unknown }[]; capabilities?: readonly unknown[] };
+    const payload = await response.json() as { items?: readonly { packageName?: unknown; status?: unknown }[]; capabilities?: readonly unknown[]; total?: number; page?: number; pageSize?: number; hasNext?: boolean };
     expect(payload.items).toHaveLength(1);
     expect(payload.items?.[0]).toMatchObject({ packageName: "@deepseek-ai/cordis-plugin-timer", status: "verified" });
+    expect(payload).toMatchObject({ total: 1, page: 0, pageSize: 1, hasNext: false });
     expect(payload.capabilities).toContain("scheduling");
     const tooLong = await fetch(context.webServer.url + "/api/marketplace?q=" + "x".repeat(121));
     expect(tooLong.status).toBe(400);
+    const invalidPage = await fetch(context.webServer.url + "/api/marketplace?page=-1");
+    expect(invalidPage.status).toBe(400);
   });
 
   test("commits selected workspace files only after an explicit message", async () => {

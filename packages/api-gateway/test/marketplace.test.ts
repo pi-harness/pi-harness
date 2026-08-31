@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { MARKETPLACE_PLUGINS, searchMarketplace } from "../src/marketplace.js";
+import { MARKETPLACE_CAPABILITIES, MARKETPLACE_PLUGINS, paginateMarketplace, searchMarketplace } from "../src/marketplace.js";
 
 describe("plugin marketplace registry", () => {
   test("contains reviewable, uniquely identified entries", () => {
@@ -13,5 +13,11 @@ describe("plugin marketplace registry", () => {
     expect(result.map((plugin) => plugin.packageName)).toEqual(["@deepseek-ai/cordis-plugin-timer"]);
     expect(searchMarketplace("does-not-exist")).toEqual([]);
     expect(MARKETPLACE_PLUGINS.length).toBe(4);
+  });
+
+  test("loads one entry per file and paginates the filtered result", () => {
+    const page = paginateMarketplace(searchMarketplace(), 1, 2);
+    expect(page).toEqual({ items: MARKETPLACE_PLUGINS.slice(2, 4), total: 4, page: 1, pageSize: 2, hasNext: false });
+    expect(MARKETPLACE_CAPABILITIES).toContain("scheduling");
   });
 });

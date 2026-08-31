@@ -1,0 +1,15 @@
+{
+  "id": "cordis-logger-console",
+  "packageName": "@deepseek-ai/cordis-plugin-logger-console",
+  "version": "1.0.1",
+  "name": "Console logger",
+  "description": "Exports Cordis lifecycle and runtime diagnostics to the host console.",
+  "author": "DeepSeek AI",
+  "repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "capabilities": ["logging", "diagnostics"],
+  "hooks": ["context lifecycle"],
+  "profile": { "name": "@deepseek-ai/cordis-plugin-logger-console", "config": {} }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "cordis-hmr",
+  "packageName": "@deepseek-ai/cordis-plugin-hmr",
+  "version": "1.0.16",
+  "name": "Hot reload",
+  "description": "Reloads changed Cordis modules during development with lifecycle cleanup.",
+  "author": "DeepSeek AI",
+  "repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "capabilities": ["development", "hot reload"],
+  "hooks": ["module reload", "full reload"],
+  "profile": { "name": "@deepseek-ai/cordis-plugin-hmr", "config": {} }
+}

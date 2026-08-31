@@ -1,4 +1,6 @@
-import registry from "./marketplace-registry.json" with { type: "json" };
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface MarketplacePlugin {
   readonly id: string;
@@ -16,24 +18,73 @@ export interface MarketplacePlugin {
   readonly profile: { readonly name: string; readonly config: Record<string, unknown> };
 }
 
-const npmPackagePattern = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/;
-
-function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
-  if (value === null || typeof value !== "object") return false;
-  const item = value as Partial<MarketplacePlugin>;
-  return typeof item.id === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.id)
-    && typeof item.packageName === "string" && npmPackagePattern.test(item.packageName)
-    && typeof item.version === "string" && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(item.version)
-    && typeof item.name === "string" && typeof item.description === "string" && typeof item.author === "string"
-    && typeof item.repository === "string" && item.repository.startsWith("https://") && typeof item.license === "string"
-    && (item.source === "official" || item.source === "community") && (item.status === "verified" || item.status === "experimental")
-    && Array.isArray(item.capabilities) && item.capabilities.every((entry) => typeof entry === "string")
-    && Array.isArray(item.hooks) && item.hooks.every((entry) => typeof entry === "string")
-    && item.profile !== undefined && typeof item.profile === "object" && typeof item.profile.name === "string"
-    && item.profile.config !== undefined && typeof item.profile.config === "object";
+export interface MarketplacePage {
+  readonly items: readonly MarketplacePlugin[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly hasNext: boolean;
 }
 
-export const MARKETPLACE_PLUGINS: readonly MarketplacePlugin[] = (registry as unknown[]).filter(isMarketplacePlugin);
+const npmPackagePattern = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/;
+const entryIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
+  if (!isRecord(value)) return false;
+  const profile = value.profile;
+  return typeof value.id === "string" && entryIdPattern.test(value.id)
+    && typeof value.packageName === "string" && npmPackagePattern.test(value.packageName)
+    && typeof value.version === "string" && versionPattern.test(value.version)
+    && typeof value.name === "string" && value.name.trim() !== ""
+    && typeof value.description === "string" && value.description.trim() !== ""
+    && typeof value.author === "string" && value.author.trim() !== ""
+    && typeof value.repository === "string" && value.repository.startsWith("https://")
+    && typeof value.license === "string" && value.license.trim() !== ""
+    && (value.source === "official" || value.source === "community")
+    && (value.status === "verified" || value.status === "experimental")
+    && Array.isArray(value.capabilities) && value.capabilities.length > 0 && value.capabilities.every((entry) => typeof entry === "string" && entry.trim() !== "")
+    && Array.isArray(value.hooks) && value.hooks.length > 0 && value.hooks.every((entry) => typeof entry === "string" && entry.trim() !== "")
+    && isRecord(profile) && typeof profile.name === "string" && profile.name === value.packageName
+    && isRecord(profile.config);
+}
+
+function entryFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return entryFiles(path);
+    return entry.isFile() && entry.name.endsWith(".json") ? [path] : [];
+  });
+}
+
+function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
+  const directory = join(dirname(fileURLToPath(import.meta.url)), "marketplace-entries");
+  const plugins = entryFiles(directory).sort().map((path) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    } catch (error) {
+      throw new Error(`Invalid marketplace entry ${path}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+    if (!isMarketplacePlugin(value)) throw new Error(`Invalid marketplace entry: ${path}`);
+    return value;
+  });
+  const ids = new Set<string>();
+  const packages = new Set<string>();
+  for (const plugin of plugins) {
+    if (ids.has(plugin.id)) throw new Error(`Duplicate marketplace id: ${plugin.id}`);
+    if (packages.has(plugin.packageName)) throw new Error(`Duplicate marketplace package: ${plugin.packageName}`);
+    ids.add(plugin.id);
+    packages.add(plugin.packageName);
+  }
+  return plugins;
+}
+
+export const MARKETPLACE_PLUGINS: readonly MarketplacePlugin[] = loadMarketplacePlugins();
 
 export function searchMarketplace(query = "", capability = ""): readonly MarketplacePlugin[] {
   const normalizedQuery = query.trim().toLowerCase();
@@ -43,6 +94,13 @@ export function searchMarketplace(query = "", capability = ""): readonly Marketp
     return (normalizedQuery === "" || searchable.includes(normalizedQuery))
       && (normalizedCapability === "" || plugin.capabilities.some((item) => item.toLowerCase() === normalizedCapability));
   });
+}
+
+export function paginateMarketplace(items: readonly MarketplacePlugin[], page = 0, pageSize = 24): MarketplacePage {
+  const normalizedPageSize = Math.min(Math.max(Math.trunc(pageSize) || 24, 1), 100);
+  const normalizedPage = Math.max(Math.trunc(page) || 0, 0);
+  const start = normalizedPage * normalizedPageSize;
+  return { items: items.slice(start, start + normalizedPageSize), total: items.length, page: normalizedPage, pageSize: normalizedPageSize, hasNext: start + normalizedPageSize < items.length };
 }
 
 export const MARKETPLACE_CAPABILITIES = [...new Set(MARKETPLACE_PLUGINS.flatMap((plugin) => plugin.capabilities))].sort();
