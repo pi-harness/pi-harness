@@ -38,6 +38,16 @@ describe("Pi runtime plugin", () => {
     await expect(runtime.prompt("too late")).rejects.toThrow(/disposed/);
   });
 
+  test("replaces the active session through the Pi session runtime", async () => {
+    const { context } = await createRuntimeContext();
+    const before = context.piRuntime.session.sessionId;
+
+    await context.piRuntime.sessionRuntime.newSession();
+
+    expect(context.piRuntime.session.sessionId).not.toBe(before);
+    expect(context.piRuntime.session.messages).toEqual([]);
+  });
+
   test("fails activation when configured core tools are unknown to Pi", async () => {
     await expect(createTestRuntimeContext([], ["not-a-pi-tool"])).rejects.toThrow(/not-a-pi-tool/);
   });

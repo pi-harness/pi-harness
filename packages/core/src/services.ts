@@ -1,5 +1,5 @@
 import type { Context } from "@deepseek-ai/cordis";
-import type { AgentSession, AgentSessionEvent, AgentSessionServices, ExtensionError, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, AgentSessionServices, ExtensionError, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -21,7 +21,9 @@ export interface PiModelRuntimeService {
   readonly model: string;
 }
 
-export type PiResourcesService = AgentSessionServices;
+export type PiResourcesService = AgentSessionServices & {
+  createForCwd(cwd: string): Promise<AgentSessionServices>;
+};
 
 export interface PiSessionService {
   readonly manager: SessionManager;
@@ -29,6 +31,7 @@ export interface PiSessionService {
 
 export interface PiRuntimeService {
   readonly session: AgentSession;
+  readonly sessionRuntime: AgentSessionRuntime;
   prompt(text: string): Promise<void>;
   abort(): Promise<void>;
   dispose(): Promise<void>;

@@ -130,7 +130,7 @@ export default {
     let busy = false;
     const events: AgentSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
-    const unsubscribeEvents = services.runtime.session.subscribe((event) => {
+    const handleEvent = (event: AgentSessionEvent) => {
       events.push(event);
       for (const response of eventClients) {
         if (response.writableEnded || response.destroyed) {
@@ -139,7 +139,10 @@ export default {
         }
         writeSse(response, { type: "event", event });
       }
-    });
+    };
+    const unsubscribeEvents = services.runtime.sessionRuntime
+      ? context.on("pi/session-event", handleEvent)
+      : services.runtime.session.subscribe(handleEvent);
     const disposeStatus = services.webServer.register({
       path: "/api/status",
       handler(_request, response) {
@@ -456,7 +459,7 @@ export default {
     });
     const disposeNewSession = services.webServer.register({
       path: "/api/session/new",
-      handler(request, response) {
+      async handler(request, response) {
         if (request.method !== "POST") {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
@@ -466,12 +469,22 @@ export default {
           return;
         }
         try {
-          const session = services.runtime.session;
-          session.sessionManager.newSession();
-          session.agent.state.messages = [];
+          if (services.runtime.sessionRuntime) {
+            const result = await services.runtime.sessionRuntime.newSession();
+            if (result.cancelled) {
+              sendJson(response, 409, { error: "Session creation was cancelled by an extension" });
+              return;
+            }
+          }
+          else {
+            const session = services.runtime.session;
+            session.sessionManager.newSession();
+            session.agent.state.messages = [];
+          }
           events.length = 0;
+          const session = services.runtime.session;
           for (const client of eventClients) writeSse(client, { type: "session", sessionId: session.sessionId, events: [] });
-          sendJson(response, 200, jsonSafe({ sessionId: session.sessionId, sessionFile: session.sessionFile, messages: [], events: [] }));
+          sendJson(response, 200, jsonSafe({ sessionId: session.sessionId, sessionFile: session.sessionFile, messages: services.runtime.sessionRuntime ? session.messages : [], events: [] }));
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
         }
@@ -501,9 +514,18 @@ export default {
             sendJson(response, 404, { error: "Session not found" });
             return;
           }
-          manager.setSessionFile(target.path);
-          if (typeof services.runtime.session.reload === "function") await services.runtime.session.reload();
-          else services.runtime.session.agent.state.messages = manager.buildSessionContext().messages;
+          if (services.runtime.sessionRuntime) {
+            const result = await services.runtime.sessionRuntime.switchSession(target.path, { cwdOverride: target.cwd });
+            if (result.cancelled) {
+              sendJson(response, 409, { error: "Session switch was cancelled by an extension" });
+              return;
+            }
+          }
+          else {
+            manager.setSessionFile(target.path);
+            if (typeof services.runtime.session.reload === "function") await services.runtime.session.reload();
+            else services.runtime.session.agent.state.messages = manager.buildSessionContext().messages;
+          }
           events.length = 0;
           for (const client of eventClients) writeSse(client, { type: "session", sessionId: services.runtime.session.sessionId, events: [] });
           sendJson(response, 200, jsonSafe({ sessionId: services.runtime.session.sessionId, sessionFile: services.runtime.session.sessionFile, messages: services.runtime.session.messages, events: [] }));
