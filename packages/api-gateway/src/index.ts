@@ -70,6 +70,10 @@ function modelSummary(model: { provider: string; id: string; name?: string; reas
   return { provider: model.provider, id: model.id, name: model.name ?? model.id, reasoning: model.reasoning ?? false, contextWindow: model.contextWindow ?? null, active };
 }
 
+function pluginSummary(entry: { options: { id: string; name: string; disabled?: boolean | null }; fiber?: { state: unknown } }) {
+  return { id: entry.options.id, name: entry.options.name, enabled: !entry.options.disabled, state: String(entry.fiber?.state ?? "unloaded") };
+}
+
 function writeSse(response: ServerResponse, payload: unknown): void {
   response.write(`data: ${JSON.stringify(jsonSafe(payload))}\n\n`);
 }
@@ -128,6 +132,13 @@ export default {
       handler(_request, response) {
         const active = services.runtime.session.model ?? services.models.model;
         sendJson(response, 200, jsonSafe({ items: [{ provider: active.provider, activeModel: modelSummary(active, true) }] }));
+      },
+    });
+    const disposePlugins = services.webServer.register({
+      path: "/api/plugins",
+      handler(_request, response) {
+        const items = services.loader ? [...services.loader.entries()].map(pluginSummary) : [];
+        sendJson(response, 200, jsonSafe({ items }));
       },
     });
     const disposeModel = services.webServer.register({
@@ -359,6 +370,7 @@ export default {
       disposeEvents();
       disposeModels();
       disposeProviders();
+      disposePlugins();
       disposeModel();
       disposeFiles();
       disposeFileDiff();

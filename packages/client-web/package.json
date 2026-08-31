@@ -11,10 +11,19 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
-  "engines": {"node": ">=22.19.0"},
-  "scripts": {"build": "tsc -p tsconfig.build.json", "typecheck": "tsc -p tsconfig.json"},
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json"
+  },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1"
+    "@deepseek-ai/cordis": "4.0.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   }
 }
