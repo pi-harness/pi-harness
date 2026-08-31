@@ -135,9 +135,9 @@ npm run build
 
 ## Release
 
-Publishing is triggered by a GitHub Release with a tag pointing at the release commit. The `Publish packages` workflow checks out that tag, runs the complete test, lint, and diff gate, then publishes the six public workspaces to npm with provenance: `@pi-harness/core`, `@pi-harness/host-webserver`, `@pi-harness/web-app`, `@pi-harness/client-web`, `@pi-harness/api-gateway`, and `@pi-harness/cli`. The root workspace, web app, and example plugin are private and are never published.
+Publishing is triggered by a GitHub Release with a tag pointing at the release commit. The `Publish packages` workflow checks out that tag, runs the complete test, lint, and diff gate, then publishes the root `pi-harness-workspace` package and six public workspaces to npm with provenance: `@pi-harness/core`, `@pi-harness/host-webserver`, `@pi-harness/web-app`, `@pi-harness/client-web`, `@pi-harness/api-gateway`, and `@pi-harness/cli`. The web app and example plugin workspaces are private and are never published.
 
-Before the first release, configure npm Trusted Publishing for each public package with GitHub organization `pi-harness`, repository `pi-harness`, workflow `.github/workflows/release.yml`, and GitHub environment `npm`. Do not add an npm token to repository secrets; the workflow uses the job's OIDC identity and `npm publish --provenance`. Bump all published workspace versions together, update their internal `@pi-harness/*` dependency versions, commit the change, push it, and create the GitHub Release from that commit.
+Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN` and configure npm Trusted Publishing for each public package with GitHub organization `pi-harness`, repository `pi-harness`, workflow `.github/workflows/release.yml`, and GitHub environment `npm`. The workflow passes the secret through `NODE_AUTH_TOKEN` and uses `npm publish --provenance`; `id-token: write` remains enabled for provenance attestations. Bump all published workspace versions together, update their internal `@pi-harness/*` dependency versions, commit the change, push it, and create the GitHub Release from that commit.
 
 ## Workspace layout
 

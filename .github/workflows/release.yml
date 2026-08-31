@@ -35,7 +35,10 @@ jobs:
           git diff --check
 
       - name: Publish public workspaces
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          npm publish --access public --provenance
           for workspace in core host-webserver web-app client-web api-gateway cli; do
             npm publish --workspace "@pi-harness/$workspace" --access public --provenance
           done
