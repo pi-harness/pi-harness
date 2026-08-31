@@ -1,0 +1,41 @@
+name: Publish packages
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release
+        run: |
+          npm test
+          npm run lint
+          git diff --check
+
+      - name: Publish public workspaces
+        run: |
+          for workspace in core host-webserver web-app client-web api-gateway cli; do
+            npm publish --workspace "@pi-harness/$workspace" --access public --provenance
+          done
