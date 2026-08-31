@@ -11,7 +11,7 @@ export class AppWebEntry {
   readonly root: HTMLElement;
   #reactRoot?: Root;
   constructor(root: HTMLElement) { this.root = root; this.context = new Context(); }
-  async run(): Promise<void> {
+  run(): void {
     this.context.provide("clientRoot", this.root);
     this.context.provide("clientApi", createClientApi());
     this.#reactRoot = createRoot(this.root);

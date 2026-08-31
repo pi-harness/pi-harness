@@ -197,6 +197,28 @@ describe("API gateway plugin", () => {
     expect(selected).toBe("two");
   });
 
+  test("lists commands from the live extension registry", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "command-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      extensionRunner: { getRegisteredCommands: () => [{ name: "review", invocationName: "review", description: "Review changes", sourceInfo: { path: "/tmp/review.ts" } }] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/commands");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ items: [{ name: "review", invocationName: "review", description: "Review changes", source: "/tmp/review.ts" }] });
+  });
+
   test("aborts a running prompt through the web API", async () => {
     const context = new Context();
     contexts.push(context);

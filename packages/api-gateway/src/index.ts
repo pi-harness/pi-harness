@@ -71,7 +71,10 @@ function modelSummary(model: { provider: string; id: string; name?: string; reas
 }
 
 function pluginSummary(entry: { options: { id: string; name: string; disabled?: boolean | null }; fiber?: { state: unknown } }) {
-  return { id: entry.options.id, name: entry.options.name, enabled: !entry.options.disabled, state: String(entry.fiber?.state ?? "unloaded") };
+  const states = ["pending", "loading", "active", "failed", "disposed", "unloading"];
+  const rawState = entry.fiber?.state;
+  const state = typeof rawState === "number" ? states[rawState] ?? String(rawState) : typeof rawState === "string" ? rawState : rawState === undefined || rawState === null ? "unloaded" : "unknown";
+  return { id: entry.options.id, name: entry.options.name, enabled: !entry.options.disabled, state };
 }
 
 function writeSse(response: ServerResponse, payload: unknown): void {
@@ -138,6 +141,14 @@ export default {
       path: "/api/plugins",
       handler(_request, response) {
         const items = services.loader ? [...services.loader.entries()].map(pluginSummary) : [];
+        sendJson(response, 200, jsonSafe({ items }));
+      },
+    });
+    const disposeCommands = services.webServer.register({
+      path: "/api/commands",
+      handler(_request, response) {
+        const commands = services.runtime.session.extensionRunner.getRegisteredCommands();
+        const items = commands.map((command) => ({ name: command.name, invocationName: command.invocationName, description: command.description, source: command.sourceInfo.path }));
         sendJson(response, 200, jsonSafe({ items }));
       },
     });
@@ -371,6 +382,7 @@ export default {
       disposeModels();
       disposeProviders();
       disposePlugins();
+      disposeCommands();
       disposeModel();
       disposeFiles();
       disposeFileDiff();
