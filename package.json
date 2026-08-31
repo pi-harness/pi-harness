@@ -1,5 +1,5 @@
 {
-  "name": "pi-harness-workspace",
+  "name": "@pi-harness/harness",
   "version": "0.1.0",
   "type": "module",
   "workspaces": [
@@ -18,6 +18,13 @@
     "apps/web",
     "packages"
   ],
+  "dependencies": {
+    "@pi-harness/api-gateway": "0.1.0",
+    "@pi-harness/cli": "0.1.0",
+    "@pi-harness/core": "0.1.0",
+    "@pi-harness/host-webserver": "0.1.0",
+    "@pi-harness/web-app": "0.1.0"
+  },
   "scripts": {
     "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
     "build:web": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
