@@ -83,6 +83,7 @@ export interface ClientApi {
   getSession(): Promise<ClientSession>;
   getFiles(): Promise<readonly ClientFile[]>;
   listWorkspaces(): Promise<readonly ClientWorkspace[]>;
+  pickDirectory(): Promise<string>;
   getFileDiff(path: string): Promise<{ path: string; diff: string }>;
   commitFiles(paths: readonly string[], message: string): Promise<{ committed: boolean; commit?: string; message: string }>;
   revertFiles(paths: readonly string[]): Promise<{ reverted: boolean; paths: readonly string[] }>;
@@ -120,6 +121,7 @@ export function createClientApi(): ClientApi {
     getSession: () => requestJson<ClientSession>("/api/session"),
     getFiles: async () => (await requestJson<{ items: readonly ClientFile[] }>("/api/files")).items,
     listWorkspaces: async () => (await requestJson<{ items: readonly ClientWorkspace[] }>("/api/workspaces")).items,
+    pickDirectory: async () => (await requestJson<{ path: string }>("/api/workspaces/pick", { method: "POST" })).path,
     getFileDiff: (path) => requestJson<{ path: string; diff: string }>(`/api/files/diff?path=${encodeURIComponent(path)}`),
     commitFiles: (paths, message) =>
       requestJson<{ committed: boolean; commit?: string; message: string }>("/api/files/commit", {

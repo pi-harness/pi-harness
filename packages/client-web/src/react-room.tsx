@@ -267,31 +267,53 @@ function Workspace({
 function WorkspaceChooser({
   workspaces,
   onSelect,
+  onPickDirectory,
   onClose,
+  error,
 }: {
   workspaces: readonly ClientWorkspace[];
   onSelect: (workspace: ClientWorkspace) => void;
+  onPickDirectory: () => Promise<void>;
   onClose: () => void;
+  error?: string;
 }) {
   return (
-    <div aria-label="选择工作区" className="workspace-chooser" role="dialog">
-      <div className="workspace-chooser-heading">
-        <strong>新建会话</strong>
-        <button aria-label="关闭工作区选择" onClick={onClose} type="button">
-          ×
+    <div className="workspace-chooser" onClick={onClose}>
+      <div aria-label="选择工作区" className="workspace-chooser-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+        <div className="workspace-chooser-heading">
+          <strong>新建会话</strong>
+          <button aria-label="关闭工作区选择" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+        <small>选择这个会话要使用的工作区</small>
+        {error ? (
+          <div className="workspace-chooser-error" role="alert">
+            {error}
+          </div>
+        ) : null}
+        <button className="workspace-pick-directory" onClick={() => void onPickDirectory()} type="button">
+          <span>打开目录</span>
+          <small>从 Finder 选择一个新的工作目录</small>
         </button>
+        <div className="workspace-chooser-divider">
+          <span>或选择已有 worktree</span>
+        </div>
+        {workspaces.length ? (
+          workspaces.map((workspace) => (
+            <button className="workspace-chooser-row" key={workspace.path} onClick={() => onSelect(workspace)} type="button">
+              <span className={`workspace-status ${workspace.current ? "live" : "offline"}`}>{workspace.current ? "当前" : "worktree"}</span>
+              <span>
+                <strong>{workspace.name}</strong>
+                <code>{workspace.path}</code>
+              </span>
+              <small>{workspace.branch}</small>
+            </button>
+          ))
+        ) : (
+          <span className="workspace-chooser-empty">正在读取 git worktree…</span>
+        )}
       </div>
-      <small>选择这个会话要使用的工作区</small>
-      {workspaces.map((workspace) => (
-        <button className="workspace-chooser-row" key={workspace.path} onClick={() => onSelect(workspace)} type="button">
-          <span className={`workspace-status ${workspace.current ? "live" : "offline"}`}>{workspace.current ? "当前" : "worktree"}</span>
-          <span>
-            <strong>{workspace.name}</strong>
-            <code>{workspace.path}</code>
-          </span>
-          <small>{workspace.branch}</small>
-        </button>
-      ))}
     </div>
   );
 }
@@ -1256,6 +1278,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [commandIndex, setCommandIndex] = useState(0);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState("");
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string>();
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
@@ -1339,6 +1362,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const createNewSession = useCallback(
     async (workspace?: ClientWorkspace) => {
       setPromptError("");
+      setWorkspaceError("");
       try {
         await api.createSession(workspace?.path);
         setSettings(undefined);
@@ -1352,15 +1376,31 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         setSessionMenuOpen(false);
         await refresh();
       } catch (cause: unknown) {
-        setPromptError(cause instanceof Error ? cause.message : String(cause));
+        const message = cause instanceof Error ? cause.message : String(cause);
+        if (workspace) setWorkspaceError(message);
+        else setPromptError(message);
       }
     },
     [api, refresh],
   );
   const beginNewSession = () => {
+    setPromptError("");
+    setWorkspaceError("");
     setSelectedWorkspacePath(undefined);
     setWorkspaceChooserOpen(true);
   };
+  const pickDirectory = useCallback(async () => {
+    try {
+      const path = await api.pickDirectory();
+      const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+      await createNewSession({ path, branch: "directory", current: false, name });
+    } catch (cause: unknown) {
+      setWorkspaceError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [api, createNewSession]);
+  const openDirectory = useCallback(async () => {
+    await pickDirectory();
+  }, [pickDirectory]);
   useEffect(() => {
     void refresh();
     const unsubscribe = api.subscribeEvents(() => void refresh());
@@ -1684,7 +1724,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           </button>
           {workspaceChooserOpen && (
             <WorkspaceChooser
+              error={workspaceError}
               onClose={() => setWorkspaceChooserOpen(false)}
+              onPickDirectory={openDirectory}
               onSelect={(workspace) => void createNewSession(workspace)}
               workspaces={data.workspaces}
             />

@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
@@ -56,6 +56,7 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
 
 function createStatus(services: ApiServices, events: readonly AgentSessionEvent[]) {
   const activeModel = services.runtime.session.model ?? services.models.model;
+  const cwd = activeCwd(services);
   return {
     status: services.runtime.session.isStreaming ? "running" : "ready",
     model: activeModel.provider + "/" + activeModel.id,
@@ -63,10 +64,45 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
     events: events.length,
     sessionId: services.runtime.session.sessionId,
     sessionFile: services.runtime.session.sessionFile,
-    cwd: services.launch.cwd,
+    cwd,
     agentDir: services.launch.agentDir,
     plugins: services.loader ? [...services.loader.entries()].filter((entry) => !entry.disabled).map((entry) => entry.options.name) : [],
   };
+}
+
+function activeCwd(services: ApiServices): string {
+  const runtimeCwd = services.runtime.sessionRuntime?.cwd;
+  return typeof runtimeCwd === "string" && runtimeCwd.length > 0 ? runtimeCwd : services.launch.cwd;
+}
+
+const webSessionUi = {
+  select: (_title: string, options: string[]) => Promise.resolve(options[0]),
+  confirm: () => Promise.resolve(true),
+  input: () => Promise.resolve(undefined),
+  notify: () => {},
+  onTerminalInput: () => () => {},
+  setStatus: () => {},
+  setWorkingMessage: () => {},
+  setWorkingVisible: () => {},
+  setWorkingIndicator: () => {},
+  setHiddenThinkingLabel: () => {},
+  setWidget: () => {},
+  setFooter: () => {},
+  setHeader: () => {},
+  setTitle: () => {},
+} as unknown as ExtensionUIContext;
+
+async function runWebSessionChange<T>(services: ApiServices, action: () => Promise<T & { cancelled: boolean }>): Promise<T & { cancelled: boolean }> {
+  const runner = services.runtime.session.extensionRunner;
+  runner.setUIContext(webSessionUi, "rpc");
+  try {
+    const result = await action();
+    if (result.cancelled) runner.setUIContext(undefined, "print");
+    return result;
+  } catch (error) {
+    runner.setUIContext(undefined, "print");
+    throw error;
+  }
 }
 
 function modelSummary(model: { provider: string; id: string; name?: string; reasoning?: boolean; contextWindow?: number }, active: boolean) {
@@ -126,6 +162,33 @@ async function listWorkspaces(cwd: string): Promise<readonly WorkspaceSummary[]>
   const parsed = result.code === 0 ? parseGitWorktrees(result.stdout, cwd) : [];
   if (parsed.some((item) => item.current)) return parsed;
   return [{ path: resolve(cwd), branch: "current", current: true, name: resolve(cwd).split("/").pop() ?? resolve(cwd) }, ...parsed];
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function pickDirectory(): Promise<string> {
+  return new Promise((resolvePath, reject) => {
+    execFile(
+      "osascript",
+      ["-e", 'POSIX path of (choose folder with prompt "选择 Pi 工作区")'],
+      { timeout: 120_000, maxBuffer: 64 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || "目录选择已取消"));
+          return;
+        }
+        const path = stdout.trim();
+        if (!path) reject(new Error("目录选择已取消"));
+        else resolvePath(path);
+      },
+    );
+  });
 }
 
 function workspacePaths(root: string, paths: unknown): string[] | Error {
@@ -320,9 +383,27 @@ export default {
       path: "/api/workspaces",
       async handler(_request, response) {
         try {
-          sendJson(response, 200, { items: await listWorkspaces(services.launch.cwd) });
+          sendJson(response, 200, { items: await listWorkspaces(activeCwd(services)) });
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
+        }
+      },
+    });
+    const disposePickDirectory = services.webServer.register({
+      path: "/api/workspaces/pick",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        if (process.platform !== "darwin") {
+          sendJson(response, 501, { error: "Native directory picker is only available on macOS" });
+          return;
+        }
+        try {
+          sendJson(response, 200, { path: await pickDirectory() });
+        } catch (error) {
+          sendJson(response, 409, { error: errorText(error) });
         }
       },
     });
@@ -362,7 +443,7 @@ export default {
     const disposeFiles = services.webServer.register({
       path: "/api/files",
       async handler(_request, response) {
-        const output = await gitStatus(services.launch.cwd);
+        const output = await gitStatus(activeCwd(services));
         const items = output
           .split("\n")
           .map((line) => line.trimEnd())
@@ -391,7 +472,7 @@ export default {
           sendJson(response, 400, { error: "path is required" });
           return;
         }
-        const root = resolve(services.launch.cwd);
+        const root = resolve(activeCwd(services));
         const absolute = resolve(root, requested);
         const relativePath = relative(root, absolute);
         if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(".." + "/")) {
@@ -410,7 +491,7 @@ export default {
         }
         try {
           const payload = JSON.parse(await bodyText(request)) as { paths?: unknown; message?: unknown };
-          const paths = workspacePaths(resolve(services.launch.cwd), payload.paths);
+          const paths = workspacePaths(resolve(activeCwd(services)), payload.paths);
           if (paths instanceof Error) {
             sendJson(response, 400, { error: paths.message });
             return;
@@ -419,7 +500,7 @@ export default {
             sendJson(response, 400, { error: "message is required" });
             return;
           }
-          const root = resolve(services.launch.cwd);
+          const root = resolve(activeCwd(services));
           const add = await gitCommand(root, ["add", "-A", "--", ...paths]);
           if (add.code !== 0) {
             sendJson(response, 409, { error: add.stderr.trim() || "Unable to stage workspace files" });
@@ -450,7 +531,7 @@ export default {
             sendJson(response, 400, { error: "confirm must be true to discard workspace changes" });
             return;
           }
-          const root = resolve(services.launch.cwd);
+          const root = resolve(activeCwd(services));
           const paths = workspacePaths(root, payload.paths);
           if (paths instanceof Error) {
             sendJson(response, 400, { error: paths.message });
@@ -581,9 +662,14 @@ export default {
         try {
           const raw = await bodyText(request);
           const payload = raw.trim() ? (JSON.parse(raw) as { cwd?: unknown }) : {};
-          const requestedCwd = typeof payload.cwd === "string" ? resolve(payload.cwd) : resolve(services.launch.cwd);
-          const workspaces = await listWorkspaces(services.launch.cwd);
-          const workspace = workspaces.find((item) => item.path === requestedCwd);
+          const currentCwd = activeCwd(services);
+          const requestedCwd = typeof payload.cwd === "string" ? resolve(payload.cwd) : resolve(currentCwd);
+          const workspaces = await listWorkspaces(currentCwd);
+          const workspace =
+            workspaces.find((item) => item.path === requestedCwd) ??
+            (typeof payload.cwd === "string" && (await isDirectory(requestedCwd))
+              ? { path: requestedCwd, branch: "directory", current: false, name: basename(requestedCwd) || requestedCwd }
+              : undefined);
           if (!workspace) {
             sendJson(response, 400, { error: "Workspace is not available" });
             return;
@@ -591,7 +677,7 @@ export default {
           if (services.runtime.sessionRuntime) {
             let result;
             if (workspace.current) {
-              result = await services.runtime.sessionRuntime.newSession();
+              result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.newSession());
             } else {
               const manager = services.runtime.session.sessionManager;
               if (!manager || typeof manager.isPersisted !== "function" || !manager.isPersisted()) {
@@ -601,7 +687,7 @@ export default {
               const created = SessionManager.create(workspace.path, manager.getSessionDir());
               const sessionFile = created.newSession();
               if (!sessionFile) throw new Error("Unable to create a workspace session");
-              result = await services.runtime.sessionRuntime.switchSession(sessionFile, { cwdOverride: workspace.path });
+              result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(sessionFile, { cwdOverride: workspace.path }));
             }
             if (result.cancelled) {
               sendJson(response, 409, { error: "Session creation was cancelled by an extension" });
@@ -658,7 +744,7 @@ export default {
             return;
           }
           if (services.runtime.sessionRuntime) {
-            const result = await services.runtime.sessionRuntime.switchSession(target.path, { cwdOverride: target.cwd });
+            const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(target.path, { cwdOverride: target.cwd }));
             if (result.cancelled) {
               sendJson(response, 409, { error: "Session switch was cancelled by an extension" });
               return;
@@ -726,6 +812,7 @@ export default {
       disposeCommands();
       disposeModel();
       disposeWorkspaces();
+      disposePickDirectory();
       disposeFiles();
       disposeFileDiff();
       disposeFileCommit();
