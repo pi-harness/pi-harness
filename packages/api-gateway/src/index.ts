@@ -76,6 +76,32 @@ function activeCwd(services: ApiServices): string {
   return typeof runtimeCwd === "string" && runtimeCwd.length > 0 ? runtimeCwd : services.launch.cwd;
 }
 
+function piConfig(services: ApiServices) {
+  const settings = services.runtime.session.settingsManager;
+  const global = settings.getGlobalSettings();
+  const compaction = settings.getCompactionSettings();
+  return {
+    path: join(services.launch.agentDir, "settings.json"),
+    scope: "global" as const,
+    settings: {
+      defaultProvider: global.defaultProvider,
+      defaultModel: global.defaultModel,
+      defaultThinkingLevel: global.defaultThinkingLevel,
+      transport: settings.getTransport(),
+      steeringMode: settings.getSteeringMode(),
+      followUpMode: settings.getFollowUpMode(),
+      hideThinkingBlock: settings.getHideThinkingBlock(),
+      compaction,
+      retry: settings.getRetrySettings(),
+      terminal: {
+        showImages: settings.getShowImages(),
+        imageAutoResize: settings.getImageAutoResize(),
+        autocompleteMaxVisible: settings.getAutocompleteMaxVisible(),
+      },
+    },
+  };
+}
+
 interface SessionMetadata {
   readonly archived?: boolean;
   readonly pinned?: boolean;
@@ -307,6 +333,75 @@ export default {
       path: "/api/status",
       handler(_request, response) {
         sendJson(response, 200, createStatus(services, events));
+      },
+    });
+    const disposeConfig = services.webServer.register({
+      path: "/api/config",
+      async handler(request, response) {
+        if (request.method === "GET") {
+          sendJson(response, 200, piConfig(services));
+          return;
+        }
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as Record<string, unknown>;
+          const settings = services.runtime.session.settingsManager;
+          if (typeof payload.defaultProvider === "string" && payload.defaultProvider.trim()) settings.setDefaultProvider(payload.defaultProvider.trim());
+          if (typeof payload.defaultModel === "string" && payload.defaultModel.trim()) settings.setDefaultModel(payload.defaultModel.trim());
+          if (
+            payload.defaultThinkingLevel === "off" ||
+            payload.defaultThinkingLevel === "minimal" ||
+            payload.defaultThinkingLevel === "low" ||
+            payload.defaultThinkingLevel === "medium" ||
+            payload.defaultThinkingLevel === "high" ||
+            payload.defaultThinkingLevel === "xhigh" ||
+            payload.defaultThinkingLevel === "max"
+          )
+            settings.setDefaultThinkingLevel(payload.defaultThinkingLevel);
+          if (payload.transport === "sse" || payload.transport === "websocket" || payload.transport === "auto") settings.setTransport(payload.transport);
+          if (payload.steeringMode === "all" || payload.steeringMode === "one-at-a-time") settings.setSteeringMode(payload.steeringMode);
+          if (payload.followUpMode === "all" || payload.followUpMode === "one-at-a-time") settings.setFollowUpMode(payload.followUpMode);
+          if (typeof payload.hideThinkingBlock === "boolean") settings.setHideThinkingBlock(payload.hideThinkingBlock);
+          if (typeof payload.retry === "object" && payload.retry !== null) {
+            const retry = payload.retry as Record<string, unknown>;
+            if (typeof retry.enabled === "boolean") settings.setRetryEnabled(retry.enabled);
+          }
+          if (typeof payload.terminal === "object" && payload.terminal !== null) {
+            const terminal = payload.terminal as Record<string, unknown>;
+            if (typeof terminal.showImages === "boolean") settings.setShowImages(terminal.showImages);
+            if (typeof terminal.imageAutoResize === "boolean") settings.setImageAutoResize(terminal.imageAutoResize);
+            if (typeof terminal.autocompleteMaxVisible === "number" && Number.isInteger(terminal.autocompleteMaxVisible))
+              settings.setAutocompleteMaxVisible(Math.min(20, Math.max(3, terminal.autocompleteMaxVisible)));
+          }
+          if (
+            typeof payload.compaction === "object" &&
+            payload.compaction !== null &&
+            typeof (payload.compaction as Record<string, unknown>).enabled === "boolean"
+          )
+            settings.setCompactionEnabled((payload.compaction as Record<string, boolean>).enabled === true);
+          await settings.flush();
+          sendJson(response, 200, piConfig(services));
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeConfigReload = services.webServer.register({
+      path: "/api/config/reload",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          await services.runtime.session.settingsManager.reload();
+          sendJson(response, 200, piConfig(services));
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
       },
     });
     const disposeModels = services.webServer.register({
@@ -1229,6 +1324,8 @@ export default {
     });
     context.effect(() => () => {
       disposeStatus();
+      disposeConfig();
+      disposeConfigReload();
       disposeEvents();
       disposeModels();
       disposeProviders();

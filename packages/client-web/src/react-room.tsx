@@ -6,6 +6,7 @@ import {
   type ClientFile,
   type ClientMarketplacePlugin,
   type ClientModel,
+  type ClientPiConfig,
   type ClientPlugin,
   type ClientProvider,
   type ClientSession,
@@ -20,7 +21,7 @@ import { messageText, projectChatTurns } from "./message-content.js";
 export type { ClientApi } from "./control-room.js";
 
 type View = "chat" | "trajectory" | "files";
-type SettingsTab = "general" | "plugins" | "providers" | "toml";
+type SettingsTab = "general" | "providers" | "toml";
 type Page = "session" | "plugins" | "marketplace";
 interface RoomData {
   status?: ClientStatus;
@@ -47,6 +48,38 @@ const value = (input: unknown, fallback = "—"): string => {
   } catch {
     return fallback;
   }
+};
+const configSource = (config: ClientPiConfig): string => {
+  const settings = config.settings;
+  return [
+    "# pi harness runtime configuration",
+    "",
+    "[agent]",
+    `default_provider = "${settings.defaultProvider ?? ""}"`,
+    `default_model = "${settings.defaultModel ?? ""}"`,
+    `default_thinking_level = "${settings.defaultThinkingLevel ?? "medium"}"`,
+    "",
+    "[runtime]",
+    `transport = "${settings.transport}"`,
+    `steering_mode = "${settings.steeringMode}"`,
+    `follow_up_mode = "${settings.followUpMode}"`,
+    "",
+    "[compaction]",
+    `enabled = ${settings.compaction.enabled}`,
+    `reserve_tokens = ${settings.compaction.reserveTokens}`,
+    `keep_recent_tokens = ${settings.compaction.keepRecentTokens}`,
+    "",
+    "[retry]",
+    `enabled = ${settings.retry.enabled}`,
+    `max_retries = ${settings.retry.maxRetries}`,
+    `base_delay_ms = ${settings.retry.baseDelayMs}`,
+    "",
+    "[display]",
+    `hide_thinking_block = ${settings.hideThinkingBlock}`,
+    `show_images = ${settings.terminal.showImages}`,
+    `image_auto_resize = ${settings.terminal.imageAutoResize}`,
+    `autocomplete_max_visible = ${settings.terminal.autocompleteMaxVisible}`,
+  ].join("\n");
 };
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
@@ -84,7 +117,7 @@ const readQueryState = (): {
   const parsedPage = page === "plugins" || page === "marketplace" ? page : "session";
   const parsedView = view === "trajectory" || view === "files" ? view : "chat";
   const parsedPluginTab = pluginTab === "extensions" ? pluginTab : "installed";
-  const parsedSettings = settings === "plugins" || settings === "providers" || settings === "toml" ? settings : settings === "general" ? settings : undefined;
+  const parsedSettings = settings === "providers" || settings === "toml" ? settings : settings === "general" ? settings : undefined;
   const pageNumber = Number.parseInt(params.get("marketplacePage") ?? "0", 10);
   return {
     page: parsedPage,
@@ -879,6 +912,31 @@ function Settings({
     apiKey: string;
     model: string;
   }>({ provider: "", name: "", baseUrl: "", api: "openai-completions", apiKey: "", model: "" });
+  const [config, setConfig] = useState<ClientPiConfig>();
+  const [configMode, setConfigMode] = useState<"form" | "source">("form");
+  const [configBusy, setConfigBusy] = useState(false);
+  const [configState, setConfigState] = useState("");
+  useEffect(() => {
+    if (tab !== "toml") return;
+    setConfigState("读取中…");
+    void api
+      .getConfig()
+      .then((value) => {
+        setConfig(value);
+        setConfigState("");
+      })
+      .catch((cause: unknown) => setConfigState(cause instanceof Error ? cause.message : String(cause)));
+  }, [api, tab]);
+  const updateConfig = (input: Partial<ClientPiConfig["settings"]>, message: string) => {
+    setConfigBusy(true);
+    setConfigState(message);
+    void api
+      .updateConfig(input)
+      .then(setConfig)
+      .then(() => setConfigState("已保存"))
+      .catch((cause: unknown) => setConfigState(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setConfigBusy(false));
+  };
   const runProviderAction = (provider: string, action: "test" | "refresh") => {
     if (providerBusy[provider]) return;
     setProviderBusy((current) => ({ ...current, [provider]: true }));
@@ -904,22 +962,16 @@ function Settings({
     <section className="view-panel settings-page">
       <div className="settings-dialog">
         <nav aria-label="设置分类" className="settings-top-tabs">
-          {(["general", "plugins", "providers", "toml"] as const).map((item) => (
+          {(["general", "providers", "toml"] as const).map((item) => (
             <button className={`settings-tab ${tab === item ? "active" : ""}`} key={item} onClick={() => onTab(item)} type="button">
-              {item === "general"
-                ? "通用"
-                : item === "plugins"
-                  ? `插件 ${data.plugins.length}`
-                  : item === "providers"
-                    ? `提供商 ${data.providers.length}`
-                    : "pi.toml"}
+              {item === "general" ? "通用" : item === "providers" ? `提供商 ${data.providers.length}` : "pi.toml"}
             </button>
           ))}
         </nav>
         <section>
           <header>
             <div className="settings-header-copy">
-              <strong>{tab === "general" ? "通用" : tab === "plugins" ? "插件" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
+              <strong>{tab === "general" ? "通用" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
               <small>{tab === "toml" ? "配置即代码，改完重载" : "运行时状态与快捷键"}</small>
             </div>
             <button className="settings-back" onClick={onClose} type="button">
@@ -963,15 +1015,6 @@ function Settings({
                 </div>
               </>
             )}
-            {tab === "plugins" &&
-              data.plugins.map((plugin) => (
-                <div className="settings-plugin-row" key={plugin.id}>
-                  ◈{" "}
-                  <code>
-                    {plugin.name} · {plugin.id} · {plugin.state}
-                  </code>
-                </div>
-              ))}
             {tab === "providers" && (
               <>
                 <div className="provider-add-head">
@@ -1146,23 +1189,198 @@ function Settings({
               </>
             )}
             {tab === "toml" && (
-              <>
+              <div className="config-editor">
                 <div className="toml-toolbar">
-                  <span>~/.config/pi/pi.toml</span>
-                  <button className="active" type="button">
+                  <div>
+                    <strong>运行时配置</strong>
+                    <span>{config?.path ?? "~/.pi/agent/settings.json"}</span>
+                  </div>
+                  <button className={configMode === "form" ? "active" : ""} onClick={() => setConfigMode("form")} type="button">
                     表单
                   </button>
-                  <button disabled type="button">
+                  <button className={configMode === "source" ? "active" : ""} onClick={() => setConfigMode("source")} type="button">
                     源码
                   </button>
-                  <button className="primary" disabled type="button">
+                  <button
+                    className="primary"
+                    disabled={configBusy}
+                    onClick={() => {
+                      setConfigBusy(true);
+                      setConfigState("重载中…");
+                      void api
+                        .reloadConfig()
+                        .then(setConfig)
+                        .then(() => setConfigState("已从磁盘重载"))
+                        .catch((cause: unknown) => setConfigState(cause instanceof Error ? cause.message : String(cause)))
+                        .finally(() => setConfigBusy(false));
+                    }}
+                    type="button"
+                  >
                     重载
                   </button>
                 </div>
-                <div className="toml">
-                  <div className="empty-state">pi.toml 读取与写入 API 尚未提供。</div>
-                </div>
-              </>
+                {configState && (
+                  <div aria-live="polite" className={`config-state ${configState.includes("失败") || configState.includes("Error") ? "error" : ""}`}>
+                    {configState}
+                  </div>
+                )}
+                {config ? (
+                  configMode === "source" ? (
+                    <pre className="config-source">{configSource(config)}</pre>
+                  ) : (
+                    <div className="config-sections">
+                      <section className="config-section">
+                        <header>
+                          <strong>模型默认值</strong>
+                          <small>新会话启动时使用的模型和思考级别</small>
+                        </header>
+                        <label className="config-field">
+                          <span>提供商</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ defaultProvider: event.target.value }, "保存提供商…")}
+                            value={config.settings.defaultProvider ?? ""}
+                          >
+                            <option value="">跟随运行时</option>
+                            {data.providers.map((provider) => (
+                              <option key={provider.provider} value={provider.provider}>
+                                {provider.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="config-field">
+                          <span>模型</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ defaultModel: event.target.value }, "保存模型…")}
+                            value={config.settings.defaultModel ?? ""}
+                          >
+                            <option value="">跟随提供商</option>
+                            {data.models.map((model) => (
+                              <option key={`${model.provider}/${model.id}`} value={model.id}>
+                                {model.provider}/{model.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="config-field">
+                          <span>思考级别</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ defaultThinkingLevel: event.target.value }, "保存思考级别…")}
+                            value={config.settings.defaultThinkingLevel ?? "medium"}
+                          >
+                            {["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => (
+                              <option key={level} value={level}>
+                                {level}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </section>
+                      <section className="config-section">
+                        <header>
+                          <strong>运行策略</strong>
+                          <small>消息队列和网络传输行为</small>
+                        </header>
+                        <label className="config-field">
+                          <span>传输方式</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ transport: event.target.value }, "保存传输方式…")}
+                            value={config.settings.transport}
+                          >
+                            <option value="auto">自动</option>
+                            <option value="sse">SSE</option>
+                            <option value="websocket">WebSocket</option>
+                          </select>
+                        </label>
+                        <label className="config-field">
+                          <span>Steering 消息</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ steeringMode: event.target.value }, "保存队列策略…")}
+                            value={config.settings.steeringMode}
+                          >
+                            <option value="one-at-a-time">逐条发送</option>
+                            <option value="all">一次发送全部</option>
+                          </select>
+                        </label>
+                        <label className="config-field">
+                          <span>Follow-up 消息</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ followUpMode: event.target.value }, "保存跟进策略…")}
+                            value={config.settings.followUpMode}
+                          >
+                            <option value="one-at-a-time">逐条发送</option>
+                            <option value="all">一次发送全部</option>
+                          </select>
+                        </label>
+                      </section>
+                      <section className="config-section">
+                        <header>
+                          <strong>上下文与显示</strong>
+                          <small>控制思考内容和自动压缩</small>
+                        </header>
+                        <label className="config-toggle">
+                          <span>
+                            <strong>隐藏思考正文</strong>
+                            <small>只显示可展开的思考摘要</small>
+                          </span>
+                          <input
+                            checked={config.settings.hideThinkingBlock}
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ hideThinkingBlock: event.target.checked }, "保存显示设置…")}
+                            type="checkbox"
+                          />
+                        </label>
+                        <label className="config-toggle">
+                          <span>
+                            <strong>自动压缩上下文</strong>
+                            <small>接近上下文上限时自动整理历史消息</small>
+                          </span>
+                          <input
+                            checked={config.settings.compaction.enabled}
+                            disabled={configBusy}
+                            onChange={(event) =>
+                              updateConfig({ compaction: { ...config.settings.compaction, enabled: event.target.checked } }, "保存压缩设置…")
+                            }
+                            type="checkbox"
+                          />
+                        </label>
+                        <label className="config-toggle">
+                          <span>
+                            <strong>自动重试</strong>
+                            <small>临时网络错误时自动重试请求</small>
+                          </span>
+                          <input
+                            checked={config.settings.retry.enabled}
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ retry: { ...config.settings.retry, enabled: event.target.checked } }, "保存重试设置…")}
+                            type="checkbox"
+                          />
+                        </label>
+                        <label className="config-toggle">
+                          <span>
+                            <strong>显示图片</strong>
+                            <small>允许模型响应中的图片渲染</small>
+                          </span>
+                          <input
+                            checked={config.settings.terminal.showImages}
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ terminal: { ...config.settings.terminal, showImages: event.target.checked } }, "保存图片设置…")}
+                            type="checkbox"
+                          />
+                        </label>
+                      </section>
+                    </div>
+                  )
+                ) : (
+                  <div className="empty-state">正在读取运行时配置…</div>
+                )}
+              </div>
             )}
           </div>
         </section>

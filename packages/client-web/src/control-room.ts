@@ -78,6 +78,22 @@ export interface ClientWorkspace {
   readonly current: boolean;
   readonly name: string;
 }
+export interface ClientPiConfig {
+  readonly path: string;
+  readonly scope: "global" | "project";
+  readonly settings: {
+    readonly defaultProvider?: string;
+    readonly defaultModel?: string;
+    readonly defaultThinkingLevel?: string;
+    readonly transport: string;
+    readonly steeringMode: string;
+    readonly followUpMode: string;
+    readonly hideThinkingBlock: boolean;
+    readonly compaction: { readonly enabled: boolean; readonly reserveTokens: number; readonly keepRecentTokens: number };
+    readonly retry: { readonly enabled: boolean; readonly maxRetries: number; readonly baseDelayMs: number };
+    readonly terminal: { readonly showImages: boolean; readonly imageAutoResize: boolean; readonly autocompleteMaxVisible: number };
+  };
+}
 export interface ClientSessionList {
   readonly items: readonly Record<string, unknown>[];
   readonly total: number;
@@ -122,6 +138,9 @@ export interface ClientApi {
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number): Promise<ClientMarketplacePage>;
   listCommands(): Promise<readonly ClientCommand[]>;
   selectModel(provider: string, model: string): Promise<{ model: ClientModel }>;
+  getConfig(): Promise<ClientPiConfig>;
+  updateConfig(input: Partial<ClientPiConfig["settings"]>): Promise<ClientPiConfig>;
+  reloadConfig(): Promise<ClientPiConfig>;
   subscribeEvents(onEvent: (payload: Record<string, unknown>) => void): () => void;
 }
 function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -249,6 +268,14 @@ export function createClientApi(): ClientApi {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ provider, model }),
       }),
+    getConfig: () => requestJson<ClientPiConfig>("/api/config"),
+    updateConfig: (input) =>
+      requestJson<ClientPiConfig>("/api/config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    reloadConfig: () => requestJson<ClientPiConfig>("/api/config/reload", { method: "POST" }),
     subscribeEvents: (onEvent) => {
       if (typeof EventSource === "undefined") return () => {};
       const source = new EventSource("/api/events");
