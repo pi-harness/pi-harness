@@ -64,6 +64,7 @@ const capability = (name: string): string => {
     ["git-time-capsule", "版本控制"],
     ["dependency-checker", "工程诊断"],
     ["at-file", "文件上下文"],
+    ["test-harness", "测试"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -83,6 +84,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/dependency-checker", "Dependency Checker"],
     ["@pi-harness/core/plugins/at-file", "@file context"],
     ["@pi-harness/core/plugins/fail-logger", "Failure Logger"],
+    ["@pi-harness/core/plugins/test-harness", "Test Harness"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -850,6 +852,39 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <p className="mt-2 text-[11px] text-[#71809a]">
               {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${String(data?.aborts ?? 0)}`}
             </p>
+          </div>
+        </div>
+      ) : panel.id === "test-harness-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const run = data.latest as Record<string, unknown>;
+              return (
+                <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-[11px] font-semibold text-[#30343b]">{String(run.command ?? "npm run test")}</span>
+                    <strong className={`text-[12px] ${run.exitCode === 0 ? "text-[#198754]" : "text-[#b42318]"}`}>exit {String(run.exitCode ?? "—")}</strong>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#65707b]">耗时 {String(run.durationMs ?? 0)} ms</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有执行验证脚本。可让 Agent 调用 run_project_tests。
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {Array.isArray(data?.allowedScripts)
+              ? data.allowedScripts.map((script, index) => (
+                  <span
+                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                    key={`${String(script)}-${index}`}
+                  >
+                    {String(script)}
+                  </span>
+                ))
+              : null}
           </div>
         </div>
       ) : panel.id === "fail-logger-panel" ? (

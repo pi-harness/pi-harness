@@ -41,6 +41,9 @@
     - id: at-file
       name: "@pi-harness/core/plugins/at-file"
       config: {}
+    - id: test-harness
+      name: "@pi-harness/core/plugins/test-harness"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

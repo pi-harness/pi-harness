@@ -21,6 +21,7 @@ import gitTimeCapsulePlugin from "../src/plugins/git-time-capsule.js";
 import dependencyCheckerPlugin from "../src/plugins/dependency-checker.js";
 import atFilePlugin from "../src/plugins/at-file.js";
 import failLoggerPlugin from "../src/plugins/fail-logger.js";
+import testHarnessPlugin from "../src/plugins/test-harness.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -314,5 +315,17 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([
       { id: "fail-logger-panel", data: { total: 1, failures: [{ source: "extension", message: "extension failed" }] } },
     ]);
+  });
+
+  test("only runs approved project scripts in the test harness", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(testHarnessPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", { script: "rm -rf /" }, undefined, undefined, {} as never)).rejects.toThrow(/not allowed/);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "test-harness-panel", data: { allowedScripts: expect.arrayContaining(["test", "build"]) } }]);
   });
 });
