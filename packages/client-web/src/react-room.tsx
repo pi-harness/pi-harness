@@ -68,29 +68,24 @@ const capability = (name: string): string =>
 const readQueryState = (): {
   page: Page;
   view: View;
-  pluginTab: "installed" | "extensions";
   settings?: SettingsTab;
   sessionPath?: string;
   marketplaceQuery: string;
   marketplaceCapability: string;
   marketplacePage: number;
 } => {
-  if (typeof window === "undefined")
-    return { page: "session", view: "chat", pluginTab: "installed", marketplaceQuery: "", marketplaceCapability: "", marketplacePage: 0 };
+  if (typeof window === "undefined") return { page: "session", view: "chat", marketplaceQuery: "", marketplaceCapability: "", marketplacePage: 0 };
   const params = new URLSearchParams(window.location.search);
   const page = params.get("page");
   const view = params.get("view");
-  const pluginTab = params.get("pluginTab");
   const settings = params.get("settings");
   const parsedPage = page === "plugins" || page === "marketplace" ? page : "session";
   const parsedView = view === "trajectory" || view === "files" ? view : "chat";
-  const parsedPluginTab = pluginTab === "extensions" ? pluginTab : "installed";
   const parsedSettings = settings === "providers" || settings === "toml" ? settings : settings === "general" ? settings : undefined;
   const pageNumber = Number.parseInt(params.get("marketplacePage") ?? "0", 10);
   return {
     page: parsedPage,
     view: parsedView,
-    pluginTab: parsedPluginTab,
     settings: parsedSettings,
     sessionPath: params.get("session") ?? undefined,
     marketplaceQuery: params.get("marketplaceQuery") ?? "",
@@ -567,34 +562,14 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
   );
 }
 
-function Plugins({
-  plugins,
-  tab,
-  onTab,
-  onMarketplace,
-  onToml,
-}: {
-  plugins: readonly ClientPlugin[];
-  tab: "installed" | "extensions";
-  onTab: (tab: "installed" | "extensions") => void;
-  onMarketplace: () => void;
-  onToml: () => void;
-}) {
-  const groups = useMemo(() => {
-    const map = new Map<string, string[]>();
-    plugins.forEach((plugin) => map.set(capability(plugin.name), [...(map.get(capability(plugin.name)) ?? []), plugin.name]));
-    return map;
-  }, [plugins]);
+function Plugins({ plugins, onMarketplace, onToml }: { plugins: readonly ClientPlugin[]; onMarketplace: () => void; onToml: () => void }) {
   return (
     <section className="view-panel plugins-view">
       <div className="plugins-page">
         <div className="subnav">
           <div className="segmented">
-            <button className={tab === "installed" ? "active" : ""} onClick={() => onTab("installed")} type="button">
+            <button className="active" type="button">
               已安装
-            </button>
-            <button className={tab === "extensions" ? "active" : ""} onClick={() => onTab("extensions")} type="button">
-              扩展点
             </button>
             <button onClick={onMarketplace} type="button">
               插件市场
@@ -612,65 +587,39 @@ function Plugins({
           </a>
         </div>
         <div className="plugins-scroll">
-          {tab === "installed" ? (
-            <>
-              <div className="plugins-list">
-                {plugins.map((plugin) => (
-                  <article className="plugin-card" key={plugin.id}>
-                    <div className="plugin-card-head">
-                      <span className="plugin-icon">◈</span>
-                      <div className="plugin-copy">
-                        <div className="plugin-title">
-                          <code>{plugin.name}</code>
-                          <small>{plugin.state}</small>
-                          <span className="capability">{capability(plugin.name)}</span>
-                        </div>
-                        <p className="plugin-description">
-                          {plugin.enabled ? "由当前 Cordis loader 加载并启用，能力与 hook 由运行时注册。" : "由当前 Cordis loader 加载但已停用。"}
-                        </p>
-                        <div className="hook-list">
-                          <span>loader</span>
-                          <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
-                        </div>
-                      </div>
-                      <span className={`switch ${plugin.enabled ? "on" : ""}`}>
-                        <i></i>
-                      </span>
+          <div className="plugins-list">
+            {plugins.map((plugin) => (
+              <article className="plugin-card" key={plugin.id}>
+                <div className="plugin-card-head">
+                  <span className="plugin-icon">◈</span>
+                  <div className="plugin-copy">
+                    <div className="plugin-title">
+                      <code>{plugin.name}</code>
+                      <small>{plugin.state}</small>
+                      <span className="capability">{capability(plugin.name)}</span>
                     </div>
-                  </article>
-                ))}
-              </div>
-              <div className="plugin-add">
-                <code>dsh plugin add</code>
-                <input disabled placeholder="github:owner/repo" />
-                <button className="primary" disabled type="button">
-                  安装
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="extension-note">每个扩展点由哪些包占用，按 Cordis loader 的执行顺序排列。</p>
-              <div className="extension-table">
-                <div className="extension-row extension-head">
-                  <span>扩展点</span>
-                  <span>占用者（按序）</span>
-                  <span>数量</span>
-                </div>
-                {[...groups].map(([point, owners]) => (
-                  <div className="extension-row" key={point}>
-                    <code>{point}</code>
-                    <div className="extension-owners">
-                      {owners.map((owner) => (
-                        <span key={owner}>{owner}</span>
-                      ))}
+                    <p className="plugin-description">
+                      {plugin.enabled ? "由当前 Cordis loader 加载并启用，能力与 hook 由运行时注册。" : "由当前 Cordis loader 加载但已停用。"}
+                    </p>
+                    <div className="hook-list">
+                      <span>loader</span>
+                      <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
                     </div>
-                    <code>{owners.length}</code>
                   </div>
-                ))}
-              </div>
-            </>
-          )}
+                  <span className={`switch ${plugin.enabled ? "on" : ""}`}>
+                    <i></i>
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="plugin-add">
+            <code>dsh plugin add</code>
+            <input disabled placeholder="github:owner/repo" />
+            <button className="primary" disabled type="button">
+              安装
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -689,7 +638,6 @@ function Marketplace({
   onCapabilityChange,
   onPageChange,
   onBack,
-  onExtensions,
   onToml,
 }: {
   plugins: readonly ClientMarketplacePlugin[];
@@ -703,7 +651,6 @@ function Marketplace({
   onCapabilityChange: (value: string) => void;
   onPageChange: (value: number) => void;
   onBack: () => void;
-  onExtensions: () => void;
   onToml: () => void;
 }) {
   const [copied, setCopied] = useState<string>();
@@ -731,9 +678,6 @@ function Marketplace({
           <div className="segmented">
             <button onClick={onBack} type="button">
               已安装
-            </button>
-            <button onClick={onExtensions} type="button">
-              扩展点
             </button>
             <button className="active" type="button">
               插件市场
@@ -1763,7 +1707,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   });
   const [view, setView] = useState<View>(initialQueryState.view);
   const [page, setPage] = useState<Page>(initialQueryState.page);
-  const [pluginTab, setPluginTab] = useState<"installed" | "extensions">(initialQueryState.pluginTab);
   const [settings, setSettings] = useState<SettingsTab | undefined>(initialQueryState.settings);
   const [details, setDetails] = useState<Record<string, unknown>>();
   const [commandOpen, setCommandOpen] = useState(false);
@@ -1834,8 +1777,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     params.set("page", page);
     if (view === "chat") params.delete("view");
     else params.set("view", view);
-    if (pluginTab === "installed") params.delete("pluginTab");
-    else params.set("pluginTab", pluginTab);
     if (settings) params.set("settings", settings);
     else params.delete("settings");
     if (selectedSessionPath) params.set("session", selectedSessionPath);
@@ -1848,7 +1789,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     else params.delete("marketplacePage");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, pluginTab, selectedSessionPath, settings, view]);
+  }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, selectedSessionPath, settings, view]);
   const refresh = useCallback(async () => {
     const [status, session, sessions, files, models, providers, plugins, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
@@ -2132,7 +2073,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
     />
   ) : page === "plugins" ? (
-    <Plugins plugins={data.plugins} tab={pluginTab} onTab={setPluginTab} onMarketplace={() => setPage("marketplace")} onToml={() => setSettings("toml")} />
+    <Plugins plugins={data.plugins} onMarketplace={() => setPage("marketplace")} onToml={() => setSettings("toml")} />
   ) : page === "marketplace" ? (
     <Marketplace
       plugins={data.marketplace}
@@ -2152,10 +2093,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
       onPageChange={setMarketplacePage}
       onBack={() => setPage("plugins")}
-      onExtensions={() => {
-        setPluginTab("extensions");
-        setPage("plugins");
-      }}
       onToml={() => setSettings("toml")}
     />
   ) : view === "chat" ? (

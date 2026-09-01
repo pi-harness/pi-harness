@@ -1902,27 +1902,6 @@ button:disabled {
 .timeline-turn:nth-child(4n) .timeline-strip {
   @apply [background:#f59e0b];
 }
-.extension-note {
-  @apply [margin:0_0_10px] [color:#61666b] [font-size:12px] [line-height:1.6];
-}
-.extension-table {
-  @apply [border:1px_solid_var(--color-line)] [border-radius:10px] [overflow:hidden];
-}
-.extension-row {
-  @apply [display:grid] [grid-template-columns:148px_1fr_66px] [gap:12px] [align-items:center] [padding:9px_13px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.04)];
-}
-.extension-row:last-child {
-  @apply [border-bottom:0];
-}
-.extension-head {
-  @apply [padding-top:7px] [padding-bottom:7px] [background:var(--color-soft)] [color:var(--color-faint)] [font:10px_var(--font-mono)] [letter-spacing:0.04em] [text-transform:uppercase];
-}
-.extension-owners {
-  @apply [display:flex] [flex-wrap:wrap] [gap:5px] [min-width:0];
-}
-.extension-owners span {
-  @apply [padding:1px_7px] [border-radius:4px] [background:#e4edfd] [color:var(--color-blue)] [font:10.5px_var(--font-mono)] [overflow-wrap:anywhere];
-}
 .raw-json {
   @apply [overflow:hidden] [border:1px_solid_var(--color-line)] [border-radius:8px];
 }
