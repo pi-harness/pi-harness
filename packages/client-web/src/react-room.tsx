@@ -403,7 +403,7 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
         )}
         <div className="detail-section">
           <small>经过的插件</small>
-          <div className="detail-plugin">Cordis loader · runtime event</div>
+          <div className="detail-plugin">Runtime loader · event</div>
         </div>
         <div className="detail-actions">
           <button onClick={onCopy} type="button">
@@ -598,9 +598,7 @@ function Plugins({ plugins, onMarketplace, onToml }: { plugins: readonly ClientP
                       <small>{plugin.state}</small>
                       <span className="capability">{capability(plugin.name)}</span>
                     </div>
-                    <p className="plugin-description">
-                      {plugin.enabled ? "由当前 Cordis loader 加载并启用，能力与 hook 由运行时注册。" : "由当前 Cordis loader 加载但已停用。"}
-                    </p>
+                    <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
                     <div className="hook-list">
                       <span>loader</span>
                       <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
@@ -657,7 +655,7 @@ function Marketplace({
   const [copyError, setCopyError] = useState("");
   const copyInstall = (plugin: ClientMarketplacePlugin) => {
     const profile = JSON.stringify({ id: plugin.id, name: plugin.profile.name, config: plugin.profile.config }, null, 2);
-    const command = "npm install --save-exact " + plugin.packageName + "@" + plugin.version + "\\n\\nAdd this entry to your Cordis profile:\\n" + profile;
+    const command = "npm install --save-exact " + plugin.packageName + "@" + plugin.version + "\\n\\nAdd this entry to your Pi Harness profile:\\n" + profile;
     setCopyError("");
     if (!navigator.clipboard) {
       setCopyError("当前浏览器不允许复制，请手动复制安装指引。");
@@ -697,8 +695,8 @@ function Marketplace({
         <div className="marketplace-hero">
           <div>
             <small>COMMUNITY MARKETPLACE</small>
-            <h2>发现 Cordis 插件</h2>
-            <p>可审查的社区目录。每个条目都包含 npm 包、版本、许可证和 Cordis 配置入口。</p>
+            <h2>发现社区插件</h2>
+            <p>可审查的社区目录。每个条目都包含 npm 包、版本、许可证和配置入口。</p>
           </div>
           <div className="marketplace-hero-actions">
             <button onClick={onBack} type="button">
@@ -809,7 +807,7 @@ function Marketplace({
             </button>
           </div>
           <div className="mt-3 flex items-center gap-2.5 rounded-[10px] border border-dashed border-[#b8ccf5] bg-[#f8f9ff] p-2.5 text-[11.5px] text-[#81858c]">
-            <strong className="text-[12px] text-[#0f1115]">你有一个 Cordis 插件？</strong>
+            <strong className="text-[12px] text-[#0f1115]">你有一个 Pi Harness 插件？</strong>
             <span>在 entries 目录新增一个元数据文件，附测试和 README 后提交 PR；审核通过后会出现在这里。</span>
             <a
               className="ml-auto flex-none text-[#4176e6]"
@@ -2701,7 +2699,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               {settings
                 ? "运行时状态与配置"
                 : page === "plugins"
-                  ? "Cordis loader 运行时清单"
+                  ? "运行时插件清单"
                   : page === "marketplace"
                     ? "社区目录 · 可审查安装指引"
                     : sessionSource(data.status, data.session)}

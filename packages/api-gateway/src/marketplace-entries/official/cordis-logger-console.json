@@ -3,7 +3,7 @@
   "packageName": "@deepseek-ai/cordis-plugin-logger-console",
   "version": "1.0.1",
   "name": "Console logger",
-  "description": "Exports Cordis lifecycle and runtime diagnostics to the host console.",
+  "description": "Exports lifecycle and runtime diagnostics to the host console.",
   "author": "DeepSeek AI",
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
   "license": "MIT",
