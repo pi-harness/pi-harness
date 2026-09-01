@@ -1022,6 +1022,9 @@ button:disabled {
 .plugin-card-head {
   @apply [display:flex] [align-items:flex-start] [gap:10px];
 }
+.plugin-actions {
+  @apply [display:flex] [align-items:center] [gap:8px] [margin-left:auto];
+}
 .plugin-icon {
   @apply [margin-top:2px] [color:var(--color-blue)] [font:11px_var(--font-mono)];
 }
@@ -1801,7 +1804,16 @@ button:disabled {
   @apply [white-space:nowrap];
 }
 .plugin-card .switch {
-  @apply [margin-left:auto];
+  @apply [flex:none];
+}
+.plugin-uninstall {
+  @apply [border:0] [background:transparent] [color:var(--color-red)] [font-size:11px];
+}
+.plugin-uninstall:hover {
+  @apply [text-decoration:underline];
+}
+.plugin-action-error {
+  @apply [margin:10px_0_0_37px] [color:var(--color-red)] [font-size:11px];
 }
 .session-menu-popover[hidden] {
   @apply [display:none];

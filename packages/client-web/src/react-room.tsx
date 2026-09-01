@@ -573,13 +573,30 @@ function Plugins({
   marketplace,
   onMarketplace,
   onToml,
+  onToggle,
+  onUninstall,
 }: {
   plugins: readonly ClientPlugin[];
   marketplace: readonly ClientMarketplacePlugin[];
   onMarketplace: () => void;
   onToml: () => void;
+  onToggle: (plugin: ClientPlugin) => Promise<void>;
+  onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const marketplaceNames = useMemo(() => new Map(marketplace.map((plugin) => [plugin.packageName, plugin.name])), [marketplace]);
+  const [busyPlugin, setBusyPlugin] = useState<string>();
+  const [pluginError, setPluginError] = useState("");
+  const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>) => {
+    setPluginError("");
+    setBusyPlugin(plugin.id);
+    try {
+      await action(plugin);
+    } catch (error) {
+      setPluginError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyPlugin(undefined);
+    }
+  };
   return (
     <section className="view-panel plugins-view">
       <div className="plugins-page">
@@ -621,13 +638,38 @@ function Plugins({
                       <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
                     </div>
                   </div>
-                  <span className={`switch ${plugin.enabled ? "on" : ""}`}>
-                    <i></i>
-                  </span>
+                  <div className="plugin-actions">
+                    {plugin.removable ? (
+                      <>
+                        <button
+                          aria-label={`${plugin.enabled ? "停用" : "启用"} ${marketplaceNames.get(plugin.name) ?? plugin.name}`}
+                          className={`switch ${plugin.enabled ? "on" : ""}`}
+                          disabled={busyPlugin !== undefined}
+                          onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
+                          type="button"
+                        >
+                          <i></i>
+                        </button>
+                        <button
+                          className="plugin-uninstall"
+                          disabled={busyPlugin !== undefined}
+                          onClick={() => void runPluginAction(plugin, onUninstall)}
+                          type="button"
+                        >
+                          卸载
+                        </button>
+                      </>
+                    ) : (
+                      <span className={`switch ${plugin.enabled ? "on" : ""}`}>
+                        <i></i>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </article>
             ))}
           </div>
+          {pluginError && <p className="plugin-action-error">{pluginError}</p>}
         </div>
       </div>
     </section>
@@ -2081,7 +2123,20 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
     />
   ) : page === "plugins" ? (
-    <Plugins plugins={data.plugins} marketplace={data.marketplace} onMarketplace={() => setPage("marketplace")} onToml={() => setSettings("toml")} />
+    <Plugins
+      plugins={data.plugins}
+      marketplace={data.marketplace}
+      onMarketplace={() => setPage("marketplace")}
+      onToml={() => setSettings("toml")}
+      onToggle={async (plugin) => {
+        await api.togglePlugin(plugin.id, !plugin.enabled);
+        await refresh();
+      }}
+      onUninstall={async (plugin) => {
+        await api.uninstallPlugin(plugin.id);
+        await refresh();
+      }}
+    />
   ) : page === "marketplace" ? (
     <Marketplace
       plugins={data.marketplace}

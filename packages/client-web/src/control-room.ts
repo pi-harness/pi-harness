@@ -29,6 +29,7 @@ export interface ClientPlugin {
   readonly name: string;
   readonly enabled: boolean;
   readonly state: string;
+  readonly removable: boolean;
 }
 export interface ClientProvider {
   readonly provider: string;
@@ -147,6 +148,8 @@ export interface ClientApi {
     model: string;
   }): Promise<{ provider: ClientProvider }>;
   listPlugins(): Promise<readonly ClientPlugin[]>;
+  togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin }>;
+  uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string }>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number): Promise<ClientMarketplacePage>;
   installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean }>;
   listCommands(): Promise<readonly ClientCommand[]>;
@@ -271,6 +274,18 @@ export function createClientApi(): ClientApi {
         body: JSON.stringify(input),
       }),
     listPlugins: async () => (await requestJson<{ items: readonly ClientPlugin[] }>("/api/plugins")).items,
+    togglePlugin: (id, enabled) =>
+      requestJson<{ plugin: ClientPlugin }>("/api/plugins/toggle", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, enabled }),
+      }),
+    uninstallPlugin: (id) =>
+      requestJson<{ uninstalled: boolean; id: string }>("/api/plugins/uninstall", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      }),
     listMarketplace: (query = "", capability = "", page = 0, pageSize = 24) =>
       requestJson<ClientMarketplacePage>(
         `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&page=${page}&pageSize=${pageSize}`,
