@@ -14,6 +14,7 @@ import {
 } from "./control-room.js";
 import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
 import { compactThinkingEvents } from "./runtime-events.js";
+import { MarkdownMessage } from "./markdown.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -1654,7 +1655,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         {data.session?.messages.length ? (
           data.session.messages.map((message, index) => (
             <article className={`turn ${message.role === "user" ? "user" : "text"}`} key={index}>
-              {message.role === "user" ? <div className="user-bubble">{messageText(message)}</div> : <p className="turn-text">{messageText(message)}</p>}
+              {message.role === "user" ? <div className="user-bubble">{messageText(message)}</div> : <MarkdownMessage text={messageText(message)} />}
             </article>
           ))
         ) : (
@@ -2006,7 +2007,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <div className="header-spacer"></div>
           {data.status?.status === "running" && (
             <div className="run-indicator running">
-              <span></span>
+              <span className="run-dot"></span>
               <span>运行中 · Pi agent</span>
               <button className="stop-button" onClick={() => void api.abort().then(refresh)} type="button">
                 停止
