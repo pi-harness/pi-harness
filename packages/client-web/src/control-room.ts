@@ -78,6 +78,13 @@ export interface ClientWorkspace {
   readonly current: boolean;
   readonly name: string;
 }
+export interface ClientSessionList {
+  readonly items: readonly Record<string, unknown>[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly hasNext: boolean;
+}
 export interface ClientApi {
   getStatus(): Promise<ClientStatus>;
   getSession(): Promise<ClientSession>;
@@ -91,7 +98,14 @@ export interface ClientApi {
   abort(): Promise<{ aborted: boolean }>;
   createSession(cwd?: string): Promise<ClientSession>;
   openSession(path: string): Promise<ClientSession>;
-  listSessions(): Promise<readonly Record<string, unknown>[]>;
+  listSessions(page?: number, pageSize?: number, includeArchived?: boolean): Promise<ClientSessionList>;
+  renameSession(path: string, name: string): Promise<{ path: string; name?: string }>;
+  deleteSession(path: string): Promise<{ deleted: boolean; path: string; sessionFile?: string }>;
+  setSessionMetadata(path: string, metadata: { archived?: boolean; pinned?: boolean }): Promise<{ path: string; metadata: Record<string, unknown> }>;
+  batchSessions(action: "delete" | "archive" | "unarchive" | "pin" | "unpin", paths: readonly string[]): Promise<{ action: string; count: number }>;
+  forkSession(path: string, cwd?: string): Promise<{ sessionId: string; sessionFile?: string; cwd: string }>;
+  importSession(content: string, filename: string, cwd?: string): Promise<ClientSession>;
+  exportSession(path: string): Promise<Blob>;
   listModels(): Promise<readonly ClientModel[]>;
   listProviders(): Promise<readonly ClientProvider[]>;
   testProvider(provider: string): Promise<{ provider: string; reachable: boolean; auth?: unknown }>;
@@ -158,7 +172,51 @@ export function createClientApi(): ClientApi {
       }),
     openSession: (path) =>
       requestJson<ClientSession>("/api/session/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) }),
-    listSessions: async () => (await requestJson<{ items: readonly Record<string, unknown>[] }>("/api/sessions")).items,
+    listSessions: (page = 0, pageSize = 50, includeArchived = false) =>
+      requestJson<ClientSessionList>(`/api/sessions?page=${page}&pageSize=${pageSize}&includeArchived=${includeArchived}`),
+    renameSession: (path, name) =>
+      requestJson<{ path: string; name?: string }>("/api/session/rename", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, name }),
+      }),
+    deleteSession: (path) =>
+      requestJson<{ deleted: boolean; path: string; sessionFile?: string }>("/api/session/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, confirm: true }),
+      }),
+    setSessionMetadata: (path, metadata) =>
+      requestJson<{ path: string; metadata: Record<string, unknown> }>("/api/session/metadata", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, ...metadata }),
+      }),
+    batchSessions: (action, paths) =>
+      requestJson<{ action: string; count: number }>("/api/sessions/batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, paths, confirm: action === "delete" }),
+      }),
+    forkSession: (path, cwd) =>
+      requestJson<{ sessionId: string; sessionFile?: string; cwd: string }>("/api/session/fork", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, cwd }),
+      }),
+    importSession: async (content, filename, cwd) => {
+      const result = await requestJson<{ sessionId: string; sessionFile?: string; messages: number }>("/api/session/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content, filename, cwd }),
+      });
+      return { sessionId: result.sessionId, sessionFile: result.sessionFile, messages: [], entries: [], events: [] };
+    },
+    exportSession: async (path) => {
+      const response = await fetch(`/api/session/export?path=${encodeURIComponent(path)}`);
+      if (!response.ok) throw new Error(`Export failed with status ${response.status}`);
+      return response.blob();
+    },
     listModels: async () => (await requestJson<{ items: readonly ClientModel[] }>("/api/models")).items,
     listProviders: async () => (await requestJson<{ items: readonly ClientProvider[] }>("/api/providers")).items,
     testProvider: (provider) =>

@@ -1355,6 +1355,13 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [promptError, setPromptError] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState("");
+  const [sessionActionBusy, setSessionActionBusy] = useState(false);
+  const [includeArchivedSessions, setIncludeArchivedSessions] = useState(false);
+  const [sessionPage, setSessionPage] = useState(0);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [sessionHasNext, setSessionHasNext] = useState(false);
+  const [selectedSessionPaths, setSelectedSessionPaths] = useState<ReadonlySet<string>>(new Set());
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [streamingAssistant, setStreamingAssistant] = useState<{ thinking: string; text: string }>();
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -1408,7 +1415,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     const [status, session, sessions, files, models, providers, plugins, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
       api.getSession(),
-      api.listSessions(),
+      api.listSessions(sessionPage, 30, includeArchivedSessions),
       api.getFiles(),
       api.listModels(),
       api.listProviders(),
@@ -1420,7 +1427,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     setData((current) => ({
       status: status.status === "fulfilled" ? status.value : current.status,
       session: session.status === "fulfilled" ? session.value : current.session,
-      sessions: sessions.status === "fulfilled" ? sessions.value : current.sessions,
+      sessions: sessions.status === "fulfilled" ? sessions.value.items : current.sessions,
       files: files.status === "fulfilled" ? files.value : current.files,
       models: models.status === "fulfilled" ? models.value : current.models,
       providers: providers.status === "fulfilled" ? providers.value : current.providers,
@@ -1433,7 +1440,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       commands: commands.status === "fulfilled" ? commands.value : current.commands,
       workspaces: workspaces.status === "fulfilled" ? workspaces.value : current.workspaces,
     }));
-  }, [api, marketplaceCapability, marketplacePage, marketplaceQuery]);
+    if (sessions.status === "fulfilled") {
+      setSessionTotal(sessions.value.total);
+      setSessionHasNext(sessions.value.hasNext);
+    }
+  }, [api, includeArchivedSessions, marketplaceCapability, marketplacePage, marketplaceQuery, sessionPage]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -1625,6 +1636,30 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       .openSession(path)
       .then(refresh)
       .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
+  };
+  const sessionAction = async (action: () => Promise<void>) => {
+    if (sessionActionBusy) return;
+    setSessionActionBusy(true);
+    setPromptError("");
+    try {
+      await action();
+      await refresh();
+      setSelectedSessionPaths(new Set());
+      setSessionMenuOpen(false);
+    } catch (cause: unknown) {
+      setPromptError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSessionActionBusy(false);
+    }
+  };
+  const activeSessionPath = data.session?.sessionFile;
+  const toggleSessionSelection = (path: string) => {
+    setSelectedSessionPaths((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
   };
   const content = settings ? (
     <Settings
@@ -1967,7 +2002,43 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               />
             )}
           </div>
+          <input
+            accept=".jsonl,application/json,application/x-ndjson"
+            className="visually-hidden"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (!file) return;
+              void sessionAction(async () => {
+                const imported = await api.importSession(await file.text(), file.name);
+                if (imported.sessionFile) setSelectedSessionPath(imported.sessionFile);
+              });
+            }}
+            ref={importInputRef}
+            type="file"
+          />
         </div>
+        {selectedSessionPaths.size > 0 && (
+          <div className="session-batch-bar">
+            <span>{selectedSessionPaths.size} 个已选择</span>
+            <button onClick={() => void sessionAction(() => api.batchSessions("archive", [...selectedSessionPaths]).then(() => undefined))} type="button">
+              归档
+            </button>
+            <button onClick={() => void sessionAction(() => api.batchSessions("pin", [...selectedSessionPaths]).then(() => undefined))} type="button">
+              置顶
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                if (window.confirm(`永久删除 ${selectedSessionPaths.size} 个会话？`))
+                  void sessionAction(() => api.batchSessions("delete", [...selectedSessionPaths]).then(() => undefined));
+              }}
+              type="button"
+            >
+              删除
+            </button>
+          </div>
+        )}
         <div className="sidebar-scroll">
           {showCurrentSession && data.session && (
             <div className="session-group">
@@ -1986,24 +2057,49 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               <div className="session-group" key={label}>
                 <div className="group-label">{label}</div>
                 {sessions.map((session, index) => (
-                  <button
-                    className={`session-row ${session.sessionId === data.session?.sessionId ? "active" : ""}`}
-                    key={index}
-                    onClick={() => openSession(session)}
-                    type="button"
-                  >
-                    <span className="session-dot ok"></span>
-                    <span className="session-copy">
-                      <strong>{value(session.name ?? session.firstMessage, "未命名会话")}</strong>
-                      <small>{value(session.messageCount, "0")} 条消息</small>
-                    </span>
-                  </button>
+                  <div className="session-row-wrap" key={index}>
+                    <input
+                      aria-label={`选择会话 ${value(session.name ?? session.firstMessage, "未命名会话")}`}
+                      checked={typeof session.path === "string" && selectedSessionPaths.has(session.path)}
+                      onChange={() => {
+                        if (typeof session.path === "string") toggleSessionSelection(session.path);
+                      }}
+                      type="checkbox"
+                    />
+                    <button
+                      className={`session-row ${session.sessionId === data.session?.sessionId ? "active" : ""}`}
+                      onClick={() => openSession(session)}
+                      type="button"
+                    >
+                      <span className="session-dot ok"></span>
+                      <span className="session-copy">
+                        <strong>{value(session.name ?? session.firstMessage, "未命名会话")}</strong>
+                        <small>
+                          {value(session.messageCount, "0")} 条消息{session.pinned === true ? " · 已置顶" : ""}
+                          {session.archived === true ? " · 已归档" : ""}
+                        </small>
+                      </span>
+                    </button>
+                  </div>
                 ))}
               </div>
             ))
           ) : !showCurrentSession ? (
             <div className="empty-state">暂无已保存会话</div>
           ) : null}
+          {sessionTotal > 30 && (
+            <div className="session-pagination">
+              <button disabled={sessionPage === 0} onClick={() => setSessionPage((page) => Math.max(0, page - 1))} type="button">
+                上一页
+              </button>
+              <span>
+                {sessionPage + 1} / {Math.max(1, Math.ceil(sessionTotal / 30))}
+              </span>
+              <button disabled={!sessionHasNext} onClick={() => setSessionPage((page) => page + 1)} type="button">
+                下一页
+              </button>
+            </div>
+          )}
         </div>
         <footer className="sidebar-footer">
           <div className="runtime-cells">
@@ -2104,13 +2200,147 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 <strong>刷新会话</strong>
                 <small>重新读取运行时状态</small>
               </button>
-              <button className="session-action" disabled type="button">
-                <strong>导出事件</strong>
-                <small>API 暂未提供导出接口</small>
+              <button
+                className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  const name = window.prompt("会话名称", "");
+                  if (name === null || !activeSessionPath) return;
+                  void sessionAction(async () => {
+                    await api.renameSession(activeSessionPath, name);
+                  });
+                }}
+                type="button"
+              >
+                <strong>重命名会话</strong>
+                <small>保存一个易识别的会话名称</small>
               </button>
-              <button className="session-action" disabled type="button">
+              <button
+                className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  if (!activeSessionPath) return;
+                  void sessionAction(async () => {
+                    await api.setSessionMetadata(activeSessionPath, { pinned: true });
+                  });
+                }}
+                type="button"
+              >
+                <strong>置顶会话</strong>
+                <small>将当前会话固定在列表顶部</small>
+              </button>
+              <button
+                className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  if (!activeSessionPath) return;
+                  void sessionAction(async () => {
+                    await api.setSessionMetadata(activeSessionPath, { pinned: false });
+                  });
+                }}
+                type="button"
+              >
+                <strong>取消置顶</strong>
+                <small>从固定列表中移除当前会话</small>
+              </button>
+              <button
+                className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  if (!activeSessionPath) return;
+                  void sessionAction(async () => {
+                    const result = await api.forkSession(activeSessionPath);
+                    if (result.sessionFile) setSelectedSessionPath(result.sessionFile);
+                    if (result.sessionFile) await api.openSession(result.sessionFile);
+                  });
+                }}
+                type="button"
+              >
+                <strong>复制会话</strong>
+                <small>复制完整上下文并打开副本</small>
+              </button>
+              <button
+                className="session-action"
+                disabled={sessionActionBusy}
+                onClick={() => {
+                  importInputRef.current?.click();
+                }}
+                type="button"
+              >
+                <strong>导入会话</strong>
+                <small>从本机 JSONL 文件导入并打开</small>
+              </button>
+              <button
+                className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  if (!activeSessionPath) return;
+                  void sessionAction(async () => {
+                    const blob = await api.exportSession(activeSessionPath);
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `${data.session?.sessionId ?? "session"}.jsonl`;
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                  });
+                }}
+                type="button"
+              >
+                <strong>导出会话</strong>
+                <small>下载当前会话 JSONL</small>
+              </button>
+              <button
+                className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  if (!activeSessionPath || !window.confirm("归档当前会话？归档后会从默认列表隐藏。")) return;
+                  void sessionAction(async () => {
+                    await api.setSessionMetadata(activeSessionPath, { archived: true });
+                  });
+                }}
+                type="button"
+              >
+                <strong>归档会话</strong>
+                <small>从默认列表隐藏，可通过恢复入口找回</small>
+              </button>
+              <button
+                className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  if (!activeSessionPath) return;
+                  void sessionAction(async () => {
+                    await api.setSessionMetadata(activeSessionPath, { archived: false });
+                  });
+                }}
+                type="button"
+              >
+                <strong>恢复会话</strong>
+                <small>取消归档并显示在默认列表</small>
+              </button>
+              <button
+                className="session-action"
+                onClick={() => {
+                  setIncludeArchivedSessions((current) => !current);
+                  void refresh();
+                }}
+                type="button"
+              >
+                <strong>{includeArchivedSessions ? "隐藏归档会话" : "显示归档会话"}</strong>
+                <small>{includeArchivedSessions ? "恢复默认会话列表" : "在列表中显示已归档会话"}</small>
+              </button>
+              <button
+                className="session-action danger"
+                disabled={!activeSessionPath || sessionActionBusy}
+                onClick={() => {
+                  if (!activeSessionPath || !window.confirm("删除当前会话文件？此操作不可恢复。")) return;
+                  void sessionAction(async () => {
+                    await api.deleteSession(activeSessionPath);
+                  });
+                }}
+                type="button"
+              >
                 <strong>删除会话</strong>
-                <small>API 暂未提供删除接口</small>
+                <small>永久删除 JSONL 文件（活动会话会先安全切换）</small>
               </button>
             </div>
           )}

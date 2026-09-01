@@ -166,7 +166,7 @@ describe("API gateway plugin", () => {
 
     const sessions = await fetch(context.webServer.url + "/api/sessions");
     expect(sessions.status).toBe(200);
-    await expect(sessions.json()).resolves.toEqual({ items: [] });
+    await expect(sessions.json()).resolves.toEqual({ items: [], total: 0, page: 0, pageSize: 50, hasNext: false });
     const response = await fetch(context.webServer.url + "/api/session/new", { method: "POST" });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ sessionId: "new-session", messages: [] });

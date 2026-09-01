@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
@@ -73,6 +74,39 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
 function activeCwd(services: ApiServices): string {
   const runtimeCwd = services.runtime.sessionRuntime?.cwd;
   return typeof runtimeCwd === "string" && runtimeCwd.length > 0 ? runtimeCwd : services.launch.cwd;
+}
+
+interface SessionMetadata {
+  readonly archived?: boolean;
+  readonly pinned?: boolean;
+}
+
+type SessionMetadataMap = Record<string, SessionMetadata>;
+
+function sessionMetadataFile(manager: SessionManager): string {
+  return resolve(manager.getSessionDir(), ".pi-harness-session-meta.json");
+}
+
+async function readSessionMetadata(manager: SessionManager): Promise<SessionMetadataMap> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(sessionMetadataFile(manager), "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as SessionMetadataMap;
+  } catch {
+    return {};
+  }
+}
+
+async function writeSessionMetadata(manager: SessionManager, metadata: SessionMetadataMap): Promise<void> {
+  await mkdir(manager.getSessionDir(), { recursive: true });
+  await writeFile(sessionMetadataFile(manager), JSON.stringify(metadata, null, 2) + "\n", "utf8");
+}
+
+function sessionPathInDirectory(path: string, manager: SessionManager): boolean {
+  const root = resolve(manager.getSessionDir());
+  const target = resolve(path);
+  const relativePath = relative(root, target);
+  return relativePath !== "" && !isAbsolute(relativePath) && relativePath !== ".." && !relativePath.startsWith(".." + "/") && target.endsWith(".jsonl");
 }
 
 const webSessionUi = {
@@ -886,19 +920,291 @@ export default {
         }
       },
     });
+    const disposeRenameSession = services.webServer.register({
+      path: "/api/session/rename",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { path?: unknown; name?: unknown };
+          const manager = services.runtime.session.sessionManager;
+          const path = typeof payload.path === "string" ? payload.path : services.runtime.session.sessionFile;
+          const name = typeof payload.name === "string" ? payload.name.trim() : "";
+          if (!path || !sessionPathInDirectory(path, manager)) {
+            sendJson(response, 400, { error: "Invalid session path" });
+            return;
+          }
+          if (name.length > 120) {
+            sendJson(response, 400, { error: "Session name must be at most 120 characters" });
+            return;
+          }
+          SessionManager.open(path, manager.getSessionDir()).appendSessionInfo(name);
+          sendJson(response, 200, { path, name: name || undefined });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeDeleteSession = services.webServer.register({
+      path: "/api/session/delete",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { path?: unknown; confirm?: unknown };
+          const manager = services.runtime.session.sessionManager;
+          const path = typeof payload.path === "string" ? payload.path : "";
+          if (payload.confirm !== true) {
+            sendJson(response, 400, { error: "confirm must be true to delete a session" });
+            return;
+          }
+          if (!sessionPathInDirectory(path, manager)) {
+            sendJson(response, 400, { error: "Invalid session path" });
+            return;
+          }
+          if (path === services.runtime.session.sessionFile) {
+            if (services.runtime.session.isStreaming) {
+              sendJson(response, 409, { error: "Cannot delete the active session while a prompt is running" });
+              return;
+            }
+            const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.newSession());
+            if (result.cancelled) {
+              sendJson(response, 409, { error: "Session deletion was cancelled by an extension" });
+              return;
+            }
+            events.length = 0;
+          }
+          await unlink(path);
+          const metadata = await readSessionMetadata(manager);
+          delete metadata[path];
+          await writeSessionMetadata(manager, metadata);
+          sendJson(response, 200, { deleted: true, path, sessionFile: services.runtime.session.sessionFile });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeSessionMetadata = services.webServer.register({
+      path: "/api/session/metadata",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { path?: unknown; archived?: unknown; pinned?: unknown };
+          const manager = services.runtime.session.sessionManager;
+          const path = typeof payload.path === "string" ? payload.path : "";
+          if (!sessionPathInDirectory(path, manager)) {
+            sendJson(response, 400, { error: "Invalid session path" });
+            return;
+          }
+          const metadata = await readSessionMetadata(manager);
+          const currentMetadata = metadata[path] ?? {};
+          const nextMetadata: SessionMetadata = {
+            ...currentMetadata,
+            ...(payload.archived === undefined ? {} : { archived: payload.archived === true }),
+            ...(payload.pinned === undefined ? {} : { pinned: payload.pinned === true }),
+          };
+          metadata[path] = nextMetadata;
+          await writeSessionMetadata(manager, metadata);
+          sendJson(response, 200, { path, metadata: metadata[path] });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeBatchSessions = services.webServer.register({
+      path: "/api/sessions/batch",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { action?: unknown; paths?: unknown; confirm?: unknown };
+          const action = payload.action;
+          const paths = Array.isArray(payload.paths) ? payload.paths.filter((path): path is string => typeof path === "string") : [];
+          const manager = services.runtime.session.sessionManager;
+          if (
+            (action !== "delete" && action !== "archive" && action !== "unarchive" && action !== "pin" && action !== "unpin") ||
+            paths.length === 0 ||
+            paths.length > 100
+          ) {
+            sendJson(response, 400, { error: "action and 1-100 session paths are required" });
+            return;
+          }
+          if (action === "delete" && payload.confirm !== true) {
+            sendJson(response, 400, { error: "confirm must be true to delete sessions" });
+            return;
+          }
+          if (paths.some((path) => !sessionPathInDirectory(path, manager))) {
+            sendJson(response, 400, { error: "Invalid session path" });
+            return;
+          }
+          if (action === "delete" && paths.includes(services.runtime.session.sessionFile ?? "")) {
+            sendJson(response, 409, { error: "Cannot batch-delete the active session" });
+            return;
+          }
+          const metadata = await readSessionMetadata(manager);
+          for (const path of paths) {
+            if (action === "delete") {
+              await unlink(path);
+              delete metadata[path];
+            } else {
+              const current = metadata[path] ?? {};
+              metadata[path] = {
+                ...current,
+                ...(action === "archive" || action === "unarchive" ? { archived: action === "archive" } : {}),
+                ...(action === "pin" || action === "unpin" ? { pinned: action === "pin" } : {}),
+              };
+            }
+          }
+          await writeSessionMetadata(manager, metadata);
+          sendJson(response, 200, { action, count: paths.length });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeForkSession = services.webServer.register({
+      path: "/api/session/fork",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { path?: unknown; cwd?: unknown };
+          const manager = services.runtime.session.sessionManager;
+          const sourcePath = typeof payload.path === "string" ? payload.path : "";
+          if (!sessionPathInDirectory(sourcePath, manager)) {
+            sendJson(response, 400, { error: "Invalid session path" });
+            return;
+          }
+          const sessions = await SessionManager.list(services.launch.cwd, manager.getSessionDir());
+          const source = sessions.find((item) => item.path === sourcePath);
+          if (!source) {
+            sendJson(response, 404, { error: "Session not found" });
+            return;
+          }
+          const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : source.cwd || activeCwd(services);
+          const forked = SessionManager.forkFrom(source.path, targetCwd, manager.getSessionDir());
+          sendJson(response, 200, { sessionId: forked.getSessionId(), sessionFile: forked.getSessionFile(), cwd: targetCwd });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeImportSession = services.webServer.register({
+      path: "/api/session/import",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        if (services.runtime.session.isStreaming) {
+          sendJson(response, 409, { error: "Cannot import a session while a prompt is running" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { path?: unknown; content?: unknown; filename?: unknown; cwd?: unknown };
+          const suppliedPath = typeof payload.path === "string" ? payload.path : "";
+          const content = typeof payload.content === "string" ? payload.content : undefined;
+          if ((!suppliedPath || !isAbsolute(suppliedPath)) && content === undefined) {
+            sendJson(response, 400, { error: "A JSONL file path or file content is required" });
+            return;
+          }
+          const manager = services.runtime.session.sessionManager;
+          if (!manager.isPersisted()) {
+            sendJson(response, 409, { error: "Session importing requires JSONL session storage" });
+            return;
+          }
+          const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : activeCwd(services);
+          const temporaryDirectory = content === undefined ? undefined : await mkdtemp(join(tmpdir(), "pi-harness-import-"));
+          const importPath =
+            suppliedPath ||
+            join(temporaryDirectory as string, basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl"));
+          try {
+            if (content !== undefined) {
+              if (Buffer.byteLength(content, "utf8") > 10 * 1024 * 1024) {
+                sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
+                return;
+              }
+              await writeFile(importPath, content, "utf8");
+            }
+            const imported = SessionManager.forkFrom(importPath, targetCwd, manager.getSessionDir());
+            const importedPath = imported.getSessionFile();
+            if (!importedPath) throw new Error("Unable to persist imported session");
+            const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(importedPath, { cwdOverride: targetCwd }));
+            if (result.cancelled) {
+              sendJson(response, 409, { error: "Session import was cancelled by an extension" });
+              return;
+            }
+            events.length = 0;
+            sendJson(response, 200, {
+              sessionId: services.runtime.session.sessionId,
+              sessionFile: services.runtime.session.sessionFile,
+              messages: services.runtime.session.messages.length,
+            });
+          } finally {
+            if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+          }
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeExportSession = services.webServer.register({
+      path: "/api/session/export",
+      async handler(request, response) {
+        try {
+          const url = new URL(request.url ?? "/api/session/export", "http://localhost");
+          const manager = services.runtime.session.sessionManager;
+          const path = url.searchParams.get("path") ?? services.runtime.session.sessionFile;
+          if (!path || !sessionPathInDirectory(path, manager)) {
+            sendJson(response, 400, { error: "Invalid session path" });
+            return;
+          }
+          const content = await readFile(path, "utf8");
+          response.writeHead(200, {
+            "content-type": "application/x-ndjson; charset=utf-8",
+            "content-disposition": `attachment; filename="${basename(path)}"`,
+            "cache-control": "no-store",
+          });
+          response.end(content);
+        } catch (error) {
+          sendJson(response, 404, { error: errorText(error) });
+        }
+      },
+    });
     const disposeSessions = services.webServer.register({
       path: "/api/sessions",
       async handler(_request, response) {
         try {
           const session = services.runtime.session;
           const manager = session.sessionManager;
+          const url = new URL(_request.url ?? "/api/sessions", "http://localhost");
+          const page = Math.max(0, Number.parseInt(url.searchParams.get("page") ?? "0", 10) || 0);
+          const pageSize = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("pageSize") ?? "50", 10) || 50));
+          const includeArchived = url.searchParams.get("includeArchived") === "true";
+          const metadata = await readSessionMetadata(manager);
           const items =
             typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(services.launch.cwd, manager.getSessionDir()) : [];
+          const filtered = items.filter((item) => includeArchived || metadata[item.path]?.archived !== true);
+          const sorted = filtered.sort(
+            (a, b) => Number(metadata[b.path]?.pinned === true) - Number(metadata[a.path]?.pinned === true) || b.modified.getTime() - a.modified.getTime(),
+          );
+          const paged = sorted.slice(page * pageSize, (page + 1) * pageSize);
           sendJson(
             response,
             200,
             jsonSafe({
-              items: items.map((item) => ({
+              items: paged.map((item) => ({
                 sessionId: item.id,
                 path: item.path,
                 name: item.name,
@@ -907,7 +1213,13 @@ export default {
                 modified: item.modified,
                 messageCount: item.messageCount,
                 firstMessage: item.firstMessage,
+                archived: metadata[item.path]?.archived === true,
+                pinned: metadata[item.path]?.pinned === true,
               })),
+              total: sorted.length,
+              page,
+              pageSize,
+              hasNext: (page + 1) * pageSize < sorted.length,
             }),
           );
         } catch (error) {
@@ -938,6 +1250,13 @@ export default {
       disposeSession();
       disposeNewSession();
       disposeOpenSession();
+      disposeRenameSession();
+      disposeDeleteSession();
+      disposeSessionMetadata();
+      disposeBatchSessions();
+      disposeForkSession();
+      disposeImportSession();
+      disposeExportSession();
       disposeSessions();
       unsubscribeEvents();
       for (const response of eventClients) response.end();
