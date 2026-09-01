@@ -93,6 +93,17 @@ export interface ClientPiConfig {
     readonly compaction: { readonly enabled: boolean; readonly reserveTokens: number; readonly keepRecentTokens: number };
     readonly retry: { readonly enabled: boolean; readonly maxRetries: number; readonly baseDelayMs: number };
     readonly terminal: { readonly showImages: boolean; readonly imageAutoResize: boolean; readonly autocompleteMaxVisible: number };
+    readonly advanced: {
+      readonly quietStartup: boolean;
+      readonly projectTrust: string;
+      readonly showCacheMissNotices: boolean;
+      readonly enableAnalytics: boolean;
+      readonly enableInstallTelemetry: boolean;
+      readonly shellPath?: string;
+      readonly doubleEscapeAction: string;
+      readonly treeFilterMode: string;
+      readonly mermaid: string;
+    };
   };
 }
 export interface ClientSessionList {

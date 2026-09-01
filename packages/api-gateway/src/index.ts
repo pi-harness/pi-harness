@@ -99,6 +99,17 @@ function piConfig(services: ApiServices) {
         imageAutoResize: settings.getImageAutoResize(),
         autocompleteMaxVisible: settings.getAutocompleteMaxVisible(),
       },
+      advanced: {
+        quietStartup: settings.getQuietStartup(),
+        projectTrust: settings.getDefaultProjectTrust(),
+        showCacheMissNotices: settings.getShowCacheMissNotices(),
+        enableAnalytics: settings.getEnableAnalytics(),
+        enableInstallTelemetry: settings.getEnableInstallTelemetry(),
+        shellPath: settings.getShellPath(),
+        doubleEscapeAction: settings.getDoubleEscapeAction(),
+        treeFilterMode: settings.getTreeFilterMode(),
+        mermaid: settings.getMermaidRenderingMode(),
+      },
     },
   };
 }
@@ -376,6 +387,27 @@ export default {
             if (typeof terminal.imageAutoResize === "boolean") settings.setImageAutoResize(terminal.imageAutoResize);
             if (typeof terminal.autocompleteMaxVisible === "number" && Number.isInteger(terminal.autocompleteMaxVisible))
               settings.setAutocompleteMaxVisible(Math.min(20, Math.max(3, terminal.autocompleteMaxVisible)));
+          }
+          if (typeof payload.advanced === "object" && payload.advanced !== null) {
+            const advanced = payload.advanced as Record<string, unknown>;
+            if (typeof advanced.quietStartup === "boolean") settings.setQuietStartup(advanced.quietStartup);
+            if (advanced.projectTrust === "ask" || advanced.projectTrust === "always" || advanced.projectTrust === "never")
+              settings.setDefaultProjectTrust(advanced.projectTrust);
+            if (typeof advanced.showCacheMissNotices === "boolean") settings.setShowCacheMissNotices(advanced.showCacheMissNotices);
+            if (typeof advanced.enableInstallTelemetry === "boolean") settings.setEnableInstallTelemetry(advanced.enableInstallTelemetry);
+            if (typeof advanced.shellPath === "string") settings.setShellPath(advanced.shellPath.trim() || undefined);
+            if (advanced.doubleEscapeAction === "fork" || advanced.doubleEscapeAction === "tree" || advanced.doubleEscapeAction === "none")
+              settings.setDoubleEscapeAction(advanced.doubleEscapeAction);
+            if (
+              advanced.treeFilterMode === "default" ||
+              advanced.treeFilterMode === "no-tools" ||
+              advanced.treeFilterMode === "user-only" ||
+              advanced.treeFilterMode === "labeled-only" ||
+              advanced.treeFilterMode === "all"
+            )
+              settings.setTreeFilterMode(advanced.treeFilterMode);
+            if (advanced.mermaid === "off" || advanced.mermaid === "final" || advanced.mermaid === "streaming")
+              settings.setMermaidRenderingMode(advanced.mermaid);
           }
           if (
             typeof payload.compaction === "object" &&

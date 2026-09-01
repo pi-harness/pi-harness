@@ -1379,6 +1379,98 @@ function Settings({
                           />
                         </label>
                       </section>
+                      <section className="config-section">
+                        <header>
+                          <strong>终端与导航</strong>
+                          <small>控制命令行界面和消息渲染行为</small>
+                        </header>
+                        <label className="config-toggle">
+                          <span>
+                            <strong>安静启动</strong>
+                            <small>启动时隐藏版本和更新提示</small>
+                          </span>
+                          <input
+                            checked={config.settings.advanced.quietStartup}
+                            disabled={configBusy}
+                            onChange={(event) =>
+                              updateConfig({ advanced: { ...config.settings.advanced, quietStartup: event.target.checked } }, "保存启动设置…")
+                            }
+                            type="checkbox"
+                          />
+                        </label>
+                        <label className="config-field">
+                          <span>项目可信策略</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ advanced: { ...config.settings.advanced, projectTrust: event.target.value } }, "保存信任策略…")}
+                            value={config.settings.advanced.projectTrust}
+                          >
+                            <option value="ask">每次询问</option>
+                            <option value="always">始终信任</option>
+                            <option value="never">从不信任</option>
+                          </select>
+                        </label>
+                        <label className="config-field">
+                          <span>Mermaid 渲染</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) => updateConfig({ advanced: { ...config.settings.advanced, mermaid: event.target.value } }, "保存 Mermaid 设置…")}
+                            value={config.settings.advanced.mermaid}
+                          >
+                            <option value="off">关闭</option>
+                            <option value="final">完成后渲染</option>
+                            <option value="streaming">流式渲染</option>
+                          </select>
+                        </label>
+                        <label className="config-field">
+                          <span>双击 Escape</span>
+                          <select
+                            disabled={configBusy}
+                            onChange={(event) =>
+                              updateConfig({ advanced: { ...config.settings.advanced, doubleEscapeAction: event.target.value } }, "保存快捷键设置…")
+                            }
+                            value={config.settings.advanced.doubleEscapeAction}
+                          >
+                            <option value="tree">打开会话树</option>
+                            <option value="fork">创建分支</option>
+                            <option value="none">不执行</option>
+                          </select>
+                        </label>
+                      </section>
+                      <section className="config-section">
+                        <header>
+                          <strong>诊断与隐私</strong>
+                          <small>控制缓存提示和匿名数据上报</small>
+                        </header>
+                        <label className="config-toggle">
+                          <span>
+                            <strong>显示缓存未命中</strong>
+                            <small>在消息中显示模型缓存诊断</small>
+                          </span>
+                          <input
+                            checked={config.settings.advanced.showCacheMissNotices}
+                            disabled={configBusy}
+                            onChange={(event) =>
+                              updateConfig({ advanced: { ...config.settings.advanced, showCacheMissNotices: event.target.checked } }, "保存诊断设置…")
+                            }
+                            type="checkbox"
+                          />
+                        </label>
+                        <label className="config-toggle">
+                          <span>
+                            <strong>安装遥测</strong>
+                            <small>发送匿名安装和版本统计</small>
+                          </span>
+                          <input
+                            checked={config.settings.advanced.enableInstallTelemetry}
+                            disabled={configBusy}
+                            onChange={(event) =>
+                              updateConfig({ advanced: { ...config.settings.advanced, enableInstallTelemetry: event.target.checked } }, "保存隐私设置…")
+                            }
+                            type="checkbox"
+                          />
+                        </label>
+                      </section>
                     </div>
                   )
                 ) : (
