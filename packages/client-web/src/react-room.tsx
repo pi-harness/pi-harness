@@ -442,11 +442,13 @@ function Plugins({
   plugins,
   tab,
   onTab,
+  onMarketplace,
   onToml,
 }: {
   plugins: readonly ClientPlugin[];
   tab: "installed" | "extensions";
   onTab: (tab: "installed" | "extensions") => void;
+  onMarketplace: () => void;
   onToml: () => void;
 }) {
   const groups = useMemo(() => {
@@ -464,6 +466,9 @@ function Plugins({
             </button>
             <button className={tab === "extensions" ? "active" : ""} onClick={() => onTab("extensions")} type="button">
               扩展点
+            </button>
+            <button onClick={onMarketplace} type="button">
+              插件市场
             </button>
           </div>
           <span>运行时插件清单</span>
@@ -554,6 +559,7 @@ function Marketplace({
   onQueryChange,
   onCapabilityChange,
   onPageChange,
+  onBack,
 }: {
   plugins: readonly ClientMarketplacePlugin[];
   capabilities: readonly string[];
@@ -565,6 +571,7 @@ function Marketplace({
   onQueryChange: (value: string) => void;
   onCapabilityChange: (value: string) => void;
   onPageChange: (value: number) => void;
+  onBack: () => void;
 }) {
   const [copied, setCopied] = useState<string>();
   const [copyError, setCopyError] = useState("");
@@ -593,9 +600,14 @@ function Marketplace({
             <h2>发现 Cordis 插件</h2>
             <p>可审查的社区目录。每个条目都包含 npm 包、版本、许可证和 Cordis 配置入口。</p>
           </div>
-          <a href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md" target="_blank" rel="noreferrer">
-            贡献插件 ↗
-          </a>
+          <div className="marketplace-hero-actions">
+            <button onClick={onBack} type="button">
+              运行时插件
+            </button>
+            <a href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md" target="_blank" rel="noreferrer">
+              贡献插件 ↗
+            </a>
+          </div>
         </div>
         <div className="marketplace-toolbar">
           <input
@@ -748,8 +760,8 @@ function Settings({
         .finally(() => setProviderBusy((current) => ({ ...current, [provider]: false })));
   };
   return (
-    <div className="settings-overlay">
-      <div aria-modal="true" className="settings-dialog" role="dialog">
+    <section className="view-panel settings-page">
+      <div className="settings-dialog">
         <aside>
           <strong>设置</strong>
           {(["general", "plugins", "providers", "toml"] as const).map((item) => (
@@ -768,8 +780,8 @@ function Settings({
           <header>
             <strong>{tab === "general" ? "通用" : tab === "plugins" ? "插件" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
             <small>{tab === "toml" ? "配置即代码，改完重载" : "运行时状态与快捷键"}</small>
-            <button aria-label="关闭设置" onClick={onClose} type="button">
-              ×
+            <button className="settings-back" onClick={onClose} type="button">
+              返回会话
             </button>
           </header>
           <div className="settings-body">
@@ -901,7 +913,7 @@ function Settings({
           </div>
         </section>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1084,140 +1096,142 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     const path = typeof session.path === "string" ? session.path : "";
     if (path) void api.openSession(path).then(refresh);
   };
-  const content =
-    page === "plugins" ? (
-      <Plugins plugins={data.plugins} tab={pluginTab} onTab={setPluginTab} onToml={() => setSettings("toml")} />
-    ) : page === "marketplace" ? (
-      <Marketplace
-        plugins={data.marketplace}
-        capabilities={data.marketplaceCapabilities}
-        total={data.marketplaceTotal}
-        page={data.marketplacePage}
-        hasNext={data.marketplaceHasNext}
-        query={marketplaceQuery}
-        capabilityFilter={marketplaceCapability}
-        onQueryChange={(value) => {
-          setMarketplaceQuery(value);
-          setMarketplacePage(0);
-        }}
-        onCapabilityChange={(value) => {
-          setMarketplaceCapability(value);
-          setMarketplacePage(0);
-        }}
-        onPageChange={setMarketplacePage}
-      />
-    ) : view === "chat" ? (
-      <section className="view-panel chat-view">
-        <div className={`chat-scroll ${data.session?.messages.length ? "" : "is-empty"}`}>
-          {data.session?.messages.length ? (
-            data.session.messages.map((message, index) => (
-              <article className={`turn ${message.role === "user" ? "user" : "text"}`} key={index}>
-                {message.role === "user" ? <div className="user-bubble">{messageText(message)}</div> : <p className="turn-text">{messageText(message)}</p>}
-              </article>
-            ))
-          ) : (
-            <Workspace status={data.status} onCreate={() => void api.createSession().then(refresh)} onStarter={setDraft} onToml={() => setSettings("toml")} />
-          )}
-          {events.map((event, index) => (
-            <RuntimeCard event={event} key={`${value(event.type, "event")}-${index}`} />
-          ))}
+  const content = settings ? (
+    <Settings api={api} data={data} tab={settings} onTab={setSettings} onClose={() => setSettings(undefined)} />
+  ) : page === "plugins" ? (
+    <Plugins plugins={data.plugins} tab={pluginTab} onTab={setPluginTab} onMarketplace={() => setPage("marketplace")} onToml={() => setSettings("toml")} />
+  ) : page === "marketplace" ? (
+    <Marketplace
+      plugins={data.marketplace}
+      capabilities={data.marketplaceCapabilities}
+      total={data.marketplaceTotal}
+      page={data.marketplacePage}
+      hasNext={data.marketplaceHasNext}
+      query={marketplaceQuery}
+      capabilityFilter={marketplaceCapability}
+      onQueryChange={(value) => {
+        setMarketplaceQuery(value);
+        setMarketplacePage(0);
+      }}
+      onCapabilityChange={(value) => {
+        setMarketplaceCapability(value);
+        setMarketplacePage(0);
+      }}
+      onPageChange={setMarketplacePage}
+      onBack={() => setPage("plugins")}
+    />
+  ) : view === "chat" ? (
+    <section className="view-panel chat-view">
+      <div className={`chat-scroll ${data.session?.messages.length ? "" : "is-empty"}`}>
+        {data.session?.messages.length ? (
+          data.session.messages.map((message, index) => (
+            <article className={`turn ${message.role === "user" ? "user" : "text"}`} key={index}>
+              {message.role === "user" ? <div className="user-bubble">{messageText(message)}</div> : <p className="turn-text">{messageText(message)}</p>}
+            </article>
+          ))
+        ) : (
+          <Workspace status={data.status} onCreate={() => void api.createSession().then(refresh)} onStarter={setDraft} onToml={() => setSettings("toml")} />
+        )}
+        {events.map((event, index) => (
+          <RuntimeCard event={event} key={`${value(event.type, "event")}-${index}`} />
+        ))}
+      </div>
+      <div className="composer-wrap">
+        <div className="context-line">
+          <span className="context-label">实时上下文</span>
+          <div className="context-metrics">
+            <span>
+              <b>{data.status?.messages ?? 0}</b> 条消息
+            </span>
+            <span>
+              <b>{data.status?.events ?? events.length}</b> 个事件
+            </span>
+            <span>
+              <b>{value(data.status?.model)}</b>
+            </span>
+          </div>
+          <button aria-expanded={contextExpanded} onClick={() => setContextExpanded((current) => !current)} type="button">
+            {contextExpanded ? "收起" : "展开"}
+          </button>
         </div>
-        <div className="composer-wrap">
-          <div className="context-line">
-            <span className="context-label">实时上下文</span>
-            <div className="context-metrics">
-              <span>
-                <b>{data.status?.messages ?? 0}</b> 条消息
-              </span>
-              <span>
-                <b>{data.status?.events ?? events.length}</b> 个事件
-              </span>
-              <span>
-                <b>{value(data.status?.model)}</b>
-              </span>
-            </div>
-            <button aria-expanded={contextExpanded} onClick={() => setContextExpanded((current) => !current)} type="button">
-              {contextExpanded ? "收起" : "展开"}
+        {contextExpanded && (
+          <div className="context-breakdown" role="status">
+            <span>
+              消息 <b>{data.status?.messages ?? 0}</b>
+            </span>
+            <span>
+              运行时事件 <b>{data.status?.events ?? events.length}</b>
+            </span>
+            <span>
+              模型 <b>{value(data.status?.model)}</b>
+            </span>
+          </div>
+        )}
+        <form className="composer" onSubmit={submit}>
+          <textarea
+            aria-label="Prompt"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+            placeholder="描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令"
+            rows={2}
+            value={draft}
+          ></textarea>
+          <div className="composer-tools">
+            <select
+              aria-label="模型"
+              disabled={!data.models.length || promptBusy}
+              value={data.status?.model ?? ""}
+              onChange={(event) => {
+                const [provider, model] = event.target.value.split("/");
+                if (provider && model) void api.selectModel(provider, model);
+              }}
+            >
+              {data.models.length ? (
+                data.models.map((model) => (
+                  <option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
+                    {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
+                  </option>
+                ))
+              ) : (
+                <option value="">暂无可用模型</option>
+              )}
+            </select>
+            <button className="tool-chip" onClick={() => setPermission((current) => !current)} type="button">
+              ● {permission ? "改动前询问" : "自动允许"}
+            </button>
+            <button className="tool-chip" onClick={() => setCommandOpen(true)} type="button">
+              ／ 命令
+            </button>
+            <span className="composer-hint">⌘↵ 发送 · ⌘K 命令 · ⌃C 中断</span>
+            <button
+              aria-label={promptBusy ? "发送中" : "发送消息"}
+              className="send-button"
+              disabled={promptBusy || !draft.trim()}
+              title={promptBusy ? "正在发送" : "发送消息（⌘↵）"}
+              type="submit"
+            >
+              {promptBusy ? "…" : "↑"}
             </button>
           </div>
-          {contextExpanded && (
-            <div className="context-breakdown" role="status">
-              <span>
-                消息 <b>{data.status?.messages ?? 0}</b>
-              </span>
-              <span>
-                运行时事件 <b>{data.status?.events ?? events.length}</b>
-              </span>
-              <span>
-                模型 <b>{value(data.status?.model)}</b>
-              </span>
-            </div>
-          )}
-          <form className="composer" onSubmit={submit}>
-            <textarea
-              aria-label="Prompt"
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-              placeholder="描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令"
-              rows={2}
-              value={draft}
-            ></textarea>
-            <div className="composer-tools">
-              <select
-                aria-label="模型"
-                disabled={!data.models.length || promptBusy}
-                value={data.status?.model ?? ""}
-                onChange={(event) => {
-                  const [provider, model] = event.target.value.split("/");
-                  if (provider && model) void api.selectModel(provider, model);
-                }}
-              >
-                {data.models.length ? (
-                  data.models.map((model) => (
-                    <option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
-                      {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">暂无可用模型</option>
-                )}
-              </select>
-              <button className="tool-chip" onClick={() => setPermission((current) => !current)} type="button">
-                ● {permission ? "改动前询问" : "自动允许"}
-              </button>
-              <button className="tool-chip" onClick={() => setCommandOpen(true)} type="button">
-                ／ 命令
-              </button>
-              <span className="composer-hint">⌘↵ 发送 · ⌘K 命令 · ⌃C 中断</span>
-              <button
-                aria-label={promptBusy ? "发送中" : "发送消息"}
-                className="send-button"
-                disabled={promptBusy || !draft.trim()}
-                title={promptBusy ? "正在发送" : "发送消息（⌘↵）"}
-                type="submit"
-              >
-                {promptBusy ? "…" : "↑"}
-              </button>
-            </div>
-          </form>
-          {promptError && <PromptError message={promptError} />}
-        </div>
-      </section>
-    ) : view === "trajectory" ? (
-      <Trajectory events={events} onSelect={setDetails} />
-    ) : (
-      <Files
-        api={api}
-        files={data.files}
-        onDiff={(file) => void api.getFileDiff(file).then((diff) => setDetails({ type: "file_diff", path: diff.path, output: diff.diff }))}
-        onRefresh={() => void refresh()}
-      />
-    );
+        </form>
+        {promptError && <PromptError message={promptError} />}
+      </div>
+    </section>
+  ) : view === "trajectory" ? (
+    <Trajectory events={events} onSelect={setDetails} />
+  ) : (
+    <Files
+      api={api}
+      files={data.files}
+      onDiff={(file) => void api.getFileDiff(file).then((diff) => setDetails({ type: "file_diff", path: diff.path, output: diff.diff }))}
+      onRefresh={() => void refresh()}
+    />
+  );
   const groups = sessionGroups(filteredSessions);
   const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
   return (
@@ -1284,7 +1298,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </span>
           </div>
           <button
-            className={`sidebar-link ${page === "plugins" ? "active" : ""}`}
+            className={`sidebar-link ${page === "plugins" || page === "marketplace" ? "active" : ""}`}
             onClick={() => {
               setPage("plugins");
               setSettings(undefined);
@@ -1294,18 +1308,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             ◈ <span>插件</span>
             <b>{data.plugins.length}</b>
           </button>
-          <button
-            className={`sidebar-link ${page === "marketplace" ? "active" : ""}`}
-            onClick={() => {
-              setPage("marketplace");
-              setSettings(undefined);
-            }}
-            type="button"
-          >
-            ✦ <span>市场</span>
-            <b>{data.marketplaceTotal}</b>
-          </button>
-          <button className="sidebar-link" onClick={() => setSettings("general")} type="button">
+          <button className={`sidebar-link ${settings ? "active" : ""}`} onClick={() => setSettings("general")} type="button">
             ⚙ <span>设置</span>
           </button>
           <button className="sidebar-link" onClick={() => setCommandOpen(true)} type="button">
@@ -1319,20 +1322,24 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         <header className="main-header">
           <div className="active-heading">
             <strong>
-              {page === "plugins"
-                ? "插件"
-                : page === "marketplace"
-                  ? "插件市场"
-                  : data.session?.messages.length
-                    ? data.session.sessionId.slice(0, 12)
-                    : "新会话"}
+              {settings
+                ? "设置"
+                : page === "plugins"
+                  ? "运行时插件"
+                  : page === "marketplace"
+                    ? "插件市场"
+                    : data.session?.messages.length
+                      ? data.session.sessionId.slice(0, 12)
+                      : "新会话"}
             </strong>
             <small>
-              {page === "plugins"
-                ? "Cordis loader 运行时清单"
-                : page === "marketplace"
-                  ? "社区目录 · 可审查安装指引"
-                  : sessionSource(data.status, data.session)}
+              {settings
+                ? "运行时状态与配置"
+                : page === "plugins"
+                  ? "Cordis loader 运行时清单"
+                  : page === "marketplace"
+                    ? "社区目录 · 可审查安装指引"
+                    : sessionSource(data.status, data.session)}
             </small>
           </div>
           <div className="header-spacer"></div>
@@ -1345,7 +1352,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               </button>
             </div>
           )}
-          {page === "session" && (
+          {!settings && page === "session" && (
             <div className="view-tabs">
               {(["chat", "trajectory", "files"] as const).map((item) => (
                 <button className={`view-tab ${view === item ? "active" : ""}`} key={item} onClick={() => setView(item)} type="button">
@@ -1354,8 +1361,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               ))}
             </div>
           )}
-          {page === "session" && <span aria-hidden="true" className="header-divider"></span>}
-          {page === "session" && (
+          {!settings && page === "session" && <span aria-hidden="true" className="header-divider"></span>}
+          {!settings && page === "session" && (
             <>
               <button className="session-menu" onClick={() => setSessionMenuOpen((current) => !current)} type="button" aria-label="会话操作">
                 ⋯
@@ -1365,7 +1372,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               </button>
             </>
           )}
-          {page === "session" && sessionMenuOpen && (
+          {!settings && page === "session" && sessionMenuOpen && (
             <div className="session-menu-popover">
               <button
                 className="session-action"
@@ -1402,7 +1409,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           onCopy={() => void navigator.clipboard?.writeText(JSON.stringify(details, null, 2))}
         />
       )}
-      {settings && <Settings api={api} data={data} tab={settings} onTab={setSettings} onClose={() => setSettings(undefined)} />}
       {commandOpen && <CommandPalette commands={data.commands} onClose={() => setCommandOpen(false)} onUse={setDraft} />}
     </div>
   );
