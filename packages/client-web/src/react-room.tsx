@@ -72,6 +72,7 @@ const capability = (name: string): string => {
     ["sql-lens", "数据库"],
     ["docker-sandbox", "沙箱"],
     ["mcp-client", "工具协议"],
+    ["browser-fetch", "网页抓取"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -99,6 +100,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/sql-lens", "SQL Lens"],
     ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox"],
     ["@pi-harness/core/plugins/mcp-client", "MCP Client"],
+    ["@pi-harness/core/plugins/browser-fetch", "Browser Fetch"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1023,6 +1025,36 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })}
             </div>
           ) : null}
+        </div>
+      ) : panel.id === "browser-fetch-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const result = data.latest as Record<string, unknown>;
+              return (
+                <>
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
+                    <span className="truncate font-mono text-[11px] text-[#30343b]">{String(result.finalUrl ?? result.url ?? "page")}</span>
+                    <strong className="font-mono text-[12px] text-[#198754]">HTTP {String(result.status ?? "—")}</strong>
+                  </div>
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                    {String(result.text ?? "")}
+                  </pre>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有抓取网页。默认阻止本地和私有网络目标。
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">max:512KiB</span>
+            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">scripts:disabled</span>
+            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">
+              private:{String(data?.allowPrivate === true ? "allowed" : "blocked")}
+            </span>
+          </div>
         </div>
       ) : panel.id === "i18n-pair-panel" ? (
         <div className="mt-3 grid gap-3">

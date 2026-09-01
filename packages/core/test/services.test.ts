@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -29,6 +30,7 @@ import i18nPairPlugin from "../src/plugins/i18n-pair.js";
 import sqlLensPlugin from "../src/plugins/sql-lens.js";
 import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
 import mcpClientPlugin from "../src/plugins/mcp-client.js";
+import browserFetchPlugin from "../src/plugins/browser-fetch.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 
 const contexts: Context[] = [];
@@ -471,6 +473,42 @@ describe("Pi domain plugins", () => {
     ).resolves.toMatchObject({ content: [{ type: "text", text: "hello" }] });
     await expect(listTools!.execute("call-3", { command: ["/bin/sh", "-c", "echo bad"] }, undefined, undefined, {} as never)).rejects.toThrow(
       /shell wrapper/iu,
+    );
+  });
+
+  test("fetches bounded browser pages and blocks private targets by default", async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader("content-type", "text/html; charset=utf-8");
+      response.end("<html><body><h1>Pi Harness</h1></body></html>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Test server did not bind to a port");
+    try {
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(browserFetchPlugin, { allowPrivate: true });
+      const fetchTool = tools.snapshot().customTools[0];
+      await expect(fetchTool.execute("call-1", { url: `http://127.0.0.1:${address.port}/` }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { status: 200, contentType: "text/html", text: "<html><body><h1>Pi Harness</h1></body></html>" },
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+    const blocked = await createContext();
+    const blockedPanels = new PiPluginUiRegistry();
+    const blockedTools = new PiToolRegistry();
+    blocked.context.provide("piTools", blockedTools);
+    blocked.context.provide("piPluginUi", blockedPanels);
+    await blocked.context.plugin(browserFetchPlugin);
+    await expect(blockedTools.snapshot().customTools[0].execute("call-2", { url: "http://127.0.0.1:1/" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /private|local/iu,
     );
   });
 });
