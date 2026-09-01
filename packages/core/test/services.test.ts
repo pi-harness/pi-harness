@@ -35,6 +35,7 @@ import browserFetchPlugin from "../src/plugins/browser-fetch.js";
 import browserSessionPlugin from "../src/plugins/browser-session.js";
 import yamlValidatorPlugin from "../src/plugins/yaml-validator.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
+import mockServerPlugin from "../src/plugins/mock-server.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -448,6 +449,31 @@ describe("Pi domain plugins", () => {
     await expect(tool.execute("call-1", { command: ["echo", "ok"], write: true }, undefined, undefined, {} as never)).rejects.toThrow(/confirmWrite=true/);
     await expect(tool.execute("call-2", { command: ["sh", "-c", "echo ok"] }, undefined, undefined, {} as never)).rejects.toThrow(/Shell wrappers/);
     await expect(tool.execute("call-3", { command: ["/bin/sh", "-c", "echo ok"] }, undefined, undefined, {} as never)).rejects.toThrow(/Shell wrappers/);
+  });
+
+  test("serves configured routes through the local mock server", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(mockServerPlugin, { port: 0, routes: [{ path: "/health", method: "GET", status: 200, body: "ok" }] });
+    const registered = tools.snapshot().customTools;
+    const start = registered.find((tool) => tool.name === "mock_server_start");
+    const status = registered.find((tool) => tool.name === "mock_server_status");
+    const stop = registered.find((tool) => tool.name === "mock_server_stop");
+    expect(start).toBeDefined();
+    expect(status).toBeDefined();
+    expect(stop).toBeDefined();
+    const started = await start!.execute("call-1", {}, undefined, undefined, {} as never);
+    const url = (started.details as { url: string }).url;
+    await expect(fetch(`${url}/health`)).resolves.toMatchObject({ status: 200 });
+    const response = await fetch(`${url}/health`);
+    await expect(response.text()).resolves.toBe("ok");
+    await expect(fetch(`${url}/missing`)).resolves.toMatchObject({ status: 404 });
+    await expect(status!.execute("call-2", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { running: true, routes: 1 } });
+    await expect(stop!.execute("call-3", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { stopped: true } });
+    await expect(status!.execute("call-4", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { running: false } });
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

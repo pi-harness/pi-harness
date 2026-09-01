@@ -1166,6 +1166,15 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           ) : null}
         </div>
+      ) : panel.id === "mock-server-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <span className="font-mono text-[11px] text-[#30343b]">{data?.running === true ? "运行中" : "未启动"}</span>
+            <strong className="font-mono text-[11px] text-[#4176e6]">{String(data?.routes ?? 0)} 路由</strong>
+          </div>
+          {data?.url ? <code className="rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{String(data.url)}</code> : null}
+          {data?.lastRequest ? <p className="text-[11px] text-[#8a949f]">最近请求：{String(data.lastRequest)}</p> : null}
+        </div>
       ) : panel.id === "browser-fetch-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
