@@ -82,6 +82,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/git-time-capsule", "Git Time Capsule"],
     ["@pi-harness/core/plugins/dependency-checker", "Dependency Checker"],
     ["@pi-harness/core/plugins/at-file", "@file context"],
+    ["@pi-harness/core/plugins/fail-logger", "Failure Logger"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -849,6 +850,31 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <p className="mt-2 text-[11px] text-[#71809a]">
               {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${String(data?.aborts ?? 0)}`}
             </p>
+          </div>
+        </div>
+      ) : panel.id === "fail-logger-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg bg-[#fff5f5] px-3 py-3">
+            <span className="text-[11px] font-semibold text-[#7f1d1d]">去重后的失败记录</span>
+            <strong className="font-mono text-[17px] text-[#b42318]">{String(data?.total ?? 0)}</strong>
+          </div>
+          <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3]">
+            {Array.isArray(data?.failures) && data.failures.length > 0 ? (
+              data.failures.map((item, index) => {
+                const failure = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div
+                    className="grid grid-cols-[auto_1fr] gap-2 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
+                    key={`${String(failure.time ?? "failure")}-${index}`}
+                  >
+                    <span className="font-mono text-[10px] text-[#b42318]">{String(failure.source ?? "runtime")}</span>
+                    <span className="break-words text-[11px] leading-4 text-[#65707b]">{String(failure.message ?? "未知错误")}</span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="px-3 py-4 text-[12px] text-[#8a949f]">暂无失败记录。</div>
+            )}
           </div>
         </div>
       ) : panel.id === "context-insight-panel" ? (

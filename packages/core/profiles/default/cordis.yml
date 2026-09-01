@@ -52,6 +52,9 @@
       name: "@pi-harness/core/plugins/token-guard"
       config:
         maxPercent: 90
+    - id: fail-logger
+      name: "@pi-harness/core/plugins/fail-logger"
+      config: {}
     - id: stdio
       name: "@pi-harness/core/plugins/stdio"
       config: {}

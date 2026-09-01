@@ -20,6 +20,7 @@ import tokenGuardPlugin from "../src/plugins/token-guard.js";
 import gitTimeCapsulePlugin from "../src/plugins/git-time-capsule.js";
 import dependencyCheckerPlugin from "../src/plugins/dependency-checker.js";
 import atFilePlugin from "../src/plugins/at-file.js";
+import failLoggerPlugin from "../src/plugins/fail-logger.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -298,5 +299,20 @@ describe("Pi domain plugins", () => {
     });
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "at-file-panel", data: { lastFile: { path: "notes.md", bytes: 15 } } }]);
     await expect(tool.execute("call-2", { path: "../notes.md" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
+  });
+
+  test("deduplicates extension failures in the live failure logger panel", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piPluginUi", panels);
+    await context.plugin(failLoggerPlugin);
+
+    const error = new Error("extension failed");
+    context.emit("pi/extension-error", error);
+    context.emit("pi/extension-error", error);
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { id: "fail-logger-panel", data: { total: 1, failures: [{ source: "extension", message: "extension failed" }] } },
+    ]);
   });
 });
