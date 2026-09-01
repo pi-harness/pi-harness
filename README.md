@@ -54,9 +54,19 @@ pih --config ./cordis.yml "Summarize the current directory"
 pih --profile default --dump-config
 ```
 
-Launcher options are `--profile`, `--config`, `--dump-config`, `--help`, and `--version`. Remaining arguments are passed unchanged to the active application plugin. The bundled stdio application accepts `--prompt <text>`, a positional prompt, or piped stdin.
+Launcher options are `--profile`, `--config`, `--dump-config`, `--help`, and `--version`. `--profile` and `--config` also accept the inline `--profile=<name>` and `--config=<path>` spellings. The launcher stops recognizing its own options at the first argument that is not one of them, so `pih explain what tar -h prints` sends the whole sentence to the agent instead of printing usage.
 
-The built-in development profile watches the invocation working directory and the launcher automatically supervises a child process with Node's `--expose-internals` flag, which Cordis HMR requires. Cordis performs partial plugin reloads in place and requests a supervised process restart when a framework module changes. Production does not expose Node internals. A custom profile that mounts `@deepseek-ai/cordis-plugin-hmr` must start the CLI entry with `node --expose-internals`.
+Remaining arguments are passed unchanged to the active application plugin, including a `--` separator, which the launcher forwards rather than consuming. The bundled stdio application accepts `--prompt <text>`, `--prompt=<text>`, a positional prompt, or piped stdin, and rejects an option-shaped positional prompt unless `--` precedes it:
+
+```sh
+pih -- -v is a version flag, explain it
+```
+
+`PI_AGENT_DIR` must name an absolute directory. An empty or whitespace-only value is treated as unset, and a relative value is resolved against the invocation directory, so the credential store can never land in the current working directory by accident.
+
+The built-in development profile watches the invocation working directory and the launcher automatically supervises a child process with Node's `--expose-internals` flag, which Cordis HMR requires. Cordis performs partial plugin reloads in place and requests a supervised process restart when a framework module changes. The supervisor backs off between restarts and gives up after five restarts in ten seconds so a reload loop cannot fork processes without bound. Production does not expose Node internals.
+
+A custom profile that mounts `@deepseek-ai/cordis-plugin-hmr` must start the CLI entry with `node --expose-internals`. Such a process is not supervised, so a Cordis full-reload request writes a diagnostic to stderr and leaves the run in place instead of terminating with a restart exit code that nothing would act on.
 
 ## Profiles
 
@@ -104,9 +114,9 @@ This uses Cordis injection for deterministic ordering. A late contribution fails
 ## Failure and security boundaries
 
 - A profile can load arbitrary Node.js modules. Treat profile files and plugin packages as executable code.
-- Missing modules, invalid configuration, unresolved injections, model lookup failures, and plugin activation failures abort startup and dispose the partial tree.
+- Missing modules, invalid configuration, unresolved injections, model lookup failures, and plugin activation failures abort startup and dispose the partial tree. Configuration validation rejects unknown keys, so a mistyped `name:` in place of `names:` fails startup instead of silently restoring a default toolset.
 - The runtime does not fall back to a different model or storage backend.
-- Signals cancel startup or abort the active Pi run before the Cordis tree is disposed. Runtime abort and root disposal have a five-second deadline, after which the executable forces the signal-compatible exit code.
+- Signals cancel startup or abort the active Pi run before the Cordis tree is disposed. Runtime abort and root disposal have a five-second deadline, after which the executable forces the signal-compatible exit code. A repeated signal during that window forces the exit immediately. A pending prompt read is cancelled too, so a signal never leaves the process alive holding an open stdin pipe, and cancelling the interactive prompt with Ctrl-C exits 130 rather than the usage code 2.
 - The production profile excludes HMR. Development HMR grants access to Node internal ESM loader APIs only in the relaunched development process.
 - Existing Pi resources and extensions under `PI_AGENT_DIR` participate in startup and shutdown. Use an isolated agent directory for deterministic tests.
 
