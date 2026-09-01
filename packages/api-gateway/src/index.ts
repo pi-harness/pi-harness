@@ -83,6 +83,7 @@ function piConfig(services: ApiServices) {
   return {
     path: join(services.launch.agentDir, "settings.json"),
     scope: "global" as const,
+    source: JSON.stringify(global, null, 2) + "\n",
     settings: {
       defaultProvider: global.defaultProvider,
       defaultModel: global.defaultModel,
@@ -397,6 +398,33 @@ export default {
           return;
         }
         try {
+          await services.runtime.session.settingsManager.reload();
+          sendJson(response, 200, piConfig(services));
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
+      },
+    });
+    const disposeConfigSource = services.webServer.register({
+      path: "/api/config/source",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { source?: unknown };
+          if (typeof payload.source !== "string" || payload.source.length > 128 * 1024) {
+            sendJson(response, 400, { error: "source must be a JSON document smaller than 128 KiB" });
+            return;
+          }
+          const parsed: unknown = JSON.parse(payload.source);
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            sendJson(response, 400, { error: "settings source must contain a JSON object" });
+            return;
+          }
+          const path = join(services.launch.agentDir, "settings.json");
+          await writeFile(path, JSON.stringify(parsed, null, 2) + "\n", "utf8");
           await services.runtime.session.settingsManager.reload();
           sendJson(response, 200, piConfig(services));
         } catch (error) {
@@ -1326,6 +1354,7 @@ export default {
       disposeStatus();
       disposeConfig();
       disposeConfigReload();
+      disposeConfigSource();
       disposeEvents();
       disposeModels();
       disposeProviders();

@@ -49,38 +49,6 @@ const value = (input: unknown, fallback = "—"): string => {
     return fallback;
   }
 };
-const configSource = (config: ClientPiConfig): string => {
-  const settings = config.settings;
-  return [
-    "# pi harness runtime configuration",
-    "",
-    "[agent]",
-    `default_provider = "${settings.defaultProvider ?? ""}"`,
-    `default_model = "${settings.defaultModel ?? ""}"`,
-    `default_thinking_level = "${settings.defaultThinkingLevel ?? "medium"}"`,
-    "",
-    "[runtime]",
-    `transport = "${settings.transport}"`,
-    `steering_mode = "${settings.steeringMode}"`,
-    `follow_up_mode = "${settings.followUpMode}"`,
-    "",
-    "[compaction]",
-    `enabled = ${settings.compaction.enabled}`,
-    `reserve_tokens = ${settings.compaction.reserveTokens}`,
-    `keep_recent_tokens = ${settings.compaction.keepRecentTokens}`,
-    "",
-    "[retry]",
-    `enabled = ${settings.retry.enabled}`,
-    `max_retries = ${settings.retry.maxRetries}`,
-    `base_delay_ms = ${settings.retry.baseDelayMs}`,
-    "",
-    "[display]",
-    `hide_thinking_block = ${settings.hideThinkingBlock}`,
-    `show_images = ${settings.terminal.showImages}`,
-    `image_auto_resize = ${settings.terminal.imageAutoResize}`,
-    `autocomplete_max_visible = ${settings.terminal.autocompleteMaxVisible}`,
-  ].join("\n");
-};
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
 const eventLabel = (event: Record<string, unknown>): string =>
@@ -914,6 +882,7 @@ function Settings({
   }>({ provider: "", name: "", baseUrl: "", api: "openai-completions", apiKey: "", model: "" });
   const [config, setConfig] = useState<ClientPiConfig>();
   const [configMode, setConfigMode] = useState<"form" | "source">("form");
+  const [configSourceDraft, setConfigSourceDraft] = useState("");
   const [configBusy, setConfigBusy] = useState(false);
   const [configState, setConfigState] = useState("");
   useEffect(() => {
@@ -923,6 +892,7 @@ function Settings({
       .getConfig()
       .then((value) => {
         setConfig(value);
+        setConfigSourceDraft(value.source);
         setConfigState("");
       })
       .catch((cause: unknown) => setConfigState(cause instanceof Error ? cause.message : String(cause)));
@@ -932,7 +902,10 @@ function Settings({
     setConfigState(message);
     void api
       .updateConfig(input)
-      .then(setConfig)
+      .then((value) => {
+        setConfig(value);
+        setConfigSourceDraft(value.source);
+      })
       .then(() => setConfigState("已保存"))
       .catch((cause: unknown) => setConfigState(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setConfigBusy(false));
@@ -1226,7 +1199,38 @@ function Settings({
                 )}
                 {config ? (
                   configMode === "source" ? (
-                    <pre className="config-source">{configSource(config)}</pre>
+                    <div className="config-source-editor">
+                      <textarea
+                        aria-label="settings.json 源码"
+                        className="config-source"
+                        onChange={(event) => setConfigSourceDraft(event.target.value)}
+                        spellCheck={false}
+                        value={configSourceDraft}
+                      />
+                      <div className="config-source-actions">
+                        <small>完整 JSON 配置，可编辑未知字段；保存前会校验语法。</small>
+                        <button
+                          className="primary"
+                          disabled={configBusy || !configSourceDraft.trim()}
+                          onClick={() => {
+                            setConfigBusy(true);
+                            setConfigState("保存源码…");
+                            void api
+                              .updateConfigSource(configSourceDraft)
+                              .then((value) => {
+                                setConfig(value);
+                                setConfigSourceDraft(value.source);
+                                setConfigState("已保存源码");
+                              })
+                              .catch((cause: unknown) => setConfigState(cause instanceof Error ? cause.message : String(cause)))
+                              .finally(() => setConfigBusy(false));
+                          }}
+                          type="button"
+                        >
+                          保存源码
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <div className="config-sections">
                       <section className="config-section">

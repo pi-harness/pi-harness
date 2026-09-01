@@ -291,7 +291,22 @@ button:disabled {
   @apply [color:var(--color-red)];
 }
 .config-source {
-  @apply [min-height:360px] [margin:0] [overflow:auto] [border:1px_solid_var(--color-line)] [border-radius:10px] [background:#f8fafc] [padding:16px] [color:#334155] [font:11px/1.7_var(--font-mono)] [white-space:pre];
+  @apply [display:block] [width:100%] [min-height:420px] [resize:vertical] [margin:0] [overflow:auto] [border:1px_solid_var(--color-line)] [border-radius:10px] [background:#f8fafc] [padding:16px] [color:#334155] [font:11px/1.7_var(--font-mono)] [white-space:pre] [outline:none];
+}
+.config-source:focus {
+  @apply [border-color:var(--color-blue)] [box-shadow:0_0_0_3px_rgba(65,_118,_230,_0.12)];
+}
+.config-source-editor {
+  @apply [display:flex] [flex-direction:column] [gap:8px];
+}
+.config-source-actions {
+  @apply [display:flex] [align-items:center] [justify-content:space-between] [gap:12px];
+}
+.config-source-actions small {
+  @apply [color:var(--color-muted)] [font-size:10.5px];
+}
+.config-source-actions button {
+  @apply [flex:none] [height:30px] [padding:0_11px] [border-radius:7px] [background:var(--color-ink)] [color:#fff] [font-size:11px];
 }
 .config-sections {
   @apply [display:grid] [grid-template-columns:1fr_1fr] [gap:12px];

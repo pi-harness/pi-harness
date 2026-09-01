@@ -81,6 +81,7 @@ export interface ClientWorkspace {
 export interface ClientPiConfig {
   readonly path: string;
   readonly scope: "global" | "project";
+  readonly source: string;
   readonly settings: {
     readonly defaultProvider?: string;
     readonly defaultModel?: string;
@@ -140,6 +141,7 @@ export interface ClientApi {
   selectModel(provider: string, model: string): Promise<{ model: ClientModel }>;
   getConfig(): Promise<ClientPiConfig>;
   updateConfig(input: Partial<ClientPiConfig["settings"]>): Promise<ClientPiConfig>;
+  updateConfigSource(source: string): Promise<ClientPiConfig>;
   reloadConfig(): Promise<ClientPiConfig>;
   subscribeEvents(onEvent: (payload: Record<string, unknown>) => void): () => void;
 }
@@ -274,6 +276,12 @@ export function createClientApi(): ClientApi {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
+      }),
+    updateConfigSource: (source) =>
+      requestJson<ClientPiConfig>("/api/config/source", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source }),
       }),
     reloadConfig: () => requestJson<ClientPiConfig>("/api/config/reload", { method: "POST" }),
     subscribeEvents: (onEvent) => {
