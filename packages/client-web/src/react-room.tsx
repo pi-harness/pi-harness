@@ -1175,6 +1175,28 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           {data?.url ? <code className="rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{String(data.url)}</code> : null}
           {data?.lastRequest ? <p className="text-[11px] text-[#8a949f]">最近请求：{String(data.lastRequest)}</p> : null}
         </div>
+      ) : panel.id === "cli-notifier-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "已启用" : "已停用"}</span>
+            <span className="font-mono text-[10px] text-[#8a949f]">{String(data?.platform ?? "unknown")}</span>
+          </div>
+          {Array.isArray(data?.notifications) && data.notifications.length > 0 ? (
+            <div className="grid gap-2">
+              {data.notifications.slice(0, 5).map((notification, index) => {
+                const item = typeof notification === "object" && notification !== null ? (notification as Record<string, unknown>) : {};
+                return (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]" key={`${String(item.time ?? "notification")}-${index}`}>
+                    <strong className="block text-[#30343b]">{String(item.title ?? "Pi Harness")}</strong>
+                    <span className="mt-1 block text-[#65707b]">{String(item.message ?? "")}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有发送通知。</div>
+          )}
+        </div>
       ) : panel.id === "browser-fetch-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (

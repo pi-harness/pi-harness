@@ -77,6 +77,9 @@
     - id: mock-server
       name: "@pi-harness/core/plugins/mock-server"
       config: {}
+    - id: cli-notifier
+      name: "@pi-harness/core/plugins/cli-notifier"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

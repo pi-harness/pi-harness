@@ -36,6 +36,7 @@ import browserSessionPlugin from "../src/plugins/browser-session.js";
 import yamlValidatorPlugin from "../src/plugins/yaml-validator.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 import mockServerPlugin from "../src/plugins/mock-server.js";
+import cliNotifierPlugin from "../src/plugins/cli-notifier.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -474,6 +475,31 @@ describe("Pi domain plugins", () => {
     await expect(status!.execute("call-2", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { running: true, routes: 1 } });
     await expect(stop!.execute("call-3", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { stopped: true } });
     await expect(status!.execute("call-4", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { running: false } });
+  });
+
+  test("records CLI notifications and respects the disabled setting", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(cliNotifierPlugin, { enabled: false, title: "Pi Harness Test" });
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "cli_notify");
+    expect(tool).toBeDefined();
+    await expect(tool!.execute("call-1", { message: "build finished" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { delivered: false, reason: "disabled", message: "build finished" },
+    });
+    context.emit("pi/session-event", { type: "agent_end", messages: [{ role: "assistant", stopReason: "stop" }] });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await expect(panels.snapshot()).resolves.toEqual([
+      expect.objectContaining({
+        id: "cli-notifier-panel",
+        data: expect.objectContaining({
+          enabled: false,
+          notifications: [expect.objectContaining({ message: "Agent turn completed." }), expect.objectContaining({ message: "build finished" })],
+        }),
+      }),
+    ]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {
