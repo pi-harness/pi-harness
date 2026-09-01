@@ -222,7 +222,7 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
       <aside className="details-panel">
         <header>
           <strong>事件详情</strong>
-          <button onClick={onClose} type="button">
+          <button aria-label="关闭事件详情" onClick={onClose} type="button">
             ×
           </button>
         </header>
@@ -242,7 +242,7 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
     <aside className="details-panel">
       <header>
         <strong>{eventLabel(event)}</strong>
-        <button onClick={onClose} type="button">
+        <button aria-label="关闭事件详情" onClick={onClose} type="button">
           ×
         </button>
       </header>
@@ -551,13 +551,22 @@ function Marketplace({
   onPageChange: (value: number) => void;
 }) {
   const [copied, setCopied] = useState<string>();
+  const [copyError, setCopyError] = useState("");
   const copyInstall = (plugin: ClientMarketplacePlugin) => {
     const profile = JSON.stringify({ id: plugin.id, name: plugin.profile.name, config: plugin.profile.config }, null, 2);
     const command = "npm install --save-exact " + plugin.packageName + "@" + plugin.version + "\\n\\nAdd this entry to your Cordis profile:\\n" + profile;
-    void navigator.clipboard?.writeText(command).then(() => {
-      setCopied(plugin.id);
-      window.setTimeout(() => setCopied((current) => (current === plugin.id ? undefined : current)), 1800);
-    });
+    setCopyError("");
+    if (!navigator.clipboard) {
+      setCopyError("当前浏览器不允许复制，请手动复制安装指引。");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(command)
+      .then(() => {
+        setCopied(plugin.id);
+        window.setTimeout(() => setCopied((current) => (current === plugin.id ? undefined : current)), 1800);
+      })
+      .catch(() => setCopyError("复制失败，请检查浏览器权限后重试。"));
   };
   return (
     <section className="flex min-w-0 flex-1 flex-col">
@@ -577,9 +586,9 @@ function Marketplace({
             贡献插件 ↗
           </a>
         </div>
-        <div className="flex items-center gap-2 border-b border-black/10 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-black/10 px-4 py-2.5">
           <input
-            className="h-[30px] min-w-[220px] flex-1 rounded-md border border-black/10 px-2.5 text-[12px] outline-none"
+            className="h-[30px] min-w-0 flex-1 basis-[220px] rounded-md border border-black/10 px-2.5 text-[12px] outline-none"
             aria-label="搜索插件"
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="搜索名称、包名、能力…"
@@ -601,7 +610,7 @@ function Marketplace({
           <span className="font-mono text-[10.5px] text-[#adb2b8]">{total} 个已审核条目</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-          <div className="grid max-w-[940px] grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-2.5">
+          <div className="grid max-w-[940px] grid-cols-1 gap-2.5 sm:grid-cols-[repeat(auto-fit,minmax(360px,1fr))]">
             {plugins.map((plugin) => (
               <article className="rounded-[10px] border border-black/10 bg-white p-3" key={plugin.id}>
                 <div className="flex items-start gap-2.5">
@@ -665,6 +674,7 @@ function Marketplace({
             ))}
             {!plugins.length && <div className="p-7 text-center text-[12px] text-[#81858c]">没有匹配的插件。</div>}
           </div>
+          {copyError && <p className="mt-2 text-[11px] text-[#ec1313]">{copyError}</p>}
           <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[11px] text-[#81858c]">
             <button
               className="rounded-md border border-black/10 bg-white px-2.5 py-1 text-[11px] text-[#0f1115] disabled:cursor-default disabled:opacity-40"
@@ -732,7 +742,7 @@ function Settings({
   };
   return (
     <div className="settings-overlay">
-      <div className="settings-dialog">
+      <div aria-modal="true" className="settings-dialog" role="dialog">
         <aside>
           <strong>设置</strong>
           {(["general", "plugins", "providers", "toml"] as const).map((item) => (
@@ -751,7 +761,7 @@ function Settings({
           <header>
             <strong>{tab === "general" ? "通用" : tab === "plugins" ? "插件" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
             <small>{tab === "toml" ? "配置即代码，改完重载" : "运行时状态与快捷键"}</small>
-            <button onClick={onClose} type="button">
+            <button aria-label="关闭设置" onClick={onClose} type="button">
               ×
             </button>
           </header>
@@ -933,7 +943,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [page, setPage] = useState<Page>("session");
   const [pluginTab, setPluginTab] = useState<"installed" | "extensions">("installed");
   const [settings, setSettings] = useState<SettingsTab>();
-  const [details, setDetails] = useState<Record<string, unknown> | undefined>({});
+  const [details, setDetails] = useState<Record<string, unknown>>();
   const [commandOpen, setCommandOpen] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -942,6 +952,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [marketplaceCapability, setMarketplaceCapability] = useState("");
   const [marketplacePage, setMarketplacePage] = useState(0);
   const [permission, setPermission] = useState(true);
+  const [contextExpanded, setContextExpanded] = useState(false);
+  const [promptError, setPromptError] = useState("");
+  const [promptBusy, setPromptBusy] = useState(false);
   const refresh = useCallback(async () => {
     const [status, session, sessions, files, models, providers, plugins, marketplace, commands] = await Promise.allSettled([
       api.getStatus(),
@@ -1009,9 +1022,15 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const prompt = draft.trim();
-    if (!prompt) return;
+    if (!prompt || promptBusy) return;
     setDraft("");
-    void api.prompt(prompt).then(() => refresh());
+    setPromptError("");
+    setPromptBusy(true);
+    void api
+      .prompt(prompt)
+      .then(() => refresh())
+      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setPromptBusy(false));
   };
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
@@ -1060,19 +1079,25 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             <span>
               上下文 <b>{data.status ? `${data.status.messages} / ${data.status.model}` : "0 / —"}</b>
             </span>
-            <div className={`context-bar ${permission ? "" : "expanded"}`}>
+            <div className={`context-bar ${contextExpanded ? "expanded" : ""}`}>
               <i></i>
               <i></i>
               <i></i>
             </div>
-            <button onClick={() => setPermission((current) => !current)} type="button">
-              {permission ? "构成" : "收起"}
+            <button aria-expanded={contextExpanded} onClick={() => setContextExpanded((current) => !current)} type="button">
+              {contextExpanded ? "收起" : "展开"}
             </button>
           </div>
           <form className="composer" onSubmit={submit}>
             <textarea
               aria-label="Prompt"
               onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
               placeholder="描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令"
               rows={2}
               value={draft}
@@ -1080,17 +1105,22 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             <div className="composer-tools">
               <select
                 aria-label="模型"
+                disabled={!data.models.length || promptBusy}
                 value={data.status?.model ?? ""}
                 onChange={(event) => {
                   const [provider, model] = event.target.value.split("/");
                   if (provider && model) void api.selectModel(provider, model);
                 }}
               >
-                {data.models.map((model) => (
-                  <option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
-                    {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
-                  </option>
-                ))}
+                {data.models.length ? (
+                  data.models.map((model) => (
+                    <option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
+                      {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">暂无可用模型</option>
+                )}
               </select>
               <button className="tool-chip" onClick={() => setPermission((current) => !current)} type="button">
                 ● {permission ? "改动前询问" : "自动允许"}
@@ -1099,11 +1129,18 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 ／ 命令
               </button>
               <span className="composer-hint">⌘↵ 发送 · ⌘K 命令 · ⌃C 中断</span>
-              <button className="send-button" type="submit">
-                ↑
+              <button
+                aria-label={promptBusy ? "发送中" : "发送消息"}
+                className="send-button"
+                disabled={promptBusy || !draft.trim()}
+                title={promptBusy ? "正在发送" : "发送消息（⌘↵）"}
+                type="submit"
+              >
+                {promptBusy ? "…" : "↑"}
               </button>
             </div>
           </form>
+          {promptError && <p className="action-error">{promptError}</p>}
         </div>
       </section>
     ) : view === "trajectory" ? (
@@ -1237,13 +1274,20 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <button className="session-menu" onClick={() => setSessionMenuOpen((current) => !current)} type="button" aria-label="会话操作">
             ⋯
           </button>
-          <button className="details-toggle" onClick={() => setDetails(details ? undefined : {})} type="button">
+          <button aria-pressed={details !== undefined} className="details-toggle" onClick={() => setDetails(details ? undefined : {})} type="button">
             ◨ 详情
           </button>
           <span className={`status-pill ${data.status?.status === "running" ? "running" : "online"}`}>{value(data.status?.status, "connecting")}</span>
           {sessionMenuOpen && (
             <div className="session-menu-popover">
-              <button className="session-action" onClick={() => void api.createSession().then(refresh)} type="button">
+              <button
+                className="session-action"
+                onClick={() => {
+                  setSessionMenuOpen(false);
+                  void api.createSession().then(refresh);
+                }}
+                type="button"
+              >
                 <strong>新建会话</strong>
                 <small>清空并开始新的运行时会话</small>
               </button>
