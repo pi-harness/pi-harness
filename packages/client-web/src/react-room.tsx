@@ -42,6 +42,8 @@ const value = (input: unknown, fallback = "—"): string => {
     return fallback;
   }
 };
+const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
+  status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
 const messageText = (message: Record<string, unknown>): string => {
   const content = message.content;
   if (typeof content === "string") return content;
@@ -170,28 +172,26 @@ function Workspace({
   ];
   return (
     <div className="new-session-screen">
-      <span className="pi-mark large">π</span>
-      <h2>新会话</h2>
-      <p>选择当前运行时工作区后开始真实会话。</p>
+      <div className="welcome-kicker">PI AGENT HARNESS · REAL RUNTIME</div>
+      <div className="welcome-heading">
+        <span className="pi-mark large">π</span>
+        <div>
+          <h2>开始一个工作会话</h2>
+          <p>连接当前工作区，直接让 Pi agent 读取、修改并验证代码。</p>
+        </div>
+      </div>
       <div className="workspace-picker">
         <button className="workspace-row" onClick={onCreate} type="button">
-          <span className="live">●</span>
+          <span className="workspace-status live">已连接</span>
           <span>
             <code>{status?.cwd ?? "加载工作区…"}</code>
             <small>{status ? `${status.sessionId} · ${status.model}` : "由 /api/status 返回"}</small>
           </span>
-          <span>›</span>
-        </button>
-        <button className="workspace-row" disabled type="button">
-          <span className="offline">＋</span>
-          <span>
-            <code>添加目录…</code>
-            <small>当前 API 未提供工作区管理接口</small>
-          </span>
+          <span className="workspace-arrow">↗</span>
         </button>
       </div>
       <div className="effective-config">
-        <code>pi.toml 生效值</code>
+        <span className="config-label">当前运行时</span>
         <span>{status?.model ?? "由运行时提供"}</span>
         <span>{status ? `${status.messages} 条消息` : "—"}</span>
         <a
@@ -212,6 +212,22 @@ function Workspace({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function PromptError({ message }: { message: string }) {
+  const requiresAuth = /No API key found|authentication|未配置认证/i.test(message);
+  return (
+    <div className="action-error" role="alert">
+      <div className="action-error-summary">
+        <strong>{requiresAuth ? "模型尚未配置认证" : "发送失败"}</strong>
+        <span>{requiresAuth ? "请在设置 → 提供商中配置 API key，然后重试。" : "运行时没有接受这次请求，请重试或查看错误详情。"}</span>
+      </div>
+      <details>
+        <summary>查看原始错误</summary>
+        <code>{message}</code>
+      </details>
     </div>
   );
 }
@@ -571,35 +587,25 @@ function Marketplace({
   return (
     <section className="flex min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex items-start justify-between gap-5 border-b border-black/10 bg-gradient-to-br from-[#f8f9ff] to-white px-4 pb-[15px] pt-[18px]">
+        <div className="marketplace-hero">
           <div>
-            <small className="font-mono text-[10px] tracking-wider text-[#4176e6]">COMMUNITY MARKETPLACE</small>
-            <h2 className="mb-0.5 mt-1 text-[17px]">发现 Cordis 插件</h2>
-            <p className="m-0 text-[12px] text-[#81858c]">可审查的社区目录。每个条目都包含 npm 包、版本、许可证和 Cordis 配置入口。</p>
+            <small>COMMUNITY MARKETPLACE</small>
+            <h2>发现 Cordis 插件</h2>
+            <p>可审查的社区目录。每个条目都包含 npm 包、版本、许可证和 Cordis 配置入口。</p>
           </div>
-          <a
-            className="flex-none text-[12px] text-[#4176e6]"
-            href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md" target="_blank" rel="noreferrer">
             贡献插件 ↗
           </a>
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-black/10 px-4 py-2.5">
+        <div className="marketplace-toolbar">
           <input
-            className="h-[30px] min-w-0 flex-1 basis-[220px] rounded-md border border-black/10 px-2.5 text-[12px] outline-none"
+            className="marketplace-search"
             aria-label="搜索插件"
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="搜索名称、包名、能力…"
             value={query}
           />
-          <select
-            className="h-[30px] rounded-md border border-black/10 bg-white px-2 text-[12px] text-[#61666b]"
-            aria-label="按能力筛选"
-            onChange={(event) => onCapabilityChange(event.target.value)}
-            value={capabilityFilter}
-          >
+          <select className="marketplace-filter" aria-label="按能力筛选" onChange={(event) => onCapabilityChange(event.target.value)} value={capabilityFilter}>
             <option value="">全部能力</option>
             {capabilities.map((item) => (
               <option key={item} value={item}>
@@ -607,14 +613,14 @@ function Marketplace({
               </option>
             ))}
           </select>
-          <span className="font-mono text-[10.5px] text-[#adb2b8]">{total} 个已审核条目</span>
+          <span className="marketplace-count">{total} 个已审核条目</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
-              <article className="rounded-[10px] border border-black/10 bg-white p-3" key={plugin.id}>
+              <article className="marketplace-card" key={plugin.id}>
                 <div className="flex items-start gap-2.5">
-                  <div className="font-mono text-[13px] text-[#4176e6]">◈</div>
+                  <div className="marketplace-card-mark">◈</div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <strong className="text-[13px]">{plugin.name}</strong>
@@ -637,11 +643,11 @@ function Marketplace({
                         {plugin.source === "official" ? "官方" : "社区"}
                       </span>
                     </div>
-                    <code className="mt-1.5 block break-words font-mono text-[10.5px] text-[#61666b]">
+                    <code className="marketplace-package">
                       {plugin.packageName}@{plugin.version}
                     </code>
-                    <p className="mb-2 mt-1.5 text-[12px] leading-relaxed text-[#81858c]">{plugin.description}</p>
-                    <div className="flex flex-wrap gap-1.5">
+                    <p className="marketplace-description">{plugin.description}</p>
+                    <div className="marketplace-tags">
                       {plugin.capabilities.map((item) => (
                         <span className="rounded bg-[#f1f4f9] px-1.5 py-px font-mono text-[10px] text-[#61666b]" key={item}>
                           {item}
@@ -654,21 +660,17 @@ function Marketplace({
                       ))}
                     </div>
                   </div>
-                  <button
-                    className="flex-none rounded-md border border-[#b8ccf5] bg-[#edf3fe] px-2 py-1 text-[11px] text-[#4176e6]"
-                    onClick={() => copyInstall(plugin)}
-                    type="button"
-                  >
-                    {copied === plugin.id ? "已复制" : "复制安装指引"}
-                  </button>
                 </div>
-                <footer className="mt-2.5 flex items-center gap-2 border-t border-black/5 pt-2 font-mono text-[10.5px] text-[#adb2b8]">
+                <footer className="marketplace-card-footer">
                   <span>
                     {plugin.author} · {plugin.license}
                   </span>
-                  <a className="ml-auto font-sans text-[11px] text-[#4176e6]" href={plugin.repository} target="_blank" rel="noreferrer">
+                  <a href={plugin.repository} target="_blank" rel="noreferrer">
                     查看源码 ↗
                   </a>
+                  <button onClick={() => copyInstall(plugin)} type="button">
+                    {copied === plugin.id ? "已复制" : "复制安装指引"}
+                  </button>
                 </footer>
               </article>
             ))}
@@ -1106,7 +1108,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       />
     ) : view === "chat" ? (
       <section className="view-panel chat-view">
-        <div className="chat-scroll">
+        <div className={`chat-scroll ${data.session?.messages.length ? "" : "is-empty"}`}>
           {data.session?.messages.length ? (
             data.session.messages.map((message, index) => (
               <article className={`turn ${message.role === "user" ? "user" : "text"}`} key={index}>
@@ -1122,13 +1124,17 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         </div>
         <div className="composer-wrap">
           <div className="context-line">
-            <span>
-              上下文 <b>{data.status ? `${data.status.messages} / ${data.status.model}` : "0 / —"}</b>
-            </span>
-            <div className={`context-bar ${contextExpanded ? "expanded" : ""}`}>
-              <i></i>
-              <i></i>
-              <i></i>
+            <span className="context-label">实时上下文</span>
+            <div className="context-metrics">
+              <span>
+                <b>{data.status?.messages ?? 0}</b> 条消息
+              </span>
+              <span>
+                <b>{data.status?.events ?? events.length}</b> 个事件
+              </span>
+              <span>
+                <b>{value(data.status?.model)}</b>
+              </span>
             </div>
             <button aria-expanded={contextExpanded} onClick={() => setContextExpanded((current) => !current)} type="button">
               {contextExpanded ? "收起" : "展开"}
@@ -1199,7 +1205,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               </button>
             </div>
           </form>
-          {promptError && <p className="action-error">{promptError}</p>}
+          {promptError && <PromptError message={promptError} />}
         </div>
       </section>
     ) : view === "trajectory" ? (
@@ -1326,14 +1332,19 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 ? "Cordis loader 运行时清单"
                 : page === "marketplace"
                   ? "社区目录 · 可审查安装指引"
-                  : (data.session?.sessionFile ?? "未选择工作区")}
+                  : sessionSource(data.status, data.session)}
             </small>
           </div>
           <div className="header-spacer"></div>
-          <div className="run-indicator">● {data.status?.status === "running" ? "running · Pi agent" : "idle"}</div>
-          <button className="stop-button" disabled={data.status?.status !== "running"} onClick={() => void api.abort().then(refresh)} type="button">
-            停止
-          </button>
+          {data.status?.status === "running" && (
+            <div className="run-indicator running">
+              <span></span>
+              <span>运行中 · Pi agent</span>
+              <button className="stop-button" onClick={() => void api.abort().then(refresh)} type="button">
+                停止
+              </button>
+            </div>
+          )}
           {page === "session" && (
             <div className="view-tabs">
               {(["chat", "trajectory", "files"] as const).map((item) => (
@@ -1344,13 +1355,17 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </div>
           )}
           {page === "session" && <span aria-hidden="true" className="header-divider"></span>}
-          <button className="session-menu" onClick={() => setSessionMenuOpen((current) => !current)} type="button" aria-label="会话操作">
-            ⋯
-          </button>
-          <button aria-pressed={details !== undefined} className="details-toggle" onClick={() => setDetails(details ? undefined : {})} type="button">
-            ◨ 详情
-          </button>
-          {sessionMenuOpen && (
+          {page === "session" && (
+            <>
+              <button className="session-menu" onClick={() => setSessionMenuOpen((current) => !current)} type="button" aria-label="会话操作">
+                ⋯
+              </button>
+              <button aria-pressed={details !== undefined} className="details-toggle" onClick={() => setDetails(details ? undefined : {})} type="button">
+                ◨ 详情
+              </button>
+            </>
+          )}
+          {page === "session" && sessionMenuOpen && (
             <div className="session-menu-popover">
               <button
                 className="session-action"
