@@ -727,18 +727,23 @@ function Settings({
 }) {
   const status = data.status;
   const [providerState, setProviderState] = useState<Record<string, string>>({});
+  const [providerBusy, setProviderBusy] = useState<Record<string, boolean>>({});
   const runProviderAction = (provider: string, action: "test" | "refresh") => {
+    if (providerBusy[provider]) return;
+    setProviderBusy((current) => ({ ...current, [provider]: true }));
     setProviderState((current) => ({ ...current, [provider]: action === "test" ? "测试中…" : "刷新中…" }));
     if (action === "test")
       void api
         .testProvider(provider)
         .then((result) => setProviderState((current) => ({ ...current, [provider]: result.reachable ? "连接正常" : "未检测到认证" })))
-        .catch((cause: unknown) => setProviderState((current) => ({ ...current, [provider]: cause instanceof Error ? cause.message : String(cause) })));
+        .catch((cause: unknown) => setProviderState((current) => ({ ...current, [provider]: cause instanceof Error ? cause.message : String(cause) })))
+        .finally(() => setProviderBusy((current) => ({ ...current, [provider]: false })));
     else
       void api
         .refreshProvider(provider)
         .then((result) => setProviderState((current) => ({ ...current, [provider]: `${result.models.length} 个模型已刷新` })))
-        .catch((cause: unknown) => setProviderState((current) => ({ ...current, [provider]: cause instanceof Error ? cause.message : String(cause) })));
+        .catch((cause: unknown) => setProviderState((current) => ({ ...current, [provider]: cause instanceof Error ? cause.message : String(cause) })))
+        .finally(() => setProviderBusy((current) => ({ ...current, [provider]: false })));
   };
   return (
     <div className="settings-overlay">
@@ -820,7 +825,7 @@ function Settings({
                       <div className="provider-head">
                         <span className="provider-dot">●</span>
                         <strong>{provider.name}</strong>
-                        <span className="provider-state">{provider.active ? "当前会话" : value(provider.auth?.configured, "未配置")}</span>
+                        <span className="provider-state">{provider.active ? "当前会话" : provider.auth?.configured === true ? "已配置" : "未配置"}</span>
                       </div>
                       <div className="provider-field">
                         <code>provider</code>
@@ -828,15 +833,19 @@ function Settings({
                       </div>
                       <div className="provider-field">
                         <code>model</code>
-                        <input
-                          disabled
-                          value={
-                            provider.activeModel
-                              ? `${provider.activeModel.provider}/${provider.activeModel.id}`
-                              : provider.models.map((model) => model.id).join(", ")
-                          }
-                          readOnly
-                        />
+                        <div className="provider-model-value" title={provider.models.map((model) => model.id).join(", ") || "暂无模型"}>
+                          <span>{provider.activeModel ? `${provider.activeModel.provider}/${provider.activeModel.id}` : "未选择模型"}</span>
+                          {provider.models.length > 0 && (
+                            <details className="provider-models-details">
+                              <summary>查看 {provider.models.length} 个模型</summary>
+                              <div className="model-chips">
+                                {provider.models.map((model) => (
+                                  <span key={model.id}>{model.id}</span>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+                        </div>
                       </div>
                       <div className="provider-field">
                         <code>api_key</code>
@@ -844,14 +853,23 @@ function Settings({
                       </div>
                       <div className="provider-footer">
                         <code>{provider.models.length} 个模型</code>
-                        <button onClick={() => runProviderAction(provider.provider, "test")} type="button">
-                          测试连接
+                        <button disabled={providerBusy[provider.provider]} onClick={() => runProviderAction(provider.provider, "test")} type="button">
+                          {providerBusy[provider.provider] && providerState[provider.provider] === "测试中…" ? "测试中…" : "测试连接"}
                         </button>
-                        <button className="link-button" onClick={() => runProviderAction(provider.provider, "refresh")} type="button">
-                          拉取模型
+                        <button
+                          className="link-button"
+                          disabled={providerBusy[provider.provider]}
+                          onClick={() => runProviderAction(provider.provider, "refresh")}
+                          type="button"
+                        >
+                          {providerBusy[provider.provider] && providerState[provider.provider] === "刷新中…" ? "刷新中…" : "拉取模型"}
                         </button>
                       </div>
-                      {providerState[provider.provider] && <small className="provider-result">{providerState[provider.provider]}</small>}
+                      {providerState[provider.provider] && (
+                        <small aria-live="polite" className="provider-result">
+                          {providerState[provider.provider]}
+                        </small>
+                      )}
                     </article>
                   ))
                 ) : (
@@ -887,7 +905,15 @@ function Settings({
 
 function CommandPalette({ commands, onClose, onUse }: { commands: readonly ClientCommand[]; onClose: () => void; onUse: (value: string) => void }) {
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const visible = commands.filter((command) => `${command.invocationName} ${command.description ?? ""}`.toLowerCase().includes(query.toLowerCase()));
+  useEffect(() => setActiveIndex(0), [query]);
+  const execute = (index: number) => {
+    const command = visible[index];
+    if (!command) return;
+    onUse(`/${command.invocationName}`);
+    onClose();
+  };
   return (
     <div
       className="command-palette"
@@ -896,19 +922,39 @@ function CommandPalette({ commands, onClose, onUse }: { commands: readonly Clien
       }}
     >
       <div className="palette-dialog">
-        <input autoFocus onChange={(event) => setQuery(event.target.value)} placeholder="命令、包、会话、文件" value={query} />
+        <input
+          aria-label="搜索命令"
+          autoFocus
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (!visible.length) return;
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActiveIndex((index) => (index + 1) % visible.length);
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActiveIndex((index) => (index - 1 + visible.length) % visible.length);
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              execute(activeIndex);
+            }
+          }}
+          placeholder="命令、包、会话、文件"
+          value={query}
+        />
         <div className="palette-group">
           <small>COMMANDS · RUNTIME REGISTRY</small>
           {visible.length ? (
-            visible.map((command) => {
+            visible.map((command, index) => {
               const invocation = `/${command.invocationName}`;
               return (
                 <button
+                  aria-selected={index === activeIndex}
                   key={`${command.invocationName}:${command.source ?? "runtime"}`}
                   onClick={() => {
-                    onUse(invocation);
-                    onClose();
+                    execute(index);
                   }}
+                  onMouseEnter={() => setActiveIndex(index)}
                   type="button"
                 >
                   <code>{invocation}</code>
@@ -1088,6 +1134,19 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               {contextExpanded ? "收起" : "展开"}
             </button>
           </div>
+          {contextExpanded && (
+            <div className="context-breakdown" role="status">
+              <span>
+                消息 <b>{data.status?.messages ?? 0}</b>
+              </span>
+              <span>
+                运行时事件 <b>{data.status?.events ?? events.length}</b>
+              </span>
+              <span>
+                模型 <b>{value(data.status?.model)}</b>
+              </span>
+            </div>
+          )}
           <form className="composer" onSubmit={submit}>
             <textarea
               aria-label="Prompt"
@@ -1166,7 +1225,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <button className="new-session" onClick={() => void api.createSession().then(refresh)} type="button">
             ＋ 新建会话
           </button>
-          <input onChange={(event) => setSearch(event.target.value)} placeholder="搜索会话与事件" type="search" value={search} />
+          <input onChange={(event) => setSearch(event.target.value)} placeholder="搜索会话" type="search" value={search} />
         </div>
         <div className="sidebar-scroll">
           {groups.length ? (
@@ -1225,7 +1284,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             type="button"
           >
             ✦ <span>市场</span>
-            <b>{data.marketplace.length}</b>
+            <b>{data.marketplaceTotal}</b>
           </button>
           <button className="sidebar-link" onClick={() => setSettings("general")} type="button">
             ⚙ <span>设置</span>
