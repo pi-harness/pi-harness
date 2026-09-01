@@ -71,6 +71,9 @@
     - id: browser-session
       name: "@pi-harness/core/plugins/browser-session"
       config: {}
+    - id: yaml-validator
+      name: "@pi-harness/core/plugins/yaml-validator"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

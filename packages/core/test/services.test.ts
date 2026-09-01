@@ -33,6 +33,7 @@ import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
 import mcpClientPlugin from "../src/plugins/mcp-client.js";
 import browserFetchPlugin from "../src/plugins/browser-fetch.js";
 import browserSessionPlugin from "../src/plugins/browser-session.js";
+import yamlValidatorPlugin from "../src/plugins/yaml-validator.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 
 const contexts: Context[] = [];
@@ -619,5 +620,24 @@ describe("Pi domain plugins", () => {
       await rm(profileDir, { recursive: true, force: true });
       await new Promise<void>((resolve, reject) => pageServer.close((error) => (error ? reject(error) : resolve())));
     }
+  }, 30_000);
+
+  test("validates YAML files with line-aware diagnostics without modifying them", async () => {
+    const { context, cwd } = await createContext();
+    await writeFile(join(cwd, "valid.yml"), "name: pi-harness\nitems:\n  - one\n  - two\n", "utf8");
+    await writeFile(join(cwd, "invalid.yml"), "name: [broken\n", "utf8");
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(yamlValidatorPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", { path: "valid.yml" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { valid: true, documents: 1, rootType: "map", errors: [] },
+    });
+    await expect(tool.execute("call-2", { path: "invalid.yml" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { valid: false, errors: [{ line: 2 }] },
+    });
+    await expect(tool.execute("call-3", { path: "../invalid.yml" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
   });
 });

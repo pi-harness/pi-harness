@@ -74,6 +74,7 @@ const capability = (name: string): string => {
     ["mcp-client", "工具协议"],
     ["browser-fetch", "网页抓取"],
     ["browser-session", "浏览器会话"],
+    ["yaml-validator", "配置校验"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -103,6 +104,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/mcp-client", "MCP Client"],
     ["@pi-harness/core/plugins/browser-fetch", "Browser Fetch"],
     ["@pi-harness/core/plugins/browser-session", "Browser Session"],
+    ["@pi-harness/core/plugins/yaml-validator", "YAML Validator"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1000,6 +1002,54 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 ))
               : null}
           </div>
+        </div>
+      ) : panel.id === "yaml-validator-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const errors = Array.isArray(report.errors) ? report.errors : [];
+              const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+              const valid = report.valid === true;
+              return (
+                <>
+                  <div
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${valid ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                  >
+                    {valid ? "YAML 语法有效。" : `发现 ${errors.length} 个语法错误。`}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      ["文档", report.documents ?? 0],
+                      ["错误", errors.length],
+                      ["警告", warnings.length],
+                    ].map(([label, value]) => (
+                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
+                        <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
+                        <strong className="mt-1 block text-[17px] text-[#30343b]">{String(value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  {!valid && errors.length > 0 ? (
+                    <pre className="max-h-32 overflow-auto rounded-lg border border-[#f4caca] bg-[#fffafa] p-3 text-[10px] leading-4 text-[#b42318]">
+                      {errors
+                        .map((error) =>
+                          typeof error === "object" && error !== null
+                            ? `${String((error as Record<string, unknown>).line ?? "?")}:${String((error as Record<string, unknown>).column ?? "?")} ${String((error as Record<string, unknown>).message ?? "")}`
+                            : String(error),
+                        )
+                        .join("\n")}
+                    </pre>
+                  ) : null}
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有校验 YAML。可让 Agent 调用 yaml_validate。
+            </div>
+          )}
+          <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">max:512KiB · read-only</span>
         </div>
       ) : panel.id === "browser-session-panel" ? (
         <div className="mt-3 grid gap-3">
