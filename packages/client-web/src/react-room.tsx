@@ -8,6 +8,7 @@ import {
   type ClientModel,
   type ClientPiConfig,
   type ClientPlugin,
+  type ClientPluginPanel,
   type ClientProvider,
   type ClientSession,
   type ClientStatus,
@@ -31,6 +32,7 @@ interface RoomData {
   models: readonly ClientModel[];
   providers: readonly ClientProvider[];
   plugins: readonly ClientPlugin[];
+  pluginPanels: readonly ClientPluginPanel[];
   marketplace: readonly ClientMarketplacePlugin[];
   marketplaceCapabilities: readonly string[];
   marketplaceTotal: number;
@@ -568,8 +570,117 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
   );
 }
 
+function pluginPanelValue(input: unknown): string {
+  if (typeof input === "string") return input;
+  try {
+    return JSON.stringify(input, null, 2);
+  } catch {
+    return String(input);
+  }
+}
+
+function PluginPanelCard({ panel }: { panel: ClientPluginPanel }) {
+  const data = panel.data !== null && typeof panel.data === "object" && !Array.isArray(panel.data) ? (panel.data as Record<string, unknown>) : undefined;
+  const entries = data ? Object.entries(data) : [["内容", panel.data] as const];
+  const items = data && Array.isArray(data.items) ? data.items : [];
+  const pluginEntries = data && Array.isArray(data.entries) ? data.entries : [];
+  const capabilities = data && Array.isArray(data.capabilities) ? data.capabilities : [];
+  return (
+    <article className="rounded-[14px] border border-[#e3e7ee] bg-white p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]">
+      <header className="flex items-start gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#edf3fe] font-mono text-[15px] text-[#4176e6]">
+          {panel.icon ?? "◈"}
+        </span>
+        <div className="min-w-0 flex-1">
+          <strong className="block text-[13px] font-semibold text-[#20252b]">{panel.title}</strong>
+          <p className="mt-1 text-[11px] leading-4 text-[#8a949f]">{panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime")}</p>
+        </div>
+      </header>
+      {panel.error ? (
+        <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[12px] text-[#b42318]">{panel.error}</div>
+      ) : panel.id === "console-logger-panel" ? (
+        <div className="mt-3 grid gap-2">
+          <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+            <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#8a949f]">最近日志</span>
+            <strong className="mt-1 block text-[20px] font-semibold text-[#20252b]">{String(data?.total ?? 0)}</strong>
+          </div>
+          <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3]">
+            {items.length ? (
+              items.map((item, index) => {
+                const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div
+                    className="grid grid-cols-[auto_1fr] gap-2 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
+                    key={`${String(message.time ?? "log")}-${index}`}
+                  >
+                    <span className="font-mono text-[10px] text-[#8a949f]">{String(message.level ?? "log")}</span>
+                    <div className="min-w-0">
+                      <strong className="block truncate text-[11px] text-[#30343b]">{String(message.source ?? "runtime")}</strong>
+                      <span className="block whitespace-pre-wrap break-words text-[11px] leading-4 text-[#65707b]">{pluginPanelValue(message.args ?? "")}</span>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="px-3 py-4 text-[12px] text-[#8a949f]">暂无日志输出。</div>
+            )}
+          </div>
+        </div>
+      ) : panel.id === "plugin-group-panel" ? (
+        <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-[#edf0f3]">
+          {pluginEntries.length ? (
+            pluginEntries.map((item, index) => {
+              const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+              return (
+                <div className="flex items-center gap-3 border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${String(entry.id ?? "plugin")}-${index}`}>
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${entry.enabled === false ? "bg-[#a0a8b2]" : "bg-[#22c55e]"}`}></span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{String(entry.name ?? "plugin")}</span>
+                  <span className="text-[10px] text-[#8a949f]">{String(entry.state ?? "unknown")}</span>
+                </div>
+              );
+            })
+          ) : (
+            <div className="px-3 py-4 text-[12px] text-[#8a949f]">暂无插件条目。</div>
+          )}
+        </div>
+      ) : panel.id === "timer-service-panel" ? (
+        <div className="mt-3 grid gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#8a949f]">服务状态</span>
+            <span
+              className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.registered === true ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#fff4e5] text-[#b26a00]"}`}
+            >
+              {data?.registered === true ? "已注册" : "未注册"}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {capabilities.map((capability, index) => (
+              <span
+                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                key={`${String(capability)}-${index}`}
+              >
+                {String(capability)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-2">
+          {entries.map(([key, item]) => (
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={key}>
+              <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#8a949f]">{key}</span>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[#30343b]">{pluginPanelValue(item)}</pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
 function Plugins({
   plugins,
+  panels,
   marketplace,
   onMarketplace,
   onToml,
@@ -577,6 +688,7 @@ function Plugins({
   onUninstall,
 }: {
   plugins: readonly ClientPlugin[];
+  panels: readonly ClientPluginPanel[];
   marketplace: readonly ClientMarketplacePlugin[];
   onMarketplace: () => void;
   onToml: () => void;
@@ -585,6 +697,7 @@ function Plugins({
 }) {
   const marketplaceNames = useMemo(() => new Map(marketplace.map((plugin) => [plugin.packageName, plugin.name])), [marketplace]);
   const installedPlugins = useMemo(() => plugins.filter((plugin) => plugin.removable), [plugins]);
+  const panelByPlugin = useMemo(() => new Map(panels.map((panel) => [panel.pluginId, panel])), [panels]);
   const [busyPlugin, setBusyPlugin] = useState<string>();
   const [pluginError, setPluginError] = useState("");
   const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>) => {
@@ -623,55 +736,79 @@ function Plugins({
         </div>
         <div className="plugins-scroll">
           <div className="plugins-list">
-            {installedPlugins.map((plugin) => (
-              <article className="plugin-card" key={plugin.id}>
-                <div className="plugin-card-head">
-                  <span className="plugin-icon">◈</span>
-                  <div className="plugin-copy">
-                    <div className="plugin-title">
-                      <code>{marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name)}</code>
-                      <small>{plugin.state}</small>
-                      <span className="capability">{capability(plugin.name)}</span>
+            {installedPlugins.map((plugin) => {
+              const panel = panelByPlugin.get(plugin.name);
+              return (
+                <div className="flex min-w-0 flex-col gap-3" key={plugin.id}>
+                  <article className="plugin-card">
+                    <div className="plugin-card-head">
+                      <span className="plugin-icon">◈</span>
+                      <div className="plugin-copy">
+                        <div className="plugin-title">
+                          <code>{marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name)}</code>
+                          <small>{plugin.state}</small>
+                          <span className="capability">{capability(plugin.name)}</span>
+                        </div>
+                        <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
+                        <div className="hook-list">
+                          <span>loader</span>
+                          <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
+                        </div>
+                      </div>
+                      <div className="plugin-actions">
+                        {plugin.removable ? (
+                          <>
+                            <button
+                              aria-label={`${plugin.enabled ? "停用" : "启用"} ${marketplaceNames.get(plugin.name) ?? plugin.name}`}
+                              className={`switch ${plugin.enabled ? "on" : ""}`}
+                              disabled={busyPlugin !== undefined}
+                              onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
+                              type="button"
+                            >
+                              <i></i>
+                            </button>
+                            <button
+                              className="plugin-uninstall"
+                              disabled={busyPlugin !== undefined}
+                              onClick={() => void runPluginAction(plugin, onUninstall)}
+                              type="button"
+                            >
+                              卸载
+                            </button>
+                          </>
+                        ) : (
+                          <span className={`switch ${plugin.enabled ? "on" : ""}`}>
+                            <i></i>
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
-                    <div className="hook-list">
-                      <span>loader</span>
-                      <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
-                    </div>
-                  </div>
-                  <div className="plugin-actions">
-                    {plugin.removable ? (
-                      <>
-                        <button
-                          aria-label={`${plugin.enabled ? "停用" : "启用"} ${marketplaceNames.get(plugin.name) ?? plugin.name}`}
-                          className={`switch ${plugin.enabled ? "on" : ""}`}
-                          disabled={busyPlugin !== undefined}
-                          onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
-                          type="button"
-                        >
-                          <i></i>
-                        </button>
-                        <button
-                          className="plugin-uninstall"
-                          disabled={busyPlugin !== undefined}
-                          onClick={() => void runPluginAction(plugin, onUninstall)}
-                          type="button"
-                        >
-                          卸载
-                        </button>
-                      </>
-                    ) : (
-                      <span className={`switch ${plugin.enabled ? "on" : ""}`}>
-                        <i></i>
-                      </span>
-                    )}
-                  </div>
+                  </article>
+                  {panel && <PluginPanelCard panel={panel} />}
                 </div>
-              </article>
-            ))}
+              );
+            })}
             {!installedPlugins.length && <div className="empty-state">还没有安装可管理的插件。去插件市场安装一个吧。</div>}
           </div>
           {pluginError && <p className="plugin-action-error">{pluginError}</p>}
+          {panels.length > installedPlugins.length && (
+            <section className="mt-4 border-t border-[#e3e7ee] pt-4">
+              <div className="mb-3 flex items-baseline justify-between gap-3">
+                <div>
+                  <strong className="text-[13px] font-semibold text-[#20252b]">其他插件面板</strong>
+                  <p className="mt-1 text-[12px] text-[#8a949f]">由已启用插件提供的实时状态。</p>
+                </div>
+                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#a0a8b2]">LIVE</span>
+              </div>
+              <div className="grid gap-3 xl:grid-cols-2">
+                {panels
+                  .filter((panel) => !installedPlugins.some((plugin) => plugin.name === panel.pluginId))
+                  .map((panel) => (
+                    <PluginPanelCard key={panel.id} panel={panel} />
+                  ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </section>
@@ -1748,6 +1885,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     models: [],
     providers: [],
     plugins: [],
+    pluginPanels: [],
     marketplace: [],
     marketplaceCapabilities: [],
     marketplaceTotal: 0,
@@ -1844,7 +1982,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
   }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, selectedSessionPath, settings, view]);
   const refresh = useCallback(async () => {
-    const [status, session, sessions, files, models, providers, plugins, marketplace, commands, workspaces] = await Promise.allSettled([
+    const [status, session, sessions, files, models, providers, plugins, pluginPanels, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
       api.getSession(),
       api.listSessions(sessionPage, 30, includeArchivedSessions),
@@ -1852,6 +1990,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       api.listModels(),
       api.listProviders(),
       api.listPlugins(),
+      api.listPluginPanels(),
       api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage),
       api.listCommands(),
       api.listWorkspaces(),
@@ -1864,6 +2003,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       models: models.status === "fulfilled" ? models.value : current.models,
       providers: providers.status === "fulfilled" ? providers.value : current.providers,
       plugins: plugins.status === "fulfilled" ? plugins.value : current.plugins,
+      pluginPanels: pluginPanels.status === "fulfilled" ? pluginPanels.value : current.pluginPanels,
       marketplace: marketplace.status === "fulfilled" ? marketplace.value.items : current.marketplace,
       marketplaceCapabilities: marketplace.status === "fulfilled" ? marketplace.value.capabilities : current.marketplaceCapabilities,
       marketplaceTotal: marketplace.status === "fulfilled" ? marketplace.value.total : current.marketplaceTotal,
@@ -2128,6 +2268,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   ) : page === "plugins" ? (
     <Plugins
       plugins={data.plugins}
+      panels={data.pluginPanels}
       marketplace={data.marketplace}
       onMarketplace={() => setPage("marketplace")}
       onToml={() => setSettings("toml")}

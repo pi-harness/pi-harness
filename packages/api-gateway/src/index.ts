@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
-import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
+import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
 import { MARKETPLACE_CAPABILITIES, MARKETPLACE_PLUGINS, paginateMarketplace, searchMarketplace, type MarketplacePlugin } from "./marketplace.js";
 import { parseGitWorktrees, type WorkspaceSummary } from "./workspaces.js";
@@ -17,6 +17,7 @@ interface ApiServices {
   readonly launch: PiHarnessLaunch;
   readonly webServer: WebServer;
   readonly loader: Loader | undefined;
+  readonly pluginUi: PiPluginUiRegistry | undefined;
 }
 
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
@@ -234,6 +235,65 @@ function pluginSummary(entry: LoaderEntrySummary) {
   };
 }
 
+function pluginLoaded(services: ApiServices, packageName: string): boolean {
+  return services.loader !== undefined && [...services.loader.entries()].some((entry) => entry.options.name === packageName && !entry.disabled);
+}
+
+function registerPluginPanels(context: Context, services: ApiServices): () => void {
+  if (services.pluginUi === undefined) return () => {};
+  const disposers = [
+    services.pluginUi.register({
+      id: "console-logger-panel",
+      pluginId: "@deepseek-ai/cordis-plugin-logger-console",
+      title: "运行时日志",
+      description: "查看最近的生命周期和运行时诊断输出。",
+      icon: "▤",
+      visible: () => pluginLoaded(services, "@deepseek-ai/cordis-plugin-logger-console"),
+      read: () => ({
+        total: context.logger.buffer.length,
+        items: context.logger.buffer.slice(-40).map((message) => ({
+          time: new Date(message.ts).toISOString(),
+          level: message.type,
+          source: message.name,
+          args: message.args,
+        })),
+      }),
+    }),
+    services.pluginUi.register({
+      id: "plugin-group-panel",
+      pluginId: "@deepseek-ai/cordis-plugin-group",
+      title: "插件树",
+      description: "查看当前运行时加载的插件树和生命周期状态。",
+      icon: "⌘",
+      visible: () => pluginLoaded(services, "@deepseek-ai/cordis-plugin-group"),
+      read: () => ({
+        entries:
+          services.loader === undefined
+            ? []
+            : [...services.loader.entries()].map((entry) => ({
+                id: entry.id,
+                name: entry.options.name.replace(/^@deepseek-ai\/cordis-plugin-/i, "plugin-").replace(/^cordis:/i, "runtime:"),
+                state: pluginSummary(entry).state,
+                enabled: !entry.disabled,
+              })),
+      }),
+    }),
+    services.pluginUi.register({
+      id: "timer-service-panel",
+      pluginId: "@deepseek-ai/cordis-plugin-timer",
+      title: "定时器服务",
+      description: "确认定时器服务已注册，并查看可用的生命周期绑定 API。",
+      icon: "◷",
+      visible: () => pluginLoaded(services, "@deepseek-ai/cordis-plugin-timer"),
+      read: () => ({
+        registered: context.reflect.get("timer") !== undefined,
+        capabilities: ["timeout", "interval", "throttle", "debounce"],
+      }),
+    }),
+  ];
+  return () => disposers.reverse().forEach((dispose) => dispose());
+}
+
 function runProcess(executable: string, args: readonly string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolveProcess, rejectProcess) => {
     execFile(executable, [...args], { cwd, timeout: 120_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -377,7 +437,9 @@ export default {
       launch: context.piHarnessLaunch,
       webServer: context.webServer,
       loader: context.reflect.get("loader") as Loader | undefined,
+      pluginUi: context.reflect.get("piPluginUi") as PiPluginUiRegistry | undefined,
     };
+    const disposePluginPanels = registerPluginPanels(context, services);
     let busy = false;
     const events: AgentSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
@@ -692,6 +754,21 @@ export default {
       handler(_request, response) {
         const items = services.loader ? [...services.loader.entries()].map(pluginSummary) : [];
         sendJson(response, 200, jsonSafe({ items }));
+      },
+    });
+    const disposePluginUi = services.webServer.register({
+      path: "/api/plugin-ui",
+      async handler(request, response) {
+        if (request.method !== "GET") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const items = services.pluginUi === undefined ? [] : await services.pluginUi.snapshot();
+          sendJson(response, 200, jsonSafe({ items }));
+        } catch (error) {
+          sendJson(response, 500, { error: errorText(error) });
+        }
       },
     });
     const disposeMarketplace = services.webServer.register({
@@ -1610,6 +1687,8 @@ export default {
       disposeProviderRefresh();
       disposeProviderAdd();
       disposePlugins();
+      disposePluginUi();
+      disposePluginPanels();
       disposeMarketplace();
       disposeMarketplaceInstall();
       disposePluginToggle();

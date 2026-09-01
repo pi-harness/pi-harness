@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { PiToolRegistry } from "../services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "../services.js";
 
 export interface ToolsPluginConfig {
   names?: string[];
@@ -19,5 +19,6 @@ export default {
     const names = config.names ?? DEFAULT_TOOLS;
     if (new Set(names).size !== names.length) throw new Error("Pi core tool names must be unique");
     context.provide("piTools", new PiToolRegistry(names));
+    context.provide("piPluginUi", new PiPluginUiRegistry());
   },
 };

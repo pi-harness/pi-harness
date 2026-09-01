@@ -31,6 +31,15 @@ export interface ClientPlugin {
   readonly state: string;
   readonly removable: boolean;
 }
+export interface ClientPluginPanel {
+  readonly id: string;
+  readonly pluginId: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly icon?: string;
+  readonly data?: unknown;
+  readonly error?: string;
+}
 export interface ClientProvider {
   readonly provider: string;
   readonly name: string;
@@ -148,6 +157,7 @@ export interface ClientApi {
     model: string;
   }): Promise<{ provider: ClientProvider }>;
   listPlugins(): Promise<readonly ClientPlugin[]>;
+  listPluginPanels(): Promise<readonly ClientPluginPanel[]>;
   togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin }>;
   uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string }>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number): Promise<ClientMarketplacePage>;
@@ -274,6 +284,7 @@ export function createClientApi(): ClientApi {
         body: JSON.stringify(input),
       }),
     listPlugins: async () => (await requestJson<{ items: readonly ClientPlugin[] }>("/api/plugins")).items,
+    listPluginPanels: async () => (await requestJson<{ items: readonly ClientPluginPanel[] }>("/api/plugin-ui")).items,
     togglePlugin: (id, enabled) =>
       requestJson<{ plugin: ClientPlugin }>("/api/plugins/toggle", {
         method: "POST",

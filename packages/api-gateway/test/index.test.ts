@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import webServerPlugin from "@pi-harness/host-webserver";
+import { PiPluginUiRegistry } from "@pi-harness/core";
 import apiPlugin from "../src/index.js";
 
 const contexts: Context[] = [];
@@ -16,6 +17,26 @@ afterEach(async () => {
 });
 
 describe("API gateway plugin", () => {
+  test("lists plugin UI panels through the web API", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "plugin-ui-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    const registry = new PiPluginUiRegistry();
+    registry.register({ id: "example-panel", pluginId: "example-plugin", title: "Example", read: () => ({ ready: true }) });
+    context.reflect.provide("piPluginUi", registry);
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugin-ui");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [{ id: "example-panel", pluginId: "example-plugin", title: "Example", data: { ready: true } }],
+    });
+  });
+
   test("serializes concurrent prompts and validates input", async () => {
     const context = new Context();
     contexts.push(context);

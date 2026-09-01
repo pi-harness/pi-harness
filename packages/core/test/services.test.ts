@@ -5,7 +5,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
-import { PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
 import modelPlugin from "../src/plugins/model.js";
 import modelsPlugin from "../src/plugins/models.js";
 import resourcesPlugin from "../src/plugins/resources.js";
@@ -131,5 +131,19 @@ describe("Pi domain plugins", () => {
 
     lease.release();
     expect(() => tools.register(lateTool)).not.toThrow();
+  });
+
+  test("registers and disposes plugin UI panels with the plugin lifecycle", async () => {
+    const panels = new PiPluginUiRegistry();
+    const dispose = panels.register({
+      id: "example-panel",
+      pluginId: "example-plugin",
+      title: "Example",
+      read: () => ({ ready: true }),
+    });
+
+    await expect(panels.snapshot()).resolves.toEqual([{ id: "example-panel", pluginId: "example-plugin", title: "Example", data: { ready: true } }]);
+    dispose();
+    await expect(panels.snapshot()).resolves.toEqual([]);
   });
 });
