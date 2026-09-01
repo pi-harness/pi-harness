@@ -50,6 +50,12 @@
     - id: readme-gen
       name: "@pi-harness/core/plugins/readme-gen"
       config: {}
+    - id: i18n-pair
+      name: "@pi-harness/core/plugins/i18n-pair"
+      config: {}
+    - id: cleaner
+      name: "@pi-harness/core/plugins/cleaner"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

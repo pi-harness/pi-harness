@@ -23,6 +23,8 @@ import atFilePlugin from "../src/plugins/at-file.js";
 import failLoggerPlugin from "../src/plugins/fail-logger.js";
 import testHarnessPlugin from "../src/plugins/test-harness.js";
 import sessionInsightsPlugin from "../src/plugins/session-insights.js";
+import cleanerPlugin from "../src/plugins/cleaner.js";
+import i18nPairPlugin from "../src/plugins/i18n-pair.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 
 const contexts: Context[] = [];
@@ -370,5 +372,37 @@ describe("Pi domain plugins", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("# demo") });
     expect(result.content[0]).toMatchObject({ text: expect.stringContaining("npm run test") });
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "readme-gen-panel", data: { generated: true, name: "demo", scripts: 2 } }]);
+  });
+
+  test("requires explicit confirmation before cleaning only generated capsules", async () => {
+    const { context, agentDir } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await mkdir(join(agentDir, "capsules"), { recursive: true });
+    await writeFile(join(agentDir, "capsules", "202601.patch"), "new", "utf8");
+    await writeFile(join(agentDir, "capsules", "202501.patch"), "old", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(cleanerPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", { confirm: false }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/);
+    await expect(tool.execute("call-2", { confirm: true, keep: 1 }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { removed: 1, kept: 1 },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "cleaner-panel", data: { capsules: [{ name: "202601.patch" }] } }]);
+  });
+
+  test("reports missing and extra keys between local locale files", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await mkdir(join(cwd, "locales"), { recursive: true });
+    await writeFile(join(cwd, "locales", "en.json"), JSON.stringify({ greeting: { title: "Hello" }, save: "Save" }), "utf8");
+    await writeFile(join(cwd, "locales", "zh-CN.json"), JSON.stringify({ greeting: { title: "你好" }, onlyHere: "仅此处" }), "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(i18nPairPlugin);
+    const result = await tools.snapshot().customTools[0].execute("call-1", {}, undefined, undefined, {} as never);
+    expect(result).toMatchObject({ details: { missing: ["save"], extra: ["onlyHere"] } });
   });
 });

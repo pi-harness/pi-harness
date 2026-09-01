@@ -67,6 +67,8 @@ const capability = (name: string): string => {
     ["test-harness", "测试"],
     ["session-insights", "会话统计"],
     ["readme-gen", "文档生成"],
+    ["i18n-pair", "国际化"],
+    ["cleaner", "清理"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -89,6 +91,8 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/test-harness", "Test Harness"],
     ["@pi-harness/core/plugins/session-insights", "Session Insights"],
     ["@pi-harness/core/plugins/readme-gen", "README Generator"],
+    ["@pi-harness/core/plugins/i18n-pair", "I18n Pair"],
+    ["@pi-harness/core/plugins/cleaner", "Harness Cleaner"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -934,6 +938,54 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿。
             </div>
           )}
+        </div>
+      ) : panel.id === "i18n-pair-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.report !== null && data?.report !== undefined && typeof data.report === "object" ? (
+            (() => {
+              const report = data.report as Record<string, unknown>;
+              const missing = Array.isArray(report.missing) ? report.missing : [];
+              const extra = Array.isArray(report.extra) ? report.extra : [];
+              const healthy = missing.length === 0 && extra.length === 0;
+              return (
+                <>
+                  <div
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${healthy ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                  >
+                    {healthy ? "语言包键完全一致。" : `缺失 ${missing.length} 个，额外 ${extra.length} 个。`}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      <span className="block text-[10px] text-[#8a949f]">基准键</span>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{String(report.baseKeys ?? 0)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      <span className="block text-[10px] text-[#8a949f]">目标键</span>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{String(report.targetKeys ?? 0)}</strong>
+                    </div>
+                  </div>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有检查语言包。可让 Agent 调用 i18n_check。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "cleaner-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">快照清理</span>
+              <strong className="font-mono text-[12px] text-[#4176e6]">{String(Array.isArray(data?.capsules) ? data.capsules.length : 0)} 个</strong>
+            </div>
+            <p className="mt-2 text-[11px] text-[#8a949f]">仅清理 agent 数据目录中的 .patch 快照，必须显式 confirm=true。</p>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
+            <span>上次清理</span>
+            <strong className="font-mono text-[#4176e6]">{String(data?.lastRemoved ?? 0)} 个</strong>
+          </div>
         </div>
       ) : panel.id === "fail-logger-panel" ? (
         <div className="mt-3 grid gap-3">
