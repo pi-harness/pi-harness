@@ -79,6 +79,7 @@ const capability = (name: string): string => {
     ["cli-notifier", "桌面通知"],
     ["obsidian-sync", "知识库"],
     ["context-doctor", "上下文诊断"],
+    ["history-compressor", "历史压缩"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -113,6 +114,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/cli-notifier", "CLI Notifier"],
     ["@pi-harness/core/plugins/obsidian-sync", "Obsidian Sync"],
     ["@pi-harness/core/plugins/context-doctor", "Context Doctor"],
+    ["@pi-harness/core/plugins/history-compressor", "History Compressor"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -973,6 +975,24 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ))}
             </ul>
           ) : null}
+        </div>
+      ) : panel.id === "history-compressor-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "自动压缩已启用" : "自动压缩已停用"}</span>
+            <strong className="font-mono text-[11px] text-[#4176e6]">阈值 {String(data?.thresholdPercent ?? "—")}%</strong>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">已压缩</span>
+              <strong className="mt-1 block text-[17px] text-[#30343b]">{String(data?.compactions ?? 0)}</strong>
+            </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">当前占用</span>
+              <strong className="mt-1 block text-[17px] text-[#30343b]">{String(data?.lastUsagePercent ?? "—")}%</strong>
+            </div>
+          </div>
+          {data?.lastError ? <p className="text-[11px] text-[#b42318]">最近错误：{String(data.lastError)}</p> : null}
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">

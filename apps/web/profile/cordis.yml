@@ -86,6 +86,9 @@
     - id: context-doctor
       name: "@pi-harness/core/plugins/context-doctor"
       config: {}
+    - id: history-compressor
+      name: "@pi-harness/core/plugins/history-compressor"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

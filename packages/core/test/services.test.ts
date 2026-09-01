@@ -39,6 +39,7 @@ import mockServerPlugin from "../src/plugins/mock-server.js";
 import cliNotifierPlugin from "../src/plugins/cli-notifier.js";
 import obsidianSyncPlugin from "../src/plugins/obsidian-sync.js";
 import contextDoctorPlugin from "../src/plugins/context-doctor.js";
+import historyCompressorPlugin from "../src/plugins/history-compressor.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -558,6 +559,37 @@ describe("Pi domain plugins", () => {
       details: { compacted: true },
     });
     expect(compacted).toBe(1);
+  });
+
+  test("automatically compacts high-pressure sessions after an agent turn", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    let compacted = 0;
+    context.provide("piRuntime", {
+      session: {
+        messages: [{ role: "user", content: [{ type: "text", text: "long context" }] }],
+        getContextUsage: () => ({ tokens: 9_000, contextWindow: 10_000, percent: 90 }),
+        compact: async () => {
+          compacted += 1;
+        },
+      },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(historyCompressorPlugin, { enabled: true, thresholdPercent: 85 });
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "compress_history");
+    expect(tool).toBeDefined();
+    context.emit("pi/session-event", { type: "agent_end", messages: [] });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(compacted).toBe(1);
+    await expect(tool!.execute("call-1", { confirm: false }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/);
+    await expect(tool!.execute("call-2", { confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { compacted: true, automatic: false },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { id: "history-compressor-panel", data: { enabled: true, thresholdPercent: 85, compactions: 2, lastError: null } },
+    ]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {
