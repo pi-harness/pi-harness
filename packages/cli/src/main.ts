@@ -13,6 +13,7 @@ export interface CliEnvironment {
   readonly stdout: Writable;
   readonly stderr: Writable;
   readonly shutdownTimeoutMs: number;
+  readonly supervised?: boolean;
   forceExit(code: number): void;
   onSignal(listener: (signal: NodeJS.Signals) => void): () => void;
 }
@@ -83,17 +84,29 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     signalledExit = resolve;
   });
   const startupAbort = new AbortController();
+  const stdio = new NodeStdio(environment.stdin, environment.stdout, environment.stderr);
+  let signalCount = 0;
   const removeSignals = environment.onSignal((signal) => {
     const code = signalExitCode(signal);
+    signalCount += 1;
+    if (signalCount > 1) {
+      environment.stderr.write(`Received ${signal} again; exiting immediately\n`);
+      forceExit(code);
+      return;
+    }
     signalledExit?.(code);
+    stdio.close();
     startupAbort.abort(new Error(`Received ${signal}`));
   });
   try {
-    const stdio = new NodeStdio(environment.stdin, environment.stdout, environment.stderr);
     const bootOutcome: Promise<BootOutcome> = bootHarness({
       configPath,
       signal: startupAbort.signal,
       onFullReload() {
+        if (environment.supervised !== true) {
+          environment.stderr.write("Cordis requested a full reload but this process is not supervised; restart the CLI to apply the change\n");
+          return;
+        }
         requestedExit?.(PI_HARNESS_RESTART_EXIT_CODE);
       },
       prepare(context) {
@@ -145,6 +158,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     return 1;
   } finally {
     removeSignals();
+    stdio.close();
     if (harness !== undefined) {
       const disposed = await settleWithin(harness.dispose().then(() => undefined, (error: unknown) => {
         environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
