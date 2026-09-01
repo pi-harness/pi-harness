@@ -617,13 +617,6 @@ function Plugins({ plugins, onMarketplace, onToml }: { plugins: readonly ClientP
               </article>
             ))}
           </div>
-          <div className="plugin-add">
-            <code>dsh plugin add</code>
-            <input disabled placeholder="github:owner/repo" />
-            <button className="primary" disabled type="button">
-              安装
-            </button>
-          </div>
         </div>
       </div>
     </section>
@@ -2712,7 +2705,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 : page === "plugins"
                   ? "运行时插件清单"
                   : page === "marketplace"
-                    ? "社区目录 · 可审查安装指引"
+                    ? "社区目录 · 可审查插件"
                     : sessionSource(data.status, data.session)}
             </small>
           </div>
