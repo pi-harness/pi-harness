@@ -452,6 +452,29 @@ describe("API gateway plugin", () => {
     expect(invalidPage.status).toBe(400);
   });
 
+  test("marks legacy random-id marketplace entries as removable", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "legacy-plugin-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const loaderEntry = { options: { id: "769990d2", name: "@deepseek-ai/cordis-plugin-logger-console" } };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    context.reflect.provide("loader", {
+      *entries() {
+        yield loaderEntry;
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [{ id: "769990d2", name: "@deepseek-ai/cordis-plugin-logger-console", enabled: true, state: "unloaded", removable: true }],
+    });
+  });
+
   test("uninstalls a nested marketplace entry using its resolvable loader id", async () => {
     const context = new Context();
     contexts.push(context);

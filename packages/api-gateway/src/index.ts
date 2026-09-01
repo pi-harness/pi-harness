@@ -208,7 +208,13 @@ function visibleProviderIds(
   );
 }
 
-function pluginSummary(entry: { options: { id: string; name: string; disabled?: boolean | null }; fiber?: { state: unknown } }) {
+type LoaderEntrySummary = { options: { id: string; name: string; disabled?: boolean | null }; fiber?: { state: unknown } };
+
+function marketplacePluginForEntry(entry: LoaderEntrySummary): MarketplacePlugin | undefined {
+  return MARKETPLACE_PLUGINS.find((plugin) => plugin.packageName === entry.options.name);
+}
+
+function pluginSummary(entry: LoaderEntrySummary) {
   const states = ["pending", "loading", "active", "failed", "disposed", "unloading"];
   const rawState = entry.fiber?.state;
   const state =
@@ -219,7 +225,13 @@ function pluginSummary(entry: { options: { id: string; name: string; disabled?: 
         : rawState === undefined || rawState === null
           ? "unloaded"
           : "unknown";
-  return { id: entry.options.id, name: entry.options.name, enabled: !entry.options.disabled, state, removable: entry.options.id.startsWith("marketplace-") };
+  return {
+    id: entry.options.id,
+    name: entry.options.name,
+    enabled: !entry.options.disabled,
+    state,
+    removable: entry.options.id.startsWith("marketplace-") || marketplacePluginForEntry(entry) !== undefined,
+  };
 }
 
 function runProcess(executable: string, args: readonly string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
@@ -754,10 +766,11 @@ export default {
             await runProcess("npm", ["install", "--save-exact", "--package-lock=false", `${plugin.packageName}@${plugin.version}`], services.launch.cwd);
             profileBefore = await appendMarketplaceProfile(configPath, plugin);
             entryId = await loader.create({
+              id: `marketplace-${plugin.id}`,
               name: plugin.packageName,
               ...(plugin.profile.group === true ? { group: true } : {}),
               config: plugin.profile.config,
-            });
+            } as never);
             const entry = loader.resolve(entryId);
             if (entry.fiber === undefined) throw new Error(`Plugin ${plugin.packageName} did not create a runtime fiber`);
             await entry.fiber.await();
@@ -791,7 +804,7 @@ export default {
         }
         try {
           const payload = JSON.parse(await bodyText(request)) as { id?: unknown; enabled?: unknown };
-          if (typeof payload.id !== "string" || typeof payload.enabled !== "boolean" || !payload.id.startsWith("marketplace-")) {
+          if (typeof payload.id !== "string" || typeof payload.enabled !== "boolean") {
             sendJson(response, 400, { error: "A marketplace plugin id and enabled boolean are required" });
             return;
           }
@@ -800,11 +813,13 @@ export default {
             sendJson(response, 404, { error: "Installed plugin was not found" });
             return;
           }
-          if (!entry.options.id.startsWith("marketplace-")) {
+          const plugin = marketplacePluginForEntry(entry);
+          if (plugin === undefined) {
             sendJson(response, 403, { error: "Built-in plugins cannot be changed" });
             return;
           }
-          const before = await updateMarketplaceProfile(configPath, payload.id, { disabled: !payload.enabled });
+          const profileEntryId = entry.options.id.startsWith("marketplace-") ? entry.options.id : `marketplace-${plugin.id}`;
+          const before = await updateMarketplaceProfile(configPath, profileEntryId, { disabled: !payload.enabled });
           try {
             await entry.update({ disabled: !payload.enabled });
             sendJson(response, 200, { plugin: pluginSummary(entry) });
@@ -832,7 +847,7 @@ export default {
         }
         try {
           const payload = JSON.parse(await bodyText(request)) as { id?: unknown };
-          if (typeof payload.id !== "string" || !payload.id.startsWith("marketplace-")) {
+          if (typeof payload.id !== "string") {
             sendJson(response, 400, { error: "A marketplace plugin id is required" });
             return;
           }
@@ -841,11 +856,12 @@ export default {
             sendJson(response, 404, { error: "Installed plugin was not found" });
             return;
           }
-          const plugin = MARKETPLACE_PLUGINS.find((item) => item.packageName === entry.options.name);
+          const plugin = marketplacePluginForEntry(entry);
           if (plugin === undefined) {
             sendJson(response, 403, { error: "Only marketplace plugins can be uninstalled" });
             return;
           }
+          const profileEntryId = entry.options.id.startsWith("marketplace-") ? entry.options.id : `marketplace-${plugin.id}`;
           const profileBefore = await readFile(configPath, "utf8");
           const packageJsonPath = join(services.launch.cwd, "package.json");
           const packageLockPath = join(services.launch.cwd, "package-lock.json");
@@ -854,7 +870,7 @@ export default {
           await entry.parent.remove(entry.options.id);
           entry.parent.tree.write();
           try {
-            await updateMarketplaceProfile(configPath, payload.id, { remove: true });
+            await updateMarketplaceProfile(configPath, profileEntryId, { remove: true });
             await runProcess("npm", ["uninstall", "--package-lock=false", plugin.packageName], services.launch.cwd);
             sendJson(response, 200, { uninstalled: true, id: payload.id });
           } catch (error) {
