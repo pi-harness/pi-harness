@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="64" viewBox="0 0 260 64" font-family="Instrument Sans, Helvetica, Arial, sans-serif">
+  <g transform="translate(-2 0) scale(0.92)">
+  <g transform="rotate(-7 32 34)">
+    <circle cx="30" cy="23" r="13" fill="#0F1115"></circle>
+    <g fill="none" stroke="#0F1115" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13 43 C20 40 26 38 33 37.5 C40 37 45 32 48 26"></path>
+      <path d="M25 40 C24 45 24.5 48 26.5 51"></path>
+      <path d="M38 39 C40.5 43.5 43 46.5 46 48.5"></path>
+    </g>
+  </g>
+  </g>
+  <text x="70" y="40" font-size="24" font-weight="600" letter-spacing="-0.4" fill="#0F1115">pi harness</text>
+</svg>

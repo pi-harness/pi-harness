@@ -138,7 +138,9 @@ function Workspace({
     <div className="new-session-screen">
       <div className="welcome-kicker">PI AGENT HARNESS · REAL RUNTIME</div>
       <div className="welcome-heading">
-        <span className="pi-mark large">π</span>
+        <span className="pi-mark large" aria-hidden="true">
+          <img src="/icons/svg/mark-white.svg" alt="" />
+        </span>
         <div>
           <h2>开始一个工作会话</h2>
           <p>连接当前工作区，直接让 Pi agent 读取、修改并验证代码。</p>
@@ -2370,7 +2372,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     <div className="app-frame">
       <aside className="sidebar">
         <header className="brand-row">
-          <span className="pi-mark">π</span>
+          <span className="pi-mark" aria-hidden="true">
+            <img src="/icons/svg/mark-white.svg" alt="" />
+          </span>
           <strong>pi harness</strong>
           <span className="version">0.9.4</span>
         </header>
