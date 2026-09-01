@@ -2137,7 +2137,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
       onUninstall={async (plugin) => {
         await api.uninstallPlugin(plugin.id);
-        await refresh();
+        const plugins = await api.listPlugins();
+        setData((current) => ({ ...current, plugins: plugins.filter((item) => item.id !== plugin.id) }));
       }}
     />
   ) : page === "marketplace" ? (

@@ -461,16 +461,18 @@ describe("API gateway plugin", () => {
     const loaderEntry = {
       id: `profile:${entryId}`,
       options: { id: entryId, name: "@deepseek-ai/cordis-plugin-logger-console", config: {} },
-      async _dispose() {},
+      parent: {
+        tree: { write() {} },
+        async remove(id: string) {
+          if (id !== entryId) throw new Error(`cannot resolve entry ${id}`);
+          active = false;
+        },
+      },
     };
-    let removedId = "";
+    let active = true;
     const loader = {
       *entries() {
-        yield loaderEntry;
-      },
-      async remove(id: string) {
-        if (id !== loaderEntry.id) throw new Error(`cannot resolve entry ${id}`);
-        removedId = id;
+        if (active) yield loaderEntry;
       },
     };
     await writeFile(configPath, `- id: ${entryId}\n  name: ${JSON.stringify(loaderEntry.options.name)}\n  config: {}\n`, "utf8");
@@ -489,7 +491,9 @@ describe("API gateway plugin", () => {
       body: JSON.stringify({ id: entryId }),
     });
     expect(response.status).toBe(200);
-    expect(removedId).toBe(loaderEntry.id);
+    const plugins = await fetch(context.webServer.url + "/api/plugins");
+    expect(plugins.status).toBe(200);
+    expect((await plugins.json()).items).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: entryId })]));
   });
 
   test("commits selected workspace files only after an explicit message", async () => {
