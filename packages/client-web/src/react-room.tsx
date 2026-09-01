@@ -15,6 +15,7 @@ import {
 import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
 import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
+import { messageThinking, messageText } from "./message-content.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -49,21 +50,6 @@ const value = (input: unknown, fallback = "—"): string => {
 };
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
-const messageText = (message: Record<string, unknown>): string => {
-  const content = message.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content))
-    return content
-      .map((part) =>
-        typeof part === "string"
-          ? part
-          : typeof part === "object" && part !== null && typeof (part as { text?: unknown }).text === "string"
-            ? (part as { text: string }).text
-            : "",
-      )
-      .join("");
-  return "";
-};
 const eventLabel = (event: Record<string, unknown>): string =>
   value(event.summary ?? event.message ?? event.toolName ?? event.type ?? event.event, "未命名事件");
 const capability = (name: string): string =>
@@ -124,69 +110,6 @@ function sessionGroups(sessions: readonly Record<string, unknown>[]): readonly [
     const items = groups.get(label);
     return items?.length ? [[label, items] as const] : [];
   });
-}
-
-function RuntimeCard({ event }: { event: Record<string, unknown> }) {
-  const type = value(event.type, "event");
-  const output = event.output ?? event.result ?? event.message;
-  if (type === "tool_execution_start" || type === "tool_execution_end")
-    return (
-      <article className="turn runtime-event">
-        <details className="tool-card" open={type === "tool_execution_end"}>
-          <summary className="tool-head">
-            <b>
-              {type === "tool_execution_end" ? "✓" : "▤"} {value(event.toolName ?? event.name, "tool")}
-            </b>
-            <span className="tool-target">{value(event.args ?? event.toolCallId ?? event.duration, "运行时工具")}</span>
-          </summary>
-          {output !== undefined && <pre className="tool-output">{typeof output === "string" ? output : JSON.stringify(output, null, 2)}</pre>}
-        </details>
-      </article>
-    );
-  if (
-    type === "message_update" &&
-    typeof event.assistantMessageEvent === "object" &&
-    event.assistantMessageEvent !== null &&
-    (event.assistantMessageEvent as { type?: unknown }).type === "thinking_delta"
-  )
-    return (
-      <article className="turn runtime-event">
-        <details className="reasoning">
-          <summary className="reasoning-head">思考</summary>
-          <p className="reasoning-body">{value((event.assistantMessageEvent as { delta?: unknown }).delta, "")}</p>
-        </details>
-      </article>
-    );
-  if (["agent_start", "turn_start"].includes(type))
-    return (
-      <article className="turn runtime-event">
-        <div className="plugin-event">▷ {type === "agent_start" ? "agent 开始" : "新一轮开始"}</div>
-      </article>
-    );
-  if (["agent_end", "agent_settled", "turn_end"].includes(type))
-    return (
-      <article className="turn runtime-event">
-        <div className="stats-row">✓ {type === "agent_settled" ? "agent 已停止" : type === "agent_end" ? "agent 完成" : "本轮完成"}</div>
-      </article>
-    );
-  if (type === "queue_update")
-    return (
-      <article className="turn runtime-event">
-        <div className="plugin-event">队列更新</div>
-        <p className="turn-meta">
-          steering {Array.isArray(event.steering) ? event.steering.length : value(event.steering, "0")} · follow-up{" "}
-          {Array.isArray(event.followUp) ? event.followUp.length : value(event.followUp, "0")}
-        </p>
-      </article>
-    );
-  if (type.startsWith("compaction") || type.startsWith("auto_retry") || type.startsWith("summarization") || type === "bash_execution_update")
-    return (
-      <article className="turn runtime-event">
-        <div className="plugin-event">◈ {type}</div>
-        <p className="turn-meta">{typeof output === "string" ? output : JSON.stringify(event)}</p>
-      </article>
-    );
-  return null;
 }
 
 function Workspace({
@@ -1426,7 +1349,12 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [contextExpanded, setContextExpanded] = useState(false);
   const [promptError, setPromptError] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
+  const [pendingPrompt, setPendingPrompt] = useState("");
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const refreshTimerRef = useRef<number | undefined>(undefined);
+  const refreshQueuedRef = useRef(false);
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
@@ -1495,6 +1423,16 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       workspaces: workspaces.status === "fulfilled" ? workspaces.value : current.workspaces,
     }));
   }, [api, marketplaceCapability, marketplacePage, marketplaceQuery]);
+  const scheduleRefresh = useCallback(() => {
+    refreshQueuedRef.current = true;
+    if (refreshTimerRef.current !== undefined) return;
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = undefined;
+      if (!refreshQueuedRef.current) return;
+      refreshQueuedRef.current = false;
+      void refresh();
+    }, 100);
+  }, [refresh]);
   const createNewSession = useCallback(
     async (workspace?: ClientWorkspace) => {
       setPromptError("");
@@ -1539,13 +1477,17 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   }, [pickDirectory]);
   useEffect(() => {
     void refresh();
-    const unsubscribe = api.subscribeEvents(() => void refresh());
+    const unsubscribe = api.subscribeEvents(scheduleRefresh);
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => {
       unsubscribe();
       window.clearInterval(timer);
+      if (refreshTimerRef.current !== undefined) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = undefined;
+      }
     };
-  }, [api, refresh]);
+  }, [api, refresh, scheduleRefresh]);
   useEffect(() => {
     setCommandIndex(0);
     if (!commandOpen) return;
@@ -1584,6 +1526,14 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   }, [commandOpen, globalSearchOpen]);
   const events = data.session?.events ?? [];
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const element = chatScrollRef.current;
+      if (element) element.scrollTop = element.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data.session?.messages.length, data.status?.events, pendingPrompt, promptBusy]);
   const filteredSessions = data.sessions.filter(
     (session) =>
       !search ||
@@ -1597,11 +1547,14 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     if (!prompt || promptBusy) return;
     setDraft("");
     setPromptError("");
+    setPendingPrompt(prompt);
+    stickToBottomRef.current = true;
     setPromptBusy(true);
     void api
       .prompt(prompt)
       .then(() => refresh())
       .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setPendingPrompt(""))
       .finally(() => setPromptBusy(false));
   };
   const openSession = (session: Record<string, unknown>) => {
@@ -1651,13 +1604,40 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     />
   ) : view === "chat" ? (
     <section className="view-panel chat-view">
-      <div className={`chat-scroll ${data.session?.messages.length ? "" : "is-empty"}`}>
+      <div
+        className={`chat-scroll ${data.session?.messages.length ? "" : "is-empty"}`}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+        }}
+        ref={chatScrollRef}
+      >
         {data.session?.messages.length ? (
-          data.session.messages.map((message, index) => (
-            <article className={`turn ${message.role === "user" ? "user" : "text"}`} key={index}>
-              {message.role === "user" ? <div className="user-bubble">{messageText(message)}</div> : <MarkdownMessage text={messageText(message)} />}
-            </article>
-          ))
+          data.session.messages.map((message, index) => {
+            if (message.role === "toolResult") return null;
+            const text = messageText(message);
+            const thinking = message.role === "assistant" ? messageThinking(message) : "";
+            if (!text && !thinking) return null;
+            return (
+              <article className={`turn ${message.role === "user" ? "user" : "text"}`} key={index}>
+                {message.role === "user" ? (
+                  <div className="user-bubble">{text}</div>
+                ) : (
+                  <>
+                    {thinking && (
+                      <details className="reasoning message-reasoning">
+                        <summary className="reasoning-head">思考</summary>
+                        <div className="reasoning-body">
+                          <MarkdownMessage text={thinking} />
+                        </div>
+                      </details>
+                    )}
+                    {text && <MarkdownMessage text={text} />}
+                  </>
+                )}
+              </article>
+            );
+          })
         ) : (
           <Workspace
             status={data.status}
@@ -1667,9 +1647,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             onToml={() => setSettings("toml")}
           />
         )}
-        {displayEvents.map((event, index) => (
-          <RuntimeCard event={event} key={`${value(event.type, "event")}-${index}`} />
-        ))}
+        {pendingPrompt && !data.session?.messages.some((message) => message.role === "user" && messageText(message) === pendingPrompt) && (
+          <article className="turn user pending-turn">
+            <div className="user-bubble">{pendingPrompt}</div>
+          </article>
+        )}
       </div>
       <div className="composer-wrap">
         <div className="context-line">
@@ -1711,6 +1693,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 setDraft(event.target.value);
                 setPromptCaret(event.currentTarget.selectionStart ?? event.target.value.length);
                 setPromptCompletionSuppressed(false);
+                event.currentTarget.style.height = "auto";
+                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`;
               }}
               onKeyDown={(event) => {
                 const caret = event.currentTarget.selectionStart ?? draft.length;

@@ -290,6 +290,9 @@ button:disabled {
 .user-bubble {
   @apply [max-width:84%] [padding:10px_14px] [border-radius:12px] [background:var(--color-blue-soft)] [white-space:pre-wrap];
 }
+.pending-turn .user-bubble {
+  @apply [opacity:0.72];
+}
 .turn-markdown {
   @apply [margin:0] [min-width:0] [font-size:13.5px] [line-height:1.78];
 }
@@ -354,6 +357,12 @@ button:disabled {
 }
 .reasoning[open] .reasoning-body {
   @apply [display:block];
+}
+.message-reasoning {
+  @apply [margin-bottom:10px];
+}
+.message-reasoning .reasoning-body {
+  @apply [margin-top:6px];
 }
 .plugin-event {
   @apply [display:flex] [align-items:center] [gap:8px] [height:30px] [padding:0_11px] [border:1px_dashed_rgba(65,_118,_230,_0.35)] [border-radius:8px] [background:#f7faff] [color:var(--color-blue)] [font:11px_var(--font-mono)];
@@ -525,7 +534,7 @@ button:disabled {
   @apply [position:relative] [max-width:748px] [margin:0_auto] [border:1px_solid_rgba(0,_0,_0,_0.12)] [border-radius:12px] [background:#fff] [box-shadow:0_1px_2px_rgba(0,_0,_0,_0.03)] [overflow:visible];
 }
 .composer textarea {
-  @apply [display:block] [width:100%] [min-height:65px] [padding:11px_13px_4px] [border:0] [outline:0] [resize:none] [color:var(--color-ink)] [font-size:13.5px] [line-height:1.7] [background:transparent];
+  @apply [display:block] [width:100%] [min-height:65px] [max-height:180px] [overflow-y:auto] [padding:11px_13px_4px] [border:0] [outline:0] [resize:none] [color:var(--color-ink)] [font-size:13.5px] [line-height:1.7] [background:transparent];
 }
 .composer-tools {
   @apply [display:flex] [align-items:center] [gap:6px] [padding:6px_8px_8px];
