@@ -742,7 +742,9 @@ export default {
               ...(plugin.profile.group === true ? { group: true } : {}),
               config: plugin.profile.config,
             });
-            await loader.resolve(entryId).fiber?.await();
+            const entry = loader.resolve(entryId);
+            if (entry.fiber === undefined) throw new Error(`Plugin ${plugin.packageName} did not create a runtime fiber`);
+            await entry.fiber.await();
             sendJson(response, 200, { plugin, installed: true });
           } catch (error) {
             if (entryId !== undefined) await loader.remove(entryId).catch(() => {});

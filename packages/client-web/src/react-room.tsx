@@ -568,7 +568,18 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
   );
 }
 
-function Plugins({ plugins, onMarketplace, onToml }: { plugins: readonly ClientPlugin[]; onMarketplace: () => void; onToml: () => void }) {
+function Plugins({
+  plugins,
+  marketplace,
+  onMarketplace,
+  onToml,
+}: {
+  plugins: readonly ClientPlugin[];
+  marketplace: readonly ClientMarketplacePlugin[];
+  onMarketplace: () => void;
+  onToml: () => void;
+}) {
+  const marketplaceNames = useMemo(() => new Map(marketplace.map((plugin) => [plugin.packageName, plugin.name])), [marketplace]);
   return (
     <section className="view-panel plugins-view">
       <div className="plugins-page">
@@ -600,7 +611,7 @@ function Plugins({ plugins, onMarketplace, onToml }: { plugins: readonly ClientP
                   <span className="plugin-icon">◈</span>
                   <div className="plugin-copy">
                     <div className="plugin-title">
-                      <code>{displayPluginName(plugin.name)}</code>
+                      <code>{marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name)}</code>
                       <small>{plugin.state}</small>
                       <span className="capability">{capability(plugin.name)}</span>
                     </div>
@@ -2070,7 +2081,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
     />
   ) : page === "plugins" ? (
-    <Plugins plugins={data.plugins} onMarketplace={() => setPage("marketplace")} onToml={() => setSettings("toml")} />
+    <Plugins plugins={data.plugins} marketplace={data.marketplace} onMarketplace={() => setPage("marketplace")} onToml={() => setSettings("toml")} />
   ) : page === "marketplace" ? (
     <Marketplace
       plugins={data.marketplace}
