@@ -37,6 +37,7 @@ import yamlValidatorPlugin from "../src/plugins/yaml-validator.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 import mockServerPlugin from "../src/plugins/mock-server.js";
 import cliNotifierPlugin from "../src/plugins/cli-notifier.js";
+import obsidianSyncPlugin from "../src/plugins/obsidian-sync.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -500,6 +501,30 @@ describe("Pi domain plugins", () => {
         }),
       }),
     ]);
+  });
+
+  test("writes confirmed Markdown notes only inside the configured Obsidian vault", async () => {
+    const { context } = await createContext();
+    const vault = await mkdtemp(join(tmpdir(), "pi-harness-vault-"));
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(obsidianSyncPlugin, { vaultPath: vault });
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "obsidian_sync");
+    expect(tool).toBeDefined();
+    await expect(
+      tool!.execute("call-1", { relativePath: "notes/review.md", content: "# Review", confirm: false }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/confirm=true/);
+    await expect(
+      tool!.execute("call-2", { relativePath: "notes/review.md", content: "# Review", confirm: true }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { relativePath: "notes/review.md", bytes: 8 },
+    });
+    await expect((await import("node:fs/promises")).readFile(join(vault, "notes/review.md"), "utf8")).resolves.toBe("# Review");
+    await expect(tool!.execute("call-3", { relativePath: "../escape.md", content: "bad", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /inside the configured vault/,
+    );
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

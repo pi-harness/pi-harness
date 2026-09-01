@@ -75,6 +75,9 @@ const capability = (name: string): string => {
     ["browser-fetch", "网页抓取"],
     ["browser-session", "浏览器会话"],
     ["yaml-validator", "配置校验"],
+    ["mock-server", "接口模拟"],
+    ["cli-notifier", "桌面通知"],
+    ["obsidian-sync", "知识库"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -105,6 +108,9 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/browser-fetch", "Browser Fetch"],
     ["@pi-harness/core/plugins/browser-session", "Browser Session"],
     ["@pi-harness/core/plugins/yaml-validator", "YAML Validator"],
+    ["@pi-harness/core/plugins/mock-server", "Mock Server"],
+    ["@pi-harness/core/plugins/cli-notifier", "CLI Notifier"],
+    ["@pi-harness/core/plugins/obsidian-sync", "Obsidian Sync"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1195,6 +1201,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有发送通知。</div>
+          )}
+        </div>
+      ) : panel.id === "obsidian-sync-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <span className="font-mono text-[11px] text-[#30343b]">{data?.configured === true ? "已配置" : "未配置 vault"}</span>
+            <span className="font-mono text-[10px] text-[#8a949f]">Markdown</span>
+          </div>
+          {data?.vaultPath ? <code className="truncate rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{String(data.vaultPath)}</code> : null}
+          {data?.last !== null && data?.last !== undefined && typeof data.last === "object" ? (
+            <p className="text-[11px] text-[#8a949f]">最近写入：{String((data.last as Record<string, unknown>).relativePath ?? "note.md")}</p>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有同步笔记。</div>
           )}
         </div>
       ) : panel.id === "browser-fetch-panel" ? (

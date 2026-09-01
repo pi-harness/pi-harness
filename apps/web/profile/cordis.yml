@@ -80,6 +80,9 @@
     - id: cli-notifier
       name: "@pi-harness/core/plugins/cli-notifier"
       config: {}
+    - id: obsidian-sync
+      name: "@pi-harness/core/plugins/obsidian-sync"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
