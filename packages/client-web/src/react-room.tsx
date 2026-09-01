@@ -610,7 +610,7 @@ function Marketplace({
           <span className="font-mono text-[10.5px] text-[#adb2b8]">{total} 个已审核条目</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-          <div className="grid max-w-[940px] grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <div className="marketplace-grid">
             {plugins.map((plugin) => (
               <article className="rounded-[10px] border border-black/10 bg-white p-3" key={plugin.id}>
                 <div className="flex items-start gap-2.5">
@@ -1213,6 +1213,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       />
     );
   const groups = sessionGroups(filteredSessions);
+  const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
   return (
     <div className="app-frame">
       <aside className="sidebar">
@@ -1228,6 +1229,18 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <input onChange={(event) => setSearch(event.target.value)} placeholder="搜索会话" type="search" value={search} />
         </div>
         <div className="sidebar-scroll">
+          {showCurrentSession && data.session && (
+            <div className="session-group">
+              <div className="group-label">当前</div>
+              <button className="session-row active" onClick={() => void refresh()} type="button">
+                <span className="session-dot ok"></span>
+                <span className="session-copy">
+                  <strong>{data.session.messages.length ? data.session.sessionId.slice(0, 12) : "新会话"}</strong>
+                  <small>{data.session.messages.length} 条消息</small>
+                </span>
+              </button>
+            </div>
+          )}
           {groups.length ? (
             groups.map(([label, sessions]) => (
               <div className="session-group" key={label}>
@@ -1248,9 +1261,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 ))}
               </div>
             ))
-          ) : (
+          ) : !showCurrentSession ? (
             <div className="empty-state">暂无已保存会话</div>
-          )}
+          ) : null}
         </div>
         <footer className="sidebar-footer">
           <div className="runtime-cells">
@@ -1330,13 +1343,13 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               ))}
             </div>
           )}
+          {page === "session" && <span aria-hidden="true" className="header-divider"></span>}
           <button className="session-menu" onClick={() => setSessionMenuOpen((current) => !current)} type="button" aria-label="会话操作">
             ⋯
           </button>
           <button aria-pressed={details !== undefined} className="details-toggle" onClick={() => setDetails(details ? undefined : {})} type="button">
             ◨ 详情
           </button>
-          <span className={`status-pill ${data.status?.status === "running" ? "running" : "online"}`}>{value(data.status?.status, "connecting")}</span>
           {sessionMenuOpen && (
             <div className="session-menu-popover">
               <button

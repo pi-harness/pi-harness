@@ -187,6 +187,9 @@ button:disabled {
 .view-tab.active {
   @apply [background:#fff] [color:var(--color-ink)] [box-shadow:0_1px_3px_rgba(0,_0,_0,_0.08)] [font-weight:600];
 }
+.header-divider {
+  @apply [width:1px] [height:18px] [flex:none] [background:rgba(0,_0,_0,_0.08)];
+}
 .session-menu,
 .details-toggle {
   @apply [height:28px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:8px] [background:#fff] [color:#61666b];
@@ -968,6 +971,9 @@ button:disabled {
 }
 .provider-card input {
   @apply [display:block] [width:100%] [height:28px] [margin-top:7px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:7px] [padding:0_9px] [font:11.5px_var(--font-mono)];
+}
+.marketplace-grid {
+  @apply [display:grid] [grid-template-columns:repeat(auto-fit,_minmax(320px,_1fr))] [gap:10px];
 }
 .stop-button {
   @apply [padding:2px_8px] [border:1px_solid_rgba(236,_19,_19,_0.24)] [border-radius:6px] [color:var(--color-red)] [font-size:11px];
