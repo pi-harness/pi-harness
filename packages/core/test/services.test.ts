@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -25,6 +26,8 @@ import testHarnessPlugin from "../src/plugins/test-harness.js";
 import sessionInsightsPlugin from "../src/plugins/session-insights.js";
 import cleanerPlugin from "../src/plugins/cleaner.js";
 import i18nPairPlugin from "../src/plugins/i18n-pair.js";
+import sqlLensPlugin from "../src/plugins/sql-lens.js";
+import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 
 const contexts: Context[] = [];
@@ -404,5 +407,40 @@ describe("Pi domain plugins", () => {
     await context.plugin(i18nPairPlugin);
     const result = await tools.snapshot().customTools[0].execute("call-1", {}, undefined, undefined, {} as never);
     expect(result).toMatchObject({ details: { missing: ["save"], extra: ["onlyHere"] } });
+  });
+
+  test("executes bounded read-only SQLite queries and rejects mutations", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const db = new DatabaseSync(join(cwd, "data.db"));
+    db.exec("CREATE TABLE users (id INTEGER, name TEXT); INSERT INTO users VALUES (1, 'Ada');");
+    db.close();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(sqlLensPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(
+      tool.execute("call-1", { database: "data.db", query: "SELECT id, name FROM users" }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { rows: [{ id: 1, name: "Ada" }], columns: ["id", "name"] } });
+    await expect(tool.execute("call-2", { database: "data.db", query: "DELETE FROM users" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /only allows|rejected/,
+    );
+    await expect(tool.execute("call-3", { database: "data.db", query: "PRAGMA journal_mode=WAL" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /read-only|rejected/,
+    );
+  });
+
+  test("requires confirmation and argv execution for Docker sandbox writes", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(dockerSandboxPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", { command: ["echo", "ok"], write: true }, undefined, undefined, {} as never)).rejects.toThrow(/confirmWrite=true/);
+    await expect(tool.execute("call-2", { command: ["sh", "-c", "echo ok"] }, undefined, undefined, {} as never)).rejects.toThrow(/Shell wrappers/);
+    await expect(tool.execute("call-3", { command: ["/bin/sh", "-c", "echo ok"] }, undefined, undefined, {} as never)).rejects.toThrow(/Shell wrappers/);
   });
 });

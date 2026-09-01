@@ -56,6 +56,12 @@
     - id: cleaner
       name: "@pi-harness/core/plugins/cleaner"
       config: {}
+    - id: sql-lens
+      name: "@pi-harness/core/plugins/sql-lens"
+      config: {}
+    - id: docker-sandbox
+      name: "@pi-harness/core/plugins/docker-sandbox"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

@@ -69,6 +69,8 @@ const capability = (name: string): string => {
     ["readme-gen", "文档生成"],
     ["i18n-pair", "国际化"],
     ["cleaner", "清理"],
+    ["sql-lens", "数据库"],
+    ["docker-sandbox", "沙箱"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -93,6 +95,8 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/readme-gen", "README Generator"],
     ["@pi-harness/core/plugins/i18n-pair", "I18n Pair"],
     ["@pi-harness/core/plugins/cleaner", "Harness Cleaner"],
+    ["@pi-harness/core/plugins/sql-lens", "SQL Lens"],
+    ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -938,6 +942,58 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿。
             </div>
           )}
+        </div>
+      ) : panel.id === "sql-lens-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const rows = Array.isArray(report.rows) ? report.rows : [];
+              return (
+                <>
+                  <div className="flex items-center justify-between rounded-lg bg-[#f6f8fa] px-3 py-3">
+                    <span className="truncate font-mono text-[11px] text-[#30343b]">{String(report.database ?? "database")}</span>
+                    <strong className="font-mono text-[12px] text-[#4176e6]">{String(rows.length)} rows</strong>
+                  </div>
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                    {JSON.stringify(rows, null, 2)}
+                  </pre>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有查询数据库。可让 Agent 调用 sql_readonly。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "docker-sandbox-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const run = data.latest as Record<string, unknown>;
+              return (
+                <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate font-mono text-[11px] text-[#30343b]">{String(run.image ?? "image")}</span>
+                    <strong className="font-mono text-[12px] text-[#198754]">exit {String(run.exitCode ?? "—")}</strong>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#65707b]">{Array.isArray(run.command) ? run.command.map(String).join(" ") : "argv"}</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有沙箱运行。默认无网络、工作区只读。</div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {data?.defaults !== null && typeof data?.defaults === "object"
+              ? Object.entries(data.defaults as Record<string, unknown>).map(([key, value]) => (
+                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]" key={key}>
+                    {key}:{String(value)}
+                  </span>
+                ))
+              : null}
+          </div>
         </div>
       ) : panel.id === "i18n-pair-panel" ? (
         <div className="mt-3 grid gap-3">
