@@ -1025,6 +1025,22 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })}
             </div>
           ) : null}
+          {Array.isArray(data?.servers) && data.servers.length > 0 ? (
+            <div className="grid gap-2">
+              {data.servers.map((server, index) => {
+                const item = typeof server === "object" && server !== null ? (server as Record<string, unknown>) : {};
+                return (
+                  <div
+                    className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]"
+                    key={`${String(item.id ?? "server")}-${index}`}
+                  >
+                    <span className="font-mono text-[#30343b]">{String(item.id ?? "server")}</span>
+                    <span className="text-[#198754]">{String(item.status ?? "unknown")}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : panel.id === "browser-fetch-panel" ? (
         <div className="mt-3 grid gap-3">

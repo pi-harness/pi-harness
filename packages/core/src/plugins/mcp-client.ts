@@ -7,6 +7,15 @@ import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agen
 type JsonObject = Record<string, unknown>;
 type McpTool = { name: string; description?: string; inputSchema?: unknown };
 type McpCallResult = { content?: unknown[]; isError?: boolean } & JsonObject;
+type ManagedServer = {
+  id: string;
+  command: string[];
+  child: ChildProcessWithoutNullStreams;
+  status: "running" | "stopping";
+  nextRequestId: number;
+  queue: Promise<void>;
+  startedAt: number;
+};
 
 const shellCommands = new Set(["sh", "bash", "zsh", "fish", "cmd", "powershell", "pwsh"]);
 const maxCommandArgs = 32;
@@ -135,8 +144,77 @@ export default {
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   apply(context: Context) {
     let latest: { server: string; tools: McpTool[]; lastCall?: string } | undefined;
-    const list = async (command: string[]): Promise<{ server: string; tools: McpTool[] }> =>
-      withServer(command, context.piHarnessLaunch.cwd, async (child) => {
+    const servers = new Map<string, ManagedServer>();
+    let nextServerId = 1;
+    const startServer = async (command: string[]): Promise<ManagedServer> => {
+      validateCommand(command);
+      const child = spawn(command[0]!, command.slice(1), { cwd: context.piHarnessLaunch.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+      let stderr = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => {
+        stderr = `${stderr}${chunk}`.slice(-8_000);
+      });
+      const server: ManagedServer = {
+        id: `mcp-${nextServerId++}`,
+        command: [...command],
+        child,
+        status: "running",
+        nextRequestId: 2,
+        queue: Promise.resolve(),
+        startedAt: Date.now(),
+      };
+      child.once("close", () => {
+        server.status = "stopping";
+        servers.delete(server.id);
+      });
+      try {
+        await request(child, 1, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "pi-harness", version: "0.1.2" } });
+        child.stdin.write(encodeMessage({ jsonrpc: "2.0", method: "notifications/initialized" }));
+        servers.set(server.id, server);
+        return server;
+      } catch (error) {
+        child.stdin.end();
+        child.kill();
+        if (error instanceof Error && stderr.trim() !== "") throw new Error(`${error.message}: ${stderr.trim()}`);
+        throw error;
+      }
+    };
+    const stopServer = async (serverId: string): Promise<boolean> => {
+      const server = servers.get(serverId);
+      if (server === undefined) throw new Error(`MCP server is not running: ${serverId}`);
+      server.status = "stopping";
+      await server.queue;
+      servers.delete(server.id);
+      server.child.stdin.end();
+      server.child.kill();
+      return true;
+    };
+    const requestManaged = (server: ManagedServer, method: string, params?: JsonObject): Promise<JsonObject> => {
+      if (server.status !== "running") throw new Error(`MCP server is not running: ${server.id}`);
+      const task = server.queue.then(() => request(server.child, server.nextRequestId++, method, params));
+      server.queue = task.then(
+        () => undefined,
+        () => undefined,
+      );
+      return task;
+    };
+    const getServer = (serverId: string): ManagedServer => {
+      const server = servers.get(serverId);
+      if (server === undefined) throw new Error(`MCP server is not running: ${serverId}`);
+      return server;
+    };
+    const list = async (command?: string[], serverId?: string): Promise<{ server: string; tools: McpTool[] }> => {
+      if (serverId !== undefined) {
+        const managed = getServer(serverId);
+        const result = await requestManaged(managed, "tools/list");
+        const tools = Array.isArray(result.tools)
+          ? result.tools.filter((tool): tool is McpTool => typeof tool === "object" && tool !== null && typeof (tool as JsonObject).name === "string")
+          : [];
+        latest = { server: managed.command.join(" "), tools };
+        return latest;
+      }
+      if (command === undefined) throw new Error("Provide command or serverId to list MCP tools");
+      return withServer(command, context.piHarnessLaunch.cwd, async (child) => {
         const result = await request(child, 2, "tools/list");
         const tools = Array.isArray(result.tools)
           ? result.tools.filter((tool): tool is McpTool => typeof tool === "object" && tool !== null && typeof (tool as JsonObject).name === "string")
@@ -144,21 +222,33 @@ export default {
         latest = { server: command.join(" "), tools };
         return latest;
       });
-    const call = async (command: string[], name: string, args: JsonObject): Promise<McpCallResult> =>
-      withServer(command, context.piHarnessLaunch.cwd, async (child) => {
+    };
+    const call = async (command: string[] | undefined, serverId: string | undefined, name: string, args: JsonObject): Promise<McpCallResult> => {
+      if (serverId !== undefined) {
+        const managed = getServer(serverId);
+        const result = (await requestManaged(managed, "tools/call", { name, arguments: args })) as McpCallResult;
+        latest = { server: managed.command.join(" "), tools: latest?.tools ?? [], lastCall: name };
+        return result;
+      }
+      if (command === undefined) throw new Error("Provide command or serverId to call an MCP tool");
+      return withServer(command, context.piHarnessLaunch.cwd, async (child) => {
         const result = (await request(child, 2, "tools/call", { name, arguments: args })) as McpCallResult;
         latest = { server: command.join(" "), tools: latest?.tools ?? [], lastCall: name };
         return result;
       });
+    };
     const unregisterList = context.piTools.register(
       defineTool({
         name: "mcp_list_tools",
         label: "MCP list tools",
         description: "Start an MCP stdio server and list its available tools.",
         promptSnippet: "discover tools exposed by an MCP stdio server",
-        parameters: Type.Object({ command: Type.Array(Type.String(), { description: "MCP server executable and arguments; shell wrappers are rejected" }) }),
+        parameters: Type.Object({
+          command: Type.Optional(Type.Array(Type.String(), { description: "MCP server executable and arguments; shell wrappers are rejected" })),
+          serverId: Type.Optional(Type.String({ description: "A running MCP server id from mcp_server_start" })),
+        }),
         async execute(_toolCallId, params): Promise<AgentToolResult<{ server: string; tools: McpTool[] }>> {
-          const result = await list(params.command);
+          const result = await list(params.command, params.serverId);
           return {
             content: [
               { type: "text", text: result.tools.map((tool) => `${tool.name}: ${tool.description ?? ""}`).join("\n") || "MCP server returned no tools." },
@@ -174,11 +264,74 @@ export default {
         label: "MCP call tool",
         description: "Call a named tool on an MCP stdio server with a JSON object of arguments.",
         promptSnippet: "call a tool exposed by an MCP stdio server",
-        parameters: Type.Object({ command: Type.Array(Type.String()), name: Type.String(), arguments: Type.Optional(Type.Record(Type.String(), Type.Any())) }),
+        parameters: Type.Object({
+          command: Type.Optional(Type.Array(Type.String())),
+          serverId: Type.Optional(Type.String()),
+          name: Type.String(),
+          arguments: Type.Optional(Type.Record(Type.String(), Type.Any())),
+        }),
         async execute(_toolCallId, params): Promise<AgentToolResult<McpCallResult>> {
-          const result = await call(params.command, params.name, params.arguments ?? {});
+          const result = await call(params.command, params.serverId, params.name, params.arguments ?? {});
           const content = Array.isArray(result.content) ? result.content : [{ type: "text", text: JSON.stringify(result) }];
           return { content: content as AgentToolResult<McpCallResult>["content"], details: result };
+        },
+      }),
+    );
+    const unregisterStart = context.piTools.register(
+      defineTool({
+        name: "mcp_server_start",
+        label: "MCP server start",
+        description: "Start and initialize a persistent MCP stdio server managed by Pi Harness.",
+        promptSnippet: "start a persistent MCP stdio server",
+        parameters: Type.Object({ command: Type.Array(Type.String(), { description: "MCP server executable and arguments; shell wrappers are rejected" }) }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<{ serverId: string; command: string[]; status: string }>> {
+          const server = await startServer(params.command);
+          return {
+            content: [{ type: "text", text: `MCP server ${server.id} is running.` }],
+            details: { serverId: server.id, command: server.command, status: server.status },
+          };
+        },
+      }),
+    );
+    const unregisterStatus = context.piTools.register(
+      defineTool({
+        name: "mcp_server_status",
+        label: "MCP server status",
+        description: "List persistent MCP stdio servers managed by Pi Harness.",
+        promptSnippet: "inspect running MCP server status",
+        parameters: Type.Object({}),
+        async execute(_toolCallId): Promise<AgentToolResult<{ servers: Array<{ id: string; command: string[]; status: string; startedAt: number }> }>> {
+          const snapshot = [...servers.values()].map((server) => ({
+            id: server.id,
+            command: server.command,
+            status: server.status,
+            startedAt: server.startedAt,
+          }));
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  snapshot.length === 0
+                    ? "No MCP servers are running."
+                    : snapshot.map((server) => `${server.id}: ${server.status} (${server.command.join(" ")})`).join("\n"),
+              },
+            ],
+            details: { servers: snapshot },
+          };
+        },
+      }),
+    );
+    const unregisterStop = context.piTools.register(
+      defineTool({
+        name: "mcp_server_stop",
+        label: "MCP server stop",
+        description: "Stop a persistent MCP stdio server and remove it from the managed set.",
+        promptSnippet: "stop a persistent MCP stdio server",
+        parameters: Type.Object({ serverId: Type.String() }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<{ serverId: string; stopped: boolean }>> {
+          const stopped = await stopServer(params.serverId);
+          return { content: [{ type: "text", text: `MCP server ${params.serverId} stopped.` }], details: { serverId: params.serverId, stopped } };
         },
       }),
     );
@@ -188,11 +341,25 @@ export default {
       title: "MCP Client",
       description: "通过 stdio JSON-RPC 连接外部 MCP 工具服务器。",
       icon: "⌘",
-      read: () => ({ server: latest?.server ?? null, tools: latest?.tools ?? [], lastCall: latest?.lastCall ?? null }),
+      read: () => ({
+        server: latest?.server ?? null,
+        tools: latest?.tools ?? [],
+        lastCall: latest?.lastCall ?? null,
+        servers: [...servers.values()].map((server) => ({ id: server.id, command: server.command, status: server.status, startedAt: server.startedAt })),
+      }),
     });
     context.effect(() => () => {
       unregisterList();
       unregisterCall();
+      unregisterStart();
+      unregisterStatus();
+      unregisterStop();
+      for (const server of servers.values()) {
+        server.status = "stopping";
+        server.child.stdin.end();
+        server.child.kill();
+      }
+      servers.clear();
       disposePanel();
     });
   },

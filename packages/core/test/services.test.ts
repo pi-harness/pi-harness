@@ -463,15 +463,34 @@ describe("Pi domain plugins", () => {
     const registered = tools.snapshot().customTools;
     const listTools = registered.find((tool) => tool.name === "mcp_list_tools");
     const callTool = registered.find((tool) => tool.name === "mcp_call");
+    const startTool = registered.find((tool) => tool.name === "mcp_server_start");
+    const statusTool = registered.find((tool) => tool.name === "mcp_server_status");
+    const stopTool = registered.find((tool) => tool.name === "mcp_server_stop");
     expect(listTools).toBeDefined();
     expect(callTool).toBeDefined();
+    expect(startTool).toBeDefined();
+    expect(statusTool).toBeDefined();
+    expect(stopTool).toBeDefined();
     await expect(listTools!.execute("call-1", { command: [process.execPath, server] }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { tools: [{ name: "echo" }] },
     });
     await expect(
       callTool!.execute("call-2", { command: [process.execPath, server], name: "echo", arguments: { text: "hello" } }, undefined, undefined, {} as never),
     ).resolves.toMatchObject({ content: [{ type: "text", text: "hello" }] });
-    await expect(listTools!.execute("call-3", { command: ["/bin/sh", "-c", "echo bad"] }, undefined, undefined, {} as never)).rejects.toThrow(
+    const started = await startTool!.execute("call-3", { command: [process.execPath, server] }, undefined, undefined, {} as never);
+    const serverId = (started.details as { serverId: string }).serverId;
+    await expect(statusTool!.execute("call-4", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { servers: [{ id: serverId, status: "running" }] },
+    });
+    await expect(listTools!.execute("call-5", { serverId }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { tools: [{ name: "echo" }] },
+    });
+    await expect(
+      callTool!.execute("call-6", { serverId, name: "echo", arguments: { text: "persistent" } }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ content: [{ type: "text", text: "persistent" }] });
+    await expect(stopTool!.execute("call-7", { serverId }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { stopped: true } });
+    await expect(statusTool!.execute("call-8", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { servers: [] } });
+    await expect(listTools!.execute("call-9", { command: ["/bin/sh", "-c", "echo bad"] }, undefined, undefined, {} as never)).rejects.toThrow(
       /shell wrapper/iu,
     );
   });
