@@ -1109,6 +1109,15 @@ button:disabled {
 .marketplace-hero {
   @apply [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:20px] [padding:21px_20px_17px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.08)] [background:#fbfcff];
 }
+.marketplace-page {
+  @apply [background:#f8fafc];
+}
+.marketplace-page > div {
+  @apply [background:#f8fafc];
+}
+.marketplace-page .marketplace-grid {
+  @apply [align-content:start];
+}
 .marketplace-hero small {
   @apply [color:var(--color-blue)] [font:10px_var(--font-mono)] [letter-spacing:0.11em];
 }
@@ -1377,4 +1386,170 @@ button:disabled {
 }
 .detail-actions button:disabled {
   @apply [cursor:not-allowed] [opacity:0.5];
+}
+
+/* Legibility pass for wide desktop viewports. */
+body {
+  @apply [font-size:14px];
+}
+.sidebar {
+  @apply [width:280px] [flex-basis:280px] [background:#f6f8fa] [border-right-color:rgba(15,_17,_21,_0.1)];
+}
+.brand-row {
+  @apply [height:56px] [flex-basis:56px] [padding:0_16px];
+}
+.brand-row strong {
+  @apply [font-size:14px];
+}
+.new-session {
+  @apply [height:36px] [font-size:13px];
+}
+.sidebar-actions {
+  @apply [gap:9px] [padding:0_12px_12px];
+}
+.sidebar-actions input {
+  @apply [height:34px] [font-size:12.5px];
+}
+.sidebar-scroll {
+  @apply [padding:0_10px_10px];
+}
+.group-label {
+  @apply [padding:8px_9px_5px] [font-size:10.5px];
+}
+.session-row {
+  @apply [padding:9px_10px];
+}
+.session-copy strong {
+  @apply [font-size:13px];
+}
+.session-copy small {
+  @apply [font-size:10.5px];
+}
+.sidebar-footer {
+  @apply [padding:8px_12px_10px];
+}
+.sidebar-link {
+  @apply [height:34px] [font-size:13px];
+}
+.main-header {
+  @apply [height:56px] [flex-basis:56px] [padding:0_20px];
+}
+.active-heading strong {
+  @apply [font-size:15px];
+}
+.active-heading small {
+  @apply [font-size:10.5px];
+}
+.view-tab {
+  @apply [padding:5px_12px] [font-size:12.5px];
+}
+.session-menu,
+.details-toggle {
+  @apply [height:30px];
+}
+.chat-scroll {
+  @apply [padding:28px_32px_8px];
+}
+.new-session-screen {
+  @apply [max-width:760px] [padding:30px_0_36px];
+}
+.welcome-heading h2 {
+  @apply [font-size:24px];
+}
+.welcome-heading p {
+  @apply [font-size:13.5px];
+}
+.workspace-row {
+  @apply [min-height:76px] [padding:15px_16px];
+}
+.workspace-row code {
+  @apply [font-size:12.5px];
+}
+.workspace-row small {
+  @apply [font-size:10.5px];
+}
+.effective-config {
+  @apply [min-height:44px] [padding:10px_13px];
+}
+.effective-config span,
+.effective-config code {
+  @apply [font-size:11px];
+}
+.starter-card {
+  @apply [min-height:80px] [padding:13px_14px];
+}
+.starter-card strong {
+  @apply [font-size:13px];
+}
+.starter-card small {
+  @apply [font-size:11px];
+}
+.composer-wrap {
+  @apply [padding:12px_32px_18px];
+}
+.context-line,
+.context-breakdown,
+.composer,
+.action-error {
+  @apply [max-width:820px];
+}
+.context-line {
+  @apply [font-size:11px];
+}
+.composer textarea {
+  @apply [min-height:82px] [font-size:14.5px];
+}
+.composer-tools select,
+.tool-chip {
+  @apply [height:30px] [font-size:11.5px];
+}
+.send-button {
+  @apply [width:30px] [height:30px];
+}
+.marketplace-hero {
+  @apply [padding:26px_24px_21px];
+}
+.marketplace-hero h2 {
+  @apply [font-size:23px];
+}
+.marketplace-hero p {
+  @apply [font-size:13px];
+}
+.marketplace-toolbar {
+  @apply [padding:13px_24px];
+}
+.marketplace-search,
+.marketplace-filter {
+  @apply [height:38px] [font-size:12.5px];
+}
+.marketplace-grid {
+  @apply [gap:14px] [padding-top:20px];
+}
+.marketplace-card {
+  @apply [min-height:226px] [padding:18px];
+}
+.marketplace-title {
+  @apply [font-size:14px];
+}
+.marketplace-description {
+  @apply [font-size:13px] [line-height:1.7];
+}
+.marketplace-card-footer {
+  @apply [font-size:11px];
+}
+@media (max-width: 760px) {
+  .sidebar {
+    @apply [width:216px] [flex-basis:216px];
+  }
+  .main-header {
+    @apply [height:48px] [flex-basis:48px] [padding:0_10px];
+  }
+  .chat-scroll,
+  .composer-wrap {
+    @apply [padding-left:12px] [padding-right:12px];
+  }
+  .marketplace-hero,
+  .marketplace-toolbar {
+    @apply [padding-left:14px] [padding-right:14px];
+  }
 }

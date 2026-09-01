@@ -585,7 +585,7 @@ function Marketplace({
       .catch(() => setCopyError("复制失败，请检查浏览器权限后重试。"));
   };
   return (
-    <section className="flex min-w-0 flex-1 flex-col">
+    <section className="marketplace-page flex min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="marketplace-hero">
           <div>
@@ -623,7 +623,7 @@ function Marketplace({
                   <div className="marketplace-card-mark">◈</div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <strong className="text-[13px]">{plugin.name}</strong>
+                      <strong className="marketplace-title">{plugin.name}</strong>
                       <span
                         className={
                           plugin.status === "verified"
