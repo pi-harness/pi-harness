@@ -80,6 +80,7 @@ const capability = (name: string): string => {
     ["obsidian-sync", "知识库"],
     ["context-doctor", "上下文诊断"],
     ["history-compressor", "历史压缩"],
+    ["reviewer-bot", "代码审查"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -115,6 +116,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/obsidian-sync", "Obsidian Sync"],
     ["@pi-harness/core/plugins/context-doctor", "Context Doctor"],
     ["@pi-harness/core/plugins/history-compressor", "History Compressor"],
+    ["@pi-harness/core/plugins/reviewer-bot", "Reviewer Bot"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -993,6 +995,51 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           </div>
           {data?.lastError ? <p className="text-[11px] text-[#b42318]">最近错误：{String(data.lastError)}</p> : null}
+        </div>
+      ) : panel.id === "reviewer-bot-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const status = String(report.status ?? "pass");
+              const findings = Array.isArray(report.findings) ? report.findings : [];
+              return (
+                <>
+                  <div
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  >
+                    <span>{status === "error" ? "发现阻断风险" : status === "warning" ? "需要关注" : "审查通过"}</span>
+                    <strong className="font-mono">{String(findings.length)} findings</strong>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      ["文件", report.changedFiles ?? 0],
+                      ["新增", report.addedLines ?? 0],
+                      ["删除", report.removedLines ?? 0],
+                    ].map(([label, item]) => (
+                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
+                        <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
+                        <strong className="mt-1 block text-[17px] text-[#30343b]">{String(item)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  {findings.length > 0 ? (
+                    <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+                      {findings.slice(0, 4).map((finding, index) => (
+                        <li key={index}>
+                          {String(typeof finding === "object" && finding !== null ? ((finding as Record<string, unknown>).message ?? "finding") : finding)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有审查当前改动。可让 Agent 调用 review_changes。
+            </div>
+          )}
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">

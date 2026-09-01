@@ -40,6 +40,7 @@ import cliNotifierPlugin from "../src/plugins/cli-notifier.js";
 import obsidianSyncPlugin from "../src/plugins/obsidian-sync.js";
 import contextDoctorPlugin from "../src/plugins/context-doctor.js";
 import historyCompressorPlugin from "../src/plugins/history-compressor.js";
+import reviewerBotPlugin from "../src/plugins/reviewer-bot.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -590,6 +591,27 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([
       { id: "history-compressor-panel", data: { enabled: true, thresholdPercent: 85, compactions: 2, lastError: null } },
     ]);
+  });
+
+  test("reviews Git diffs without modifying the workspace", async () => {
+    const { context, cwd } = await createContext();
+    await execFileAsync("git", ["init", "-q"], { cwd });
+    await writeFile(join(cwd, "app.ts"), "export const value = 1;\n", "utf8");
+    await execFileAsync("git", ["add", "app.ts"], { cwd });
+    await execFileAsync("git", ["-c", "user.name=Pi", "-c", "user.email=pi@example.invalid", "commit", "-qm", "initial"], { cwd });
+    await writeFile(join(cwd, "app.ts"), "export const value = 2; // TODO: cover this branch\n", "utf8");
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(reviewerBotPlugin, { maxDiffBytes: 128 * 1024 });
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "review_changes");
+    expect(tool).toBeDefined();
+    await expect(tool!.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "warning", files: [{ path: "app.ts" }], findings: [expect.objectContaining({ kind: "todo" })] },
+    });
+    await expect((await import("node:fs/promises")).readFile(join(cwd, "app.ts"), "utf8")).resolves.toContain("value = 2");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "reviewer-bot-panel", data: { latest: { status: "warning", changedFiles: 1 } } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

@@ -89,6 +89,9 @@
     - id: history-compressor
       name: "@pi-harness/core/plugins/history-compressor"
       config: {}
+    - id: reviewer-bot
+      name: "@pi-harness/core/plugins/reviewer-bot"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
