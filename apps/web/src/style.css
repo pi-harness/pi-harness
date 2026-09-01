@@ -60,7 +60,7 @@ button:disabled {
   @apply [margin-left:auto] [color:var(--color-faint)] [font:10px_var(--font-mono)];
 }
 .sidebar-actions {
-  @apply [display:flex] [flex-direction:column] [gap:8px] [padding:0_10px_10px];
+  @apply [position:relative] [display:flex] [flex-direction:column] [gap:8px] [padding:0_10px_10px];
 }
 .new-session {
   @apply [height:32px] [display:flex] [align-items:center] [justify-content:center] [gap:6px] [border-radius:8px] [background:var(--color-ink)] [color:#fff] [font-size:12.5px] [font-weight:500];
@@ -68,6 +68,43 @@ button:disabled {
 .new-session:hover,
 .send-button:hover {
   @apply [background:#43454a];
+}
+.workspace-chooser {
+  @apply [position:absolute] [top:calc(100%_-_2px)] [right:10px] [left:10px] [z-index:35] [display:flex] [max-height:420px] [overflow:auto] [padding:8px] [flex-direction:column] [gap:2px] [border:1px_solid_rgba(15,_23,_42,_0.14)] [border-radius:10px] [background:#fff] [box-shadow:0_16px_40px_rgba(15,_23,_42,_0.18)];
+}
+.workspace-chooser-heading {
+  @apply [display:flex] [align-items:center] [justify-content:space-between] [padding:3px_4px_4px_6px];
+}
+.workspace-chooser-heading strong {
+  @apply [font-size:12px];
+}
+.workspace-chooser-heading button {
+  @apply [width:24px] [height:24px] [border-radius:6px] [color:var(--color-muted)];
+}
+.workspace-chooser > small {
+  @apply [padding:0_6px_8px] [color:var(--color-faint)] [font-size:10px];
+}
+.workspace-chooser-row {
+  @apply [display:flex] [min-height:48px] [align-items:center] [gap:8px] [padding:7px_6px] [border-radius:7px] [text-align:left];
+}
+.workspace-chooser-row:hover {
+  @apply [background:var(--color-blue-soft)];
+}
+.workspace-chooser-row > span:nth-child(2) {
+  @apply [display:flex] [min-width:0] [flex:1] [flex-direction:column];
+}
+.workspace-chooser-row strong,
+.workspace-chooser-row code {
+  @apply [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap];
+}
+.workspace-chooser-row strong {
+  @apply [font-size:11.5px];
+}
+.workspace-chooser-row code {
+  @apply [margin-top:2px] [color:var(--color-faint)] [font:9px_var(--font-mono)];
+}
+.workspace-chooser-row > small {
+  @apply [flex:none] [color:var(--color-faint)] [font:9px_var(--font-mono)];
 }
 .sidebar-actions input {
   @apply [width:100%] [height:30px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:8px] [background:#fff] [padding:0_10px] [font-size:12px] [outline:none];

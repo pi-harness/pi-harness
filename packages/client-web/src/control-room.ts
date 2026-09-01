@@ -72,16 +72,23 @@ export interface ClientFile {
   readonly status: string;
   readonly label: string;
 }
+export interface ClientWorkspace {
+  readonly path: string;
+  readonly branch: string;
+  readonly current: boolean;
+  readonly name: string;
+}
 export interface ClientApi {
   getStatus(): Promise<ClientStatus>;
   getSession(): Promise<ClientSession>;
   getFiles(): Promise<readonly ClientFile[]>;
+  listWorkspaces(): Promise<readonly ClientWorkspace[]>;
   getFileDiff(path: string): Promise<{ path: string; diff: string }>;
   commitFiles(paths: readonly string[], message: string): Promise<{ committed: boolean; commit?: string; message: string }>;
   revertFiles(paths: readonly string[]): Promise<{ reverted: boolean; paths: readonly string[] }>;
   prompt(value: string): Promise<{ reply: string; messages: number }>;
   abort(): Promise<{ aborted: boolean }>;
-  createSession(): Promise<ClientSession>;
+  createSession(cwd?: string): Promise<ClientSession>;
   openSession(path: string): Promise<ClientSession>;
   listSessions(): Promise<readonly Record<string, unknown>[]>;
   listModels(): Promise<readonly ClientModel[]>;
@@ -112,6 +119,7 @@ export function createClientApi(): ClientApi {
     getStatus: () => requestJson<ClientStatus>("/api/status"),
     getSession: () => requestJson<ClientSession>("/api/session"),
     getFiles: async () => (await requestJson<{ items: readonly ClientFile[] }>("/api/files")).items,
+    listWorkspaces: async () => (await requestJson<{ items: readonly ClientWorkspace[] }>("/api/workspaces")).items,
     getFileDiff: (path) => requestJson<{ path: string; diff: string }>(`/api/files/diff?path=${encodeURIComponent(path)}`),
     commitFiles: (paths, message) =>
       requestJson<{ committed: boolean; commit?: string; message: string }>("/api/files/commit", {
@@ -132,7 +140,12 @@ export function createClientApi(): ClientApi {
         body: JSON.stringify({ prompt: value }),
       }),
     abort: () => requestJson<{ aborted: boolean }>("/api/abort", { method: "POST" }),
-    createSession: () => requestJson<ClientSession>("/api/session/new", { method: "POST" }),
+    createSession: (cwd) =>
+      requestJson<ClientSession>("/api/session/new", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cwd ? { cwd } : {}),
+      }),
     openSession: (path) =>
       requestJson<ClientSession>("/api/session/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) }),
     listSessions: async () => (await requestJson<{ items: readonly Record<string, unknown>[] }>("/api/sessions")).items,

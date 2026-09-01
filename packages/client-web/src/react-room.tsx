@@ -10,6 +10,7 @@ import {
   type ClientProvider,
   type ClientSession,
   type ClientStatus,
+  type ClientWorkspace,
 } from "./control-room.js";
 import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
 
@@ -32,6 +33,7 @@ interface RoomData {
   marketplacePage: number;
   marketplaceHasNext: boolean;
   commands: readonly ClientCommand[];
+  workspaces: readonly ClientWorkspace[];
 }
 
 const value = (input: unknown, fallback = "—"): string => {
@@ -187,12 +189,14 @@ function RuntimeCard({ event }: { event: Record<string, unknown> }) {
 
 function Workspace({
   status,
+  workspaces,
   onCreate,
   onStarter,
   onToml,
 }: {
   status: ClientStatus | undefined;
-  onCreate: () => void;
+  workspaces: readonly ClientWorkspace[];
+  onCreate: (workspace: ClientWorkspace) => void;
   onStarter: (value: string) => void;
   onToml: () => void;
 }) {
@@ -213,14 +217,26 @@ function Workspace({
         </div>
       </div>
       <div className="workspace-picker">
-        <button className="workspace-row" onClick={onCreate} type="button">
-          <span className="workspace-status live">已连接</span>
-          <span>
-            <code>{status?.cwd ?? "加载工作区…"}</code>
-            <small>{status ? `${status.sessionId} · ${status.model}` : "由 /api/status 返回"}</small>
-          </span>
-          <span className="workspace-arrow">↗</span>
-        </button>
+        {workspaces.length ? (
+          workspaces.map((workspace) => (
+            <button className="workspace-row" key={workspace.path} onClick={() => onCreate(workspace)} type="button">
+              <span className={`workspace-status ${workspace.current ? "live" : "offline"}`}>{workspace.current ? "已连接" : "工作区"}</span>
+              <span>
+                <code>{workspace.path}</code>
+                <small>{workspace.current && status ? `${workspace.branch} · ${status.model}` : workspace.branch}</small>
+              </span>
+              <span className="workspace-arrow">↗</span>
+            </button>
+          ))
+        ) : (
+          <div className="workspace-row is-empty">
+            <span className="workspace-status offline">加载中</span>
+            <span>
+              <code>{status?.cwd ?? "加载工作区…"}</code>
+              <small>正在读取 git worktree</small>
+            </span>
+          </div>
+        )}
       </div>
       <div className="effective-config">
         <span className="config-label">当前运行时</span>
@@ -244,6 +260,38 @@ function Workspace({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function WorkspaceChooser({
+  workspaces,
+  onSelect,
+  onClose,
+}: {
+  workspaces: readonly ClientWorkspace[];
+  onSelect: (workspace: ClientWorkspace) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div aria-label="选择工作区" className="workspace-chooser" role="dialog">
+      <div className="workspace-chooser-heading">
+        <strong>新建会话</strong>
+        <button aria-label="关闭工作区选择" onClick={onClose} type="button">
+          ×
+        </button>
+      </div>
+      <small>选择这个会话要使用的工作区</small>
+      {workspaces.map((workspace) => (
+        <button className="workspace-chooser-row" key={workspace.path} onClick={() => onSelect(workspace)} type="button">
+          <span className={`workspace-status ${workspace.current ? "live" : "offline"}`}>{workspace.current ? "当前" : "worktree"}</span>
+          <span>
+            <strong>{workspace.name}</strong>
+            <code>{workspace.path}</code>
+          </span>
+          <small>{workspace.branch}</small>
+        </button>
+      ))}
     </div>
   );
 }
@@ -1195,6 +1243,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     marketplacePage: 0,
     marketplaceHasNext: false,
     commands: [],
+    workspaces: [],
   });
   const [view, setView] = useState<View>(initialQueryState.view);
   const [page, setPage] = useState<Page>(initialQueryState.page);
@@ -1206,6 +1255,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [commandQuery, setCommandQuery] = useState("");
   const [commandIndex, setCommandIndex] = useState(0);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(false);
+  const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string>();
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1220,6 +1271,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
+  useEffect(() => {
+    if (data.session?.messages.length && data.status?.cwd) setSelectedWorkspacePath(data.status.cwd);
+  }, [data.session?.messages.length, data.status?.cwd]);
   const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
   const promptCompletionItems = useMemo(() => {
     if (!promptCompletion) return [] as readonly (ClientCommand | ClientFile)[];
@@ -1253,7 +1307,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
   }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, pluginTab, settings, view]);
   const refresh = useCallback(async () => {
-    const [status, session, sessions, files, models, providers, plugins, marketplace, commands] = await Promise.allSettled([
+    const [status, session, sessions, files, models, providers, plugins, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
       api.getSession(),
       api.listSessions(),
@@ -1263,6 +1317,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       api.listPlugins(),
       api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage),
       api.listCommands(),
+      api.listWorkspaces(),
     ]);
     setData((current) => ({
       status: status.status === "fulfilled" ? status.value : current.status,
@@ -1278,24 +1333,34 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       marketplacePage: marketplace.status === "fulfilled" ? marketplace.value.page : current.marketplacePage,
       marketplaceHasNext: marketplace.status === "fulfilled" ? marketplace.value.hasNext : current.marketplaceHasNext,
       commands: commands.status === "fulfilled" ? commands.value : current.commands,
+      workspaces: workspaces.status === "fulfilled" ? workspaces.value : current.workspaces,
     }));
   }, [api, marketplaceCapability, marketplacePage, marketplaceQuery]);
-  const createNewSession = useCallback(async () => {
-    setPromptError("");
-    try {
-      await api.createSession();
-      setSettings(undefined);
-      setCommandOpen(false);
-      setGlobalSearchOpen(false);
-      setCommandQuery("");
-      setPage("session");
-      setView("chat");
-      setSessionMenuOpen(false);
-      await refresh();
-    } catch (cause: unknown) {
-      setPromptError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, [api, refresh]);
+  const createNewSession = useCallback(
+    async (workspace?: ClientWorkspace) => {
+      setPromptError("");
+      try {
+        await api.createSession(workspace?.path);
+        setSettings(undefined);
+        setCommandOpen(false);
+        setGlobalSearchOpen(false);
+        setWorkspaceChooserOpen(false);
+        setSelectedWorkspacePath(workspace?.path);
+        setCommandQuery("");
+        setPage("session");
+        setView("chat");
+        setSessionMenuOpen(false);
+        await refresh();
+      } catch (cause: unknown) {
+        setPromptError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [api, refresh],
+  );
+  const beginNewSession = () => {
+    setSelectedWorkspacePath(undefined);
+    setWorkspaceChooserOpen(true);
+  };
   useEffect(() => {
     void refresh();
     const unsubscribe = api.subscribeEvents(() => void refresh());
@@ -1325,6 +1390,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         }
         setCommandOpen(false);
         setSessionMenuOpen(false);
+        setWorkspaceChooserOpen(false);
         setSettings(undefined);
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -1415,7 +1481,13 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </article>
           ))
         ) : (
-          <Workspace status={data.status} onCreate={() => void createNewSession()} onStarter={setDraft} onToml={() => setSettings("toml")} />
+          <Workspace
+            status={data.status}
+            workspaces={data.workspaces}
+            onCreate={(workspace) => void createNewSession(workspace)}
+            onStarter={setDraft}
+            onToml={() => setSettings("toml")}
+          />
         )}
         {events.map((event, index) => (
           <RuntimeCard event={event} key={`${value(event.type, "event")}-${index}`} />
@@ -1503,7 +1575,17 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 event.currentTarget.form?.requestSubmit();
               }
             }}
-            placeholder="描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令"
+            onClick={() => {
+              if (!selectedWorkspacePath) setWorkspaceChooserOpen(true);
+            }}
+            onFocus={(event) => {
+              if (!selectedWorkspacePath) {
+                event.currentTarget.blur();
+                setWorkspaceChooserOpen(true);
+              }
+            }}
+            placeholder={selectedWorkspacePath ? "描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令" : "先选择工作区，再描述要做的改动"}
+            readOnly={!selectedWorkspacePath}
             ref={promptInputRef}
             rows={2}
             value={draft}
@@ -1597,9 +1679,16 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <span className="version">0.9.4</span>
         </header>
         <div className="sidebar-actions">
-          <button className="new-session" onClick={() => void createNewSession()} type="button">
+          <button className="new-session" onClick={beginNewSession} type="button" aria-expanded={workspaceChooserOpen}>
             ＋ 新建会话
           </button>
+          {workspaceChooserOpen && (
+            <WorkspaceChooser
+              onClose={() => setWorkspaceChooserOpen(false)}
+              onSelect={(workspace) => void createNewSession(workspace)}
+              workspaces={data.workspaces}
+            />
+          )}
           <div className="session-search">
             <input
               aria-controls={commandOpen ? "command-menu" : undefined}
@@ -1769,7 +1858,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 className="session-action"
                 onClick={() => {
                   setSessionMenuOpen(false);
-                  void createNewSession();
+                  beginNewSession();
                 }}
                 type="button"
               >

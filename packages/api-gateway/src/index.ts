@@ -8,6 +8,7 @@ import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
 import { MARKETPLACE_CAPABILITIES, paginateMarketplace, searchMarketplace } from "./marketplace.js";
+import { parseGitWorktrees, type WorkspaceSummary } from "./workspaces.js";
 
 interface ApiServices {
   readonly runtime: PiRuntimeService;
@@ -118,6 +119,13 @@ function gitCommand(cwd: string, args: readonly string[]): Promise<{ stdout: str
       resolveResult({ stdout, stderr, code });
     });
   });
+}
+
+async function listWorkspaces(cwd: string): Promise<readonly WorkspaceSummary[]> {
+  const result = await gitCommand(cwd, ["worktree", "list", "--porcelain"]);
+  const parsed = result.code === 0 ? parseGitWorktrees(result.stdout, cwd) : [];
+  if (parsed.some((item) => item.current)) return parsed;
+  return [{ path: resolve(cwd), branch: "current", current: true, name: resolve(cwd).split("/").pop() ?? resolve(cwd) }, ...parsed];
 }
 
 function workspacePaths(root: string, paths: unknown): string[] | Error {
@@ -306,6 +314,16 @@ export default {
           source: command.sourceInfo.path,
         }));
         sendJson(response, 200, jsonSafe({ items }));
+      },
+    });
+    const disposeWorkspaces = services.webServer.register({
+      path: "/api/workspaces",
+      async handler(_request, response) {
+        try {
+          sendJson(response, 200, { items: await listWorkspaces(services.launch.cwd) });
+        } catch (error) {
+          sendJson(response, 500, { error: errorText(error) });
+        }
       },
     });
     const disposeModel = services.webServer.register({
@@ -561,8 +579,30 @@ export default {
           return;
         }
         try {
+          const raw = await bodyText(request);
+          const payload = raw.trim() ? (JSON.parse(raw) as { cwd?: unknown }) : {};
+          const requestedCwd = typeof payload.cwd === "string" ? resolve(payload.cwd) : resolve(services.launch.cwd);
+          const workspaces = await listWorkspaces(services.launch.cwd);
+          const workspace = workspaces.find((item) => item.path === requestedCwd);
+          if (!workspace) {
+            sendJson(response, 400, { error: "Workspace is not available" });
+            return;
+          }
           if (services.runtime.sessionRuntime) {
-            const result = await services.runtime.sessionRuntime.newSession();
+            let result;
+            if (workspace.current) {
+              result = await services.runtime.sessionRuntime.newSession();
+            } else {
+              const manager = services.runtime.session.sessionManager;
+              if (!manager || typeof manager.isPersisted !== "function" || !manager.isPersisted()) {
+                sendJson(response, 409, { error: "Workspace switching requires JSONL session storage" });
+                return;
+              }
+              const created = SessionManager.create(workspace.path, manager.getSessionDir());
+              const sessionFile = created.newSession();
+              if (!sessionFile) throw new Error("Unable to create a workspace session");
+              result = await services.runtime.sessionRuntime.switchSession(sessionFile, { cwdOverride: workspace.path });
+            }
             if (result.cancelled) {
               sendJson(response, 409, { error: "Session creation was cancelled by an extension" });
               return;
@@ -685,6 +725,7 @@ export default {
       disposeMarketplace();
       disposeCommands();
       disposeModel();
+      disposeWorkspaces();
       disposeFiles();
       disposeFileDiff();
       disposeFileCommit();
