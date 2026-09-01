@@ -1,10 +1,12 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { StdioApplication } from "../stdio.js";
+import { assertKnownConfigKeys } from "../config.js";
 
 export default {
   name: "pi-stdio",
   inject: ["piRuntime", "piResources", "piHarnessStdio", "piHarnessLaunch"],
-  apply(context: Context) {
+  apply(context: Context, config: unknown) {
+    assertKnownConfigKeys("pi-stdio", config, []);
     const application = new StdioApplication(context.piRuntime, context.piHarnessLaunch, context.piHarnessStdio);
     for (const diagnostic of context.piResources.diagnostics) {
       if (diagnostic.type !== "error") context.piHarnessStdio.writeError(`Resource ${diagnostic.type}: ${diagnostic.message}\n`);

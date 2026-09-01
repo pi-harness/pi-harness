@@ -1,6 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { createAgentSessionServices } from "@earendil-works/pi-coding-agent";
+import { assertKnownConfigKeys } from "../config.js";
 
 export interface ResourcesPluginConfig {
   noExtensions?: boolean;
@@ -23,6 +24,7 @@ export default {
   inject: ["piHarnessLaunch", "piModelRuntime"],
   Config,
   async apply(context: Context, config: ResourcesPluginConfig) {
+    assertKnownConfigKeys("pi-resources", config, ["noExtensions", "noSkills", "noPromptTemplates", "noThemes", "noContextFiles"]);
     const services = await createAgentSessionServices({
       cwd: context.piHarnessLaunch.cwd,
       agentDir: context.piHarnessLaunch.agentDir,

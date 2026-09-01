@@ -2,6 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { createAgentSessionFromServices } from "@earendil-works/pi-coding-agent";
 import { PiRuntime } from "../runtime.js";
+import { assertKnownConfigKeys } from "../config.js";
 
 export interface RuntimePluginConfig {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -16,6 +17,7 @@ export default {
   inject: ["piModels", "piResources", "piSession", "piTools"],
   Config,
   async apply(context: Context, config: RuntimePluginConfig) {
+    assertKnownConfigKeys("pi-runtime", config, ["thinkingLevel"]);
     const tools = context.piTools.acquire();
     context.effect(() => () => tools.release());
     const requestedTools = [...tools.names, ...tools.customTools.map((tool) => tool.name)];
