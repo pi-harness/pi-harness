@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   createClientApi,
   type ClientApi,
@@ -11,6 +11,7 @@ import {
   type ClientSession,
   type ClientStatus,
 } from "./control-room.js";
+import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -808,8 +809,10 @@ function Settings({
         </nav>
         <section>
           <header>
-            <strong>{tab === "general" ? "通用" : tab === "plugins" ? "插件" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
-            <small>{tab === "toml" ? "配置即代码，改完重载" : "运行时状态与快捷键"}</small>
+            <div className="settings-header-copy">
+              <strong>{tab === "general" ? "通用" : tab === "plugins" ? "插件" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
+              <small>{tab === "toml" ? "配置即代码，改完重载" : "运行时状态与快捷键"}</small>
+            </div>
             <button className="settings-back" onClick={onClose} type="button">
               返回会话
             </button>
@@ -947,67 +950,230 @@ function Settings({
   );
 }
 
-function CommandPalette({ commands, onClose, onUse }: { commands: readonly ClientCommand[]; onClose: () => void; onUse: (value: string) => void }) {
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const visible = commands.filter((command) => `${command.invocationName} ${command.description ?? ""}`.toLowerCase().includes(query.toLowerCase()));
-  useEffect(() => setActiveIndex(0), [query]);
+const filterCommands = (commands: readonly ClientCommand[], query: string): readonly ClientCommand[] => {
+  const normalized = query.trim().toLowerCase();
+  return commands.filter((command) => `${command.invocationName} ${command.description ?? ""}`.toLowerCase().includes(normalized));
+};
+
+function CommandPalette({
+  commands,
+  query,
+  activeIndex,
+  onActiveIndexChange,
+  onUse,
+}: {
+  commands: readonly ClientCommand[];
+  query: string;
+  activeIndex: number;
+  onActiveIndexChange: (index: number) => void;
+  onUse: (value: string) => void;
+}) {
+  const visible = filterCommands(commands, query);
   const execute = (index: number) => {
     const command = visible[index];
     if (!command) return;
     onUse(`/${command.invocationName}`);
+  };
+  return (
+    <div aria-label="命令面板" className="command-palette" id="command-menu" role="listbox">
+      <div className="palette-group">
+        <small>
+          COMMANDS <span>· RUNTIME REGISTRY</span>
+        </small>
+        {visible.length ? (
+          visible.map((command, index) => {
+            const invocation = `/${command.invocationName}`;
+            return (
+              <button
+                aria-selected={index === activeIndex}
+                key={`${command.invocationName}:${command.source ?? "runtime"}`}
+                onClick={() => execute(index)}
+                onMouseEnter={() => onActiveIndexChange(index)}
+                role="option"
+                type="button"
+              >
+                <code>{invocation}</code>
+                <span>{command.description ?? command.source ?? "由当前运行时注册"}</span>
+              </button>
+            );
+          })
+        ) : (
+          <div className="empty-state">{commands.length ? "没有匹配的命令。" : "当前运行时没有可用的命令注册清单。"}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PromptCompletionPopover({
+  kind,
+  commands,
+  files,
+  query,
+  activeIndex,
+  onActiveIndexChange,
+  onUse,
+}: {
+  kind: PromptCompletionKind;
+  commands: readonly ClientCommand[];
+  files: readonly ClientFile[];
+  query: string;
+  activeIndex: number;
+  onActiveIndexChange: (index: number) => void;
+  onUse: (value: string) => void;
+}) {
+  const items =
+    kind === "command"
+      ? filterCommands(commands, query).slice(0, 12)
+      : files.filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 12);
+  return (
+    <div aria-label={kind === "command" ? "命令补全" : "文件补全"} className="prompt-completion" role="listbox">
+      <small>{kind === "command" ? "命令" : "文件"}</small>
+      {items.length ? (
+        items.slice(0, 12).map((item, index) => {
+          const label = kind === "command" ? `/${(item as ClientCommand).invocationName}` : `@${(item as ClientFile).path}`;
+          const detail =
+            kind === "command" ? ((item as ClientCommand).description ?? (item as ClientCommand).source ?? "由当前运行时注册") : (item as ClientFile).status;
+          return (
+            <button
+              aria-selected={index === activeIndex}
+              key={`${kind}:${label}`}
+              onClick={() => onUse(label)}
+              onMouseEnter={() => onActiveIndexChange(index)}
+              role="option"
+              type="button"
+            >
+              <strong>{label}</strong>
+              <span>{detail}</span>
+            </button>
+          );
+        })
+      ) : (
+        <span className="prompt-completion-empty">没有匹配项</span>
+      )}
+    </div>
+  );
+}
+
+type GlobalSearchItem =
+  | { kind: "command"; command: ClientCommand }
+  | { kind: "session"; session: Record<string, unknown> }
+  | { kind: "file"; file: ClientFile };
+
+function GlobalSearch({
+  commands,
+  sessions,
+  files,
+  onClose,
+  onUse,
+  onOpenSession,
+  onOpenFile,
+}: {
+  commands: readonly ClientCommand[];
+  sessions: readonly Record<string, unknown>[];
+  files: readonly ClientFile[];
+  onClose: () => void;
+  onUse: (value: string) => void;
+  onOpenSession: (session: Record<string, unknown>) => void;
+  onOpenFile: (file: ClientFile) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const normalized = query.trim().toLowerCase();
+  const matches = (text: string) => !normalized || text.toLowerCase().includes(normalized);
+  const items: readonly GlobalSearchItem[] = [
+    ...commands
+      .filter((command) => matches(`${command.invocationName} ${command.description ?? ""}`))
+      .map((command) => ({ kind: "command" as const, command })),
+    ...sessions
+      .filter((session) => matches(`${value(session.name, "")} ${value(session.firstMessage, "")} ${value(session.sessionId, "")}`))
+      .map((session) => ({ kind: "session" as const, session })),
+    ...files.filter((file) => matches(`${file.path} ${file.label} ${file.status}`)).map((file) => ({ kind: "file" as const, file })),
+  ];
+  useEffect(() => setActiveIndex(0), [query]);
+  const execute = (item: GlobalSearchItem | undefined) => {
+    if (!item) return;
+    if (item.kind === "command") onUse(`/${item.command.invocationName}`);
+    else if (item.kind === "session") onOpenSession(item.session);
+    else onOpenFile(item.file);
     onClose();
   };
   return (
     <div
-      className="command-palette"
+      className="global-search"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="palette-dialog">
+      <div aria-label="全局搜索" aria-modal="true" className="global-search-dialog" role="dialog">
+        <div className="global-search-heading">
+          <strong>全局搜索</strong>
+          <small>命令 · 会话 · 文件</small>
+        </div>
         <input
-          aria-label="搜索命令"
+          aria-label="全局搜索"
           autoFocus
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
-            if (!visible.length) return;
-            if (event.key === "ArrowDown") {
+            if (event.key === "Escape") {
               event.preventDefault();
-              setActiveIndex((index) => (index + 1) % visible.length);
-            } else if (event.key === "ArrowUp") {
+              onClose();
+            } else if (event.key === "ArrowDown" && items.length) {
               event.preventDefault();
-              setActiveIndex((index) => (index - 1 + visible.length) % visible.length);
+              setActiveIndex((index) => (index + 1) % items.length);
+            } else if (event.key === "ArrowUp" && items.length) {
+              event.preventDefault();
+              setActiveIndex((index) => (index - 1 + items.length) % items.length);
             } else if (event.key === "Enter") {
               event.preventDefault();
-              execute(activeIndex);
+              execute(items[activeIndex]);
             }
           }}
-          placeholder="命令、包、会话、文件"
+          placeholder="搜索命令、会话或文件"
           value={query}
         />
-        <div className="palette-group">
-          <small>COMMANDS · RUNTIME REGISTRY</small>
-          {visible.length ? (
-            visible.map((command, index) => {
-              const invocation = `/${command.invocationName}`;
+        <div className="global-search-results" role="listbox">
+          {items.length ? (
+            (["command", "session", "file"] as const).map((kind) => {
+              const group = items.filter((item) => item.kind === kind);
+              if (!group.length) return null;
+              const label = kind === "command" ? "命令" : kind === "session" ? "会话" : "文件";
               return (
-                <button
-                  aria-selected={index === activeIndex}
-                  key={`${command.invocationName}:${command.source ?? "runtime"}`}
-                  onClick={() => {
-                    execute(index);
-                  }}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  type="button"
-                >
-                  <code>{invocation}</code>
-                  <span>{command.description ?? command.source ?? "由当前运行时注册"}</span>
-                </button>
+                <section className="global-search-group" key={kind}>
+                  <small>{label}</small>
+                  {group.map((item) => {
+                    const index = items.indexOf(item);
+                    const title =
+                      item.kind === "command"
+                        ? `/${item.command.invocationName}`
+                        : item.kind === "session"
+                          ? value(item.session.name ?? item.session.firstMessage ?? item.session.sessionId, "未命名会话")
+                          : item.file.label;
+                    const detail =
+                      item.kind === "command"
+                        ? (item.command.description ?? item.command.source ?? "由当前运行时注册")
+                        : item.kind === "session"
+                          ? `${value(item.session.messageCount, "0")} 条消息`
+                          : `${item.file.path} · ${item.file.status}`;
+                    return (
+                      <button
+                        aria-selected={index === activeIndex}
+                        key={`${item.kind}:${title}:${index}`}
+                        onClick={() => execute(item)}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        role="option"
+                        type="button"
+                      >
+                        <strong>{title}</strong>
+                        <span>{detail}</span>
+                      </button>
+                    );
+                  })}
+                </section>
               );
             })
           ) : (
-            <div className="empty-state">{commands.length ? "没有匹配的命令。" : "当前运行时没有可用的命令注册清单。"}</div>
+            <div className="empty-state">没有匹配的命令、会话或文件。</div>
           )}
         </div>
       </div>
@@ -1036,9 +1202,13 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [settings, setSettings] = useState<SettingsTab | undefined>(initialQueryState.settings);
   const [details, setDetails] = useState<Record<string, unknown>>();
   const [commandOpen, setCommandOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [commandIndex, setCommandIndex] = useState(0);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
   const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
@@ -1046,6 +1216,23 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [contextExpanded, setContextExpanded] = useState(false);
   const [promptError, setPromptError] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  const [promptCaret, setPromptCaret] = useState(0);
+  const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
+  const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
+  const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
+  const promptCompletionItems = useMemo(() => {
+    if (!promptCompletion) return [] as readonly (ClientCommand | ClientFile)[];
+    return promptCompletion.kind === "command"
+      ? filterCommands(data.commands, promptCompletion.query).slice(0, 12)
+      : data.files
+          .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(promptCompletion.query.trim().toLowerCase()))
+          .slice(0, 12);
+  }, [data.commands, data.files, promptCompletion]);
+  const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
+  useEffect(() => {
+    setPromptCompletionIndex(0);
+  }, [promptCompletion?.kind, promptCompletion?.query]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -1098,6 +1285,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     try {
       await api.createSession();
       setSettings(undefined);
+      setCommandOpen(false);
+      setGlobalSearchOpen(false);
+      setCommandQuery("");
       setPage("session");
       setView("chat");
       setSessionMenuOpen(false);
@@ -1116,15 +1306,31 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     };
   }, [api, refresh]);
   useEffect(() => {
+    setCommandIndex(0);
+    if (!commandOpen) return;
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [commandOpen, commandQuery]);
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (globalSearchOpen) {
+          setGlobalSearchOpen(false);
+          return;
+        }
+        if (commandOpen) {
+          setCommandOpen(false);
+          setCommandQuery("");
+          return;
+        }
         setCommandOpen(false);
         setSessionMenuOpen(false);
         setSettings(undefined);
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setCommandOpen(true);
+        setCommandOpen(false);
+        setGlobalSearchOpen(true);
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
@@ -1133,7 +1339,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [commandOpen, globalSearchOpen]);
   const events = data.session?.events ?? [];
   const filteredSessions = data.sessions.filter(
     (session) =>
@@ -1157,10 +1363,26 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   };
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
-    if (path) void api.openSession(path).then(refresh);
+    if (!path) return;
+    setSettings(undefined);
+    setCommandOpen(false);
+    setGlobalSearchOpen(false);
+    setPage("session");
+    setView("chat");
+    void api.openSession(path).then(refresh);
   };
   const content = settings ? (
-    <Settings api={api} data={data} tab={settings} onTab={setSettings} onClose={() => setSettings(undefined)} />
+    <Settings
+      api={api}
+      data={data}
+      tab={settings}
+      onTab={setSettings}
+      onClose={() => {
+        setSettings(undefined);
+        setPage("session");
+        setView("chat");
+      }}
+    />
   ) : page === "plugins" ? (
     <Plugins plugins={data.plugins} tab={pluginTab} onTab={setPluginTab} onMarketplace={() => setPage("marketplace")} onToml={() => setSettings("toml")} />
   ) : page === "marketplace" ? (
@@ -1233,17 +1455,80 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         <form className="composer" onSubmit={submit}>
           <textarea
             aria-label="Prompt"
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setPromptCaret(event.currentTarget.selectionStart ?? event.target.value.length);
+              setPromptCompletionSuppressed(false);
+            }}
             onKeyDown={(event) => {
+              const caret = event.currentTarget.selectionStart ?? draft.length;
+              const completion = getPromptCompletion(event.currentTarget.value, caret);
+              const items = completion
+                ? completion.kind === "command"
+                  ? filterCommands(data.commands, completion.query).slice(0, 12)
+                  : data.files
+                      .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(completion.query.trim().toLowerCase()))
+                      .slice(0, 12)
+                : [];
+              const popupOpen = Boolean(completion && !promptCompletionSuppressed && items.length);
+              if (popupOpen && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                setPromptCompletionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length);
+                return;
+              }
+              if (popupOpen && (event.key === "Enter" || event.key === "Tab")) {
+                event.preventDefault();
+                const item = items[promptCompletionIndex];
+                if (item && completion) {
+                  const value = completion.kind === "command" ? `/${(item as ClientCommand).invocationName}` : `@${(item as ClientFile).path}`;
+                  const replacement = replacePromptCompletion(event.currentTarget.value, completion, `${value} `);
+                  setDraft(replacement.text);
+                  setPromptCaret(replacement.caret);
+                  setPromptCompletionSuppressed(false);
+                  requestAnimationFrame(() => {
+                    const input = promptInputRef.current;
+                    input?.focus();
+                    input?.setSelectionRange(replacement.caret, replacement.caret);
+                  });
+                }
+                return;
+              }
+              if (event.key === "Escape" && completion && !promptCompletionSuppressed) {
+                event.preventDefault();
+                setPromptCompletionSuppressed(true);
+                return;
+              }
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }
             }}
             placeholder="描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令"
+            ref={promptInputRef}
             rows={2}
             value={draft}
           ></textarea>
+          {promptCompletionOpen && promptCompletion && (
+            <PromptCompletionPopover
+              activeIndex={promptCompletionIndex}
+              commands={data.commands}
+              files={data.files}
+              kind={promptCompletion.kind}
+              onActiveIndexChange={setPromptCompletionIndex}
+              onUse={(value) => {
+                const replacement = replacePromptCompletion(draft, promptCompletion, `${value} `);
+                setDraft(replacement.text);
+                setPromptCaret(replacement.caret);
+                setPromptCompletionSuppressed(false);
+                requestAnimationFrame(() => {
+                  const input = promptInputRef.current;
+                  input?.focus();
+                  input?.setSelectionRange(replacement.caret, replacement.caret);
+                });
+              }}
+              query={promptCompletion.query}
+            />
+          )}
           <div className="composer-tools">
             <select
               aria-label="模型"
@@ -1297,6 +1582,12 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   );
   const groups = sessionGroups(filteredSessions);
   const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
+  const visibleCommands = filterCommands(data.commands, commandQuery);
+  const useCommand = (value: string) => {
+    setDraft(value);
+    setCommandOpen(false);
+    setCommandQuery("");
+  };
   return (
     <div className="app-frame">
       <aside className="sidebar">
@@ -1309,7 +1600,49 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <button className="new-session" onClick={() => void createNewSession()} type="button">
             ＋ 新建会话
           </button>
-          <input onChange={(event) => setSearch(event.target.value)} placeholder="搜索会话" type="search" value={search} />
+          <div className="session-search">
+            <input
+              aria-controls={commandOpen ? "command-menu" : undefined}
+              aria-expanded={commandOpen}
+              aria-label={commandOpen ? "搜索命令" : "搜索会话"}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (!commandOpen && next.startsWith("/")) {
+                  setCommandOpen(true);
+                  setCommandQuery(next.slice(1));
+                  return;
+                }
+                if (commandOpen) setCommandQuery(next.replace(/^\/\s?/, ""));
+                else setSearch(next);
+              }}
+              onKeyDown={(event) => {
+                if (!commandOpen) return;
+                if (event.key === "ArrowDown" && visibleCommands.length) {
+                  event.preventDefault();
+                  setCommandIndex((index) => (index + 1) % visibleCommands.length);
+                } else if (event.key === "ArrowUp" && visibleCommands.length) {
+                  event.preventDefault();
+                  setCommandIndex((index) => (index - 1 + visibleCommands.length) % visibleCommands.length);
+                } else if (event.key === "Enter" && visibleCommands.length) {
+                  event.preventDefault();
+                  useCommand(`/${visibleCommands[commandIndex]?.invocationName ?? ""}`);
+                }
+              }}
+              placeholder={commandOpen ? "输入命令名称或描述" : "搜索会话 · ⌘K 命令"}
+              ref={searchInputRef}
+              type="search"
+              value={commandOpen ? `/${commandQuery}` : search}
+            />
+            {commandOpen && (
+              <CommandPalette
+                activeIndex={commandIndex}
+                commands={data.commands}
+                onActiveIndexChange={setCommandIndex}
+                onUse={useCommand}
+                query={commandQuery}
+              />
+            )}
+          </div>
         </div>
         <div className="sidebar-scroll">
           {showCurrentSession && data.session && (
@@ -1373,11 +1706,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           </button>
           <button className={`sidebar-link ${settings ? "active" : ""}`} onClick={() => setSettings("general")} type="button">
             ⚙ <span>设置</span>
-          </button>
-          <button className="sidebar-link" onClick={() => setCommandOpen(true)} type="button">
-            <span className="link-glyph">⌘</span>
-            <span>命令面板</span>
-            <small>⌘K</small>
           </button>
         </footer>
       </aside>
@@ -1472,7 +1800,21 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           onCopy={() => void navigator.clipboard?.writeText(JSON.stringify(details, null, 2))}
         />
       )}
-      {commandOpen && <CommandPalette commands={data.commands} onClose={() => setCommandOpen(false)} onUse={setDraft} />}
+      {globalSearchOpen && (
+        <GlobalSearch
+          commands={data.commands}
+          files={data.files}
+          onClose={() => setGlobalSearchOpen(false)}
+          onOpenFile={(file) => {
+            setPage("session");
+            setView("files");
+            setDetails({ type: "file", path: file.path, status: file.status });
+          }}
+          onOpenSession={openSession}
+          onUse={setDraft}
+          sessions={data.sessions}
+        />
+      )}
     </div>
   );
 }
