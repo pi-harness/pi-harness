@@ -364,6 +364,9 @@ button:disabled {
 .message-reasoning .reasoning-body {
   @apply [margin-top:6px];
 }
+.streaming-placeholder {
+  @apply [color:var(--color-muted)] [font-size:12px];
+}
 .plugin-event {
   @apply [display:flex] [align-items:center] [gap:8px] [height:30px] [padding:0_11px] [border:1px_dashed_rgba(65,_118,_230,_0.35)] [border-radius:8px] [background:#f7faff] [color:var(--color-blue)] [font:11px_var(--font-mono)];
 }

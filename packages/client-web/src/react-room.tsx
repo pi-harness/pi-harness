@@ -15,7 +15,7 @@ import {
 import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
 import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
-import { messageThinking, messageText } from "./message-content.js";
+import { messageText, projectChatTurns } from "./message-content.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -1355,6 +1355,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [promptError, setPromptError] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState("");
+  const [streamingAssistant, setStreamingAssistant] = useState<{ thinking: string; text: string }>();
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -1443,6 +1444,30 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       void refresh();
     }, 100);
   }, [refresh]);
+  const handleRuntimeEvent = useCallback(
+    (payload: Record<string, unknown>) => {
+      scheduleRefresh();
+      const event = payload.event;
+      if (typeof event !== "object" || event === null) return;
+      const runtimeEvent = event as Record<string, unknown>;
+      if (runtimeEvent.type === "turn_start") {
+        setStreamingAssistant({ thinking: "", text: "" });
+        return;
+      }
+      if (runtimeEvent.type !== "message_update" || typeof runtimeEvent.assistantMessageEvent !== "object" || runtimeEvent.assistantMessageEvent === null)
+        return;
+      const assistantMessageEvent = runtimeEvent.assistantMessageEvent as Record<string, unknown>;
+      const type = assistantMessageEvent.type;
+      if (type !== "thinking_delta" && type !== "text_delta") return;
+      const delta = typeof assistantMessageEvent.delta === "string" ? assistantMessageEvent.delta : "";
+      if (!delta) return;
+      setStreamingAssistant((current) => ({
+        thinking: (current?.thinking ?? "") + (type === "thinking_delta" ? delta : ""),
+        text: (current?.text ?? "") + (type === "text_delta" ? delta : ""),
+      }));
+    },
+    [scheduleRefresh],
+  );
   const createNewSession = useCallback(
     async (workspace?: ClientWorkspace) => {
       setPromptError("");
@@ -1488,7 +1513,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   }, [pickDirectory]);
   useEffect(() => {
     void refresh();
-    const unsubscribe = api.subscribeEvents(scheduleRefresh);
+    const unsubscribe = api.subscribeEvents(handleRuntimeEvent);
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => {
       unsubscribe();
@@ -1498,7 +1523,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         refreshTimerRef.current = undefined;
       }
     };
-  }, [api, refresh, scheduleRefresh]);
+  }, [api, handleRuntimeEvent, refresh]);
+  useEffect(() => {
+    if (data.status?.status !== "running") setStreamingAssistant(undefined);
+  }, [data.status?.status]);
   useEffect(() => {
     const path = initialSessionPathRef.current;
     if (!path || sessionRestoreAttemptedRef.current || data.sessions.length === 0) return;
@@ -1574,6 +1602,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     setDraft("");
     setPromptError("");
     setPendingPrompt(prompt);
+    setStreamingAssistant(undefined);
     stickToBottomRef.current = true;
     setPromptBusy(true);
     void api
@@ -1643,26 +1672,22 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         ref={chatScrollRef}
       >
         {data.session?.messages.length ? (
-          data.session.messages.map((message, index) => {
-            if (message.role === "toolResult") return null;
-            const text = messageText(message);
-            const thinking = message.role === "assistant" ? messageThinking(message) : "";
-            if (!text && !thinking) return null;
+          projectChatTurns(data.session.messages).map((turn, index) => {
             return (
-              <article className={`turn ${message.role === "user" ? "user" : "text"}`} key={index}>
-                {message.role === "user" ? (
-                  <div className="user-bubble">{text}</div>
+              <article className={`turn ${turn.role === "user" ? "user" : "text"}`} key={index}>
+                {turn.role === "user" ? (
+                  <div className="user-bubble">{turn.text}</div>
                 ) : (
                   <>
-                    {thinking && (
+                    {turn.thinking && (
                       <details className="reasoning message-reasoning">
                         <summary className="reasoning-head">思考</summary>
                         <div className="reasoning-body">
-                          <MarkdownMessage text={thinking} />
+                          <MarkdownMessage text={turn.thinking} />
                         </div>
                       </details>
                     )}
-                    {text && <MarkdownMessage text={text} />}
+                    {turn.text && <MarkdownMessage text={turn.text} />}
                   </>
                 )}
               </article>
@@ -1676,6 +1701,20 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             onStarter={setDraft}
             onToml={() => setSettings("toml")}
           />
+        )}
+        {streamingAssistant && data.status?.status === "running" && (
+          <article className="turn text streaming-turn" aria-live="polite">
+            {streamingAssistant.thinking && (
+              <details className="reasoning message-reasoning">
+                <summary className="reasoning-head">思考中…</summary>
+                <div className="reasoning-body">
+                  <MarkdownMessage text={streamingAssistant.thinking} />
+                </div>
+              </details>
+            )}
+            {!streamingAssistant.thinking && !streamingAssistant.text && <div className="streaming-placeholder">正在生成…</div>}
+            {streamingAssistant.text && <MarkdownMessage text={streamingAssistant.text} />}
+          </article>
         )}
         {pendingPrompt && !data.session?.messages.some((message) => message.role === "user" && messageText(message) === pendingPrompt) && (
           <article className="turn user pending-turn">

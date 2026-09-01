@@ -24,3 +24,28 @@ export function messageThinking(message: Record<string, unknown>): string {
     .filter(Boolean)
     .join("\n\n");
 }
+
+export interface ChatTurn {
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  readonly thinking: string;
+}
+
+export function projectChatTurns(messages: readonly Record<string, unknown>[]): readonly ChatTurn[] {
+  const turns: ChatTurn[] = [];
+  for (const message of messages) {
+    if (message.role === "toolResult") continue;
+    const role = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : undefined;
+    if (!role) continue;
+    const text = messageText(message);
+    const thinking = role === "assistant" ? messageThinking(message) : "";
+    if (!text && !thinking) continue;
+    const previous = turns.at(-1);
+    if (role === "assistant" && previous?.role === "assistant") {
+      turns[turns.length - 1] = { role, text: previous.text + text, thinking: previous.thinking + thinking };
+    } else {
+      turns.push({ role, text, thinking });
+    }
+  }
+  return turns;
+}
