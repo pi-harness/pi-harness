@@ -452,6 +452,46 @@ describe("API gateway plugin", () => {
     expect(invalidPage.status).toBe(400);
   });
 
+  test("uninstalls a nested marketplace entry using its resolvable loader id", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-uninstall-"));
+    const configPath = join(directory, "profile.yml");
+    const entryId = "marketplace-cordis-logger-console";
+    const loaderEntry = {
+      id: `profile:${entryId}`,
+      options: { id: entryId, name: "@deepseek-ai/cordis-plugin-logger-console", config: {} },
+      async _dispose() {},
+    };
+    let removedId = "";
+    const loader = {
+      *entries() {
+        yield loaderEntry;
+      },
+      async remove(id: string) {
+        if (id !== loaderEntry.id) throw new Error(`cannot resolve entry ${id}`);
+        removedId = id;
+      },
+    };
+    await writeFile(configPath, `- id: ${entryId}\n  name: ${JSON.stringify(loaderEntry.options.name)}\n  config: {}\n`, "utf8");
+    await writeFile(join(directory, "package.json"), JSON.stringify({ private: true, dependencies: { [loaderEntry.options.name]: "1.0.1" } }), "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "plugin-uninstall-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", loader);
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: entryId }),
+    });
+    expect(response.status).toBe(200);
+    expect(removedId).toBe(loaderEntry.id);
+  });
+
   test("commits selected workspace files only after an explicit message", async () => {
     const context = new Context();
     contexts.push(context);

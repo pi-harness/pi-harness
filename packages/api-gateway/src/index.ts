@@ -851,7 +851,7 @@ export default {
           const packageLockPath = join(services.launch.cwd, "package-lock.json");
           const packageJsonBefore = await readFile(packageJsonPath, "utf8").catch(() => undefined);
           const packageLockBefore = await readFile(packageLockPath, "utf8").catch(() => undefined);
-          await loader.remove(payload.id);
+          await loader.remove(entry.id);
           try {
             await updateMarketplaceProfile(configPath, payload.id, { remove: true });
             await runProcess("npm", ["uninstall", "--package-lock=false", plugin.packageName], services.launch.cwd);
