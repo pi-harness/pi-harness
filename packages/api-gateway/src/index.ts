@@ -177,6 +177,25 @@ function gitCommand(cwd: string, args: readonly string[]): Promise<{ stdout: str
   });
 }
 
+interface EveryApiCliAuthStatus {
+  configured: false;
+  source: "everyapi-cli";
+  label: string;
+}
+
+function probeEveryApiCliAuth(): Promise<EveryApiCliAuthStatus> {
+  const executable = process.env.EVERYAPI_CLI_PATH?.trim() || "everyapi";
+  return new Promise((resolveStatus) => {
+    execFile(executable, ["auth", "status"], { timeout: 3_000, maxBuffer: 128 * 1024 }, (error) => {
+      resolveStatus({
+        configured: false,
+        source: "everyapi-cli",
+        label: error ? "未检测到 EveryAPI CLI 登录" : "EveryAPI CLI 已登录，但 relay key 未注入当前进程",
+      });
+    });
+  });
+}
+
 async function listWorkspaces(cwd: string): Promise<readonly WorkspaceSummary[]> {
   const result = await gitCommand(cwd, ["worktree", "list", "--porcelain"]);
   const parsed = result.code === 0 ? parseGitWorktrees(result.stdout, cwd) : [];
@@ -392,6 +411,11 @@ export default {
             return;
           }
           const auth = await runtime.checkAuth(payload.provider);
+          if (payload.provider === "everyapi" && auth === undefined && !process.env.EVERYAPI_RELAY_KEY?.trim()) {
+            const cliAuth = await probeEveryApiCliAuth();
+            sendJson(response, 200, { provider: payload.provider, reachable: false, auth: cliAuth });
+            return;
+          }
           sendJson(response, 200, jsonSafe({ provider: payload.provider, reachable: auth !== undefined, auth }));
         } catch (error) {
           sendJson(response, 502, { error: errorText(error) });

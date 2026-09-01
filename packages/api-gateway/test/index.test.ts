@@ -301,6 +301,51 @@ describe("API gateway plugin", () => {
     await expect(response.json()).resolves.toMatchObject({ items: [{ provider: "active" }, { provider: "configured" }] });
   });
 
+  test("explains when EveryAPI CLI auth is not injected into the process", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const previousCliPath = process.env.EVERYAPI_CLI_PATH;
+    const previousRelayKey = process.env.EVERYAPI_RELAY_KEY;
+    process.env.EVERYAPI_CLI_PATH = "/usr/bin/false";
+    delete process.env.EVERYAPI_RELAY_KEY;
+    try {
+      const session = {
+        model: { provider: "everyapi", id: "deepseek-v4-flash" },
+        messages: [],
+        isStreaming: false,
+        subscribe: () => () => {},
+      };
+      const modelRuntime = {
+        getProviders: () => [{ id: "everyapi", name: "EveryAPI" }],
+        getModels: () => [{ provider: "everyapi", id: "deepseek-v4-flash", name: "deepseek-v4-flash" }],
+        checkAuth: () => Promise.resolve(undefined),
+        getProviderAuthStatus: () => ({ configured: false }),
+        getModel: () => session.model,
+      };
+      context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+      context.provide("piModels", { model: session.model, runtime: modelRuntime } as never);
+      context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+      await context.plugin(apiPlugin);
+
+      const response = await fetch(context.webServer.url + "/api/providers/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: "everyapi" }),
+      });
+      await expect(response.json()).resolves.toEqual({
+        provider: "everyapi",
+        reachable: false,
+        auth: { configured: false, source: "everyapi-cli", label: "未检测到 EveryAPI CLI 登录" },
+      });
+    } finally {
+      if (previousCliPath === undefined) delete process.env.EVERYAPI_CLI_PATH;
+      else process.env.EVERYAPI_CLI_PATH = previousCliPath;
+      if (previousRelayKey === undefined) delete process.env.EVERYAPI_RELAY_KEY;
+      else process.env.EVERYAPI_RELAY_KEY = previousRelayKey;
+    }
+  });
+
   test("lists commands from the live extension registry", async () => {
     const context = new Context();
     contexts.push(context);

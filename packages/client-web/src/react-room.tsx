@@ -319,12 +319,19 @@ function WorkspaceChooser({
 }
 
 function PromptError({ message }: { message: string }) {
-  const requiresAuth = /No API key found|authentication|未配置认证/i.test(message);
+  const everyApiAuth = /No API key found for everyapi/i.test(message);
+  const requiresAuth = everyApiAuth || /No API key found|authentication|未配置认证/i.test(message);
   return (
     <div className="action-error" role="alert">
       <div className="action-error-summary">
-        <strong>{requiresAuth ? "模型尚未配置认证" : "发送失败"}</strong>
-        <span>{requiresAuth ? "请在设置 → 提供商中配置 API key，然后重试。" : "运行时没有接受这次请求，请重试或查看错误详情。"}</span>
+        <strong>{everyApiAuth ? "EveryAPI 认证未注入当前进程" : requiresAuth ? "模型尚未配置认证" : "发送失败"}</strong>
+        <span>
+          {everyApiAuth
+            ? "请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。"
+            : requiresAuth
+              ? "请在设置 → 提供商中配置 API key，然后重试。"
+              : "运行时没有接受这次请求，请重试或查看错误详情。"}
+        </span>
       </div>
       <details>
         <summary>查看原始错误</summary>
@@ -862,7 +869,11 @@ function Settings({
     if (action === "test")
       void api
         .testProvider(provider)
-        .then((result) => setProviderState((current) => ({ ...current, [provider]: result.reachable ? "连接正常" : "未检测到认证" })))
+        .then((result) => {
+          const auth = result.auth;
+          const label = auth && typeof auth === "object" && "label" in auth && typeof auth.label === "string" ? auth.label : undefined;
+          setProviderState((current) => ({ ...current, [provider]: result.reachable ? "连接正常" : (label ?? "未检测到认证") }));
+        })
         .catch((cause: unknown) => setProviderState((current) => ({ ...current, [provider]: cause instanceof Error ? cause.message : String(cause) })))
         .finally(() => setProviderBusy((current) => ({ ...current, [provider]: false })));
     else
