@@ -1086,7 +1086,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="truncate font-mono text-[11px] text-[#30343b]">{String(data?.server ?? "尚未连接 MCP 服务器")}</span>
-              <strong className="font-mono text-[12px] text-[#4176e6]">{String(Array.isArray(data?.tools) ? data.tools.length : 0)} tools</strong>
+              <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[#4176e6]">
+                <span>{String(Array.isArray(data?.tools) ? data.tools.length : 0)} 工具</span>
+                <span className="text-[#a2abb5]">·</span>
+                <span>{String(Array.isArray(data?.resources) ? data.resources.length : 0)} 资源</span>
+                <span className="text-[#a2abb5]">·</span>
+                <span>{String(Array.isArray(data?.prompts) ? data.prompts.length : 0)} 提示</span>
+              </div>
             </div>
             <p className="mt-2 text-[11px] text-[#8a949f]">
               {data?.lastCall === null || data?.lastCall === undefined ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${String(data.lastCall)}`}
@@ -1105,6 +1111,42 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   </span>
                 );
               })}
+            </div>
+          ) : null}
+          {Array.isArray(data?.resources) && data.resources.length > 0 ? (
+            <div className="grid gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a949f]">资源</span>
+              <div className="flex flex-wrap gap-2">
+                {data.resources.slice(0, 8).map((resource, index) => {
+                  const item = typeof resource === "object" && resource !== null ? (resource as Record<string, unknown>) : {};
+                  return (
+                    <span
+                      className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
+                      key={`${String(item.uri ?? "resource")}-${index}`}
+                    >
+                      {String(item.name ?? item.uri ?? "resource")}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {Array.isArray(data?.prompts) && data.prompts.length > 0 ? (
+            <div className="grid gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a949f]">提示模板</span>
+              <div className="flex flex-wrap gap-2">
+                {data.prompts.slice(0, 8).map((prompt, index) => {
+                  const item = typeof prompt === "object" && prompt !== null ? (prompt as Record<string, unknown>) : {};
+                  return (
+                    <span
+                      className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
+                      key={`${String(item.name ?? "prompt")}-${index}`}
+                    >
+                      {String(item.name ?? "prompt")}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
           {Array.isArray(data?.servers) && data.servers.length > 0 ? (

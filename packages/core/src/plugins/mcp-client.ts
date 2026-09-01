@@ -7,6 +7,8 @@ import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agen
 
 type JsonObject = Record<string, unknown>;
 type McpTool = { name: string; description?: string; inputSchema?: unknown };
+type McpResource = { uri: string; name?: string; description?: string; mimeType?: string };
+type McpPrompt = { name: string; description?: string; arguments?: unknown[] };
 type McpCallResult = { content?: unknown[]; isError?: boolean } & JsonObject;
 type ManagedServer = {
   id: string;
@@ -159,7 +161,8 @@ export default {
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   Config,
   async apply(context: Context, config: McpClientConfig) {
-    let latest: { server: string; tools: McpTool[]; lastCall?: string } | undefined;
+    type Latest = { server: string; tools: McpTool[]; resources: McpResource[]; prompts: McpPrompt[]; lastCall?: string };
+    let latest: Latest | undefined;
     const servers = new Map<string, ManagedServer>();
     const configured = new Map<string, McpServerDefinition>();
     for (const definition of config.servers ?? []) {
@@ -233,14 +236,14 @@ export default {
       if (definition === undefined) throw new Error(`Configured MCP server is not found: ${serverId}`);
       return [...definition.command];
     };
-    const list = async (command?: string[], serverId?: string): Promise<{ server: string; tools: McpTool[] }> => {
+    const list = async (command?: string[], serverId?: string): Promise<Latest> => {
       if (serverId !== undefined) {
         const managed = getServer(serverId);
         const result = await requestManaged(managed, "tools/list");
         const tools = Array.isArray(result.tools)
           ? result.tools.filter((tool): tool is McpTool => typeof tool === "object" && tool !== null && typeof (tool as JsonObject).name === "string")
           : [];
-        latest = { server: managed.command.join(" "), tools };
+        latest = { server: managed.command.join(" "), tools, resources: latest?.resources ?? [], prompts: latest?.prompts ?? [] };
         return latest;
       }
       if (command === undefined) throw new Error("Provide command or serverId to list MCP tools");
@@ -249,7 +252,7 @@ export default {
         const tools = Array.isArray(result.tools)
           ? result.tools.filter((tool): tool is McpTool => typeof tool === "object" && tool !== null && typeof (tool as JsonObject).name === "string")
           : [];
-        latest = { server: command.join(" "), tools };
+        latest = { server: command.join(" "), tools, resources: latest?.resources ?? [], prompts: latest?.prompts ?? [] };
         return latest;
       });
     };
@@ -257,15 +260,71 @@ export default {
       if (serverId !== undefined) {
         const managed = getServer(serverId);
         const result = (await requestManaged(managed, "tools/call", { name, arguments: args })) as McpCallResult;
-        latest = { server: managed.command.join(" "), tools: latest?.tools ?? [], lastCall: name };
+        latest = {
+          server: managed.command.join(" "),
+          tools: latest?.tools ?? [],
+          resources: latest?.resources ?? [],
+          prompts: latest?.prompts ?? [],
+          lastCall: name,
+        };
         return result;
       }
       if (command === undefined) throw new Error("Provide command or serverId to call an MCP tool");
       return withServer(command, context.piHarnessLaunch.cwd, async (child) => {
         const result = (await request(child, 2, "tools/call", { name, arguments: args })) as McpCallResult;
-        latest = { server: command.join(" "), tools: latest?.tools ?? [], lastCall: name };
+        latest = { server: command.join(" "), tools: latest?.tools ?? [], resources: latest?.resources ?? [], prompts: latest?.prompts ?? [], lastCall: name };
         return result;
       });
+    };
+    const requestOneShot = async (command: string[], method: string, params?: JsonObject): Promise<JsonObject> =>
+      withServer(command, context.piHarnessLaunch.cwd, async (child) => request(child, 2, method, params));
+    const requireCommand = (command: string[] | undefined, message: string): string[] => {
+      if (command === undefined) throw new Error(message);
+      return command;
+    };
+    const resources = async (command: string[] | undefined, serverId: string | undefined): Promise<McpResource[]> => {
+      const result =
+        serverId === undefined
+          ? await requestOneShot(requireCommand(command, "Provide command or serverId to list MCP resources"), "resources/list")
+          : await requestManaged(getServer(serverId), "resources/list");
+      const items = Array.isArray(result.resources)
+        ? result.resources.filter((item): item is McpResource => typeof item === "object" && item !== null && typeof (item as JsonObject).uri === "string")
+        : [];
+      latest = {
+        server: serverId === undefined ? (command ?? []).join(" ") : getServer(serverId).command.join(" "),
+        tools: latest?.tools ?? [],
+        resources: items,
+        prompts: latest?.prompts ?? [],
+      };
+      return items;
+    };
+    const readResource = async (command: string[] | undefined, serverId: string | undefined, uri: string): Promise<JsonObject> => {
+      if (uri.length === 0 || uri.length > 4096) throw new Error("MCP resource URI must be between 1 and 4096 characters");
+      return serverId === undefined
+        ? requestOneShot(requireCommand(command, "Provide command or serverId to read an MCP resource"), "resources/read", { uri })
+        : requestManaged(getServer(serverId), "resources/read", { uri });
+    };
+    const prompts = async (command: string[] | undefined, serverId: string | undefined): Promise<McpPrompt[]> => {
+      const result =
+        serverId === undefined
+          ? await requestOneShot(requireCommand(command, "Provide command or serverId to list MCP prompts"), "prompts/list")
+          : await requestManaged(getServer(serverId), "prompts/list");
+      const items = Array.isArray(result.prompts)
+        ? result.prompts.filter((item): item is McpPrompt => typeof item === "object" && item !== null && typeof (item as JsonObject).name === "string")
+        : [];
+      latest = {
+        server: serverId === undefined ? (command ?? []).join(" ") : getServer(serverId).command.join(" "),
+        tools: latest?.tools ?? [],
+        resources: latest?.resources ?? [],
+        prompts: items,
+      };
+      return items;
+    };
+    const getPrompt = async (command: string[] | undefined, serverId: string | undefined, name: string, args: JsonObject): Promise<JsonObject> => {
+      if (name.length === 0 || name.length > 512) throw new Error("MCP prompt name must be between 1 and 512 characters");
+      return serverId === undefined
+        ? requestOneShot(requireCommand(command, "Provide command or serverId to get an MCP prompt"), "prompts/get", { name, arguments: args })
+        : requestManaged(getServer(serverId), "prompts/get", { name, arguments: args });
     };
     const unregisterList = context.piTools.register(
       defineTool({
@@ -377,6 +436,71 @@ export default {
         },
       }),
     );
+    const unregisterListResources = context.piTools.register(
+      defineTool({
+        name: "mcp_list_resources",
+        label: "MCP list resources",
+        description: "List resources exposed by an MCP server.",
+        promptSnippet: "list resources exposed by an MCP server",
+        parameters: Type.Object({ command: Type.Optional(Type.Array(Type.String())), serverId: Type.Optional(Type.String()) }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<{ resources: McpResource[] }>> {
+          const items = await resources(params.command, params.serverId);
+          return {
+            content: [{ type: "text", text: items.map((item) => `${item.uri} ${item.name ?? ""}`).join("\n") || "MCP server returned no resources." }],
+            details: { resources: items },
+          };
+        },
+      }),
+    );
+    const unregisterReadResource = context.piTools.register(
+      defineTool({
+        name: "mcp_read_resource",
+        label: "MCP read resource",
+        description: "Read one resource exposed by an MCP server.",
+        promptSnippet: "read a resource exposed by an MCP server",
+        parameters: Type.Object({ command: Type.Optional(Type.Array(Type.String())), serverId: Type.Optional(Type.String()), uri: Type.String() }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<JsonObject>> {
+          const result = await readResource(params.command, params.serverId, params.uri);
+          const contents = Array.isArray(result.contents) ? result.contents : [{ type: "text", text: JSON.stringify(result) }];
+          return { content: contents as AgentToolResult<JsonObject>["content"], details: result };
+        },
+      }),
+    );
+    const unregisterListPrompts = context.piTools.register(
+      defineTool({
+        name: "mcp_list_prompts",
+        label: "MCP list prompts",
+        description: "List prompt templates exposed by an MCP server.",
+        promptSnippet: "list prompt templates exposed by an MCP server",
+        parameters: Type.Object({ command: Type.Optional(Type.Array(Type.String())), serverId: Type.Optional(Type.String()) }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<{ prompts: McpPrompt[] }>> {
+          const items = await prompts(params.command, params.serverId);
+          return {
+            content: [{ type: "text", text: items.map((item) => `${item.name}: ${item.description ?? ""}`).join("\n") || "MCP server returned no prompts." }],
+            details: { prompts: items },
+          };
+        },
+      }),
+    );
+    const unregisterGetPrompt = context.piTools.register(
+      defineTool({
+        name: "mcp_get_prompt",
+        label: "MCP get prompt",
+        description: "Render a prompt template exposed by an MCP server.",
+        promptSnippet: "render a prompt template from an MCP server",
+        parameters: Type.Object({
+          command: Type.Optional(Type.Array(Type.String())),
+          serverId: Type.Optional(Type.String()),
+          name: Type.String(),
+          arguments: Type.Optional(Type.Record(Type.String(), Type.Any())),
+        }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<JsonObject>> {
+          const result = await getPrompt(params.command, params.serverId, params.name, params.arguments ?? {});
+          const content = Array.isArray(result.messages) ? result.messages : [{ type: "text", text: JSON.stringify(result) }];
+          return { content: content as AgentToolResult<JsonObject>["content"], details: result };
+        },
+      }),
+    );
     const disposePanel = context.piPluginUi.register({
       id: "mcp-client-panel",
       pluginId: "@pi-harness/core/plugins/mcp-client",
@@ -386,6 +510,8 @@ export default {
       read: () => ({
         server: latest?.server ?? null,
         tools: latest?.tools ?? [],
+        resources: latest?.resources ?? [],
+        prompts: latest?.prompts ?? [],
         lastCall: latest?.lastCall ?? null,
         servers: [
           ...[...servers.values()].map((server) => ({ id: server.id, command: server.command, status: server.status, startedAt: server.startedAt })),
@@ -401,6 +527,10 @@ export default {
       unregisterStart();
       unregisterStatus();
       unregisterStop();
+      unregisterListResources();
+      unregisterReadResource();
+      unregisterListPrompts();
+      unregisterGetPrompt();
       for (const server of servers.values()) {
         server.status = "stopping";
         server.child.stdin.end();

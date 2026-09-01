@@ -455,7 +455,7 @@ describe("Pi domain plugins", () => {
     const server = join(cwd, "mcp-fixture.mjs");
     await writeFile(
       server,
-      `let buffer = Buffer.alloc(0); const handle = (message) => { let result = {}; if (message.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fixture", version: "1" } }; if (message.method === "tools/list") result = { tools: [{ name: "echo", description: "Echo text", inputSchema: { type: "object" } }] }; if (message.method === "tools/call") result = { content: [{ type: "text", text: String(message.params.arguments?.text ?? "") }], isError: false }; process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); }; process.stdin.on("data", (chunk) => { buffer = Buffer.concat([buffer, chunk]); while (true) { const end = buffer.indexOf("\\r\\n\\r\\n"); if (end < 0) break; const match = buffer.subarray(0, end).toString().match(/Content-Length: (\\d+)/i); if (!match) break; const length = Number(match[1]); if (buffer.length < end + 4 + length) break; const body = buffer.subarray(end + 4, end + 4 + length); buffer = buffer.subarray(end + 4 + length); handle(JSON.parse(body)); } });`,
+      `let buffer = Buffer.alloc(0); const handle = (message) => { let result = {}; if (message.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: { resources: {}, prompts: {} }, serverInfo: { name: "fixture", version: "1" } }; if (message.method === "tools/list") result = { tools: [{ name: "echo", description: "Echo text", inputSchema: { type: "object" } }] }; if (message.method === "tools/call") result = { content: [{ type: "text", text: String(message.params.arguments?.text ?? "") }], isError: false }; if (message.method === "resources/list") result = { resources: [{ uri: "fixture://readme", name: "Readme", mimeType: "text/plain" }] }; if (message.method === "resources/read") result = { contents: [{ uri: message.params.uri, mimeType: "text/plain", text: "resource body" }] }; if (message.method === "prompts/list") result = { prompts: [{ name: "review", description: "Review prompt", arguments: [] }] }; if (message.method === "prompts/get") result = { description: "Review prompt", messages: [{ role: "user", content: { type: "text", text: "Review this" } }] }; process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); }; process.stdin.on("data", (chunk) => { buffer = Buffer.concat([buffer, chunk]); while (true) { const end = buffer.indexOf("\\r\\n\\r\\n"); if (end < 0) break; const match = buffer.subarray(0, end).toString().match(/Content-Length: (\\d+)/i); if (!match) break; const length = Number(match[1]); if (buffer.length < end + 4 + length) break; const body = buffer.subarray(end + 4, end + 4 + length); buffer = buffer.subarray(end + 4 + length); handle(JSON.parse(body)); } });`,
       "utf8",
     );
     const panels = new PiPluginUiRegistry();
@@ -469,11 +469,19 @@ describe("Pi domain plugins", () => {
     const startTool = registered.find((tool) => tool.name === "mcp_server_start");
     const statusTool = registered.find((tool) => tool.name === "mcp_server_status");
     const stopTool = registered.find((tool) => tool.name === "mcp_server_stop");
+    const listResourcesTool = registered.find((tool) => tool.name === "mcp_list_resources");
+    const readResourceTool = registered.find((tool) => tool.name === "mcp_read_resource");
+    const listPromptsTool = registered.find((tool) => tool.name === "mcp_list_prompts");
+    const getPromptTool = registered.find((tool) => tool.name === "mcp_get_prompt");
     expect(listTools).toBeDefined();
     expect(callTool).toBeDefined();
     expect(startTool).toBeDefined();
     expect(statusTool).toBeDefined();
     expect(stopTool).toBeDefined();
+    expect(listResourcesTool).toBeDefined();
+    expect(readResourceTool).toBeDefined();
+    expect(listPromptsTool).toBeDefined();
+    expect(getPromptTool).toBeDefined();
     await expect(listTools!.execute("call-1", { command: [process.execPath, server] }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { tools: [{ name: "echo" }] },
     });
@@ -491,6 +499,18 @@ describe("Pi domain plugins", () => {
     await expect(
       callTool!.execute("call-6", { serverId, name: "echo", arguments: { text: "persistent" } }, undefined, undefined, {} as never),
     ).resolves.toMatchObject({ content: [{ type: "text", text: "persistent" }] });
+    await expect(listResourcesTool!.execute("call-6a", { serverId }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { resources: [{ uri: "fixture://readme" }] },
+    });
+    await expect(readResourceTool!.execute("call-6b", { serverId, uri: "fixture://readme" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { contents: [{ text: "resource body" }] },
+    });
+    await expect(listPromptsTool!.execute("call-6c", { serverId }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { prompts: [{ name: "review" }] },
+    });
+    await expect(getPromptTool!.execute("call-6d", { serverId, name: "review" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { messages: [{ role: "user" }] },
+    });
     await expect(stopTool!.execute("call-7", { serverId }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { stopped: true } });
     await expect(statusTool!.execute("call-8", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { servers: [{ id: "fixture", status: "stopped" }] },
