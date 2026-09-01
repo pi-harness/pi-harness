@@ -14,12 +14,12 @@ describe("plugin marketplace registry", () => {
     const result = searchMarketplace("timer", "scheduling");
     expect(result.map((plugin) => plugin.packageName)).toEqual(["@deepseek-ai/cordis-plugin-timer"]);
     expect(searchMarketplace("does-not-exist")).toEqual([]);
-    expect(MARKETPLACE_PLUGINS.length).toBe(4);
+    expect(MARKETPLACE_PLUGINS.length).toBe(3);
   });
 
   test("loads one entry per file and paginates the filtered result", () => {
     const page = paginateMarketplace(searchMarketplace(), 1, 2);
-    expect(page).toEqual({ items: MARKETPLACE_PLUGINS.slice(2, 4), total: 4, page: 1, pageSize: 2, hasNext: false });
+    expect(page).toEqual({ items: MARKETPLACE_PLUGINS.slice(2, 3), total: 3, page: 1, pageSize: 2, hasNext: false });
     expect(MARKETPLACE_CAPABILITIES).toContain("scheduling");
   });
 });
