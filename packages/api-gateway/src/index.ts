@@ -8,7 +8,7 @@ import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from 
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
-import { MARKETPLACE_CAPABILITIES, paginateMarketplace, searchMarketplace } from "./marketplace.js";
+import { MARKETPLACE_CAPABILITIES, MARKETPLACE_PLUGINS, paginateMarketplace, searchMarketplace, type MarketplacePlugin } from "./marketplace.js";
 import { parseGitWorktrees, type WorkspaceSummary } from "./workspaces.js";
 
 interface ApiServices {
@@ -220,6 +220,28 @@ function pluginSummary(entry: { options: { id: string; name: string; disabled?: 
           ? "unloaded"
           : "unknown";
   return { id: entry.options.id, name: entry.options.name, enabled: !entry.options.disabled, state };
+}
+
+function runProcess(executable: string, args: readonly string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolveProcess, rejectProcess) => {
+    execFile(executable, [...args], { cwd, timeout: 120_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        rejectProcess(new Error(`${executable} ${args.join(" ")} failed: ${stderr || error.message}`, { cause: error }));
+        return;
+      }
+      resolveProcess({ stdout, stderr });
+    });
+  });
+}
+
+async function appendMarketplaceProfile(configPath: string, plugin: MarketplacePlugin): Promise<string> {
+  const source = await readFile(configPath, "utf8");
+  if (source.includes(`name: ${JSON.stringify(plugin.packageName)}`)) return source;
+  const entryId = `marketplace-${plugin.id}`;
+  const config = JSON.stringify(plugin.profile.config);
+  const entry = `\n- id: ${entryId}\n  name: ${JSON.stringify(plugin.packageName)}\n  config: ${config}\n`;
+  await writeFile(configPath, source.replace(/\s*$/, "") + entry, "utf8");
+  return source;
 }
 
 function writeSse(response: ServerResponse, payload: unknown): void {
@@ -668,6 +690,67 @@ export default {
           return;
         }
         sendJson(response, 200, { ...paginateMarketplace(searchMarketplace(query, capability), page, pageSize), capabilities: MARKETPLACE_CAPABILITIES });
+      },
+    });
+    let marketplaceInstallInFlight = false;
+    const disposeMarketplaceInstall = services.webServer.register({
+      path: "/api/marketplace/install",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        if (marketplaceInstallInFlight) {
+          sendJson(response, 409, { error: "Another plugin installation is already running" });
+          return;
+        }
+        const loader = services.loader;
+        const configPath = services.launch.configPath;
+        if (loader === undefined || configPath === undefined) {
+          sendJson(response, 501, { error: "Plugin installation is unavailable for this runtime" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as { id?: unknown };
+          if (typeof payload.id !== "string" || payload.id.trim() === "") {
+            sendJson(response, 400, { error: "id is required" });
+            return;
+          }
+          const plugin = MARKETPLACE_PLUGINS.find((item) => item.id === payload.id);
+          if (plugin === undefined) {
+            sendJson(response, 404, { error: "Marketplace plugin was not found" });
+            return;
+          }
+          const existing = [...loader.entries()].find((entry) => entry.options.name === plugin.packageName);
+          if (existing !== undefined) {
+            sendJson(response, 409, { error: "Plugin is already installed", plugin });
+            return;
+          }
+          marketplaceInstallInFlight = true;
+          const packageJsonPath = join(services.launch.cwd, "package.json");
+          const packageLockPath = join(services.launch.cwd, "package-lock.json");
+          const packageJsonBefore = await readFile(packageJsonPath, "utf8").catch(() => undefined);
+          const packageLockBefore = await readFile(packageLockPath, "utf8").catch(() => undefined);
+          let profileBefore: string | undefined;
+          let entryId: string | undefined;
+          try {
+            await runProcess("npm", ["install", "--save-exact", "--package-lock=false", `${plugin.packageName}@${plugin.version}`], services.launch.cwd);
+            profileBefore = await appendMarketplaceProfile(configPath, plugin);
+            entryId = await loader.create({ name: plugin.packageName, config: plugin.profile.config });
+            await loader.resolve(entryId).fiber?.await();
+            sendJson(response, 200, { plugin, installed: true });
+          } catch (error) {
+            if (entryId !== undefined) await loader.remove(entryId).catch(() => {});
+            if (profileBefore !== undefined) await writeFile(configPath, profileBefore, "utf8").catch(() => {});
+            if (packageJsonBefore !== undefined) await writeFile(packageJsonPath, packageJsonBefore, "utf8").catch(() => {});
+            if (packageLockBefore !== undefined) await writeFile(packageLockPath, packageLockBefore, "utf8").catch(() => {});
+            sendJson(response, 502, { error: errorText(error) });
+          } finally {
+            marketplaceInstallInFlight = false;
+          }
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
       },
     });
     const disposeCommands = services.webServer.register({
@@ -1395,6 +1478,7 @@ export default {
       disposeProviderAdd();
       disposePlugins();
       disposeMarketplace();
+      disposeMarketplaceInstall();
       disposeCommands();
       disposeModel();
       disposeWorkspaces();

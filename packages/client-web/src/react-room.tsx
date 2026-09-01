@@ -643,6 +643,8 @@ function Marketplace({
   onPageChange,
   onBack,
   onToml,
+  installedPackages,
+  onInstall,
 }: {
   plugins: readonly ClientMarketplacePlugin[];
   capabilities: readonly string[];
@@ -656,24 +658,21 @@ function Marketplace({
   onPageChange: (value: number) => void;
   onBack: () => void;
   onToml: () => void;
+  installedPackages: ReadonlySet<string>;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<void>;
 }) {
-  const [copied, setCopied] = useState<string>();
-  const [copyError, setCopyError] = useState("");
-  const copyInstall = (plugin: ClientMarketplacePlugin) => {
-    const profile = JSON.stringify({ id: plugin.id, name: plugin.profile.name, config: plugin.profile.config }, null, 2);
-    const command = "npm install --save-exact " + plugin.packageName + "@" + plugin.version + "\\n\\nAdd this entry to your Pi Harness profile:\\n" + profile;
-    setCopyError("");
-    if (!navigator.clipboard) {
-      setCopyError("当前浏览器不允许复制，请手动复制安装指引。");
-      return;
+  const [installing, setInstalling] = useState<string>();
+  const [installError, setInstallError] = useState("");
+  const install = async (plugin: ClientMarketplacePlugin) => {
+    setInstallError("");
+    setInstalling(plugin.id);
+    try {
+      await onInstall(plugin);
+    } catch (error) {
+      setInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInstalling(undefined);
     }
-    void navigator.clipboard
-      .writeText(command)
-      .then(() => {
-        setCopied(plugin.id);
-        window.setTimeout(() => setCopied((current) => (current === plugin.id ? undefined : current)), 1800);
-      })
-      .catch(() => setCopyError("复制失败，请检查浏览器权限后重试。"));
   };
   return (
     <section className="marketplace-page flex min-w-0 flex-1 flex-col">
@@ -784,15 +783,15 @@ function Marketplace({
                   <a href={plugin.repository} target="_blank" rel="noreferrer">
                     查看源码 ↗
                   </a>
-                  <button onClick={() => copyInstall(plugin)} type="button">
-                    {copied === plugin.id ? "已复制" : "复制安装指引"}
+                  <button disabled={installedPackages.has(plugin.packageName) || installing !== undefined} onClick={() => void install(plugin)} type="button">
+                    {installedPackages.has(plugin.packageName) ? "已安装" : installing === plugin.id ? "安装中…" : "安装"}
                   </button>
                 </footer>
               </article>
             ))}
             {!plugins.length && <div className="p-7 text-center text-[12px] text-[#81858c]">没有匹配的插件。</div>}
           </div>
-          {copyError && <p className="mt-2 text-[11px] text-[#ec1313]">{copyError}</p>}
+          {installError && <p className="mt-2 text-[11px] text-[#ec1313]">安装失败：{installError}</p>}
           <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[11px] text-[#81858c]">
             <button
               className="rounded-md border border-black/10 bg-white px-2.5 py-1 text-[11px] text-[#0f1115] disabled:cursor-default disabled:opacity-40"
@@ -1772,6 +1771,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           .slice(0, 12);
   }, [data.commands, data.files, promptCompletion]);
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
+  const installedPackages = useMemo(() => new Set(data.plugins.map((plugin) => plugin.name)), [data.plugins]);
   useEffect(() => {
     setPromptCompletionIndex(0);
   }, [promptCompletion?.kind, promptCompletion?.query]);
@@ -2098,6 +2098,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       onPageChange={setMarketplacePage}
       onBack={() => setPage("plugins")}
       onToml={() => setSettings("toml")}
+      installedPackages={installedPackages}
+      onInstall={async (plugin) => {
+        await api.installMarketplace(plugin.id);
+        await refresh();
+      }}
     />
   ) : view === "chat" ? (
     <section className="view-panel chat-view">

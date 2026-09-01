@@ -14,6 +14,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 export interface PiHarnessLaunch {
   readonly cwd: string;
   readonly agentDir: string;
+  readonly configPath?: string;
   readonly args: readonly string[];
   requestExit(code: number): void;
 }

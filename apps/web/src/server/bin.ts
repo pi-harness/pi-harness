@@ -58,7 +58,7 @@ try {
     configPath: profilePath,
     signal: startupAbort.signal,
     prepare(context) {
-      provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+      provideLaunchContext(context, { cwd, agentDir, configPath: profilePath, args: [], requestExit() {} });
     },
   });
   process.stdout.write("Pi Harness web console: " + harness.context.webServer.url + "\n");

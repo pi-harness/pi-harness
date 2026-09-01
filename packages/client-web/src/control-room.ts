@@ -148,6 +148,7 @@ export interface ClientApi {
   }): Promise<{ provider: ClientProvider }>;
   listPlugins(): Promise<readonly ClientPlugin[]>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number): Promise<ClientMarketplacePage>;
+  installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean }>;
   listCommands(): Promise<readonly ClientCommand[]>;
   selectModel(provider: string, model: string): Promise<{ model: ClientModel }>;
   getConfig(): Promise<ClientPiConfig>;
@@ -274,6 +275,12 @@ export function createClientApi(): ClientApi {
       requestJson<ClientMarketplacePage>(
         `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&page=${page}&pageSize=${pageSize}`,
       ),
+    installMarketplace: (id) =>
+      requestJson<{ plugin: ClientMarketplacePlugin; installed: boolean }>("/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      }),
     listCommands: async () => (await requestJson<{ items: readonly ClientCommand[] }>("/api/commands")).items,
     selectModel: (provider, model) =>
       requestJson<{ model: ClientModel }>("/api/model", {
