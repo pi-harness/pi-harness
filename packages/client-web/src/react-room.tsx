@@ -610,7 +610,7 @@ function Marketplace({
           <span className="font-mono text-[10.5px] text-[#adb2b8]">{total} 个已审核条目</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-          <div className="grid max-w-[940px] grid-cols-1 gap-2.5 sm:grid-cols-[repeat(auto-fit,minmax(360px,1fr))]">
+          <div className="grid max-w-[940px] grid-cols-1 gap-2.5 sm:grid-cols-2">
             {plugins.map((plugin) => (
               <article className="rounded-[10px] border border-black/10 bg-white p-3" key={plugin.id}>
                 <div className="flex items-start gap-2.5">

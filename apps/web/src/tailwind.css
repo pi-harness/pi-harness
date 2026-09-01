@@ -1,4 +1,5 @@
-@import "tailwindcss/utilities";
+@source "../../../packages/client-web/src";
+@import "tailwindcss";
 
 @theme static {
   --animate-pulse-soft: pulse-soft 1.4s ease-in-out infinite;
