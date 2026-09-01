@@ -2,6 +2,14 @@ import type { Context } from "@deepseek-ai/cordis";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { PiHarnessLaunch, PiRuntimeService } from "./services.js";
 
+export class PiHarnessStdioCancelledError extends Error {
+  override readonly name = "PiHarnessStdioCancelledError";
+
+  constructor() {
+    super("Prompt input was cancelled");
+  }
+}
+
 export interface PiHarnessStdio {
   readPrompt(): Promise<string>;
   writeOutput(text: string): void;
@@ -25,16 +33,23 @@ export function provideStdioContext(context: Context, stdio: PiHarnessStdio): ()
 
 function promptFromArgs(args: readonly string[]): string | undefined {
   if (args.length === 0) return undefined;
+  if (args[0] === "--") return args.length === 1 ? undefined : args.slice(1).join(" ");
   if (args[0] === "--prompt") {
     const prompt = args[1];
     if (prompt === undefined) throw new Error("--prompt requires a value");
     if (args.length > 2) throw new Error("--prompt accepts exactly one value");
     return prompt;
   }
-  if (args[0]?.startsWith("--prompt=")) return args[0].slice("--prompt=".length);
-  if (args.some((arg) => arg.startsWith("-"))) throw new Error(`Unknown stdio option: ${args.find((arg) => arg.startsWith("-")) ?? ""}`);
+  if (args[0]?.startsWith("--prompt=")) {
+    if (args.length > 1) throw new Error("--prompt accepts exactly one value");
+    return args[0].slice("--prompt=".length);
+  }
+  const option = args[0];
+  if (option !== undefined && option.startsWith("-")) throw new Error(`Unknown stdio option: ${option}; pass -- before a prompt that starts with a dash`);
   return args.join(" ");
 }
+
+const PROMPT_CANCELLED_EXIT_CODE = 130;
 
 export class StdioApplication implements PiHarnessApplication {
   readonly #runtime: PiRuntimeService;
@@ -61,6 +76,7 @@ export class StdioApplication implements PiHarnessApplication {
       try {
         prompt = promptFromArgs(this.#launch.args) ?? await this.#stdio.readPrompt();
       } catch (error) {
+        if (error instanceof PiHarnessStdioCancelledError) return PROMPT_CANCELLED_EXIT_CODE;
         this.#stdio.writeError(`${error instanceof Error ? error.message : String(error)}\n`);
         return 2;
       }
