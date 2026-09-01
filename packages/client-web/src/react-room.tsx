@@ -13,6 +13,7 @@ import {
   type ClientWorkspace,
 } from "./control-room.js";
 import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
+import { compactThinkingEvents } from "./runtime-events.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -1581,6 +1582,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [commandOpen, globalSearchOpen]);
   const events = data.session?.events ?? [];
+  const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
   const filteredSessions = data.sessions.filter(
     (session) =>
       !search ||
@@ -1664,7 +1666,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             onToml={() => setSettings("toml")}
           />
         )}
-        {events.map((event, index) => (
+        {displayEvents.map((event, index) => (
           <RuntimeCard event={event} key={`${value(event.type, "event")}-${index}`} />
         ))}
       </div>
@@ -1830,7 +1832,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       </div>
     </section>
   ) : view === "trajectory" ? (
-    <Trajectory events={events} onSelect={setDetails} />
+    <Trajectory events={displayEvents} onSelect={setDetails} />
   ) : (
     <Files
       api={api}
