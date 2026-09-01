@@ -57,7 +57,7 @@ export interface ClientMarketplacePlugin {
   readonly status: "verified" | "experimental";
   readonly capabilities: readonly string[];
   readonly hooks: readonly string[];
-  readonly profile: { readonly name: string; readonly config: Record<string, unknown> };
+  readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
 }
 export interface ClientMarketplacePage {
   readonly items: readonly ClientMarketplacePlugin[];

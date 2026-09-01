@@ -239,7 +239,8 @@ async function appendMarketplaceProfile(configPath: string, plugin: MarketplaceP
   if (source.includes(`name: ${JSON.stringify(plugin.packageName)}`)) return source;
   const entryId = `marketplace-${plugin.id}`;
   const config = JSON.stringify(plugin.profile.config);
-  const entry = `\n- id: ${entryId}\n  name: ${JSON.stringify(plugin.packageName)}\n  config: ${config}\n`;
+  const group = plugin.profile.group === true ? "\n  group: true" : "";
+  const entry = `\n- id: ${entryId}\n  name: ${JSON.stringify(plugin.packageName)}${group}\n  config: ${config}\n`;
   await writeFile(configPath, source.replace(/\s*$/, "") + entry, "utf8");
   return source;
 }
@@ -736,7 +737,11 @@ export default {
           try {
             await runProcess("npm", ["install", "--save-exact", "--package-lock=false", `${plugin.packageName}@${plugin.version}`], services.launch.cwd);
             profileBefore = await appendMarketplaceProfile(configPath, plugin);
-            entryId = await loader.create({ name: plugin.packageName, config: plugin.profile.config });
+            entryId = await loader.create({
+              name: plugin.packageName,
+              ...(plugin.profile.group === true ? { group: true } : {}),
+              config: plugin.profile.config,
+            });
             await loader.resolve(entryId).fiber?.await();
             sendJson(response, 200, { plugin, installed: true });
           } catch (error) {

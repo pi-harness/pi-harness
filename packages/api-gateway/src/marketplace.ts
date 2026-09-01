@@ -15,7 +15,7 @@ export interface MarketplacePlugin {
   readonly status: "verified" | "experimental";
   readonly capabilities: readonly string[];
   readonly hooks: readonly string[];
-  readonly profile: { readonly name: string; readonly config: Record<string, unknown> };
+  readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
 }
 
 export interface MarketplacePage {
@@ -65,7 +65,7 @@ function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
     isRecord(profile) &&
     typeof profile.name === "string" &&
     profile.name === value.packageName &&
-    isRecord(profile.config)
+    (profile.group !== true ? isRecord(profile.config) : Array.isArray(profile.config))
   );
 }
 

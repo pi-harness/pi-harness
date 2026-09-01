@@ -11,5 +11,5 @@
   "status": "verified",
   "capabilities": ["composition", "lifecycle"],
   "hooks": ["nested plugin tree"],
-  "profile": { "name": "@deepseek-ai/cordis-plugin-group", "config": {} }
+  "profile": { "name": "@deepseek-ai/cordis-plugin-group", "group": true, "config": [] }
 }
