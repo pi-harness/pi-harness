@@ -56,18 +56,30 @@ const sessionSource = (status: ClientStatus | undefined, session: ClientSession 
 const eventLabel = (event: Record<string, unknown>): string =>
   value(event.summary ?? event.message ?? event.toolName ?? event.type ?? event.event, "未命名事件");
 const capability = (name: string): string =>
-  name.includes("model")
-    ? "模型"
-    : name.includes("tool")
-      ? "工具"
-      : name.includes("session")
-        ? "会话"
-        : name.includes("resource")
-          ? "资源"
-          : name.includes("web") || name.includes("gateway")
-            ? "界面"
-            : "运行时";
+  name.includes("context")
+    ? "上下文"
+    : name.includes("agent-teams")
+      ? "协作"
+      : name.includes("modlens")
+        ? "视觉"
+        : name.includes("model")
+          ? "模型"
+          : name.includes("tool")
+            ? "工具"
+            : name.includes("session")
+              ? "会话"
+              : name.includes("resource")
+                ? "资源"
+                : name.includes("web") || name.includes("gateway")
+                  ? "界面"
+                  : "运行时";
 const displayPluginName = (name: string): string => {
+  const officialName = new Map([
+    ["@pi-harness/core/plugins/context", "Context insights"],
+    ["@pi-harness/core/plugins/agent-teams", "Agent Teams"],
+    ["@pi-harness/core/plugins/modlens", "ModLens vision bridge"],
+  ]).get(name);
+  if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
   if (packageMatch) return `官方 · ${packageMatch[1]}`;
   if (name.toLowerCase().includes("cordis")) return name.replace(/cordis/gi, "runtime");
@@ -664,6 +676,121 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             ))}
           </div>
         </div>
+      ) : panel.id === "agent-teams-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            {capabilities.length > 0
+              ? capabilities.map((capability, index) => (
+                  <span
+                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-center text-[10px] text-[#4176e6]"
+                    key={`${String(capability)}-${index}`}
+                  >
+                    {String(capability)}
+                  </span>
+                ))
+              : null}
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">成员</span>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(Array.isArray(data?.members) ? data.members.length : 0)}</strong>
+            </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">任务</span>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(Array.isArray(data?.tasks) ? data.tasks.length : 0)}</strong>
+            </div>
+          </div>
+          <div className="grid gap-2">
+            {Array.isArray(data?.members) && data.members.length > 0 ? (
+              data.members.map((item, index) => {
+                const member = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${String(member.id ?? "member")}-${index}`}>
+                    <span className="h-2 w-2 rounded-full bg-[#22c55e]"></span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[#30343b]">{String(member.name ?? "成员")}</span>
+                    <span className="text-[10px] text-[#8a949f]">{String(member.role ?? "协作成员")}</span>
+                    <span className="font-mono text-[10px] text-[#4176e6]">{String(member.status ?? "idle")}</span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">暂无协作成员。</div>
+            )}
+          </div>
+          <div className="grid gap-2">
+            {Array.isArray(data?.tasks) && data.tasks.length > 0 ? (
+              data.tasks.map((item, index) => {
+                const task = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${String(task.id ?? "task")}-${index}`}>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{String(task.title ?? "未命名任务")}</span>
+                    <span className="text-[10px] text-[#8a949f]">{String(task.assignee ?? "unassigned")}</span>
+                    <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{String(task.status ?? "todo")}</span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">还没有任务。可让 Agent 使用 team_task 创建。</div>
+            )}
+          </div>
+        </div>
+      ) : panel.id === "modlens-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className={`rounded-lg border px-3 py-3 ${data?.attached === true ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#e3e7ee] bg-[#f6f8fa]"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">{data?.attached === true ? "图片已附加" : "等待图片"}</span>
+              <span className="font-mono text-[10px] text-[#8a949f]">vision_inspect</span>
+            </div>
+            {data?.image !== null && data?.image !== undefined && typeof data.image === "object" ? (
+              <p className="mt-2 truncate text-[11px] text-[#65707b]">
+                {String((data.image as Record<string, unknown>).path ?? "图片")} · {String((data.image as Record<string, unknown>).bytes ?? 0)} bytes
+              </p>
+            ) : (
+              <p className="mt-2 text-[11px] text-[#8a949f]">调用 vision_inspect 并提供工作区内图片路径。</p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {capabilities.map((capability, index) => (
+              <span
+                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                key={`${String(capability)}-${index}`}
+              >
+                {String(capability)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : panel.id === "context-insight-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#71809a]">上下文占用</span>
+              <strong className="text-[13px] font-semibold text-[#315fb8]">
+                {data?.percent === null || data?.percent === undefined ? "—" : `${String(data.percent)}%`}
+              </strong>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+              <div
+                className="h-full rounded-full bg-[#5d8bea] transition-[width] duration-300"
+                style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
+              />
+            </div>
+            <p className="mt-2 text-[11px] text-[#71809a]">
+              {data?.tokens === null || data?.tokens === undefined ? "令牌数未知" : `${String(data.tokens)} tokens`}
+              {data?.contextWindow === null || data?.contextWindow === undefined ? "" : ` / ${String(data.contextWindow)} 上限`}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ["消息", data?.messages ?? 0],
+              ["事件", data?.events ?? 0],
+              ["压缩", data?.compactions ?? 0],
+            ].map(([label, item]) => (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
+                <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(item)}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="mt-3 grid gap-2">
           {entries.map(([key, item]) => (
@@ -696,7 +823,8 @@ function Plugins({
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const marketplaceNames = useMemo(() => new Map(marketplace.map((plugin) => [plugin.packageName, plugin.name])), [marketplace]);
-  const installedPlugins = useMemo(() => plugins.filter((plugin) => plugin.removable), [plugins]);
+  const panelPluginIds = useMemo(() => new Set(panels.map((panel) => panel.pluginId)), [panels]);
+  const installedPlugins = useMemo(() => plugins.filter((plugin) => plugin.removable || panelPluginIds.has(plugin.name)), [panelPluginIds, plugins]);
   const panelByPlugin = useMemo(() => new Map(panels.map((panel) => [panel.pluginId, panel])), [panels]);
   const [busyPlugin, setBusyPlugin] = useState<string>();
   const [pluginError, setPluginError] = useState("");
@@ -1966,7 +2094,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   }, [data.commands, data.files, promptCompletion]);
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
   const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
-  const installedPluginCount = useMemo(() => data.plugins.filter((plugin) => plugin.removable).length, [data.plugins]);
+  const installedPluginCount = useMemo(() => {
+    const panelPluginIds = new Set(data.pluginPanels.map((panel) => panel.pluginId));
+    return data.plugins.filter((plugin) => plugin.removable || panelPluginIds.has(plugin.name)).length;
+  }, [data.pluginPanels, data.plugins]);
   useEffect(() => {
     setPromptCompletionIndex(0);
   }, [promptCompletion?.kind, promptCompletion?.query]);

@@ -30,6 +30,15 @@
       name: "@pi-harness/core/plugins/runtime"
       config:
         thinkingLevel: medium
+    - id: context
+      name: "@pi-harness/core/plugins/context"
+      config: {}
+    - id: agent-teams
+      name: "@pi-harness/core/plugins/agent-teams"
+      config: {}
+    - id: modlens
+      name: "@pi-harness/core/plugins/modlens"
+      config: {}
     - id: webserver
       name: "@pi-harness/host-webserver"
       config:

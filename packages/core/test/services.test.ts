@@ -11,6 +11,9 @@ import modelsPlugin from "../src/plugins/models.js";
 import resourcesPlugin from "../src/plugins/resources.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
+import contextPlugin from "../src/plugins/context.js";
+import agentTeamsPlugin from "../src/plugins/agent-teams.js";
+import modlensPlugin from "../src/plugins/modlens.js";
 
 const contexts: Context[] = [];
 
@@ -145,5 +148,71 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toEqual([{ id: "example-panel", pluginId: "example-plugin", title: "Example", data: { ready: true } }]);
     dispose();
     await expect(panels.snapshot()).resolves.toEqual([]);
+  });
+
+  test("publishes a live context insight panel from the session runtime", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piRuntime", {
+      session: { messages: [{ role: "user" }], getContextUsage: () => ({ tokens: 1200, contextWindow: 8000, percent: 15 }) },
+    } as never);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(contextPlugin);
+
+    await expect(panels.snapshot()).resolves.toEqual([
+      {
+        id: "context-insight-panel",
+        pluginId: "@pi-harness/core/plugins/context",
+        title: "上下文洞察",
+        description: "查看当前上下文占用、消息规模和压缩事件。",
+        icon: "◒",
+        data: { tokens: 1200, contextWindow: 8000, percent: 15, messages: 1, events: 0, compactions: 0 },
+      },
+    ]);
+  });
+
+  test("persists agent team tasks and exposes a live collaboration panel", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(agentTeamsPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", { action: "add_task", title: "Review plugin manifest" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      content: [{ text: "Task task-1 created." }],
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { id: "agent-teams-panel", data: { tasks: [{ title: "Review plugin manifest", status: "todo" }] } },
+    ]);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("attaches an in-workspace image through the modlens tool", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await writeFile(join(cwd, "screen.png"), "png-data", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(modlensPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", { path: "screen.png" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      content: [{ type: "image", mimeType: "image/png" }],
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "modlens-panel", data: { attached: true, image: { path: "screen.png", bytes: 8 } } }]);
+    await expect(tool.execute("call-2", { path: "../outside.png" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
   });
 });
