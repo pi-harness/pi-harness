@@ -69,13 +69,27 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
 }
 
 function modelSummary(model: { provider: string; id: string; name?: string; reasoning?: boolean; contextWindow?: number }, active: boolean) {
-  return { provider: model.provider, id: model.id, name: model.name ?? model.id, reasoning: model.reasoning ?? false, contextWindow: model.contextWindow ?? null, active };
+  return {
+    provider: model.provider,
+    id: model.id,
+    name: model.name ?? model.id,
+    reasoning: model.reasoning ?? false,
+    contextWindow: model.contextWindow ?? null,
+    active,
+  };
 }
 
 function pluginSummary(entry: { options: { id: string; name: string; disabled?: boolean | null }; fiber?: { state: unknown } }) {
   const states = ["pending", "loading", "active", "failed", "disposed", "unloading"];
   const rawState = entry.fiber?.state;
-  const state = typeof rawState === "number" ? states[rawState] ?? String(rawState) : typeof rawState === "string" ? rawState : rawState === undefined || rawState === null ? "unloaded" : "unknown";
+  const state =
+    typeof rawState === "number"
+      ? (states[rawState] ?? String(rawState))
+      : typeof rawState === "string"
+        ? rawState
+        : rawState === undefined || rawState === null
+          ? "unloaded"
+          : "unknown";
   return { id: entry.options.id, name: entry.options.name, enabled: !entry.options.disabled, state };
 }
 
@@ -91,7 +105,9 @@ function gitStatus(cwd: string): Promise<string> {
 
 function gitDiff(cwd: string, path: string): Promise<string> {
   return new Promise((resolveOutput) => {
-    execFile("git", ["diff", "--no-ext-diff", "--", path], { cwd, maxBuffer: 1024 * 1024 }, (error, stdout) => resolveOutput(error && stdout.length === 0 ? "" : stdout));
+    execFile("git", ["diff", "--no-ext-diff", "--", path], { cwd, maxBuffer: 1024 * 1024 }, (error, stdout) =>
+      resolveOutput(error && stdout.length === 0 ? "" : stdout),
+    );
   });
 }
 
@@ -105,7 +121,8 @@ function gitCommand(cwd: string, args: readonly string[]): Promise<{ stdout: str
 }
 
 function workspacePaths(root: string, paths: unknown): string[] | Error {
-  if (!Array.isArray(paths) || paths.length === 0 || paths.some((path) => typeof path !== "string" || path.trim() === "")) return new Error("paths must be a non-empty array of strings");
+  if (!Array.isArray(paths) || paths.length === 0 || paths.some((path) => typeof path !== "string" || path.trim() === ""))
+    return new Error("paths must be a non-empty array of strings");
   const normalized: string[] = [];
   for (const path of paths) {
     const requested = path as string;
@@ -141,9 +158,7 @@ export default {
         writeSse(response, { type: "event", event });
       }
     };
-    const unsubscribeEvents = services.runtime.sessionRuntime
-      ? context.on("pi/session-event", handleEvent)
-      : services.runtime.session.subscribe(handleEvent);
+    const unsubscribeEvents = services.runtime.sessionRuntime ? context.on("pi/session-event", handleEvent) : services.runtime.session.subscribe(handleEvent);
     const disposeStatus = services.webServer.register({
       path: "/api/status",
       handler(_request, response) {
@@ -154,14 +169,23 @@ export default {
       path: "/api/models",
       handler(_request, response) {
         const active = services.runtime.session.model ?? services.models.model;
-        sendJson(response, 200, jsonSafe({ items: services.models.runtime.getModels().map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)) }));
+        sendJson(
+          response,
+          200,
+          jsonSafe({
+            items: services.models.runtime.getModels().map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)),
+          }),
+        );
       },
     });
     const disposeProviders = services.webServer.register({
       path: "/api/providers",
       handler(_request, response) {
         const active = services.runtime.session.model ?? services.models.model;
-        const runtime = services.models.runtime as typeof services.models.runtime & { getProviders?: () => readonly { id: string; name?: string }[]; getProviderAuthStatus?: (provider: string) => unknown };
+        const runtime = services.models.runtime as typeof services.models.runtime & {
+          getProviders?: () => readonly { id: string; name?: string }[];
+          getProviderAuthStatus?: (provider: string) => unknown;
+        };
         const providers = typeof runtime.getProviders === "function" ? runtime.getProviders() : [{ id: active.provider, name: active.provider }];
         const visible = providers.filter((provider) => {
           if (provider.id === active.provider) return true;
@@ -169,7 +193,22 @@ export default {
           const auth = runtime.getProviderAuthStatus(provider.id);
           return typeof auth === "object" && auth !== null && (auth as { configured?: unknown }).configured === true;
         });
-        sendJson(response, 200, jsonSafe({ items: visible.map((provider) => ({ provider: provider.id, name: provider.name ?? provider.id, active: provider.id === active.provider, auth: typeof runtime.getProviderAuthStatus === "function" ? runtime.getProviderAuthStatus(provider.id) : undefined, activeModel: provider.id === active.provider ? modelSummary(active, true) : undefined, models: services.models.runtime.getModels(provider.id).map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)) })) }));
+        sendJson(
+          response,
+          200,
+          jsonSafe({
+            items: visible.map((provider) => ({
+              provider: provider.id,
+              name: provider.name ?? provider.id,
+              active: provider.id === active.provider,
+              auth: typeof runtime.getProviderAuthStatus === "function" ? runtime.getProviderAuthStatus(provider.id) : undefined,
+              activeModel: provider.id === active.provider ? modelSummary(active, true) : undefined,
+              models: services.models.runtime
+                .getModels(provider.id)
+                .map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)),
+            })),
+          }),
+        );
       },
     });
     const disposeProviderTest = services.webServer.register({
@@ -241,7 +280,15 @@ export default {
         const capability = url.searchParams.get("capability") ?? "";
         const page = Number(url.searchParams.get("page") ?? "0");
         const pageSize = Number(url.searchParams.get("pageSize") ?? "24");
-        if (query.length > 120 || capability.length > 80 || !Number.isInteger(page) || page < 0 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        if (
+          query.length > 120 ||
+          capability.length > 80 ||
+          !Number.isInteger(page) ||
+          page < 0 ||
+          !Number.isInteger(pageSize) ||
+          pageSize < 1 ||
+          pageSize > 100
+        ) {
           sendJson(response, 400, { error: "Invalid marketplace query" });
           return;
         }
@@ -252,7 +299,12 @@ export default {
       path: "/api/commands",
       handler(_request, response) {
         const commands = services.runtime.session.extensionRunner.getRegisteredCommands();
-        const items = commands.map((command) => ({ name: command.name, invocationName: command.invocationName, description: command.description, source: command.sourceInfo.path }));
+        const items = commands.map((command) => ({
+          name: command.name,
+          invocationName: command.invocationName,
+          description: command.description,
+          source: command.sourceInfo.path,
+        }));
         sendJson(response, 200, jsonSafe({ items }));
       },
     });
@@ -293,10 +345,18 @@ export default {
       path: "/api/files",
       async handler(_request, response) {
         const output = await gitStatus(services.launch.cwd);
-        const items = output.split("\n").map((line) => line.trimEnd()).filter((line) => line.length > 0).map((line) => {
-          const status = line.slice(0, 2).trim() || "??";
-          return { path: line.slice(3), status, label: status === "??" ? "untracked" : status.includes("D") ? "deleted" : status.includes("A") ? "added" : "modified" };
-        });
+        const items = output
+          .split("\n")
+          .map((line) => line.trimEnd())
+          .filter((line) => line.length > 0)
+          .map((line) => {
+            const status = line.slice(0, 2).trim() || "??";
+            return {
+              path: line.slice(3),
+              status,
+              label: status === "??" ? "untracked" : status.includes("D") ? "deleted" : status.includes("A") ? "added" : "modified",
+            };
+          });
         sendJson(response, 200, { items });
       },
     });
@@ -384,7 +444,10 @@ export default {
             sendJson(response, 409, { error: restore.stderr.trim() || "Unable to restore workspace files" });
             return;
           }
-          for (const path of untracked.stdout.split("\n").map((item) => item.trim()).filter(Boolean)) {
+          for (const path of untracked.stdout
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean)) {
             await rm(resolve(root, path), { recursive: true, force: true });
           }
           sendJson(response, 200, { reverted: true, paths });
@@ -396,7 +459,12 @@ export default {
     const disposeEvents = services.webServer.register({
       path: "/api/events",
       handler(_request, response) {
-        response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-store", connection: "keep-alive", "x-accel-buffering": "no" });
+        response.writeHead(200, {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache, no-store",
+          connection: "keep-alive",
+          "x-accel-buffering": "no",
+        });
         writeSse(response, { type: "snapshot", sessionId: services.runtime.session.sessionId, events });
         eventClients.add(response);
         const heartbeat = setInterval(() => {
@@ -468,13 +536,17 @@ export default {
       handler(_request, response) {
         const session = services.runtime.session;
         const sessionManager = session.sessionManager;
-        sendJson(response, 200, jsonSafe({
-          sessionId: session.sessionId,
-          sessionFile: session.sessionFile,
-          messages: session.messages,
-          entries: typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [],
-          events,
-        }));
+        sendJson(
+          response,
+          200,
+          jsonSafe({
+            sessionId: session.sessionId,
+            sessionFile: session.sessionFile,
+            messages: session.messages,
+            entries: typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [],
+            events,
+          }),
+        );
       },
     });
     const disposeNewSession = services.webServer.register({
@@ -495,8 +567,7 @@ export default {
               sendJson(response, 409, { error: "Session creation was cancelled by an extension" });
               return;
             }
-          }
-          else {
+          } else {
             const session = services.runtime.session;
             session.sessionManager.newSession();
             session.agent.state.messages = [];
@@ -504,7 +575,16 @@ export default {
           events.length = 0;
           const session = services.runtime.session;
           for (const client of eventClients) writeSse(client, { type: "session", sessionId: session.sessionId, events: [] });
-          sendJson(response, 200, jsonSafe({ sessionId: session.sessionId, sessionFile: session.sessionFile, messages: services.runtime.sessionRuntime ? session.messages : [], events: [] }));
+          sendJson(
+            response,
+            200,
+            jsonSafe({
+              sessionId: session.sessionId,
+              sessionFile: session.sessionFile,
+              messages: services.runtime.sessionRuntime ? session.messages : [],
+              events: [],
+            }),
+          );
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
         }
@@ -529,7 +609,10 @@ export default {
             return;
           }
           const items = await SessionManager.list(services.launch.cwd, manager.getSessionDir());
-          const target = items.find((item) => (typeof payload.path === "string" && item.path === payload.path) || (typeof payload.sessionId === "string" && item.id === payload.sessionId));
+          const target = items.find(
+            (item) =>
+              (typeof payload.path === "string" && item.path === payload.path) || (typeof payload.sessionId === "string" && item.id === payload.sessionId),
+          );
           if (target === undefined) {
             sendJson(response, 404, { error: "Session not found" });
             return;
@@ -540,15 +623,23 @@ export default {
               sendJson(response, 409, { error: "Session switch was cancelled by an extension" });
               return;
             }
-          }
-          else {
+          } else {
             manager.setSessionFile(target.path);
             if (typeof services.runtime.session.reload === "function") await services.runtime.session.reload();
             else services.runtime.session.agent.state.messages = manager.buildSessionContext().messages;
           }
           events.length = 0;
           for (const client of eventClients) writeSse(client, { type: "session", sessionId: services.runtime.session.sessionId, events: [] });
-          sendJson(response, 200, jsonSafe({ sessionId: services.runtime.session.sessionId, sessionFile: services.runtime.session.sessionFile, messages: services.runtime.session.messages, events: [] }));
+          sendJson(
+            response,
+            200,
+            jsonSafe({
+              sessionId: services.runtime.session.sessionId,
+              sessionFile: services.runtime.session.sessionFile,
+              messages: services.runtime.session.messages,
+              events: [],
+            }),
+          );
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
         }
@@ -560,10 +651,24 @@ export default {
         try {
           const session = services.runtime.session;
           const manager = session.sessionManager;
-          const items = typeof manager.isPersisted === "function" && manager.isPersisted()
-            ? await SessionManager.list(services.launch.cwd, manager.getSessionDir())
-            : [];
-          sendJson(response, 200, jsonSafe({ items: items.map((item) => ({ sessionId: item.id, path: item.path, name: item.name, cwd: item.cwd, created: item.created, modified: item.modified, messageCount: item.messageCount, firstMessage: item.firstMessage })) }));
+          const items =
+            typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(services.launch.cwd, manager.getSessionDir()) : [];
+          sendJson(
+            response,
+            200,
+            jsonSafe({
+              items: items.map((item) => ({
+                sessionId: item.id,
+                path: item.path,
+                name: item.name,
+                cwd: item.cwd,
+                created: item.created,
+                modified: item.modified,
+                messageCount: item.messageCount,
+                firstMessage: item.firstMessage,
+              })),
+            }),
+          );
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
         }

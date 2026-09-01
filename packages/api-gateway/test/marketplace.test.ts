@@ -5,7 +5,9 @@ describe("plugin marketplace registry", () => {
   test("contains reviewable, uniquely identified entries", () => {
     expect(MARKETPLACE_PLUGINS.length).toBeGreaterThan(0);
     expect(new Set(MARKETPLACE_PLUGINS.map((plugin) => plugin.id)).size).toBe(MARKETPLACE_PLUGINS.length);
-    expect(MARKETPLACE_PLUGINS.every((plugin) => plugin.repository.startsWith("https://") && plugin.license && plugin.profile.name === plugin.packageName)).toBe(true);
+    expect(
+      MARKETPLACE_PLUGINS.every((plugin) => plugin.repository.startsWith("https://") && plugin.license && plugin.profile.name === plugin.packageName),
+    ).toBe(true);
   });
 
   test("filters by query and capability without mutating the registry", () => {

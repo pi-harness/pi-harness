@@ -107,7 +107,10 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
         });
         provideStdioContext(context, stdio);
       },
-    }).then((booted): BootOutcome => ({ kind: "ready", harness: booted }), (error: unknown): BootOutcome => ({ kind: "error", error }));
+    }).then(
+      (booted): BootOutcome => ({ kind: "ready", harness: booted }),
+      (error: unknown): BootOutcome => ({ kind: "error", error }),
+    );
     const startup = await Promise.race([bootOutcome, signalPromise.then((code) => ({ kind: "signal" as const, code }))]);
     if (startup.kind === "signal") {
       resultCode = startup.code;
@@ -132,23 +135,35 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     if (result.source !== "application") {
       const runtime = harness.context.get("piRuntime");
       if (runtime !== undefined) {
-        const aborted = await settleWithin(runtime.abort().then(() => undefined, (error: unknown) => {
-          environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
-        }), environment.shutdownTimeoutMs);
+        const aborted = await settleWithin(
+          runtime.abort().then(
+            () => undefined,
+            (error: unknown) => {
+              environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+            },
+          ),
+          environment.shutdownTimeoutMs,
+        );
         if (!aborted.settled) forceExit(result.code);
       }
     }
     return result.code;
   } catch (error) {
-    environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
     resultCode = 1;
     return 1;
   } finally {
     removeSignals();
     if (harness !== undefined) {
-      const disposed = await settleWithin(harness.dispose().then(() => undefined, (error: unknown) => {
-        environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
-      }), environment.shutdownTimeoutMs);
+      const disposed = await settleWithin(
+        harness.dispose().then(
+          () => undefined,
+          (error: unknown) => {
+            environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+          },
+        ),
+        environment.shutdownTimeoutMs,
+      );
       if (!disposed.settled) forceExit(resultCode ?? 1);
     }
   }

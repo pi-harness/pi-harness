@@ -2,7 +2,10 @@ export class CliUsageError extends Error {
   override readonly name = "CliUsageError";
 }
 
-export type LauncherInvocation = { mode: "help" } | { mode: "version" } | { mode: "run"; profile?: string; configPath?: string; dumpConfig: boolean; args: string[] };
+export type LauncherInvocation =
+  | { mode: "help" }
+  | { mode: "version" }
+  | { mode: "run"; profile?: string; configPath?: string; dumpConfig: boolean; args: string[] };
 
 function optionValue(args: readonly string[], index: number, option: string): string {
   const value = args[index + 1];

@@ -21,7 +21,13 @@ async function bootProfile(profile: string): Promise<{ harness: BootedHarness; c
     configPath,
     prepare(context) {
       provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
-      provideStdioContext(context, { readPrompt() { return Promise.resolve(""); }, writeOutput() {}, writeError() {} });
+      provideStdioContext(context, {
+        readPrompt() {
+          return Promise.resolve("");
+        },
+        writeOutput() {},
+        writeError() {},
+      });
     },
   });
   booted.push(harness);
@@ -48,7 +54,9 @@ describe("packaged profiles", () => {
 
     expect(timer?.fiber?.ctx.get("timer")).toBeDefined();
     expect(hmr?.fiber?.ctx.get("hmr")).toMatchObject({ baseDir: cwd });
-    expect(names).toEqual(expect.arrayContaining(["@deepseek-ai/cordis-plugin-logger-console", "@deepseek-ai/cordis-plugin-timer", "@deepseek-ai/cordis-plugin-hmr"]));
+    expect(names).toEqual(
+      expect.arrayContaining(["@deepseek-ai/cordis-plugin-logger-console", "@deepseek-ai/cordis-plugin-timer", "@deepseek-ai/cordis-plugin-hmr"]),
+    );
   });
 
   test("activates an external tool plugin before the runtime through Cordis injection", async () => {
@@ -65,26 +73,45 @@ describe("packaged profiles", () => {
       runtime: import.meta.resolve("@pi-harness/core/plugins/runtime"),
       stdio: import.meta.resolve("@pi-harness/core/plugins/stdio"),
     };
-    await writeFile(configPath, JSON.stringify([
-      { id: "models", name: plugins.models, config: { provider: "deepseek", model: "deepseek-v4-flash", refreshOnCreate: false } },
-      { id: "resources", name: plugins.resources, config: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } },
-      { id: "model", name: plugins.model, config: {} },
-      { id: "session", name: plugins.session, config: { storage: "memory" } },
-      { id: "tools", name: plugins.tools, config: { names: [] } },
-      { id: "hello", name: plugins.hello, config: {} },
-      { id: "runtime", name: plugins.runtime, inject: ["piHelloTool"], config: { thinkingLevel: "medium" } },
-      { id: "stdio", name: plugins.stdio, config: {} },
-    ]), "utf8");
+    await writeFile(
+      configPath,
+      JSON.stringify([
+        { id: "models", name: plugins.models, config: { provider: "deepseek", model: "deepseek-v4-flash", refreshOnCreate: false } },
+        {
+          id: "resources",
+          name: plugins.resources,
+          config: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true },
+        },
+        { id: "model", name: plugins.model, config: {} },
+        { id: "session", name: plugins.session, config: { storage: "memory" } },
+        { id: "tools", name: plugins.tools, config: { names: [] } },
+        { id: "hello", name: plugins.hello, config: {} },
+        { id: "runtime", name: plugins.runtime, inject: ["piHelloTool"], config: { thinkingLevel: "medium" } },
+        { id: "stdio", name: plugins.stdio, config: {} },
+      ]),
+      "utf8",
+    );
     const harness = await bootHarness({
       configPath,
       prepare(context) {
         provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
-        provideStdioContext(context, { readPrompt() { return Promise.resolve(""); }, writeOutput() {}, writeError() {} });
+        provideStdioContext(context, {
+          readPrompt() {
+            return Promise.resolve("");
+          },
+          writeOutput() {},
+          writeError() {},
+        });
       },
     });
     booted.push(harness);
 
-    expect(harness.context.get("piTools")?.snapshot().customTools.map((tool) => tool.name)).toEqual(["hello"]);
+    expect(
+      harness.context
+        .get("piTools")
+        ?.snapshot()
+        .customTools.map((tool) => tool.name),
+    ).toEqual(["hello"]);
     const sessionTools = harness.context.get("piRuntime")?.session.getAllTools();
     expect(sessionTools).toHaveLength(1);
     expect(sessionTools?.[0]?.name).toBe("hello");

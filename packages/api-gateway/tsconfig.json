@@ -1,1 +1,1 @@
-{"extends":"../../tsconfig.json","compilerOptions":{"paths":{}},"include":["src/**/*.ts"]}
+{ "extends": "../../tsconfig.json", "compilerOptions": { "paths": {} }, "include": ["src/**/*.ts"] }

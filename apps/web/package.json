@@ -1,13 +1,13 @@
 {
   "name": "@pi-harness/web",
   "version": "0.1.2",
-  "description": "Browser application entry for Pi Harness",
   "private": true,
+  "description": "Browser application entry for Pi Harness",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && vite build",
+    "build": "tsc -p tsconfig.build.json && vp build",
     "typecheck": "tsc -p tsconfig.json",
-    "dev": "vite"
+    "dev": "vp dev"
   },
   "dependencies": {
     "@pi-harness/api-gateway": "0.1.2",

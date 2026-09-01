@@ -27,7 +27,11 @@ async function createPlugin(directory: string, name: string, source: string): Pr
 describe("bootHarness", () => {
   test("loads a profile and activates its plugin", async () => {
     const profile = await createProfile([]);
-    const plugin = await createPlugin(profile.directory, "provider", `export default function provider(ctx, config) { ctx.provide("fixtureValue", config.value); }`);
+    const plugin = await createPlugin(
+      profile.directory,
+      "provider",
+      `export default function provider(ctx, config) { ctx.provide("fixtureValue", config.value); }`,
+    );
     await writeFile(profile.profilePath, JSON.stringify([{ name: plugin, config: { value: "active" } }]), "utf8");
 
     const harness = await bootHarness({ configPath: profile.profilePath });
@@ -53,8 +57,16 @@ describe("bootHarness", () => {
   test("disposes already-active plugins when a later activation fails", async () => {
     const profile = await createProfile([]);
     const markerPath = join(profile.directory, "lifecycle.txt");
-    const owner = await createPlugin(profile.directory, "owner", `import { appendFileSync, writeFileSync } from "node:fs"; export default function owner(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("fixtureOwnerReady", true); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); }`);
-    const failure = await createPlugin(profile.directory, "failure", `export default { inject: ["fixtureOwnerReady"], apply() { throw new Error("fixture activation failed"); } };`);
+    const owner = await createPlugin(
+      profile.directory,
+      "owner",
+      `import { appendFileSync, writeFileSync } from "node:fs"; export default function owner(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("fixtureOwnerReady", true); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); }`,
+    );
+    const failure = await createPlugin(
+      profile.directory,
+      "failure",
+      `export default { inject: ["fixtureOwnerReady"], apply() { throw new Error("fixture activation failed"); } };`,
+    );
     await writeFile(profile.profilePath, JSON.stringify([{ name: owner, config: { markerPath } }, { name: failure }]), "utf8");
 
     await expect(bootHarness({ configPath: profile.profilePath })).rejects.toThrow(/fixture activation failed/);
@@ -64,8 +76,22 @@ describe("bootHarness", () => {
   test("does not rewrite a profile when a nested group rolls back", async () => {
     const profile = await createProfile([]);
     const active = await createPlugin(profile.directory, "active", `export default function active(ctx) { ctx.provide("fixtureNestedReady", true); }`);
-    const failure = await createPlugin(profile.directory, "nested-failure", `export default { inject: ["fixtureNestedReady"], apply() { throw new Error("nested activation failed"); } };`);
-    const source = JSON.stringify([{ id: "fixture-group", name: "cordis:group", group: true, config: [{ id: "active", name: active }, { id: "nested-failure", name: failure }] }]);
+    const failure = await createPlugin(
+      profile.directory,
+      "nested-failure",
+      `export default { inject: ["fixtureNestedReady"], apply() { throw new Error("nested activation failed"); } };`,
+    );
+    const source = JSON.stringify([
+      {
+        id: "fixture-group",
+        name: "cordis:group",
+        group: true,
+        config: [
+          { id: "active", name: active },
+          { id: "nested-failure", name: failure },
+        ],
+      },
+    ]);
     await writeFile(profile.profilePath, source, "utf8");
 
     await expect(bootHarness({ configPath: profile.profilePath })).rejects.toThrow(/nested activation failed/);
@@ -76,7 +102,12 @@ describe("bootHarness", () => {
   test("forwards Cordis full-reload requests to the host", async () => {
     const profile = await createProfile([]);
     let reloads = 0;
-    const harness = await bootHarness({ configPath: profile.profilePath, onFullReload() { reloads += 1; } });
+    const harness = await bootHarness({
+      configPath: profile.profilePath,
+      onFullReload() {
+        reloads += 1;
+      },
+    });
     booted.push(harness);
 
     harness.context.loader.exit();

@@ -64,7 +64,11 @@ describe("Pi domain plugins", () => {
     const { context, agentDir } = await createContext();
     const extensionsDir = join(agentDir, "extensions");
     await mkdir(extensionsDir, { recursive: true });
-    await writeFile(join(extensionsDir, "provider.ts"), `export default function (pi) { pi.registerProvider("extension-provider", { baseUrl: "https://example.invalid", apiKey: "test-key", api: "openai-completions", models: [{ id: "extension-model", name: "Extension Model", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 1024 }] }); }`, "utf8");
+    await writeFile(
+      join(extensionsDir, "provider.ts"),
+      `export default function (pi) { pi.registerProvider("extension-provider", { baseUrl: "https://example.invalid", apiKey: "test-key", api: "openai-completions", models: [{ id: "extension-model", name: "Extension Model", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 1024 }] }); }`,
+      "utf8",
+    );
 
     await context.plugin(modelsPlugin, { provider: "extension-provider", model: "extension-model", refreshOnCreate: false });
     await context.plugin(resourcesPlugin, { ...isolatedResources, noExtensions: false });

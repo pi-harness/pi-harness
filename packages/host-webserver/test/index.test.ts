@@ -22,7 +22,10 @@ describe("web server plugin", () => {
       },
     });
 
-    await expect(fetch(server.url + "/health").then(async (response) => ({ status: response.status, body: await response.text() }))).resolves.toEqual({ status: 200, body: "ok" });
+    await expect(fetch(server.url + "/health").then(async (response) => ({ status: response.status, body: await response.text() }))).resolves.toEqual({
+      status: 200,
+      body: "ok",
+    });
     expect(() => server.register({ path: "/health", handler() {} })).toThrow(/already registered/);
 
     disposeRoute();

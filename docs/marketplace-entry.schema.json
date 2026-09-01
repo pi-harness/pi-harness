@@ -2,7 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Pi Harness marketplace entry",
   "type": "object",
-  "required": ["id", "packageName", "version", "name", "description", "author", "repository", "license", "source", "status", "capabilities", "hooks", "profile"],
+  "required": [
+    "id",
+    "packageName",
+    "version",
+    "name",
+    "description",
+    "author",
+    "repository",
+    "license",
+    "source",
+    "status",
+    "capabilities",
+    "hooks",
+    "profile"
+  ],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
@@ -17,6 +31,11 @@
     "status": { "enum": ["verified", "experimental"] },
     "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
     "hooks": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
-    "profile": { "type": "object", "required": ["name", "config"], "additionalProperties": false, "properties": { "name": { "type": "string", "minLength": 1 }, "config": { "type": "object" } } }
+    "profile": {
+      "type": "object",
+      "required": ["name", "config"],
+      "additionalProperties": false,
+      "properties": { "name": { "type": "string", "minLength": 1 }, "config": { "type": "object" } }
+    }
   }
 }

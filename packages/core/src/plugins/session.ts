@@ -19,9 +19,13 @@ export default {
   Config,
   apply(context: Context, config: SessionPluginConfig) {
     const storage = config.storage ?? "jsonl";
-    const manager = storage === "memory"
-      ? SessionManager.inMemory(context.piHarnessLaunch.cwd)
-      : SessionManager.create(context.piHarnessLaunch.cwd, config.directory === undefined ? join(context.piHarnessLaunch.agentDir, "sessions") : resolve(context.piHarnessLaunch.cwd, config.directory));
+    const manager =
+      storage === "memory"
+        ? SessionManager.inMemory(context.piHarnessLaunch.cwd)
+        : SessionManager.create(
+            context.piHarnessLaunch.cwd,
+            config.directory === undefined ? join(context.piHarnessLaunch.agentDir, "sessions") : resolve(context.piHarnessLaunch.cwd, config.directory),
+          );
     context.provide("piSession", { manager });
   },
 };

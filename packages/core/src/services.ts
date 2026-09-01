@@ -1,5 +1,13 @@
 import type { Context } from "@deepseek-ai/cordis";
-import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, AgentSessionServices, ExtensionError, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSession,
+  AgentSessionEvent,
+  AgentSessionRuntime,
+  AgentSessionServices,
+  ExtensionError,
+  SessionManager,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 

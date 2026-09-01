@@ -10,7 +10,10 @@ import runtimePlugin from "../src/plugins/runtime.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 
-export async function createTestRuntimeContext(responses: FauxResponseStep[], toolNames: string[] = []): Promise<{ context: Context; faux: FauxProviderHandle }> {
+export async function createTestRuntimeContext(
+  responses: FauxResponseStep[],
+  toolNames: string[] = [],
+): Promise<{ context: Context; faux: FauxProviderHandle }> {
   const cwd = await mkdtemp(join(tmpdir(), "pi-harness-runtime-"));
   const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-runtime-agent-"));
   const context = new Context();

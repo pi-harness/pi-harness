@@ -46,12 +46,13 @@ export default {
     };
     context.provide("piResources", {
       ...services,
-      createForCwd: (cwd: string) => createAgentSessionServices({
-        cwd,
-        agentDir: context.piHarnessLaunch.agentDir,
-        modelRuntime: context.piModelRuntime.runtime,
-        resourceLoaderOptions,
-      }),
+      createForCwd: (cwd: string) =>
+        createAgentSessionServices({
+          cwd,
+          agentDir: context.piHarnessLaunch.agentDir,
+          modelRuntime: context.piModelRuntime.runtime,
+          resourceLoaderOptions,
+        }),
     });
   },
 };

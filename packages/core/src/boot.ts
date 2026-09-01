@@ -26,7 +26,7 @@ const FIBER_ACTIVE = 2 as FiberState.ACTIVE;
 const FIBER_FAILED = 3 as FiberState.FAILED;
 
 function formatError(error: unknown): string {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 async function assertEntriesActivated(context: Context): Promise<void> {

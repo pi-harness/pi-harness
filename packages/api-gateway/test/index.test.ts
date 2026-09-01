@@ -27,7 +27,9 @@ describe("API gateway plugin", () => {
       session,
       prompt: () => {
         promptStarted = true;
-        return new Promise<void>((resolve) => { releasePrompt = resolve; });
+        return new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
       },
     };
     context.provide("piRuntime", runtime as never);
@@ -35,12 +37,28 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const first = fetch(context.webServer.url + "/api/prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "first" }) });
+    const first = fetch(context.webServer.url + "/api/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "first" }),
+    });
     while (!promptStarted) await new Promise((resolve) => setTimeout(resolve, 1));
-    await expect(fetch(context.webServer.url + "/api/prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "second" }) })).resolves.toMatchObject({ status: 409 });
+    await expect(
+      fetch(context.webServer.url + "/api/prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "second" }),
+      }),
+    ).resolves.toMatchObject({ status: 409 });
     releasePrompt?.();
     await expect(first).resolves.toMatchObject({ status: 200 });
-    await expect(fetch(context.webServer.url + "/api/prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "   " }) })).resolves.toMatchObject({ status: 400 });
+    await expect(
+      fetch(context.webServer.url + "/api/prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "   " }),
+      }),
+    ).resolves.toMatchObject({ status: 400 });
   });
 
   test("returns the live session messages and trajectory events", async () => {
@@ -58,16 +76,23 @@ describe("API gateway plugin", () => {
         return () => listeners.delete(listener);
       },
     };
-    const runtime = { session, prompt: () => {
-      listeners.forEach((listener) => listener({ type: "tool_execution_start", toolName: "read", toolCallId: "call-1", args: { path: "README.md" } }));
-      session.messages.push({ role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 2 });
-    } };
+    const runtime = {
+      session,
+      prompt: () => {
+        listeners.forEach((listener) => listener({ type: "tool_execution_start", toolName: "read", toolCallId: "call-1", args: { path: "README.md" } }));
+        session.messages.push({ role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 2 });
+      },
+    };
     context.provide("piRuntime", runtime as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    await fetch(context.webServer.url + "/api/prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "hello" }) });
+    await fetch(context.webServer.url + "/api/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "hello" }),
+    });
     const response = await fetch(context.webServer.url + "/api/session");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -118,11 +143,19 @@ describe("API gateway plugin", () => {
     let sessionId = "old-session";
     let resetCount = 0;
     const session = {
-      get sessionId() { return sessionId; },
+      get sessionId() {
+        return sessionId;
+      },
       sessionFile: undefined,
       messages: [{ role: "user", content: "old" }],
       isStreaming: false,
-      sessionManager: { newSession() { sessionId = "new-session"; resetCount += 1; }, getEntries: () => [] },
+      sessionManager: {
+        newSession() {
+          sessionId = "new-session";
+          resetCount += 1;
+        },
+        getEntries: () => [],
+      },
       agent: { state: { messages: [{ role: "user", content: "old" }] } },
       subscribe: () => () => {},
     };
@@ -146,14 +179,26 @@ describe("API gateway plugin", () => {
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-sessions-"));
     const path = join(directory, "2026-08-30T00-00-00-000Z_target.jsonl");
-    await writeFile(path, `${JSON.stringify({ type: "session", version: 3, id: "target-session", timestamp: new Date().toISOString(), cwd: "/tmp" })}\n${JSON.stringify({ type: "message", id: "message-1", parentId: null, timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "saved" }], provider: "test", model: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } })}\n`, "utf8");
+    await writeFile(
+      path,
+      `${JSON.stringify({ type: "session", version: 3, id: "target-session", timestamp: new Date().toISOString(), cwd: "/tmp" })}\n${JSON.stringify({ type: "message", id: "message-1", parentId: null, timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "saved" }], provider: "test", model: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } })}\n`,
+      "utf8",
+    );
     let openedPath = "";
     const session = {
       sessionId: "active-session",
       sessionFile: "/tmp/active.jsonl",
       messages: [],
       isStreaming: false,
-      sessionManager: { setSessionFile(nextPath: string) { openedPath = nextPath; }, getEntries: () => [], isPersisted: () => true, getSessionDir: () => directory, buildSessionContext: () => ({ messages: [] }) },
+      sessionManager: {
+        setSessionFile(nextPath: string) {
+          openedPath = nextPath;
+        },
+        getEntries: () => [],
+        isPersisted: () => true,
+        getSessionDir: () => directory,
+        buildSessionContext: () => ({ messages: [] }),
+      },
       agent: { state: { messages: [] } },
       subscribe: () => () => {},
     };
@@ -162,7 +207,11 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/session/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+    const response = await fetch(context.webServer.url + "/api/session/open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
     expect(response.status).toBe(200);
     expect(openedPath).toBe(path);
   });
@@ -179,11 +228,19 @@ describe("API gateway plugin", () => {
       sessionFile: undefined,
       messages: [],
       isStreaming: false,
-      get model() { return selected === "one" ? first : second; },
-      setModel(model: { id: string }) { selected = model.id; return Promise.resolve(); },
+      get model() {
+        return selected === "one" ? first : second;
+      },
+      setModel(model: { id: string }) {
+        selected = model.id;
+        return Promise.resolve();
+      },
       subscribe: () => () => {},
     };
-    const modelRuntime = { getModels: () => [first, second], getModel: (_provider: string, id: string) => id === "two" ? second : id === "one" ? first : undefined };
+    const modelRuntime = {
+      getModels: () => [first, second],
+      getModel: (_provider: string, id: string) => (id === "two" ? second : id === "one" ? first : undefined),
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
     context.provide("piModels", { model: first, runtime: modelRuntime } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
@@ -191,10 +248,19 @@ describe("API gateway plugin", () => {
 
     await expect(fetch(context.webServer.url + "/api/models")).resolves.toMatchObject({ status: 200 });
     const list = await fetch(context.webServer.url + "/api/models");
-    await expect(list.json()).resolves.toMatchObject({ items: [{ id: "one", active: true }, { id: "two", active: false }] });
+    await expect(list.json()).resolves.toMatchObject({
+      items: [
+        { id: "one", active: true },
+        { id: "two", active: false },
+      ],
+    });
     const providers = await fetch(context.webServer.url + "/api/providers");
     await expect(providers.json()).resolves.toMatchObject({ items: [{ provider: "test", activeModel: { id: "one", active: true } }] });
-    const response = await fetch(context.webServer.url + "/api/model", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "test", model: "two" }) });
+    const response = await fetch(context.webServer.url + "/api/model", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "test", model: "two" }),
+    });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ model: { id: "two", active: true } });
     expect(selected).toBe("two");
@@ -207,8 +273,24 @@ describe("API gateway plugin", () => {
     const active = { provider: "active", id: "one", name: "Active", reasoning: false, contextWindow: 8_000 };
     const configured = { provider: "configured", id: "one", name: "Configured", reasoning: false, contextWindow: 8_000 };
     const hidden = { provider: "hidden", id: "one", name: "Hidden", reasoning: false, contextWindow: 8_000 };
-    const session = { sessionId: "provider-filter-session", sessionFile: undefined, messages: [], isStreaming: false, model: active, subscribe: () => () => {} };
-    const modelRuntime = { getProviders: () => [{ id: "active", name: "Active" }, { id: "configured", name: "Configured" }, { id: "hidden", name: "Hidden" }], getModels: (provider?: string) => provider === "configured" ? [configured] : provider === "hidden" ? [hidden] : [active], getProviderAuthStatus: (provider: string) => provider === "configured" ? { configured: true, source: "environment" } : { configured: false }, getModel: () => active };
+    const session = {
+      sessionId: "provider-filter-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      model: active,
+      subscribe: () => () => {},
+    };
+    const modelRuntime = {
+      getProviders: () => [
+        { id: "active", name: "Active" },
+        { id: "configured", name: "Configured" },
+        { id: "hidden", name: "Hidden" },
+      ],
+      getModels: (provider?: string) => (provider === "configured" ? [configured] : provider === "hidden" ? [hidden] : [active]),
+      getProviderAuthStatus: (provider: string) => (provider === "configured" ? { configured: true, source: "environment" } : { configured: false }),
+      getModel: () => active,
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: active, runtime: modelRuntime } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
@@ -228,7 +310,9 @@ describe("API gateway plugin", () => {
       sessionFile: undefined,
       messages: [],
       isStreaming: false,
-      extensionRunner: { getRegisteredCommands: () => [{ name: "review", invocationName: "review", description: "Review changes", sourceInfo: { path: "/tmp/review.ts" } }] },
+      extensionRunner: {
+        getRegisteredCommands: () => [{ name: "review", invocationName: "review", description: "Review changes", sourceInfo: { path: "/tmp/review.ts" } }],
+      },
       subscribe: () => () => {},
     };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
@@ -238,7 +322,9 @@ describe("API gateway plugin", () => {
 
     const response = await fetch(context.webServer.url + "/api/commands");
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ items: [{ name: "review", invocationName: "review", description: "Review changes", source: "/tmp/review.ts" }] });
+    await expect(response.json()).resolves.toEqual({
+      items: [{ name: "review", invocationName: "review", description: "Review changes", source: "/tmp/review.ts" }],
+    });
   });
 
   test("aborts a running prompt through the web API", async () => {
@@ -247,7 +333,16 @@ describe("API gateway plugin", () => {
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     let aborted = false;
     const session = { sessionId: "abort-session", sessionFile: undefined, messages: [], isStreaming: true, subscribe: () => () => {} };
-    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => { aborted = true; session.isStreaming = false; return Promise.resolve(); }, dispose: () => Promise.resolve() } as never);
+    context.provide("piRuntime", {
+      session,
+      prompt: () => Promise.resolve(),
+      abort: () => {
+        aborted = true;
+        session.isStreaming = false;
+        return Promise.resolve();
+      },
+      dispose: () => Promise.resolve(),
+    } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
@@ -270,12 +365,12 @@ describe("API gateway plugin", () => {
 
     const response = await fetch(context.webServer.url + "/api/files");
     expect(response.status).toBe(200);
-    const payload = await response.json() as { items?: unknown };
+    const payload = (await response.json()) as { items?: unknown };
     expect(Array.isArray(payload.items)).toBe(true);
 
     const diff = await fetch(context.webServer.url + "/api/files/diff?path=README.md");
     expect(diff.status).toBe(200);
-    const diffPayload = await diff.json() as { path?: unknown; diff?: unknown };
+    const diffPayload = (await diff.json()) as { path?: unknown; diff?: unknown };
     expect(diffPayload.path).toBe("README.md");
     expect(typeof diffPayload.diff).toBe("string");
     const invalid = await fetch(context.webServer.url + "/api/files/diff?path=../secrets.txt");
@@ -294,7 +389,14 @@ describe("API gateway plugin", () => {
 
     const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=scheduling&page=0&pageSize=1");
     expect(response.status).toBe(200);
-    const payload = await response.json() as { items?: readonly { packageName?: unknown; status?: unknown }[]; capabilities?: readonly unknown[]; total?: number; page?: number; pageSize?: number; hasNext?: boolean };
+    const payload = (await response.json()) as {
+      items?: readonly { packageName?: unknown; status?: unknown }[];
+      capabilities?: readonly unknown[];
+      total?: number;
+      page?: number;
+      pageSize?: number;
+      hasNext?: boolean;
+    };
     expect(payload.items).toHaveLength(1);
     expect(payload.items?.[0]).toMatchObject({ packageName: "@deepseek-ai/cordis-plugin-timer", status: "verified" });
     expect(payload).toMatchObject({ total: 1, page: 0, pageSize: 1, hasNext: false });
@@ -323,9 +425,17 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const missingMessage = await fetch(context.webServer.url + "/api/files/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: ["README.md"] }) });
+    const missingMessage = await fetch(context.webServer.url + "/api/files/commit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["README.md"] }),
+    });
     expect(missingMessage.status).toBe(400);
-    const response = await fetch(context.webServer.url + "/api/files/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: ["README.md"], message: "Update README" }) });
+    const response = await fetch(context.webServer.url + "/api/files/commit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["README.md"], message: "Update README" }),
+    });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ committed: true, message: "Update README" });
     await expect(execFile("git", ["status", "--porcelain"], { cwd: directory })).resolves.toMatchObject({ stdout: "" });
@@ -344,7 +454,11 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/files/revert", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paths: ["scratch.txt"] }) });
+    const response = await fetch(context.webServer.url + "/api/files/revert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["scratch.txt"] }),
+    });
     expect(response.status).toBe(400);
   });
 });

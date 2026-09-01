@@ -14,7 +14,11 @@ describe("global package install contract", () => {
   });
 
   test("keeps the Git package manifest and generated web entrypoint in npm packs", () => {
-    const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { private?: boolean; files?: string[]; scripts?: Record<string, string> };
+    const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+      private?: boolean;
+      files?: string[];
+      scripts?: Record<string, string>;
+    };
     const gitignore = readFileSync(join(root, ".gitignore"), "utf8").split(/\r?\n/u);
     expect(gitignore).not.toContain("package.json");
     expect(packageJson.private).not.toBe(true);

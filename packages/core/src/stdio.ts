@@ -59,7 +59,7 @@ export class StdioApplication implements PiHarnessApplication {
     try {
       let prompt: string;
       try {
-        prompt = promptFromArgs(this.#launch.args) ?? await this.#stdio.readPrompt();
+        prompt = promptFromArgs(this.#launch.args) ?? (await this.#stdio.readPrompt());
       } catch (error) {
         this.#stdio.writeError(`${error instanceof Error ? error.message : String(error)}\n`);
         return 2;

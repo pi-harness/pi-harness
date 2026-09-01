@@ -23,8 +23,18 @@ function createEnvironment(cwd = process.cwd(), input = "", shutdownTimeoutMs = 
     agentDir: join(cwd, ".pi-agent-test"),
     version: "0.1.0-test",
     stdin: Readable.from([input]),
-    stdout: new Writable({ write(chunk, _encoding, callback) { output.push(String(chunk)); callback(); } }),
-    stderr: new Writable({ write(chunk, _encoding, callback) { errors.push(String(chunk)); callback(); } }),
+    stdout: new Writable({
+      write(chunk, _encoding, callback) {
+        output.push(String(chunk));
+        callback();
+      },
+    }),
+    stderr: new Writable({
+      write(chunk, _encoding, callback) {
+        errors.push(String(chunk));
+        callback();
+      },
+    }),
     output,
     errors,
     forcedExitCodes,
@@ -55,7 +65,7 @@ async function waitForFileContent(path: string, expected: string, timeoutMs = 5_
   const startedAt = Date.now();
   while (true) {
     try {
-      if (await readFile(path, "utf8") === expected) return;
+      if ((await readFile(path, "utf8")) === expected) return;
     } catch {
       // The producer has not created the marker yet.
     }
@@ -97,7 +107,9 @@ describe("runCli", () => {
   });
 
   test("runs the application plugin and disposes the Cordis tree", async () => {
-    const profile = await createApplicationProfile(`import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run() { appendFileSync(config.markerPath, ":run"); return 7; } }); } };`);
+    const profile = await createApplicationProfile(
+      `import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run() { appendFileSync(config.markerPath, ":run"); return 7; } }); } };`,
+    );
     const environment = createEnvironment(profile.directory);
 
     const exitCode = await runCli(["--config", profile.configPath], environment);
@@ -107,7 +119,9 @@ describe("runCli", () => {
   });
 
   test("aborts and disposes a running application on SIGINT", async () => {
-    const profile = await createApplicationProfile(`import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run() { appendFileSync(config.markerPath, ":run"); return new Promise(() => {}); } }); } };`);
+    const profile = await createApplicationProfile(
+      `import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run() { appendFileSync(config.markerPath, ":run"); return new Promise(() => {}); } }); } };`,
+    );
     const environment = createEnvironment(profile.directory);
     const result = runCli(["--config", profile.configPath], environment);
     const markerPath = join(profile.directory, "marker.txt");
@@ -120,7 +134,9 @@ describe("runCli", () => {
   });
 
   test("handles SIGTERM while the Cordis plugin tree is still starting", async () => {
-    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { async apply(_ctx, config) { writeFileSync(config.markerPath, "starting"); await new Promise(() => {}); } };`);
+    const profile = await createApplicationProfile(
+      `import { writeFileSync } from "node:fs"; export default { async apply(_ctx, config) { writeFileSync(config.markerPath, "starting"); await new Promise(() => {}); } };`,
+    );
     const environment = createEnvironment(profile.directory, "", 50);
     const result = runCli(["--config", profile.configPath], environment);
     await waitForFileContent(join(profile.directory, "marker.txt"), "starting");
@@ -131,7 +147,9 @@ describe("runCli", () => {
   });
 
   test("forces the bin exit when a Cordis disposer exceeds the shutdown deadline", async () => {
-    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => async () => new Promise(() => {})); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`);
+    const profile = await createApplicationProfile(
+      `import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => async () => new Promise(() => {})); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`,
+    );
     const environment = createEnvironment(profile.directory, "", 25);
     const result = runCli(["--config", profile.configPath], environment);
     await waitForFileContent(join(profile.directory, "marker.txt"), "started");

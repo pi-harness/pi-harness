@@ -1,6 +1,11 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { createAgentSessionFromServices, createAgentSessionRuntime, type AgentSession, type CreateAgentSessionRuntimeFactory } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSessionFromServices,
+  createAgentSessionRuntime,
+  type AgentSession,
+  type CreateAgentSessionRuntimeFactory,
+} from "@earendil-works/pi-coding-agent";
 import { PiRuntime } from "../runtime.js";
 
 export interface RuntimePluginConfig {

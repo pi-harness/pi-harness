@@ -35,7 +35,9 @@ const environment: CliEnvironment = {
 
 const args = process.argv.slice(2);
 if (shouldRelaunchForDevelopmentProfile(args, process.execArgv)) {
-  process.exitCode = await superviseDevelopmentProcess(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], { stdio: "inherit" });
+  process.exitCode = await superviseDevelopmentProcess(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], {
+    stdio: "inherit",
+  });
 } else {
   process.exitCode = await runCli(args, environment);
 }
