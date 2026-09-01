@@ -579,14 +579,14 @@ function pluginPanelValue(input: unknown): string {
   }
 }
 
-function PluginPanelCard({ panel }: { panel: ClientPluginPanel }) {
+function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; inline?: boolean }) {
   const data = panel.data !== null && typeof panel.data === "object" && !Array.isArray(panel.data) ? (panel.data as Record<string, unknown>) : undefined;
   const entries = data ? Object.entries(data) : [["内容", panel.data] as const];
   const items = data && Array.isArray(data.items) ? data.items : [];
   const pluginEntries = data && Array.isArray(data.entries) ? data.entries : [];
   const capabilities = data && Array.isArray(data.capabilities) ? data.capabilities : [];
   return (
-    <article className="rounded-[14px] border border-[#e3e7ee] bg-white p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]">
+    <div className={inline ? "pt-1" : "rounded-[14px] border border-[#e3e7ee] bg-white p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]"}>
       <header className="flex items-start gap-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#edf3fe] font-mono text-[15px] text-[#4176e6]">
           {panel.icon ?? "◈"}
@@ -674,7 +674,7 @@ function PluginPanelCard({ panel }: { panel: ClientPluginPanel }) {
           ))}
         </div>
       )}
-    </article>
+    </div>
   );
 }
 
@@ -783,8 +783,16 @@ function Plugins({
                         )}
                       </div>
                     </div>
+                    {panel && (
+                      <details className="mt-4 border-t border-[#e3e7ee] pt-3">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] text-[#4176e6]">
+                          <span className="font-semibold">查看详情</span>
+                          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#a0a8b2]">实时面板</span>
+                        </summary>
+                        <PluginPanelCard inline panel={panel} />
+                      </details>
+                    )}
                   </article>
-                  {panel && <PluginPanelCard panel={panel} />}
                 </div>
               );
             })}
