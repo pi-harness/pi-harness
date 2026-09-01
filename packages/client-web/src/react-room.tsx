@@ -245,6 +245,96 @@ function WorkspaceChooser({
   );
 }
 
+function SessionDialog({
+  kind,
+  name,
+  count,
+  value: draft,
+  busy,
+  onChange,
+  onClose,
+  onConfirm,
+}: {
+  kind: "rename" | "delete" | "archive" | "batch-delete";
+  name?: string;
+  count?: number;
+  value: string;
+  busy: boolean;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const destructive = kind === "delete" || kind === "batch-delete";
+  const title = kind === "rename" ? "重命名会话" : kind === "archive" ? "归档会话" : destructive ? "删除会话" : "会话操作";
+  const description =
+    kind === "rename"
+      ? "给这个会话一个容易识别的名称。"
+      : kind === "archive"
+        ? "归档后会从默认列表隐藏，之后仍可在会话工具中恢复。"
+        : `将永久删除${count && count > 1 ? ` ${count} 个会话` : "这个会话"}及其本地记录，此操作不可撤销。`;
+  return (
+    <div className="session-dialog-backdrop" onClick={onClose}>
+      <div aria-label={title} aria-modal="true" className="session-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+        <header className="session-dialog-header">
+          <div>
+            <strong>{title}</strong>
+            <small>{description}</small>
+          </div>
+          <button aria-label="关闭" onClick={onClose} type="button">
+            ×
+          </button>
+        </header>
+        {kind === "rename" && (
+          <label className="session-dialog-field">
+            <span>名称</span>
+            <input autoFocus onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onConfirm()} value={draft} />
+          </label>
+        )}
+        {name && kind !== "rename" && <div className="session-dialog-target">{name}</div>}
+        <footer className="session-dialog-actions">
+          <button onClick={onClose} type="button">
+            取消
+          </button>
+          <button className={destructive ? "danger" : "primary"} disabled={busy || (kind === "rename" && !draft.trim())} onClick={onConfirm} type="button">
+            {busy ? "处理中…" : kind === "rename" ? "保存名称" : kind === "archive" ? "归档" : "永久删除"}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function SessionActionMenu({
+  busy,
+  onRename,
+  onFork,
+  onArchive,
+  onDelete,
+}: {
+  busy: boolean;
+  onRename: () => void;
+  onFork: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="session-row-menu-popover" onClick={(event) => event.stopPropagation()}>
+      <button disabled={busy} onClick={onRename} type="button">
+        重命名
+      </button>
+      <button disabled={busy} onClick={onFork} type="button">
+        复制会话
+      </button>
+      <button disabled={busy} onClick={onArchive} type="button">
+        归档会话
+      </button>
+      <button className="danger" disabled={busy} onClick={onDelete} type="button">
+        删除会话
+      </button>
+    </div>
+  );
+}
+
 function PromptError({ message }: { message: string }) {
   const everyApiAuth = /No API key found for everyapi/i.test(message);
   const requiresAuth = everyApiAuth || /No API key found|authentication|未配置认证/i.test(message);
@@ -1338,6 +1428,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [commandQuery, setCommandQuery] = useState("");
   const [commandIndex, setCommandIndex] = useState(0);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const [sessionMenuPath, setSessionMenuPath] = useState<string>();
+  const [sessionToolsOpen, setSessionToolsOpen] = useState(false);
+  const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
+  const [sessionDialog, setSessionDialog] = useState<"rename" | "delete" | "archive" | "batch-delete">();
+  const [sessionNameDraft, setSessionNameDraft] = useState("");
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string>();
@@ -1562,6 +1657,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (sessionDialog) {
+          setSessionDialog(undefined);
+          return;
+        }
         if (globalSearchOpen) {
           setGlobalSearchOpen(false);
           return;
@@ -1573,6 +1672,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         }
         setCommandOpen(false);
         setSessionMenuOpen(false);
+        setSessionToolsOpen(false);
         setWorkspaceChooserOpen(false);
         setSettings(undefined);
       }
@@ -1588,7 +1688,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commandOpen, globalSearchOpen]);
+  }, [commandOpen, globalSearchOpen, sessionDialog]);
   const events = data.session?.events ?? [];
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
   useEffect(() => {
@@ -1646,6 +1746,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       await refresh();
       setSelectedSessionPaths(new Set());
       setSessionMenuOpen(false);
+      setSessionMenuPath(undefined);
+      setSessionToolsOpen(false);
+      setSessionSelectionMode(false);
+      setSessionDialog(undefined);
     } catch (cause: unknown) {
       setPromptError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1660,6 +1764,16 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       else next.add(path);
       return next;
     });
+  };
+  const openSessionMenu = (path: string, name?: string) => {
+    setSelectedSessionPath(path);
+    setSessionNameDraft(name ?? "");
+    setSessionMenuPath(path);
+    setSessionMenuOpen(true);
+  };
+  const closeSessionMenu = () => {
+    setSessionMenuOpen(false);
+    setSessionMenuPath(undefined);
   };
   const content = settings ? (
     <Settings
@@ -2018,7 +2132,74 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             type="file"
           />
         </div>
-        {selectedSessionPaths.size > 0 && (
+        <div className="session-list-toolbar">
+          <div className="session-list-title">
+            <strong>会话</strong>
+            <span>{sessionTotal || data.sessions.length}</span>
+          </div>
+          <div className="session-list-tools">
+            <button
+              aria-pressed={sessionSelectionMode}
+              className={`session-tool-button ${sessionSelectionMode ? "active" : ""}`}
+              onClick={() => {
+                setSessionSelectionMode((current) => !current);
+                setSelectedSessionPaths(new Set());
+              }}
+              type="button"
+            >
+              {sessionSelectionMode ? "完成" : "选择"}
+            </button>
+            <div className="session-tools-wrap">
+              <button
+                aria-expanded={sessionToolsOpen}
+                aria-label="会话工具"
+                className="session-tool-button icon"
+                onClick={() => setSessionToolsOpen((current) => !current)}
+                type="button"
+              >
+                ⋯
+              </button>
+              {sessionToolsOpen && (
+                <div className="session-tools-popover">
+                  <button onClick={() => window.location.reload()} type="button">
+                    刷新列表
+                  </button>
+                  <button onClick={() => importInputRef.current?.click()} type="button">
+                    导入会话
+                  </button>
+                  <button
+                    disabled={!activeSessionPath || sessionActionBusy}
+                    onClick={() => {
+                      if (!activeSessionPath) return;
+                      void sessionAction(async () => {
+                        const blob = await api.exportSession(activeSessionPath);
+                        const link = document.createElement("a");
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `${data.session?.sessionId ?? "session"}.jsonl`;
+                        link.click();
+                        URL.revokeObjectURL(link.href);
+                      });
+                    }}
+                    type="button"
+                  >
+                    导出当前会话
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIncludeArchivedSessions((current) => !current);
+                      setSessionToolsOpen(false);
+                      void refresh();
+                    }}
+                    type="button"
+                  >
+                    {includeArchivedSessions ? "隐藏归档会话" : "显示归档会话"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        {sessionSelectionMode && selectedSessionPaths.size > 0 && (
           <div className="session-batch-bar">
             <span>{selectedSessionPaths.size} 个已选择</span>
             <button onClick={() => void sessionAction(() => api.batchSessions("archive", [...selectedSessionPaths]).then(() => undefined))} type="button">
@@ -2030,8 +2211,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             <button
               className="danger"
               onClick={() => {
-                if (window.confirm(`永久删除 ${selectedSessionPaths.size} 个会话？`))
-                  void sessionAction(() => api.batchSessions("delete", [...selectedSessionPaths]).then(() => undefined));
+                setSessionDialog("batch-delete");
               }}
               type="button"
             >
@@ -2043,13 +2223,59 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           {showCurrentSession && data.session && (
             <div className="session-group">
               <div className="group-label">当前</div>
-              <button className="session-row active" onClick={() => void refresh()} type="button">
-                <span className="session-dot ok"></span>
-                <span className="session-copy">
-                  <strong>{data.session.messages.length ? data.session.sessionId.slice(0, 12) : "新会话"}</strong>
-                  <small>{data.session.messages.length} 条消息</small>
-                </span>
-              </button>
+              <div className="session-row-wrap current-session-row">
+                {sessionSelectionMode && (
+                  <input
+                    aria-label="选择当前会话"
+                    checked={activeSessionPath ? selectedSessionPaths.has(activeSessionPath) : false}
+                    onChange={() => activeSessionPath && toggleSessionSelection(activeSessionPath)}
+                    type="checkbox"
+                  />
+                )}
+                <button className="session-row active" onClick={() => void refresh()} type="button">
+                  <span className="session-dot ok"></span>
+                  <span className="session-copy">
+                    <strong>{data.session.messages.length ? data.session.sessionId.slice(0, 12) : "新会话"}</strong>
+                    <small>{data.session.messages.length} 条消息</small>
+                  </span>
+                </button>
+                {!sessionSelectionMode && activeSessionPath && (
+                  <button
+                    aria-label="当前会话操作"
+                    className="session-row-more"
+                    onClick={() => openSessionMenu(activeSessionPath, data.session?.messages.length ? data.session?.sessionId.slice(0, 12) : "新会话")}
+                    type="button"
+                  >
+                    ⋯
+                  </button>
+                )}
+                {!sessionSelectionMode && activeSessionPath && sessionMenuPath === activeSessionPath && sessionMenuOpen && (
+                  <SessionActionMenu
+                    busy={sessionActionBusy}
+                    onArchive={() => {
+                      closeSessionMenu();
+                      setSessionDialog("archive");
+                    }}
+                    onDelete={() => {
+                      closeSessionMenu();
+                      setSessionDialog("delete");
+                    }}
+                    onFork={() =>
+                      void sessionAction(async () => {
+                        const result = await api.forkSession(activeSessionPath);
+                        if (result.sessionFile) {
+                          setSelectedSessionPath(result.sessionFile);
+                          await api.openSession(result.sessionFile);
+                        }
+                      })
+                    }
+                    onRename={() => {
+                      closeSessionMenu();
+                      setSessionDialog("rename");
+                    }}
+                  />
+                )}
+              </div>
             </div>
           )}
           {groups.length ? (
@@ -2058,14 +2284,16 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 <div className="group-label">{label}</div>
                 {sessions.map((session, index) => (
                   <div className="session-row-wrap" key={index}>
-                    <input
-                      aria-label={`选择会话 ${value(session.name ?? session.firstMessage, "未命名会话")}`}
-                      checked={typeof session.path === "string" && selectedSessionPaths.has(session.path)}
-                      onChange={() => {
-                        if (typeof session.path === "string") toggleSessionSelection(session.path);
-                      }}
-                      type="checkbox"
-                    />
+                    {sessionSelectionMode && (
+                      <input
+                        aria-label={`选择会话 ${value(session.name ?? session.firstMessage, "未命名会话")}`}
+                        checked={typeof session.path === "string" && selectedSessionPaths.has(session.path)}
+                        onChange={() => {
+                          if (typeof session.path === "string") toggleSessionSelection(session.path);
+                        }}
+                        type="checkbox"
+                      />
+                    )}
                     <button
                       className={`session-row ${session.sessionId === data.session?.sessionId ? "active" : ""}`}
                       onClick={() => openSession(session)}
@@ -2080,6 +2308,45 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                         </small>
                       </span>
                     </button>
+                    {!sessionSelectionMode && typeof session.path === "string" && (
+                      <button
+                        aria-label={`会话操作 ${value(session.name ?? session.firstMessage, "未命名会话")}`}
+                        className="session-row-more"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openSessionMenu(session.path as string, value(session.name ?? session.firstMessage, ""));
+                        }}
+                        type="button"
+                      >
+                        ⋯
+                      </button>
+                    )}
+                    {!sessionSelectionMode && typeof session.path === "string" && sessionMenuPath === session.path && sessionMenuOpen && (
+                      <SessionActionMenu
+                        busy={sessionActionBusy}
+                        onArchive={() => {
+                          closeSessionMenu();
+                          setSessionDialog("archive");
+                        }}
+                        onDelete={() => {
+                          closeSessionMenu();
+                          setSessionDialog("delete");
+                        }}
+                        onFork={() =>
+                          void sessionAction(async () => {
+                            const result = await api.forkSession(session.path as string);
+                            if (result.sessionFile) {
+                              setSelectedSessionPath(result.sessionFile);
+                              await api.openSession(result.sessionFile);
+                            }
+                          })
+                        }
+                        onRename={() => {
+                          closeSessionMenu();
+                          setSessionDialog("rename");
+                        }}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -2175,7 +2442,15 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           {!settings && page === "session" && <span aria-hidden="true" className="header-divider"></span>}
           {!settings && page === "session" && (
             <>
-              <button className="session-menu" onClick={() => setSessionMenuOpen((current) => !current)} type="button" aria-label="会话操作">
+              <button
+                className="session-menu"
+                onClick={() => {
+                  setSessionMenuPath(undefined);
+                  setSessionMenuOpen((current) => !current);
+                }}
+                type="button"
+                aria-label="会话操作"
+              >
                 ⋯
               </button>
               <button aria-pressed={details !== undefined} className="details-toggle" onClick={() => setDetails(details ? undefined : {})} type="button">
@@ -2183,164 +2458,61 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               </button>
             </>
           )}
-          {!settings && page === "session" && sessionMenuOpen && (
-            <div className="session-menu-popover">
+          {!settings && page === "session" && sessionMenuOpen && !sessionMenuPath && (
+            <div className="session-menu-popover compact-session-menu">
               <button
                 className="session-action"
+                disabled={!activeSessionPath || sessionActionBusy}
                 onClick={() => {
+                  setSessionNameDraft(data.session?.sessionId?.slice(0, 12) ?? "");
+                  setSessionDialog("rename");
                   setSessionMenuOpen(false);
-                  beginNewSession();
                 }}
                 type="button"
               >
-                <strong>新建会话</strong>
-                <small>清空并开始新的运行时会话</small>
-              </button>
-              <button className="session-action" onClick={() => window.location.reload()} type="button">
-                <strong>刷新会话</strong>
-                <small>重新读取运行时状态</small>
+                <strong>重命名</strong>
+                <small>设置一个容易识别的名称</small>
               </button>
               <button
                 className="session-action"
                 disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  const name = window.prompt("会话名称", "");
-                  if (name === null || !activeSessionPath) return;
+                onClick={() =>
                   void sessionAction(async () => {
-                    await api.renameSession(activeSessionPath, name);
-                  });
-                }}
-                type="button"
-              >
-                <strong>重命名会话</strong>
-                <small>保存一个易识别的会话名称</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  if (!activeSessionPath) return;
-                  void sessionAction(async () => {
-                    await api.setSessionMetadata(activeSessionPath, { pinned: true });
-                  });
-                }}
-                type="button"
-              >
-                <strong>置顶会话</strong>
-                <small>将当前会话固定在列表顶部</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  if (!activeSessionPath) return;
-                  void sessionAction(async () => {
-                    await api.setSessionMetadata(activeSessionPath, { pinned: false });
-                  });
-                }}
-                type="button"
-              >
-                <strong>取消置顶</strong>
-                <small>从固定列表中移除当前会话</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  if (!activeSessionPath) return;
-                  void sessionAction(async () => {
-                    const result = await api.forkSession(activeSessionPath);
-                    if (result.sessionFile) setSelectedSessionPath(result.sessionFile);
-                    if (result.sessionFile) await api.openSession(result.sessionFile);
-                  });
-                }}
+                    const result = await api.forkSession(activeSessionPath as string);
+                    if (result.sessionFile) {
+                      setSelectedSessionPath(result.sessionFile);
+                      await api.openSession(result.sessionFile);
+                    }
+                  })
+                }
                 type="button"
               >
                 <strong>复制会话</strong>
-                <small>复制完整上下文并打开副本</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={sessionActionBusy}
-                onClick={() => {
-                  importInputRef.current?.click();
-                }}
-                type="button"
-              >
-                <strong>导入会话</strong>
-                <small>从本机 JSONL 文件导入并打开</small>
+                <small>复制上下文并打开副本</small>
               </button>
               <button
                 className="session-action"
                 disabled={!activeSessionPath || sessionActionBusy}
                 onClick={() => {
-                  if (!activeSessionPath) return;
-                  void sessionAction(async () => {
-                    const blob = await api.exportSession(activeSessionPath);
-                    const link = document.createElement("a");
-                    link.href = URL.createObjectURL(blob);
-                    link.download = `${data.session?.sessionId ?? "session"}.jsonl`;
-                    link.click();
-                    URL.revokeObjectURL(link.href);
-                  });
-                }}
-                type="button"
-              >
-                <strong>导出会话</strong>
-                <small>下载当前会话 JSONL</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  if (!activeSessionPath || !window.confirm("归档当前会话？归档后会从默认列表隐藏。")) return;
-                  void sessionAction(async () => {
-                    await api.setSessionMetadata(activeSessionPath, { archived: true });
-                  });
+                  setSessionMenuOpen(false);
+                  setSessionDialog("archive");
                 }}
                 type="button"
               >
                 <strong>归档会话</strong>
-                <small>从默认列表隐藏，可通过恢复入口找回</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  if (!activeSessionPath) return;
-                  void sessionAction(async () => {
-                    await api.setSessionMetadata(activeSessionPath, { archived: false });
-                  });
-                }}
-                type="button"
-              >
-                <strong>恢复会话</strong>
-                <small>取消归档并显示在默认列表</small>
-              </button>
-              <button
-                className="session-action"
-                onClick={() => {
-                  setIncludeArchivedSessions((current) => !current);
-                  void refresh();
-                }}
-                type="button"
-              >
-                <strong>{includeArchivedSessions ? "隐藏归档会话" : "显示归档会话"}</strong>
-                <small>{includeArchivedSessions ? "恢复默认会话列表" : "在列表中显示已归档会话"}</small>
+                <small>从默认列表隐藏</small>
               </button>
               <button
                 className="session-action danger"
                 disabled={!activeSessionPath || sessionActionBusy}
                 onClick={() => {
-                  if (!activeSessionPath || !window.confirm("删除当前会话文件？此操作不可恢复。")) return;
-                  void sessionAction(async () => {
-                    await api.deleteSession(activeSessionPath);
-                  });
+                  setSessionMenuOpen(false);
+                  setSessionDialog("delete");
                 }}
                 type="button"
               >
                 <strong>删除会话</strong>
-                <small>永久删除 JSONL 文件（活动会话会先安全切换）</small>
+                <small>永久删除本地记录</small>
               </button>
             </div>
           )}
@@ -2367,6 +2539,32 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           onOpenSession={openSession}
           onUse={setDraft}
           sessions={data.sessions}
+        />
+      )}
+      {sessionDialog && (
+        <SessionDialog
+          busy={sessionActionBusy}
+          count={sessionDialog === "batch-delete" ? selectedSessionPaths.size : undefined}
+          kind={sessionDialog}
+          name={sessionDialog === "rename" ? undefined : value(data.session?.sessionId, "当前会话")}
+          onChange={setSessionNameDraft}
+          onClose={() => setSessionDialog(undefined)}
+          onConfirm={() => {
+            if (sessionDialog === "rename" && activeSessionPath) {
+              void sessionAction(() => api.renameSession(activeSessionPath, sessionNameDraft.trim()).then(() => undefined));
+            } else if (sessionDialog === "archive" && activeSessionPath) {
+              void sessionAction(async () => {
+                await api.setSessionMetadata(activeSessionPath, { archived: true });
+              });
+            } else if (sessionDialog === "delete" && activeSessionPath) {
+              void sessionAction(async () => {
+                await api.deleteSession(activeSessionPath);
+              });
+            } else if (sessionDialog === "batch-delete") {
+              void sessionAction(() => api.batchSessions("delete", [...selectedSessionPaths]).then(() => undefined));
+            }
+          }}
+          value={sessionNameDraft}
         />
       )}
     </div>

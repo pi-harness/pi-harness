@@ -153,7 +153,124 @@ button:disabled {
   @apply [display:flex] [align-items:center] [gap:4px];
 }
 .session-row-wrap > input {
-  @apply [margin:0_0_0_6px];
+  @apply [margin:0_0_0_6px] [accent-color:var(--color-blue)];
+}
+.session-list-toolbar {
+  @apply [display:flex] [align-items:center] [justify-content:space-between] [padding:2px_14px_6px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.06)];
+}
+.session-list-title {
+  @apply [display:flex] [align-items:baseline] [gap:6px];
+}
+.session-list-title strong {
+  @apply [font-size:12px] [font-weight:600];
+}
+.session-list-title span {
+  @apply [color:var(--color-faint)] [font:10px_var(--font-mono)];
+}
+.session-list-tools {
+  @apply [display:flex] [align-items:center] [gap:3px];
+}
+.session-tool-button {
+  @apply [height:25px] [padding:0_7px] [border-radius:6px] [color:var(--color-muted)] [font-size:11px];
+}
+.session-tool-button:hover,
+.session-tool-button.active {
+  @apply [background:#e9eef8] [color:var(--color-blue)];
+}
+.session-tool-button.icon {
+  @apply [width:26px] [padding:0] [font-size:15px];
+}
+.session-tools-wrap {
+  @apply [position:relative];
+}
+.session-tools-popover {
+  @apply [position:absolute] [top:30px] [right:0] [z-index:40] [display:flex] [width:150px] [flex-direction:column] [padding:4px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:9px] [background:#fff] [box-shadow:0_12px_30px_rgba(15,_23,_42,_0.16)];
+}
+.session-tools-popover button {
+  @apply [padding:7px_8px] [border-radius:6px] [text-align:left] [font-size:11px];
+}
+.session-tools-popover button:hover {
+  @apply [background:var(--color-soft)];
+}
+.session-row-wrap {
+  @apply [position:relative];
+}
+.session-row-more {
+  @apply [position:absolute] [right:6px] [display:none] [width:24px] [height:24px] [border-radius:6px] [background:#fff] [color:var(--color-muted)] [font-size:14px];
+}
+.session-row-wrap:hover .session-row-more,
+.session-row-more:focus-visible {
+  @apply [display:block];
+}
+.session-row-more:hover {
+  @apply [background:#e9eef8] [color:var(--color-blue)];
+}
+.session-row-menu-popover {
+  @apply [position:absolute] [top:calc(100%_-_2px)] [right:6px] [z-index:45] [display:flex] [width:142px] [flex-direction:column] [padding:4px] [border:1px_solid_rgba(15,_23,_42,_0.14)] [border-radius:8px] [background:#fff] [box-shadow:0_10px_24px_rgba(15,_23,_42,_0.18)];
+}
+.session-row-menu-popover button {
+  @apply [padding:6px_8px] [border-radius:5px] [text-align:left] [font-size:11px];
+}
+.session-row-menu-popover button:hover {
+  @apply [background:var(--color-soft)];
+}
+.session-row-menu-popover button.danger {
+  @apply [color:var(--color-red)];
+}
+.current-session-row .session-row-more {
+  @apply [right:4px];
+}
+.compact-session-menu {
+  @apply [width:190px];
+}
+.session-dialog-backdrop {
+  @apply [position:fixed] [inset:0] [z-index:80] [display:grid] [place-items:center] [padding:20px] [background:rgba(15,_23,_42,_0.28)] [backdrop-filter:blur(3px)];
+}
+.session-dialog {
+  @apply [width:100%] [max-width:380px] [border:1px_solid_rgba(15,_23,_42,_0.14)] [border-radius:12px] [background:#fff] [box-shadow:0_24px_70px_rgba(15,_23,_42,_0.22)];
+}
+.session-dialog-header {
+  @apply [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:18px] [padding:16px_17px_10px];
+}
+.session-dialog-header strong,
+.session-dialog-header small {
+  @apply [display:block];
+}
+.session-dialog-header strong {
+  @apply [font-size:14px];
+}
+.session-dialog-header small {
+  @apply [margin-top:4px] [color:var(--color-muted)] [font-size:11px] [line-height:1.45];
+}
+.session-dialog-header button {
+  @apply [width:24px] [height:24px] [border-radius:6px] [color:var(--color-muted)] [font-size:17px];
+}
+.session-dialog-header button:hover {
+  @apply [background:var(--color-soft)];
+}
+.session-dialog-field {
+  @apply [display:flex] [flex-direction:column] [gap:5px] [padding:5px_17px_15px] [font-size:11px] [font-weight:600];
+}
+.session-dialog-field input {
+  @apply [height:34px] [border:1px_solid_var(--color-line)] [border-radius:7px] [padding:0_9px] [outline:none] [font-size:12px] [font-weight:400];
+}
+.session-dialog-field input:focus {
+  @apply [border-color:var(--color-blue)] [box-shadow:0_0_0_3px_rgba(65,_118,_230,_0.12)];
+}
+.session-dialog-target {
+  @apply [margin:5px_17px_15px] [overflow:hidden] [border-radius:7px] [background:var(--color-soft)] [padding:9px] [color:var(--color-muted)] [font:11px_var(--font-mono)] [text-overflow:ellipsis] [white-space:nowrap];
+}
+.session-dialog-actions {
+  @apply [display:flex] [justify-content:flex-end] [gap:7px] [padding:11px_17px_15px] [border-top:1px_solid_rgba(0,_0,_0,_0.06)];
+}
+.session-dialog-actions button {
+  @apply [height:30px] [padding:0_11px] [border:1px_solid_var(--color-line)] [border-radius:7px] [font-size:11px];
+}
+.session-dialog-actions button.primary {
+  @apply [border-color:var(--color-ink)] [background:var(--color-ink)] [color:#fff];
+}
+.session-dialog-actions button.danger {
+  @apply [border-color:rgba(185,_28,_28,_0.2)] [background:#fff5f5] [color:var(--color-red)];
 }
 .session-batch-bar,
 .session-pagination {
