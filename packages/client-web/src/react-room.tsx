@@ -65,6 +65,12 @@ const capability = (name: string): string =>
           : name.includes("web") || name.includes("gateway")
             ? "界面"
             : "运行时";
+const displayPluginName = (name: string): string => {
+  const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
+  if (packageMatch) return `官方 · ${packageMatch[1]}`;
+  if (name.toLowerCase().includes("cordis")) return name.replace(/cordis/gi, "runtime");
+  return name;
+};
 const readQueryState = (): {
   page: Page;
   view: View;
@@ -594,7 +600,7 @@ function Plugins({ plugins, onMarketplace, onToml }: { plugins: readonly ClientP
                   <span className="plugin-icon">◈</span>
                   <div className="plugin-copy">
                     <div className="plugin-title">
-                      <code>{plugin.name}</code>
+                      <code>{displayPluginName(plugin.name)}</code>
                       <small>{plugin.state}</small>
                       <span className="capability">{capability(plugin.name)}</span>
                     </div>
@@ -754,7 +760,7 @@ function Marketplace({
                       </span>
                     </div>
                     <code className="marketplace-package">
-                      {plugin.packageName}@{plugin.version}
+                      {displayPluginName(plugin.packageName)} · v{plugin.version}
                     </code>
                     <p className="marketplace-description">{plugin.description}</p>
                     <div className="marketplace-tags">
