@@ -584,6 +584,7 @@ function Plugins({
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const marketplaceNames = useMemo(() => new Map(marketplace.map((plugin) => [plugin.packageName, plugin.name])), [marketplace]);
+  const installedPlugins = useMemo(() => plugins.filter((plugin) => plugin.removable), [plugins]);
   const [busyPlugin, setBusyPlugin] = useState<string>();
   const [pluginError, setPluginError] = useState("");
   const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>) => {
@@ -609,7 +610,7 @@ function Plugins({
               插件市场
             </button>
           </div>
-          <span>运行时插件清单</span>
+          <span>已安装插件</span>
           <a
             href="#"
             onClick={(event) => {
@@ -622,7 +623,7 @@ function Plugins({
         </div>
         <div className="plugins-scroll">
           <div className="plugins-list">
-            {plugins.map((plugin) => (
+            {installedPlugins.map((plugin) => (
               <article className="plugin-card" key={plugin.id}>
                 <div className="plugin-card-head">
                   <span className="plugin-icon">◈</span>
@@ -668,6 +669,7 @@ function Plugins({
                 </div>
               </article>
             ))}
+            {!installedPlugins.length && <div className="empty-state">还没有安装可管理的插件。去插件市场安装一个吧。</div>}
           </div>
           {pluginError && <p className="plugin-action-error">{pluginError}</p>}
         </div>
@@ -1817,7 +1819,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           .slice(0, 12);
   }, [data.commands, data.files, promptCompletion]);
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
-  const installedPackages = useMemo(() => new Set(data.plugins.map((plugin) => plugin.name)), [data.plugins]);
+  const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
+  const installedPluginCount = useMemo(() => data.plugins.filter((plugin) => plugin.removable).length, [data.plugins]);
   useEffect(() => {
     setPromptCompletionIndex(0);
   }, [promptCompletion?.kind, promptCompletion?.query]);
@@ -2744,7 +2747,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             type="button"
           >
             ◈ <span>插件</span>
-            <b>{data.plugins.length}</b>
+            <b>{installedPluginCount}</b>
           </button>
           <button className={`sidebar-link ${settings ? "active" : ""}`} onClick={() => setSettings("general")} type="button">
             ⚙ <span>设置</span>
@@ -2769,7 +2772,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               {settings
                 ? "运行时状态与配置"
                 : page === "plugins"
-                  ? "运行时插件清单"
+                  ? "已安装插件"
                   : page === "marketplace"
                     ? "社区目录 · 可审查插件"
                     : sessionSource(data.status, data.session)}
