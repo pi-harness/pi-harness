@@ -689,6 +689,8 @@ function Marketplace({
   onCapabilityChange,
   onPageChange,
   onBack,
+  onExtensions,
+  onToml,
 }: {
   plugins: readonly ClientMarketplacePlugin[];
   capabilities: readonly string[];
@@ -701,6 +703,8 @@ function Marketplace({
   onCapabilityChange: (value: string) => void;
   onPageChange: (value: number) => void;
   onBack: () => void;
+  onExtensions: () => void;
+  onToml: () => void;
 }) {
   const [copied, setCopied] = useState<string>();
   const [copyError, setCopyError] = useState("");
@@ -723,6 +727,29 @@ function Marketplace({
   return (
     <section className="marketplace-page flex min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col">
+        <div className="subnav">
+          <div className="segmented">
+            <button onClick={onBack} type="button">
+              已安装
+            </button>
+            <button onClick={onExtensions} type="button">
+              扩展点
+            </button>
+            <button className="active" type="button">
+              插件市场
+            </button>
+          </div>
+          <span>社区插件目录</span>
+          <a
+            href="#"
+            onClick={(event) => {
+              event.preventDefault();
+              onToml();
+            }}
+          >
+            在 pi.toml 里看运行配置
+          </a>
+        </div>
         <div className="marketplace-hero">
           <div>
             <small>COMMUNITY MARKETPLACE</small>
@@ -2125,6 +2152,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
       onPageChange={setMarketplacePage}
       onBack={() => setPage("plugins")}
+      onExtensions={() => {
+        setPluginTab("extensions");
+        setPage("plugins");
+      }}
+      onToml={() => setSettings("toml")}
     />
   ) : view === "chat" ? (
     <section className="view-panel chat-view">
