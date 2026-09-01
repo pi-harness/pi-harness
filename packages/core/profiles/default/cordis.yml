@@ -26,6 +26,21 @@
           - bash
           - edit
           - write
+    - id: agent-teams
+      name: "@pi-harness/core/plugins/agent-teams"
+      config: {}
+    - id: modlens
+      name: "@pi-harness/core/plugins/modlens"
+      config: {}
+    - id: git-time-capsule
+      name: "@pi-harness/core/plugins/git-time-capsule"
+      config: {}
+    - id: dependency-checker
+      name: "@pi-harness/core/plugins/dependency-checker"
+      config: {}
+    - id: at-file
+      name: "@pi-harness/core/plugins/at-file"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
@@ -33,12 +48,10 @@
     - id: context
       name: "@pi-harness/core/plugins/context"
       config: {}
-    - id: agent-teams
-      name: "@pi-harness/core/plugins/agent-teams"
-      config: {}
-    - id: modlens
-      name: "@pi-harness/core/plugins/modlens"
-      config: {}
+    - id: token-guard
+      name: "@pi-harness/core/plugins/token-guard"
+      config:
+        maxPercent: 90
     - id: stdio
       name: "@pi-harness/core/plugins/stdio"
       config: {}

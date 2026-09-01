@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -14,8 +16,13 @@ import toolsPlugin from "../src/plugins/tools.js";
 import contextPlugin from "../src/plugins/context.js";
 import agentTeamsPlugin from "../src/plugins/agent-teams.js";
 import modlensPlugin from "../src/plugins/modlens.js";
+import tokenGuardPlugin from "../src/plugins/token-guard.js";
+import gitTimeCapsulePlugin from "../src/plugins/git-time-capsule.js";
+import dependencyCheckerPlugin from "../src/plugins/dependency-checker.js";
+import atFilePlugin from "../src/plugins/at-file.js";
 
 const contexts: Context[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
@@ -214,5 +221,82 @@ describe("Pi domain plugins", () => {
     });
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "modlens-panel", data: { attached: true, image: { path: "screen.png", bytes: 8 } } }]);
     await expect(tool.execute("call-2", { path: "../outside.png" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
+  });
+
+  test("stops a streaming run when the configured token budget is exceeded", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const panels = new PiPluginUiRegistry();
+    let aborts = 0;
+    context.provide("piRuntime", {
+      session: { isStreaming: true, getContextUsage: () => ({ tokens: 7200, contextWindow: 8000, percent: 90 }) },
+      abort: async () => {
+        aborts += 1;
+      },
+    } as never);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(tokenGuardPlugin, { maxPercent: 80 });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "token-guard-panel", data: { maxPercent: 80, exceeded: true, percent: 90, aborts: 1 } }]);
+    expect(aborts).toBe(1);
+  });
+
+  test("writes a Git time capsule outside the workspace", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await execFileAsync("git", ["init", "-q"], { cwd });
+    await writeFile(join(cwd, "tracked.txt"), "before\n", "utf8");
+    await execFileAsync("git", ["add", "tracked.txt"], { cwd });
+    await execFileAsync("git", ["-c", "user.name=Pi", "-c", "user.email=pi@example.invalid", "commit", "-qm", "initial"], { cwd });
+    await writeFile(join(cwd, "tracked.txt"), "after\n", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(gitTimeCapsulePlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      content: [{ text: expect.stringMatching(/^Git snapshot saved:/) }],
+    });
+    const snapshot = await panels.snapshot();
+    expect(snapshot[0]).toMatchObject({
+      id: "git-time-capsule-panel",
+      data: { latest: { files: 1, bytes: expect.any(Number) }, capsules: [{ bytes: expect.any(Number) }] },
+    });
+    expect(String((snapshot[0] as { data?: { latest?: { name?: string } } }).data?.latest?.name)).toMatch(/\.patch$/);
+  });
+
+  test("reports missing local dependencies without contacting a registry", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies: { "present-package": "1.0.0", "missing-package": "1.0.0" } }), "utf8");
+    await mkdir(join(cwd, "node_modules", "present-package"), { recursive: true });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(dependencyCheckerPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { declared: 2, installed: 1, missing: ["missing-package"] },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "dependency-checker-panel", data: { report: { missing: ["missing-package"] } } }]);
+  });
+
+  test("attaches a bounded workspace file for @file context", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await writeFile(join(cwd, "notes.md"), "# Notes\ncontent", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(atFilePlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("call-1", { path: "notes.md" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      content: [{ text: '<file path="notes.md">\n# Notes\ncontent\n</file>' }],
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "at-file-panel", data: { lastFile: { path: "notes.md", bytes: 15 } } }]);
+    await expect(tool.execute("call-2", { path: "../notes.md" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
   });
 });

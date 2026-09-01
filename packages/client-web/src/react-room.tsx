@@ -55,29 +55,33 @@ const sessionSource = (status: ClientStatus | undefined, session: ClientSession 
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
 const eventLabel = (event: Record<string, unknown>): string =>
   value(event.summary ?? event.message ?? event.toolName ?? event.type ?? event.event, "未命名事件");
-const capability = (name: string): string =>
-  name.includes("context")
-    ? "上下文"
-    : name.includes("agent-teams")
-      ? "协作"
-      : name.includes("modlens")
-        ? "视觉"
-        : name.includes("model")
-          ? "模型"
-          : name.includes("tool")
-            ? "工具"
-            : name.includes("session")
-              ? "会话"
-              : name.includes("resource")
-                ? "资源"
-                : name.includes("web") || name.includes("gateway")
-                  ? "界面"
-                  : "运行时";
+const capability = (name: string): string => {
+  const entries: readonly [string, string][] = [
+    ["context", "上下文"],
+    ["agent-teams", "协作"],
+    ["modlens", "视觉"],
+    ["token-guard", "预算"],
+    ["git-time-capsule", "版本控制"],
+    ["dependency-checker", "工程诊断"],
+    ["at-file", "文件上下文"],
+    ["model", "模型"],
+    ["tool", "工具"],
+    ["session", "会话"],
+    ["resource", "资源"],
+    ["web", "界面"],
+    ["gateway", "界面"],
+  ];
+  return entries.find(([needle]) => name.includes(needle))?.[1] ?? "运行时";
+};
 const displayPluginName = (name: string): string => {
   const officialName = new Map([
     ["@pi-harness/core/plugins/context", "Context insights"],
     ["@pi-harness/core/plugins/agent-teams", "Agent Teams"],
     ["@pi-harness/core/plugins/modlens", "ModLens vision bridge"],
+    ["@pi-harness/core/plugins/token-guard", "Token Guard"],
+    ["@pi-harness/core/plugins/git-time-capsule", "Git Time Capsule"],
+    ["@pi-harness/core/plugins/dependency-checker", "Dependency Checker"],
+    ["@pi-harness/core/plugins/at-file", "@file context"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -756,6 +760,95 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 {String(capability)}
               </span>
             ))}
+          </div>
+        </div>
+      ) : panel.id === "at-file-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">最近附加</span>
+              <span className="font-mono text-[10px] text-[#8a949f]">file_context</span>
+            </div>
+            {data?.lastFile !== null && data?.lastFile !== undefined && typeof data.lastFile === "object" ? (
+              <p className="mt-2 truncate text-[11px] text-[#65707b]">
+                {String((data.lastFile as Record<string, unknown>).path ?? "文件")} · {String((data.lastFile as Record<string, unknown>).bytes ?? 0)} bytes
+              </p>
+            ) : (
+              <p className="mt-2 text-[11px] text-[#8a949f]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
+            <span>单文件上限</span>
+            <strong className="font-mono text-[#4176e6]">{String(data?.maxBytes ?? 0)} bytes</strong>
+          </div>
+        </div>
+      ) : panel.id === "git-time-capsule-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">最近快照</span>
+              <span className="font-mono text-[10px] text-[#8a949f]">git_snapshot</span>
+            </div>
+            {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+              <p className="mt-2 truncate text-[11px] text-[#65707b]">
+                {String((data.latest as Record<string, unknown>).name ?? "snapshot")} · {String((data.latest as Record<string, unknown>).files ?? 0)} 个文件
+              </p>
+            ) : (
+              <p className="mt-2 text-[11px] text-[#8a949f]">还没有快照。修改代码前让 Agent 调用 git_snapshot。</p>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
+            <span>保留快照</span>
+            <strong className="font-mono text-[#4176e6]">{String(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
+          </div>
+        </div>
+      ) : panel.id === "dependency-checker-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {(() => {
+            const report = data?.report !== null && typeof data?.report === "object" ? (data.report as Record<string, unknown>) : {};
+            const missing = Array.isArray(report.missing) ? report.missing : [];
+            const invalid = Array.isArray(report.invalid) ? report.invalid : [];
+            return (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ["声明", report.declared ?? 0],
+                    ["已安装", report.installed ?? 0],
+                    ["缺失", missing.length + invalid.length],
+                  ].map(([label, item]) => (
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
+                      <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
+                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(item)}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                >
+                  {missing.length || invalid.length ? `缺失或无效：${[...missing, ...invalid].map(String).join(", ")}` : "依赖声明与本地安装一致。"}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      ) : panel.id === "token-guard-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className={`rounded-lg border px-3 py-3 ${data?.exceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
+              <strong className="font-mono text-[12px] text-[#315fb8]">
+                {String(data?.percent ?? "—")}% / {String(data?.maxPercent ?? "—")}%
+              </strong>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+              <div
+                className={`h-full rounded-full ${data?.exceeded === true ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
+                style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
+              />
+            </div>
+            <p className="mt-2 text-[11px] text-[#71809a]">
+              {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${String(data?.aborts ?? 0)}`}
+            </p>
           </div>
         </div>
       ) : panel.id === "context-insight-panel" ? (
