@@ -28,6 +28,7 @@ import cleanerPlugin from "../src/plugins/cleaner.js";
 import i18nPairPlugin from "../src/plugins/i18n-pair.js";
 import sqlLensPlugin from "../src/plugins/sql-lens.js";
 import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
+import mcpClientPlugin from "../src/plugins/mcp-client.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 
 const contexts: Context[] = [];
@@ -442,5 +443,34 @@ describe("Pi domain plugins", () => {
     await expect(tool.execute("call-1", { command: ["echo", "ok"], write: true }, undefined, undefined, {} as never)).rejects.toThrow(/confirmWrite=true/);
     await expect(tool.execute("call-2", { command: ["sh", "-c", "echo ok"] }, undefined, undefined, {} as never)).rejects.toThrow(/Shell wrappers/);
     await expect(tool.execute("call-3", { command: ["/bin/sh", "-c", "echo ok"] }, undefined, undefined, {} as never)).rejects.toThrow(/Shell wrappers/);
+  });
+
+  test("discovers and calls tools through an MCP stdio server", async () => {
+    const { context, cwd } = await createContext();
+    const server = join(cwd, "mcp-fixture.mjs");
+    await writeFile(
+      server,
+      `let buffer = Buffer.alloc(0); const handle = (message) => { let result = {}; if (message.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fixture", version: "1" } }; if (message.method === "tools/list") result = { tools: [{ name: "echo", description: "Echo text", inputSchema: { type: "object" } }] }; if (message.method === "tools/call") result = { content: [{ type: "text", text: String(message.params.arguments?.text ?? "") }], isError: false }; process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); }; process.stdin.on("data", (chunk) => { buffer = Buffer.concat([buffer, chunk]); while (true) { const end = buffer.indexOf("\\r\\n\\r\\n"); if (end < 0) break; const match = buffer.subarray(0, end).toString().match(/Content-Length: (\\d+)/i); if (!match) break; const length = Number(match[1]); if (buffer.length < end + 4 + length) break; const body = buffer.subarray(end + 4, end + 4 + length); buffer = buffer.subarray(end + 4 + length); handle(JSON.parse(body)); } });`,
+      "utf8",
+    );
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(mcpClientPlugin);
+    const registered = tools.snapshot().customTools;
+    const listTools = registered.find((tool) => tool.name === "mcp_list_tools");
+    const callTool = registered.find((tool) => tool.name === "mcp_call");
+    expect(listTools).toBeDefined();
+    expect(callTool).toBeDefined();
+    await expect(listTools!.execute("call-1", { command: [process.execPath, server] }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { tools: [{ name: "echo" }] },
+    });
+    await expect(
+      callTool!.execute("call-2", { command: [process.execPath, server], name: "echo", arguments: { text: "hello" } }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ content: [{ type: "text", text: "hello" }] });
+    await expect(listTools!.execute("call-3", { command: ["/bin/sh", "-c", "echo bad"] }, undefined, undefined, {} as never)).rejects.toThrow(
+      /shell wrapper/iu,
+    );
   });
 });

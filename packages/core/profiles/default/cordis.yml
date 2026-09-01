@@ -62,6 +62,9 @@
     - id: docker-sandbox
       name: "@pi-harness/core/plugins/docker-sandbox"
       config: {}
+    - id: mcp-client
+      name: "@pi-harness/core/plugins/mcp-client"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

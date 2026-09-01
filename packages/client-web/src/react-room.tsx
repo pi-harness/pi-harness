@@ -71,6 +71,7 @@ const capability = (name: string): string => {
     ["cleaner", "清理"],
     ["sql-lens", "数据库"],
     ["docker-sandbox", "沙箱"],
+    ["mcp-client", "工具协议"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -97,6 +98,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/cleaner", "Harness Cleaner"],
     ["@pi-harness/core/plugins/sql-lens", "SQL Lens"],
     ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox"],
+    ["@pi-harness/core/plugins/mcp-client", "MCP Client"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -994,6 +996,33 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 ))
               : null}
           </div>
+        </div>
+      ) : panel.id === "mcp-client-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate font-mono text-[11px] text-[#30343b]">{String(data?.server ?? "尚未连接 MCP 服务器")}</span>
+              <strong className="font-mono text-[12px] text-[#4176e6]">{String(Array.isArray(data?.tools) ? data.tools.length : 0)} tools</strong>
+            </div>
+            <p className="mt-2 text-[11px] text-[#8a949f]">
+              {data?.lastCall === null || data?.lastCall === undefined ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${String(data.lastCall)}`}
+            </p>
+          </div>
+          {Array.isArray(data?.tools) && data.tools.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {data.tools.slice(0, 12).map((tool, index) => {
+                const item = typeof tool === "object" && tool !== null ? (tool as Record<string, unknown>) : {};
+                return (
+                  <span
+                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                    key={`${String(item.name ?? "tool")}-${index}`}
+                  >
+                    {String(item.name ?? "tool")}
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : panel.id === "i18n-pair-panel" ? (
         <div className="mt-3 grid gap-3">
