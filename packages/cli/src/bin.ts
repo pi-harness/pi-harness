@@ -2,16 +2,19 @@
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli, type CliEnvironment } from "./main.js";
 import { shouldRelaunchForDevelopmentProfile, superviseDevelopmentProcess } from "./relaunch.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
+const configuredAgentDir = process.env.PI_AGENT_DIR?.trim();
+const agentDir = configuredAgentDir === undefined || configuredAgentDir.length === 0 ? join(homedir(), ".pi", "agent") : resolve(configuredAgentDir);
+
 const environment: CliEnvironment = {
   cwd: process.cwd(),
-  agentDir: process.env.PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
+  agentDir,
   version: packageJson.version,
   stdin: process.stdin,
   stdout: process.stdout,

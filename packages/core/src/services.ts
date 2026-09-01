@@ -1,3 +1,5 @@
+import { isAbsolute } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
 import type { AgentSession, AgentSessionEvent, AgentSessionServices, ExtensionError, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -5,6 +7,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export interface PiHarnessLaunch {
   readonly cwd: string;
+  readonly cwdUrl?: string;
   readonly agentDir: string;
   readonly args: readonly string[];
   requestExit(code: number): void;
@@ -97,6 +100,8 @@ declare module "@deepseek-ai/cordis" {
 }
 
 export function provideLaunchContext(context: Context, launch: PiHarnessLaunch): () => void {
-  const value: PiHarnessLaunch = Object.freeze({ ...launch, args: Object.freeze([...launch.args]) });
+  if (!isAbsolute(launch.cwd)) throw new Error(`Pi Harness launch cwd must be an absolute path: ${launch.cwd}`);
+  if (!isAbsolute(launch.agentDir)) throw new Error(`Pi Harness agent directory must be an absolute path: ${launch.agentDir}`);
+  const value: PiHarnessLaunch = Object.freeze({ ...launch, cwdUrl: pathToFileURL(launch.cwd).href, args: Object.freeze([...launch.args]) });
   return context.provide("piHarnessLaunch", value);
 }
