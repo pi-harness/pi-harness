@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { basename } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
+import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 
@@ -16,6 +17,20 @@ type ManagedServer = {
   queue: Promise<void>;
   startedAt: number;
 };
+
+export interface McpServerDefinition {
+  id: string;
+  command: string[];
+  autoStart?: boolean;
+}
+
+export interface McpClientConfig {
+  servers?: McpServerDefinition[];
+}
+
+export const Config: z<McpClientConfig> = z.object({
+  servers: z.array(z.object({ id: z.string(), command: z.array(z.string()), autoStart: z.boolean().default(false) })).default([]),
+});
 
 const shellCommands = new Set(["sh", "bash", "zsh", "fish", "cmd", "powershell", "pwsh"]);
 const maxCommandArgs = 32;
@@ -142,12 +157,22 @@ async function withServer<T>(command: string[], cwd: string, callback: (child: C
 export default {
   name: "pi-mcp-client",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
-  apply(context: Context) {
+  Config,
+  async apply(context: Context, config: McpClientConfig) {
     let latest: { server: string; tools: McpTool[]; lastCall?: string } | undefined;
     const servers = new Map<string, ManagedServer>();
+    const configured = new Map<string, McpServerDefinition>();
+    for (const definition of config.servers ?? []) {
+      if (definition.id.trim() === "") throw new Error("Configured MCP server id cannot be empty");
+      if (configured.has(definition.id)) throw new Error(`Configured MCP server id is duplicated: ${definition.id}`);
+      validateCommand(definition.command);
+      configured.set(definition.id, { id: definition.id, command: [...definition.command], autoStart: definition.autoStart === true });
+    }
     let nextServerId = 1;
-    const startServer = async (command: string[]): Promise<ManagedServer> => {
+    const startServer = async (command: string[], requestedId?: string): Promise<ManagedServer> => {
       validateCommand(command);
+      const id = requestedId ?? `mcp-${nextServerId++}`;
+      if (servers.has(id)) throw new Error(`MCP server is already running: ${id}`);
       const child = spawn(command[0]!, command.slice(1), { cwd: context.piHarnessLaunch.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"] });
       let stderr = "";
       child.stderr.setEncoding("utf8");
@@ -155,7 +180,7 @@ export default {
         stderr = `${stderr}${chunk}`.slice(-8_000);
       });
       const server: ManagedServer = {
-        id: `mcp-${nextServerId++}`,
+        id,
         command: [...command],
         child,
         status: "running",
@@ -203,6 +228,11 @@ export default {
       if (server === undefined) throw new Error(`MCP server is not running: ${serverId}`);
       return server;
     };
+    const configuredCommand = (serverId: string): string[] => {
+      const definition = configured.get(serverId);
+      if (definition === undefined) throw new Error(`Configured MCP server is not found: ${serverId}`);
+      return [...definition.command];
+    };
     const list = async (command?: string[], serverId?: string): Promise<{ server: string; tools: McpTool[] }> => {
       if (serverId !== undefined) {
         const managed = getServer(serverId);
@@ -245,7 +275,7 @@ export default {
         promptSnippet: "discover tools exposed by an MCP stdio server",
         parameters: Type.Object({
           command: Type.Optional(Type.Array(Type.String(), { description: "MCP server executable and arguments; shell wrappers are rejected" })),
-          serverId: Type.Optional(Type.String({ description: "A running MCP server id from mcp_server_start" })),
+          serverId: Type.Optional(Type.String({ description: "A configured or running MCP server id" })),
         }),
         async execute(_toolCallId, params): Promise<AgentToolResult<{ server: string; tools: McpTool[] }>> {
           const result = await list(params.command, params.serverId);
@@ -283,9 +313,14 @@ export default {
         label: "MCP server start",
         description: "Start and initialize a persistent MCP stdio server managed by Pi Harness.",
         promptSnippet: "start a persistent MCP stdio server",
-        parameters: Type.Object({ command: Type.Array(Type.String(), { description: "MCP server executable and arguments; shell wrappers are rejected" }) }),
+        parameters: Type.Object({
+          command: Type.Optional(Type.Array(Type.String(), { description: "MCP server executable and arguments; shell wrappers are rejected" })),
+          serverId: Type.Optional(Type.String({ description: "Configured server id or a running server id" })),
+        }),
         async execute(_toolCallId, params): Promise<AgentToolResult<{ serverId: string; command: string[]; status: string }>> {
-          const server = await startServer(params.command);
+          const command = params.command ?? (params.serverId === undefined ? undefined : configuredCommand(params.serverId));
+          if (command === undefined) throw new Error("Provide command or configured serverId to start an MCP server");
+          const server = await startServer(command, params.serverId);
           return {
             content: [{ type: "text", text: `MCP server ${server.id} is running.` }],
             details: { serverId: server.id, command: server.command, status: server.status },
@@ -301,12 +336,19 @@ export default {
         promptSnippet: "inspect running MCP server status",
         parameters: Type.Object({}),
         async execute(_toolCallId): Promise<AgentToolResult<{ servers: Array<{ id: string; command: string[]; status: string; startedAt: number }> }>> {
-          const snapshot = [...servers.values()].map((server) => ({
+          const running = [...servers.values()].map((server) => ({
             id: server.id,
             command: server.command,
             status: server.status,
             startedAt: server.startedAt,
           }));
+          const active = new Set(running.map((server) => server.id));
+          const snapshot = [
+            ...running,
+            ...[...configured.values()]
+              .filter((definition) => !active.has(definition.id))
+              .map((definition) => ({ id: definition.id, command: definition.command, status: "stopped", startedAt: 0 })),
+          ];
           return {
             content: [
               {
@@ -345,7 +387,12 @@ export default {
         server: latest?.server ?? null,
         tools: latest?.tools ?? [],
         lastCall: latest?.lastCall ?? null,
-        servers: [...servers.values()].map((server) => ({ id: server.id, command: server.command, status: server.status, startedAt: server.startedAt })),
+        servers: [
+          ...[...servers.values()].map((server) => ({ id: server.id, command: server.command, status: server.status, startedAt: server.startedAt })),
+          ...[...configured.values()]
+            .filter((definition) => !servers.has(definition.id))
+            .map((definition) => ({ id: definition.id, command: definition.command, status: "stopped", startedAt: 0 })),
+        ],
       }),
     });
     context.effect(() => () => {
@@ -362,5 +409,8 @@ export default {
       servers.clear();
       disposePanel();
     });
+    for (const definition of configured.values()) {
+      if (definition.autoStart === true) await startServer(definition.command, definition.id);
+    }
   },
 };
