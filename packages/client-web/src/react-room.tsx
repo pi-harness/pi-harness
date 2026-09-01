@@ -78,6 +78,7 @@ const capability = (name: string): string => {
     ["mock-server", "接口模拟"],
     ["cli-notifier", "桌面通知"],
     ["obsidian-sync", "知识库"],
+    ["context-doctor", "上下文诊断"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -111,6 +112,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/mock-server", "Mock Server"],
     ["@pi-harness/core/plugins/cli-notifier", "CLI Notifier"],
     ["@pi-harness/core/plugins/obsidian-sync", "Obsidian Sync"],
+    ["@pi-harness/core/plugins/context-doctor", "Context Doctor"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -944,6 +946,33 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </>
             );
           })()}
+        </div>
+      ) : panel.id === "context-doctor-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div
+            className={`rounded-lg border px-3 py-3 text-[11px] ${data?.status === "warning" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+          >
+            {data?.status === "warning" ? "需要关注上下文风险。" : "上下文状态正常。"}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ["占用", `${String(data?.usagePercent ?? "—")}%`],
+              ["超大消息", data?.oversizedMessages ?? 0],
+              ["工具错误", data?.toolErrors ?? 0],
+            ].map(([label, item]) => (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
+                <strong className="mt-1 block text-[17px] text-[#30343b]">{String(item)}</strong>
+              </div>
+            ))}
+          </div>
+          {Array.isArray(data?.recommendations) && data.recommendations.length > 0 ? (
+            <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+              {data.recommendations.slice(0, 4).map((item, index) => (
+                <li key={`${String(item)}-${index}`}>{String(item)}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">

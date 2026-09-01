@@ -38,6 +38,7 @@ import readmeGenPlugin from "../src/plugins/readme-gen.js";
 import mockServerPlugin from "../src/plugins/mock-server.js";
 import cliNotifierPlugin from "../src/plugins/cli-notifier.js";
 import obsidianSyncPlugin from "../src/plugins/obsidian-sync.js";
+import contextDoctorPlugin from "../src/plugins/context-doctor.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -525,6 +526,38 @@ describe("Pi domain plugins", () => {
     await expect(tool!.execute("call-3", { relativePath: "../escape.md", content: "bad", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
       /inside the configured vault/,
     );
+  });
+
+  test("audits context pressure and requires confirmation before compaction", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    let compacted = 0;
+    context.provide("piRuntime", {
+      session: {
+        messages: [
+          { role: "user", content: [{ type: "text", text: "x".repeat(70_000) }] },
+          { role: "toolResult", isError: true },
+        ],
+        getContextUsage: () => ({ tokens: 8_000, contextWindow: 10_000, percent: 80 }),
+        compact: async () => {
+          compacted += 1;
+        },
+      },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(contextDoctorPlugin, { warnPercent: 75, maxMessageBytes: 64_000 });
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "context_doctor");
+    expect(tool).toBeDefined();
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { id: "context-doctor-panel", data: { status: "warning", usagePercent: 80, oversizedMessages: 1, toolErrors: 1 } },
+    ]);
+    await expect(tool!.execute("call-1", { compact: true, confirm: false }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/);
+    await expect(tool!.execute("call-2", { compact: true, confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { compacted: true },
+    });
+    expect(compacted).toBe(1);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

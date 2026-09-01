@@ -83,6 +83,9 @@
     - id: obsidian-sync
       name: "@pi-harness/core/plugins/obsidian-sync"
       config: {}
+    - id: context-doctor
+      name: "@pi-harness/core/plugins/context-doctor"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
