@@ -69,6 +69,7 @@ const readQueryState = (): {
   view: View;
   pluginTab: "installed" | "extensions";
   settings?: SettingsTab;
+  sessionPath?: string;
   marketplaceQuery: string;
   marketplaceCapability: string;
   marketplacePage: number;
@@ -90,6 +91,7 @@ const readQueryState = (): {
     view: parsedView,
     pluginTab: parsedPluginTab,
     settings: parsedSettings,
+    sessionPath: params.get("session") ?? undefined,
     marketplaceQuery: params.get("marketplaceQuery") ?? "",
     marketplaceCapability: params.get("capability") ?? "",
     marketplacePage: Number.isFinite(pageNumber) && pageNumber >= 0 ? pageNumber : 0,
@@ -1339,6 +1341,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string>();
+  const [selectedSessionPath, setSelectedSessionPath] = useState<string | undefined>(initialQueryState.sessionPath);
+  const initialSessionPathRef = useRef(initialQueryState.sessionPath);
+  const sessionRestoreAttemptedRef = useRef(false);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1361,6 +1366,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   useEffect(() => {
     if (data.session?.messages.length && data.status?.cwd) setSelectedWorkspacePath(data.status.cwd);
   }, [data.session?.messages.length, data.status?.cwd]);
+  useEffect(() => {
+    if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
+  }, [data.session?.sessionFile, selectedSessionPath]);
   const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
   const promptCompletionItems = useMemo(() => {
     if (!promptCompletion) return [] as readonly (ClientCommand | ClientFile)[];
@@ -1384,6 +1392,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     else params.set("pluginTab", pluginTab);
     if (settings) params.set("settings", settings);
     else params.delete("settings");
+    if (selectedSessionPath) params.set("session", selectedSessionPath);
+    else params.delete("session");
     if (marketplaceQuery) params.set("marketplaceQuery", marketplaceQuery);
     else params.delete("marketplaceQuery");
     if (marketplaceCapability) params.set("capability", marketplaceCapability);
@@ -1392,7 +1402,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     else params.delete("marketplacePage");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, pluginTab, settings, view]);
+  }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, pluginTab, selectedSessionPath, settings, view]);
   const refresh = useCallback(async () => {
     const [status, session, sessions, files, models, providers, plugins, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
@@ -1438,7 +1448,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       setPromptError("");
       setWorkspaceError("");
       try {
-        await api.createSession(workspace?.path);
+        const created = await api.createSession(workspace?.path);
+        if (created.sessionFile) setSelectedSessionPath(created.sessionFile);
         setSettings(undefined);
         setCommandOpen(false);
         setGlobalSearchOpen(false);
@@ -1488,6 +1499,21 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }
     };
   }, [api, refresh, scheduleRefresh]);
+  useEffect(() => {
+    const path = initialSessionPathRef.current;
+    if (!path || sessionRestoreAttemptedRef.current || data.sessions.length === 0) return;
+    sessionRestoreAttemptedRef.current = true;
+    const target = data.sessions.find((session) => session.path === path);
+    if (!target || typeof target.path !== "string") {
+      setSelectedSessionPath(undefined);
+      return;
+    }
+    if (data.session?.sessionFile === target.path) return;
+    void api
+      .openSession(target.path)
+      .then(refresh)
+      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
+  }, [api, data.session?.sessionFile, data.sessions, refresh]);
   useEffect(() => {
     setCommandIndex(0);
     if (!commandOpen) return;
@@ -1565,7 +1591,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     setGlobalSearchOpen(false);
     setPage("session");
     setView("chat");
-    void api.openSession(path).then(refresh);
+    setSelectedSessionPath(path);
+    void api
+      .openSession(path)
+      .then(refresh)
+      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
   };
   const content = settings ? (
     <Settings
