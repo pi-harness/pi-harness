@@ -712,7 +712,19 @@ button:disabled {
   @apply [display:flex] [min-width:0] [flex:1] [background:#f8fafc];
 }
 .settings-page .settings-dialog {
-  @apply [width:100%] [max-width:none] [height:100%] [max-height:none] [border-radius:0] [box-shadow:none];
+  @apply [width:100%] [max-width:none] [height:100%] [max-height:none] [flex-direction:column] [border-radius:0] [box-shadow:none];
+}
+.settings-top-tabs {
+  @apply [display:flex] [align-items:center] [gap:4px] [height:48px] [flex:none] [padding:0_20px] [border-bottom:1px_solid_var(--color-line)] [background:#fff];
+}
+.settings-top-tabs .settings-tab {
+  @apply [height:30px] [padding:0_12px] [border-radius:7px] [font-size:12px];
+}
+.settings-top-tabs .settings-tab.active {
+  @apply [background:var(--color-blue-soft)] [color:var(--color-blue)];
+}
+.settings-top-tabs .settings-tab b {
+  @apply [float:none] [margin-left:4px];
 }
 .settings-back {
   @apply [border:1px_solid_rgba(65,_118,_230,_0.28)] [border-radius:7px] [background:var(--color-blue-soft)] [padding:4px_9px] [color:var(--color-blue)] [font-size:11px];

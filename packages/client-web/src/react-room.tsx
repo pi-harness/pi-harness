@@ -73,6 +73,37 @@ const capability = (name: string): string =>
           : name.includes("web") || name.includes("gateway")
             ? "界面"
             : "运行时";
+const readQueryState = (): {
+  page: Page;
+  view: View;
+  pluginTab: "installed" | "extensions";
+  settings?: SettingsTab;
+  marketplaceQuery: string;
+  marketplaceCapability: string;
+  marketplacePage: number;
+} => {
+  if (typeof window === "undefined")
+    return { page: "session", view: "chat", pluginTab: "installed", marketplaceQuery: "", marketplaceCapability: "", marketplacePage: 0 };
+  const params = new URLSearchParams(window.location.search);
+  const page = params.get("page");
+  const view = params.get("view");
+  const pluginTab = params.get("pluginTab");
+  const settings = params.get("settings");
+  const parsedPage = page === "plugins" || page === "marketplace" ? page : "session";
+  const parsedView = view === "trajectory" || view === "files" ? view : "chat";
+  const parsedPluginTab = pluginTab === "extensions" ? pluginTab : "installed";
+  const parsedSettings = settings === "plugins" || settings === "providers" || settings === "toml" ? settings : settings === "general" ? settings : undefined;
+  const pageNumber = Number.parseInt(params.get("marketplacePage") ?? "0", 10);
+  return {
+    page: parsedPage,
+    view: parsedView,
+    pluginTab: parsedPluginTab,
+    settings: parsedSettings,
+    marketplaceQuery: params.get("marketplaceQuery") ?? "",
+    marketplaceCapability: params.get("capability") ?? "",
+    marketplacePage: Number.isFinite(pageNumber) && pageNumber >= 0 ? pageNumber : 0,
+  };
+};
 function sessionGroups(sessions: readonly Record<string, unknown>[]): readonly [string, readonly Record<string, unknown>[]][] {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -762,8 +793,7 @@ function Settings({
   return (
     <section className="view-panel settings-page">
       <div className="settings-dialog">
-        <aside>
-          <strong>设置</strong>
+        <nav aria-label="设置分类" className="settings-top-tabs">
           {(["general", "plugins", "providers", "toml"] as const).map((item) => (
             <button className={`settings-tab ${tab === item ? "active" : ""}`} key={item} onClick={() => onTab(item)} type="button">
               {item === "general"
@@ -775,7 +805,7 @@ function Settings({
                     : "pi.toml"}
             </button>
           ))}
-        </aside>
+        </nav>
         <section>
           <header>
             <strong>{tab === "general" ? "通用" : tab === "plugins" ? "插件" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
@@ -986,6 +1016,7 @@ function CommandPalette({ commands, onClose, onUse }: { commands: readonly Clien
 }
 
 export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }) {
+  const initialQueryState = useMemo(readQueryState, []);
   const [data, setData] = useState<RoomData>({
     sessions: [],
     files: [],
@@ -999,22 +1030,41 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     marketplaceHasNext: false,
     commands: [],
   });
-  const [view, setView] = useState<View>("chat");
-  const [page, setPage] = useState<Page>("session");
-  const [pluginTab, setPluginTab] = useState<"installed" | "extensions">("installed");
-  const [settings, setSettings] = useState<SettingsTab>();
+  const [view, setView] = useState<View>(initialQueryState.view);
+  const [page, setPage] = useState<Page>(initialQueryState.page);
+  const [pluginTab, setPluginTab] = useState<"installed" | "extensions">(initialQueryState.pluginTab);
+  const [settings, setSettings] = useState<SettingsTab | undefined>(initialQueryState.settings);
   const [details, setDetails] = useState<Record<string, unknown>>();
   const [commandOpen, setCommandOpen] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
-  const [marketplaceQuery, setMarketplaceQuery] = useState("");
-  const [marketplaceCapability, setMarketplaceCapability] = useState("");
-  const [marketplacePage, setMarketplacePage] = useState(0);
+  const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
+  const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
+  const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [permission, setPermission] = useState(true);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [promptError, setPromptError] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", page);
+    if (view === "chat") params.delete("view");
+    else params.set("view", view);
+    if (pluginTab === "installed") params.delete("pluginTab");
+    else params.set("pluginTab", pluginTab);
+    if (settings) params.set("settings", settings);
+    else params.delete("settings");
+    if (marketplaceQuery) params.set("marketplaceQuery", marketplaceQuery);
+    else params.delete("marketplaceQuery");
+    if (marketplaceCapability) params.set("capability", marketplaceCapability);
+    else params.delete("capability");
+    if (marketplacePage > 0) params.set("marketplacePage", String(marketplacePage));
+    else params.delete("marketplacePage");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, pluginTab, settings, view]);
   const refresh = useCallback(async () => {
     const [status, session, sessions, files, models, providers, plugins, marketplace, commands] = await Promise.allSettled([
       api.getStatus(),
