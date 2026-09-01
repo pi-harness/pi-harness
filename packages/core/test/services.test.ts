@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
+import { createServer as createTcpServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -31,6 +32,7 @@ import sqlLensPlugin from "../src/plugins/sql-lens.js";
 import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
 import mcpClientPlugin from "../src/plugins/mcp-client.js";
 import browserFetchPlugin from "../src/plugins/browser-fetch.js";
+import browserSessionPlugin from "../src/plugins/browser-session.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
 
 const contexts: Context[] = [];
@@ -531,5 +533,91 @@ describe("Pi domain plugins", () => {
     await expect(blockedTools.snapshot().customTools[0].execute("call-2", { url: "http://127.0.0.1:1/" }, undefined, undefined, {} as never)).rejects.toThrow(
       /private|local/iu,
     );
+  });
+
+  test("connects to a real Chrome DevTools session for tabs, text, and clicks", async () => {
+    const pageServer = createServer((_request, response) => {
+      response.setHeader("content-type", "text/html; charset=utf-8");
+      response.end(
+        '<html><body><button id="toggle" onclick="document.body.dataset.clicked=\'yes\'">Click me</button><p>Browser session fixture</p></body></html>',
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      pageServer.once("error", reject);
+      pageServer.listen(0, "127.0.0.1", () => resolve());
+    });
+    const portProbe = createTcpServer();
+    await new Promise<void>((resolve, reject) => {
+      portProbe.once("error", reject);
+      portProbe.listen(0, "127.0.0.1", () => resolve());
+    });
+    const portAddress = portProbe.address();
+    if (portAddress === null || typeof portAddress === "string") throw new Error("Chrome port probe failed");
+    const debugPort = portAddress.port;
+    await new Promise<void>((resolve) => portProbe.close(() => resolve()));
+    const profileDir = await mkdtemp(join(tmpdir(), "pi-harness-chrome-"));
+    const chrome = execFile(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        `--user-data-dir=${profileDir}`,
+        `--remote-debugging-port=${debugPort}`,
+        "about:blank",
+      ],
+      { stdio: "ignore" },
+    );
+    try {
+      let endpoint = `http://127.0.0.1:${debugPort}`;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        try {
+          const response = await fetch(`${endpoint}/json/version`);
+          if (response.ok) break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(browserSessionPlugin, { endpoint });
+      const registered = tools.snapshot().customTools;
+      const tabsTool = registered.find((tool) => tool.name === "browser_tabs");
+      const navigateTool = registered.find((tool) => tool.name === "browser_navigate");
+      const readTool = registered.find((tool) => tool.name === "browser_read");
+      const clickTool = registered.find((tool) => tool.name === "browser_click");
+      expect(tabsTool).toBeDefined();
+      expect(navigateTool).toBeDefined();
+      const tabs = await tabsTool!.execute("call-1", {}, undefined, undefined, {} as never);
+      const tab = (tabs.details as { tabs: Array<{ targetId: string }> }).tabs.find((item) => item.targetId);
+      expect(tab).toBeDefined();
+      await expect(
+        navigateTool!.execute(
+          "call-2",
+          { targetId: tab!.targetId, url: `http://127.0.0.1:${(pageServer.address() as { port: number }).port}/` },
+          undefined,
+          undefined,
+          {} as never,
+        ),
+      ).resolves.toMatchObject({ details: { status: "navigated" } });
+      await expect(readTool!.execute("call-3", { targetId: tab!.targetId }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { text: expect.stringContaining("Browser session fixture") },
+      });
+      await expect(clickTool!.execute("call-4", { targetId: tab!.targetId, selector: "#toggle" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { clicked: true },
+      });
+    } finally {
+      chrome.kill();
+      await new Promise<void>((resolve) => {
+        if (chrome.exitCode !== null) resolve();
+        else chrome.once("exit", () => resolve());
+      });
+      await rm(profileDir, { recursive: true, force: true });
+      await new Promise<void>((resolve, reject) => pageServer.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 });

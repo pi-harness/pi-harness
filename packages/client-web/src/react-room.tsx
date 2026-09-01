@@ -73,6 +73,7 @@ const capability = (name: string): string => {
     ["docker-sandbox", "沙箱"],
     ["mcp-client", "工具协议"],
     ["browser-fetch", "网页抓取"],
+    ["browser-session", "浏览器会话"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -101,6 +102,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox"],
     ["@pi-harness/core/plugins/mcp-client", "MCP Client"],
     ["@pi-harness/core/plugins/browser-fetch", "Browser Fetch"],
+    ["@pi-harness/core/plugins/browser-session", "Browser Session"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -998,6 +1000,36 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 ))
               : null}
           </div>
+        </div>
+      ) : panel.id === "browser-session-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate font-mono text-[11px] text-[#30343b]">{String(data?.endpoint ?? "本地浏览器未连接")}</span>
+              <strong className="font-mono text-[12px] text-[#4176e6]">{String(Array.isArray(data?.tabs) ? data.tabs.length : 0)} tabs</strong>
+            </div>
+            <p className="mt-2 text-[11px] text-[#8a949f]">通过 Chrome DevTools Protocol 操作已启动浏览器，不执行页面外部脚本。</p>
+            {data?.connected === false ? (
+              <p className="mt-2 text-[11px] text-[#b42318]">未连接：请使用 remote-debugging-port 启动 Chrome。{String(data.error ?? "")}</p>
+            ) : null}
+          </div>
+          {Array.isArray(data?.tabs) && data.tabs.length > 0 ? (
+            <div className="grid gap-2">
+              {data.tabs.slice(0, 8).map((tab, index) => {
+                const item = typeof tab === "object" && tab !== null ? (tab as Record<string, unknown>) : {};
+                return (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${String(item.targetId ?? "tab")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{String(item.title ?? "未命名页面")}</strong>
+                    <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{String(item.url ?? "")}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              没有可调试的浏览器页面。请使用 remote-debugging-port 启动 Chrome。
+            </div>
+          )}
         </div>
       ) : panel.id === "mcp-client-panel" ? (
         <div className="mt-3 grid gap-3">
