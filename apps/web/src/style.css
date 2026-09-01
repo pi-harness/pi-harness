@@ -438,6 +438,9 @@ button:disabled {
 .composer-wrap {
   @apply [flex:0_0_auto] [padding:8px_24px_14px];
 }
+.composer-stack {
+  @apply [position:relative] [width:100%];
+}
 .context-line {
   @apply [display:flex] [max-width:748px] [margin:0_auto_8px] [align-items:center] [gap:9px] [color:var(--color-faint)] [font:10.5px_var(--font-mono)];
 }
@@ -928,6 +931,80 @@ button:disabled {
 .provider-card {
   @apply [margin-bottom:12px] [padding:12px_13px] [border:1px_solid_var(--color-line)] [border-radius:10px];
 }
+.provider-add-head {
+  @apply [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [padding:11px_12px_10px] [border-top:1px_solid_var(--color-line)];
+}
+.provider-add-head > div {
+  @apply [display:flex] [flex-direction:column] [gap:2px];
+}
+.provider-add-head strong {
+  @apply [font-size:12px];
+}
+.provider-add-head > button {
+  @apply [height:30px] [padding:0_11px] [border-radius:7px] [background:var(--color-ink)] [color:#fff] [font-size:11px];
+}
+.provider-add-head small,
+.provider-add-form small {
+  @apply [color:var(--color-faint)] [font-size:10px];
+}
+.provider-add-form {
+  @apply [display:grid] [grid-template-columns:repeat(2,minmax(0,1fr))] [gap:12px] [padding:0];
+}
+.provider-add-overlay {
+  @apply [position:fixed] [inset:0] [z-index:70] [display:grid] [place-items:center] [padding:32px] [background:rgba(15,_23,_42,_0.32)] [backdrop-filter:blur(6px)];
+}
+.provider-add-modal {
+  @apply [width:min(100%,640px)] [padding:18px] [border:1px_solid_rgba(15,_23,_42,_0.14)] [border-radius:14px] [background:#fff] [box-shadow:0_28px_80px_rgba(15,_23,_42,_0.26)];
+}
+.provider-add-modal > header {
+  @apply [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:16px] [margin-bottom:16px];
+}
+.provider-add-modal > header > div {
+  @apply [display:flex] [flex-direction:column] [gap:3px];
+}
+.provider-add-modal > header strong {
+  @apply [font-size:14px];
+}
+.provider-add-modal > header small {
+  @apply [color:var(--color-faint)] [font-size:10.5px];
+}
+.provider-add-modal > header button {
+  @apply [width:26px] [height:26px] [border-radius:7px] [color:var(--color-muted)] [font-size:18px];
+}
+.provider-add-modal .provider-add-form {
+  @apply [width:100%] [margin:0] [padding:0];
+}
+.provider-add-form label {
+  @apply [display:flex] [min-width:0] [flex-direction:column] [gap:5px];
+}
+.provider-add-form label > span {
+  @apply [color:var(--color-muted)] [font-size:10.5px] [font-weight:600];
+}
+.provider-add-form input,
+.provider-add-form select,
+.provider-add-form button {
+  @apply [min-width:0] [height:32px] [padding:0_9px] [border:1px_solid_var(--color-line)] [border-radius:7px] [background:#fff] [font-size:11px];
+}
+.provider-add-form input:focus,
+.provider-add-form select:focus {
+  @apply [border-color:var(--color-blue)] [outline:none];
+}
+.provider-add-wide,
+.provider-add-actions {
+  @apply [grid-column:1/-1];
+}
+.provider-add-actions {
+  @apply [display:flex] [align-items:center] [gap:10px];
+}
+.provider-add-actions button {
+  @apply [width:140px];
+}
+.provider-add-actions small {
+  @apply [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap];
+}
+.provider-add-form button {
+  @apply [border-color:var(--color-ink)] [background:var(--color-ink)] [color:#fff];
+}
 .provider-head {
   @apply [display:flex] [align-items:center] [gap:8px] [margin-bottom:10px];
 }
@@ -1267,7 +1344,7 @@ button:disabled {
   @apply [min-height:74px] [padding:13px_15px_5px] [font-size:14px];
 }
 .action-error {
-  @apply [display:flex] [max-width:800px] [margin:8px_auto_0] [padding:9px_11px] [flex-direction:column] [gap:6px] [border:1px_solid_rgba(236,_19,_19,_0.16)] [border-radius:9px] [background:#fff8f8] [color:#8f2b2b] [font-size:11.5px];
+  @apply [position:absolute] [right:0] [bottom:calc(100%_+_8px)] [z-index:20] [display:flex] [max-width:800px] [margin:0] [padding:9px_11px] [flex-direction:column] [gap:6px] [border:1px_solid_rgba(236,_19,_19,_0.16)] [border-radius:9px] [background:#fff8f8] [color:#8f2b2b] [font-size:11.5px] [box-shadow:0_8px_24px_rgba(15,_17,_21,_0.1)];
 }
 .action-error-summary {
   @apply [display:flex] [gap:8px] [align-items:baseline];

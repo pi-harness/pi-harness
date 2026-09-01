@@ -116,6 +116,26 @@ function modelSummary(model: { provider: string; id: string; name?: string; reas
   };
 }
 
+function visibleProviderIds(
+  runtime: Pick<PiModelsService["runtime"], "getModels"> &
+    Partial<Pick<PiModelsService["runtime"], "getProviders" | "getProviderAuthStatus" | "getRegisteredProviderConfig">>,
+  activeProvider: string,
+): Set<string> {
+  const providers = typeof runtime.getProviders === "function" ? runtime.getProviders() : [{ id: activeProvider, name: activeProvider }];
+  return new Set(
+    providers
+      .filter((provider) => {
+        if (provider.id === activeProvider) return true;
+        if (typeof runtime.getProviderAuthStatus !== "function") return false;
+        const auth = runtime.getProviderAuthStatus(provider.id);
+        if (typeof auth !== "object" || auth === null || (auth as { configured?: unknown }).configured !== true) return false;
+        if (typeof runtime.getRegisteredProviderConfig === "function") return runtime.getRegisteredProviderConfig(provider.id) !== undefined;
+        return true;
+      })
+      .map((provider) => provider.id),
+  );
+}
+
 function pluginSummary(entry: { options: { id: string; name: string; disabled?: boolean | null }; fiber?: { state: unknown } }) {
   const states = ["pending", "loading", "active", "failed", "disposed", "unloading"];
   const rawState = entry.fiber?.state;
@@ -240,11 +260,15 @@ export default {
       path: "/api/models",
       handler(_request, response) {
         const active = services.runtime.session.model ?? services.models.model;
+        const visible = visibleProviderIds(services.models.runtime, active.provider);
         sendJson(
           response,
           200,
           jsonSafe({
-            items: services.models.runtime.getModels().map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)),
+            items: services.models.runtime
+              .getModels()
+              .filter((model) => visible.has(model.provider))
+              .map((model) => modelSummary(model, model.provider === active.provider && model.id === active.id)),
           }),
         );
       },
@@ -258,12 +282,8 @@ export default {
           getProviderAuthStatus?: (provider: string) => unknown;
         };
         const providers = typeof runtime.getProviders === "function" ? runtime.getProviders() : [{ id: active.provider, name: active.provider }];
-        const visible = providers.filter((provider) => {
-          if (provider.id === active.provider) return true;
-          if (typeof runtime.getProviderAuthStatus !== "function") return false;
-          const auth = runtime.getProviderAuthStatus(provider.id);
-          return typeof auth === "object" && auth !== null && (auth as { configured?: unknown }).configured === true;
-        });
+        const visibleIds = visibleProviderIds(runtime, active.provider);
+        const visible = providers.filter((provider) => visibleIds.has(provider.id));
         sendJson(
           response,
           200,
@@ -280,6 +300,77 @@ export default {
             })),
           }),
         );
+      },
+    });
+    const disposeProviderAdd = services.webServer.register({
+      path: "/api/providers/add",
+      async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        try {
+          const payload = JSON.parse(await bodyText(request)) as {
+            provider?: unknown;
+            name?: unknown;
+            baseUrl?: unknown;
+            api?: unknown;
+            apiKey?: unknown;
+            model?: unknown;
+          };
+          const provider = typeof payload.provider === "string" ? payload.provider.trim() : "";
+          const name = typeof payload.name === "string" && payload.name.trim() !== "" ? payload.name.trim() : provider;
+          const baseUrl = typeof payload.baseUrl === "string" ? payload.baseUrl.trim() : "";
+          const apiKey = typeof payload.apiKey === "string" ? payload.apiKey.trim() : "";
+          const model = typeof payload.model === "string" ? payload.model.trim() : "";
+          const api = payload.api === "openai-responses" ? "openai-responses" : "openai-completions";
+          if (!/^[a-z0-9][a-z0-9._-]{1,63}$/i.test(provider)) {
+            sendJson(response, 400, { error: "provider must be 2-64 characters using letters, numbers, ., _, or -" });
+            return;
+          }
+          if (!/^https?:\/\/[^\s]+$/i.test(baseUrl)) {
+            sendJson(response, 400, { error: "baseUrl must be an http(s) URL" });
+            return;
+          }
+          if (!apiKey || !model) {
+            sendJson(response, 400, { error: "apiKey and model are required" });
+            return;
+          }
+          const runtime = services.models.runtime;
+          if (runtime.getProvider(provider) !== undefined) {
+            sendJson(response, 409, { error: `Provider already exists: ${provider}` });
+            return;
+          }
+          runtime.registerProvider(provider, {
+            name,
+            baseUrl,
+            api,
+            models: [
+              {
+                id: model,
+                name: model,
+                api,
+                reasoning: false,
+                input: ["text"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 128000,
+                maxTokens: 8192,
+              },
+            ],
+          });
+          await runtime.setRuntimeApiKey(provider, apiKey);
+          sendJson(response, 201, {
+            provider: {
+              provider,
+              name,
+              active: false,
+              auth: runtime.getProviderAuthStatus(provider),
+              models: runtime.getModels(provider).map((item) => modelSummary(item, false)),
+            },
+          });
+        } catch (error) {
+          sendJson(response, 400, { error: errorText(error) });
+        }
       },
     });
     const disposeProviderTest = services.webServer.register({
@@ -807,6 +898,7 @@ export default {
       disposeProviders();
       disposeProviderTest();
       disposeProviderRefresh();
+      disposeProviderAdd();
       disposePlugins();
       disposeMarketplace();
       disposeCommands();

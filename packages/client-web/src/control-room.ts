@@ -96,6 +96,14 @@ export interface ClientApi {
   listProviders(): Promise<readonly ClientProvider[]>;
   testProvider(provider: string): Promise<{ provider: string; reachable: boolean; auth?: unknown }>;
   refreshProvider(provider: string): Promise<{ provider: string; models: readonly ClientModel[] }>;
+  addProvider(input: {
+    provider: string;
+    name: string;
+    baseUrl: string;
+    api: "openai-completions" | "openai-responses";
+    apiKey: string;
+    model: string;
+  }): Promise<{ provider: ClientProvider }>;
   listPlugins(): Promise<readonly ClientPlugin[]>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number): Promise<ClientMarketplacePage>;
   listCommands(): Promise<readonly ClientCommand[]>;
@@ -164,6 +172,12 @@ export function createClientApi(): ClientApi {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ provider }),
+      }),
+    addProvider: (input) =>
+      requestJson<{ provider: ClientProvider }>("/api/providers/add", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
       }),
     listPlugins: async () => (await requestJson<{ items: readonly ClientPlugin[] }>("/api/plugins")).items,
     listMarketplace: (query = "", capability = "", page = 0, pageSize = 24) =>

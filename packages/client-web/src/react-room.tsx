@@ -834,16 +834,27 @@ function Settings({
   tab,
   onTab,
   onClose,
+  onRefresh,
 }: {
   data: RoomData;
   api: ClientApi;
   tab: SettingsTab;
   onTab: (tab: SettingsTab) => void;
   onClose: () => void;
+  onRefresh: () => Promise<void>;
 }) {
   const status = data.status;
   const [providerState, setProviderState] = useState<Record<string, string>>({});
   const [providerBusy, setProviderBusy] = useState<Record<string, boolean>>({});
+  const [providerAddOpen, setProviderAddOpen] = useState(false);
+  const [providerForm, setProviderForm] = useState<{
+    provider: string;
+    name: string;
+    baseUrl: string;
+    api: "openai-completions" | "openai-responses";
+    apiKey: string;
+    model: string;
+  }>({ provider: "", name: "", baseUrl: "", api: "openai-completions", apiKey: "", model: "" });
   const runProviderAction = (provider: string, action: "test" | "refresh") => {
     if (providerBusy[provider]) return;
     setProviderBusy((current) => ({ ...current, [provider]: true }));
@@ -935,7 +946,119 @@ function Settings({
               ))}
             {tab === "providers" && (
               <>
-                <small>运行时注册提供商 · /api/providers</small>
+                <div className="provider-add-head">
+                  <div>
+                    <strong>已启用提供商</strong>
+                    <small>模型列表只显示当前会话和已配置提供商。</small>
+                  </div>
+                  <button className="primary" onClick={() => setProviderAddOpen(true)} type="button">
+                    添加提供商
+                  </button>
+                </div>
+                {providerAddOpen && (
+                  <div className="provider-add-overlay" onClick={() => setProviderAddOpen(false)}>
+                    <div aria-label="添加提供商" className="provider-add-modal" onClick={(event) => event.stopPropagation()} role="dialog">
+                      <header>
+                        <div>
+                          <strong>添加自定义提供商</strong>
+                          <small>注册 OpenAI 兼容接口，凭据只提交到本机 Pi runtime。</small>
+                        </div>
+                        <button aria-label="关闭添加提供商" onClick={() => setProviderAddOpen(false)} type="button">
+                          ×
+                        </button>
+                      </header>
+                      <form
+                        className="provider-add-form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (!providerForm.provider || !providerForm.baseUrl || !providerForm.apiKey || !providerForm.model) return;
+                          setProviderBusy((current) => ({ ...current, __add: true }));
+                          setProviderState((current) => ({ ...current, __add: "添加中…" }));
+                          void api
+                            .addProvider(providerForm)
+                            .then(async () => {
+                              setProviderForm({ provider: "", name: "", baseUrl: "", api: "openai-completions", apiKey: "", model: "" });
+                              setProviderState((current) => ({ ...current, __add: "已添加" }));
+                              await onRefresh();
+                              setProviderAddOpen(false);
+                            })
+                            .catch((cause: unknown) =>
+                              setProviderState((current) => ({ ...current, __add: cause instanceof Error ? cause.message : String(cause) })),
+                            )
+                            .finally(() => setProviderBusy((current) => ({ ...current, __add: false })));
+                        }}
+                      >
+                        <label>
+                          <span>提供商 ID</span>
+                          <input
+                            aria-label="提供商 ID"
+                            placeholder="例如 openrouter"
+                            value={providerForm.provider}
+                            onChange={(event) => setProviderForm((current) => ({ ...current, provider: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          <span>显示名称</span>
+                          <input
+                            aria-label="提供商名称"
+                            placeholder="可选"
+                            value={providerForm.name}
+                            onChange={(event) => setProviderForm((current) => ({ ...current, name: event.target.value }))}
+                          />
+                        </label>
+                        <label className="provider-add-wide">
+                          <span>接口地址</span>
+                          <input
+                            aria-label="接口地址"
+                            placeholder="https://api.example.com/v1"
+                            type="url"
+                            value={providerForm.baseUrl}
+                            onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          <span>模型 ID</span>
+                          <input
+                            aria-label="模型 ID"
+                            placeholder="例如 gpt-4o"
+                            value={providerForm.model}
+                            onChange={(event) => setProviderForm((current) => ({ ...current, model: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          <span>协议</span>
+                          <select
+                            aria-label="协议"
+                            value={providerForm.api}
+                            onChange={(event) =>
+                              setProviderForm((current) => ({ ...current, api: event.target.value as "openai-completions" | "openai-responses" }))
+                            }
+                          >
+                            <option value="openai-completions">OpenAI Completions</option>
+                            <option value="openai-responses">OpenAI Responses</option>
+                          </select>
+                        </label>
+                        <label className="provider-add-wide">
+                          <span>API key</span>
+                          <input
+                            aria-label="API key"
+                            placeholder="只在本机提交，不会回显"
+                            type="password"
+                            value={providerForm.apiKey}
+                            onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
+                          />
+                        </label>
+                        <div className="provider-add-actions">
+                          <button className="primary" disabled={providerBusy.__add} type="submit">
+                            {providerBusy.__add ? "添加中…" : "添加提供商"}
+                          </button>
+                          {providerState.__add && <small aria-live="polite">{providerState.__add}</small>}
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+                <small>已启用提供商 · /api/providers</small>
                 {data.providers.length ? (
                   data.providers.map((provider) => (
                     <article className="provider-card" key={provider.provider}>
@@ -1483,6 +1606,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       data={data}
       tab={settings}
       onTab={setSettings}
+      onRefresh={refresh}
       onClose={() => {
         setSettings(undefined);
         setPage("session");
@@ -1564,36 +1688,83 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </span>
           </div>
         )}
-        <form className="composer" onSubmit={submit}>
-          <textarea
-            aria-label="Prompt"
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setPromptCaret(event.currentTarget.selectionStart ?? event.target.value.length);
-              setPromptCompletionSuppressed(false);
-            }}
-            onKeyDown={(event) => {
-              const caret = event.currentTarget.selectionStart ?? draft.length;
-              const completion = getPromptCompletion(event.currentTarget.value, caret);
-              const items = completion
-                ? completion.kind === "command"
-                  ? filterCommands(data.commands, completion.query).slice(0, 12)
-                  : data.files
-                      .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(completion.query.trim().toLowerCase()))
-                      .slice(0, 12)
-                : [];
-              const popupOpen = Boolean(completion && !promptCompletionSuppressed && items.length);
-              if (popupOpen && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-                event.preventDefault();
-                setPromptCompletionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length);
-                return;
-              }
-              if (popupOpen && (event.key === "Enter" || event.key === "Tab")) {
-                event.preventDefault();
-                const item = items[promptCompletionIndex];
-                if (item && completion) {
-                  const value = completion.kind === "command" ? `/${(item as ClientCommand).invocationName}` : `@${(item as ClientFile).path}`;
-                  const replacement = replacePromptCompletion(event.currentTarget.value, completion, `${value} `);
+        <div className="composer-stack">
+          {promptError && <PromptError message={promptError} />}
+          <form className="composer" onSubmit={submit}>
+            <textarea
+              aria-label="Prompt"
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setPromptCaret(event.currentTarget.selectionStart ?? event.target.value.length);
+                setPromptCompletionSuppressed(false);
+              }}
+              onKeyDown={(event) => {
+                const caret = event.currentTarget.selectionStart ?? draft.length;
+                const completion = getPromptCompletion(event.currentTarget.value, caret);
+                const items = completion
+                  ? completion.kind === "command"
+                    ? filterCommands(data.commands, completion.query).slice(0, 12)
+                    : data.files
+                        .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(completion.query.trim().toLowerCase()))
+                        .slice(0, 12)
+                  : [];
+                const popupOpen = Boolean(completion && !promptCompletionSuppressed && items.length);
+                if (popupOpen && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                  event.preventDefault();
+                  setPromptCompletionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length);
+                  return;
+                }
+                if (popupOpen && (event.key === "Enter" || event.key === "Tab")) {
+                  event.preventDefault();
+                  const item = items[promptCompletionIndex];
+                  if (item && completion) {
+                    const value = completion.kind === "command" ? `/${(item as ClientCommand).invocationName}` : `@${(item as ClientFile).path}`;
+                    const replacement = replacePromptCompletion(event.currentTarget.value, completion, `${value} `);
+                    setDraft(replacement.text);
+                    setPromptCaret(replacement.caret);
+                    setPromptCompletionSuppressed(false);
+                    requestAnimationFrame(() => {
+                      const input = promptInputRef.current;
+                      input?.focus();
+                      input?.setSelectionRange(replacement.caret, replacement.caret);
+                    });
+                  }
+                  return;
+                }
+                if (event.key === "Escape" && completion && !promptCompletionSuppressed) {
+                  event.preventDefault();
+                  setPromptCompletionSuppressed(true);
+                  return;
+                }
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              onClick={() => {
+                if (!selectedWorkspacePath) setWorkspaceChooserOpen(true);
+              }}
+              onFocus={(event) => {
+                if (!selectedWorkspacePath) {
+                  event.currentTarget.blur();
+                  setWorkspaceChooserOpen(true);
+                }
+              }}
+              placeholder={selectedWorkspacePath ? "描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令" : "先选择工作区，再描述要做的改动"}
+              readOnly={!selectedWorkspacePath}
+              ref={promptInputRef}
+              rows={2}
+              value={draft}
+            ></textarea>
+            {promptCompletionOpen && promptCompletion && (
+              <PromptCompletionPopover
+                activeIndex={promptCompletionIndex}
+                commands={data.commands}
+                files={data.files}
+                kind={promptCompletion.kind}
+                onActiveIndexChange={setPromptCompletionIndex}
+                onUse={(value) => {
+                  const replacement = replacePromptCompletion(draft, promptCompletion, `${value} `);
                   setDraft(replacement.text);
                   setPromptCaret(replacement.caret);
                   setPromptCompletionSuppressed(false);
@@ -1602,94 +1773,49 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                     input?.focus();
                     input?.setSelectionRange(replacement.caret, replacement.caret);
                   });
-                }
-                return;
-              }
-              if (event.key === "Escape" && completion && !promptCompletionSuppressed) {
-                event.preventDefault();
-                setPromptCompletionSuppressed(true);
-                return;
-              }
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            onClick={() => {
-              if (!selectedWorkspacePath) setWorkspaceChooserOpen(true);
-            }}
-            onFocus={(event) => {
-              if (!selectedWorkspacePath) {
-                event.currentTarget.blur();
-                setWorkspaceChooserOpen(true);
-              }
-            }}
-            placeholder={selectedWorkspacePath ? "描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令" : "先选择工作区，再描述要做的改动"}
-            readOnly={!selectedWorkspacePath}
-            ref={promptInputRef}
-            rows={2}
-            value={draft}
-          ></textarea>
-          {promptCompletionOpen && promptCompletion && (
-            <PromptCompletionPopover
-              activeIndex={promptCompletionIndex}
-              commands={data.commands}
-              files={data.files}
-              kind={promptCompletion.kind}
-              onActiveIndexChange={setPromptCompletionIndex}
-              onUse={(value) => {
-                const replacement = replacePromptCompletion(draft, promptCompletion, `${value} `);
-                setDraft(replacement.text);
-                setPromptCaret(replacement.caret);
-                setPromptCompletionSuppressed(false);
-                requestAnimationFrame(() => {
-                  const input = promptInputRef.current;
-                  input?.focus();
-                  input?.setSelectionRange(replacement.caret, replacement.caret);
-                });
-              }}
-              query={promptCompletion.query}
-            />
-          )}
-          <div className="composer-tools">
-            <select
-              aria-label="模型"
-              disabled={!data.models.length || promptBusy}
-              value={data.status?.model ?? ""}
-              onChange={(event) => {
-                const [provider, model] = event.target.value.split("/");
-                if (provider && model) void api.selectModel(provider, model);
-              }}
-            >
-              {data.models.length ? (
-                data.models.map((model) => (
-                  <option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
-                    {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
-                  </option>
-                ))
-              ) : (
-                <option value="">暂无可用模型</option>
-              )}
-            </select>
-            <button className="tool-chip" onClick={() => setPermission((current) => !current)} type="button">
-              ● {permission ? "改动前询问" : "自动允许"}
-            </button>
-            <button className="tool-chip" onClick={() => setCommandOpen(true)} type="button">
-              ／ 命令
-            </button>
-            <span className="composer-hint">⌘↵ 发送 · ⌘K 命令 · ⌃C 中断</span>
-            <button
-              aria-label={promptBusy ? "发送中" : "发送消息"}
-              className="send-button"
-              disabled={promptBusy || !draft.trim()}
-              title={promptBusy ? "正在发送" : "发送消息（⌘↵）"}
-              type="submit"
-            >
-              {promptBusy ? "…" : "↑"}
-            </button>
-          </div>
-        </form>
-        {promptError && <PromptError message={promptError} />}
+                }}
+                query={promptCompletion.query}
+              />
+            )}
+            <div className="composer-tools">
+              <select
+                aria-label="模型"
+                disabled={!data.models.length || promptBusy}
+                value={data.status?.model ?? ""}
+                onChange={(event) => {
+                  const [provider, model] = event.target.value.split("/");
+                  if (provider && model) void api.selectModel(provider, model);
+                }}
+              >
+                {data.models.length ? (
+                  data.models.map((model) => (
+                    <option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
+                      {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">暂无可用模型</option>
+                )}
+              </select>
+              <button className="tool-chip" onClick={() => setPermission((current) => !current)} type="button">
+                ● {permission ? "改动前询问" : "自动允许"}
+              </button>
+              <button className="tool-chip" onClick={() => setCommandOpen(true)} type="button">
+                ／ 命令
+              </button>
+              <span className="composer-hint">⌘↵ 发送 · ⌘K 命令 · ⌃C 中断</span>
+              <button
+                aria-label={promptBusy ? "发送中" : "发送消息"}
+                className="send-button"
+                disabled={promptBusy || !draft.trim()}
+                title={promptBusy ? "正在发送" : "发送消息（⌘↵）"}
+                type="submit"
+              >
+                {promptBusy ? "…" : "↑"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </section>
   ) : view === "trajectory" ? (

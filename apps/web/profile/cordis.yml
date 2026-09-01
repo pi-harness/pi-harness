@@ -5,7 +5,7 @@
     - id: models
       name: "@pi-harness/core/plugins/models"
       config:
-        provider: !!js process.env.PI_HARNESS_PROVIDER ?? 'deepseek'
+        provider: !!js process.env.PI_HARNESS_PROVIDER ?? 'everyapi'
         model: !!js process.env.PI_HARNESS_MODEL ?? 'deepseek-v4-flash'
         refreshOnCreate: false
     - id: resources
