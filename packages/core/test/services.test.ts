@@ -22,6 +22,8 @@ import dependencyCheckerPlugin from "../src/plugins/dependency-checker.js";
 import atFilePlugin from "../src/plugins/at-file.js";
 import failLoggerPlugin from "../src/plugins/fail-logger.js";
 import testHarnessPlugin from "../src/plugins/test-harness.js";
+import sessionInsightsPlugin from "../src/plugins/session-insights.js";
+import readmeGenPlugin from "../src/plugins/readme-gen.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -327,5 +329,46 @@ describe("Pi domain plugins", () => {
     const tool = tools.snapshot().customTools[0];
     await expect(tool.execute("call-1", { script: "rm -rf /" }, undefined, undefined, {} as never)).rejects.toThrow(/not allowed/);
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "test-harness-panel", data: { allowedScripts: expect.arrayContaining(["test", "build"]) } }]);
+  });
+
+  test("publishes native session usage statistics without duplicating session storage", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const report = {
+      sessionId: "session-1",
+      userMessages: 2,
+      assistantMessages: 2,
+      toolCalls: 1,
+      toolResults: 1,
+      totalMessages: 4,
+      tokens: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30 },
+      cost: 0.01,
+      contextUsage: { tokens: 30, contextWindow: 1000, percent: 3 },
+    };
+    context.provide("piRuntime", { session: { getSessionStats: () => report } } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(sessionInsightsPlugin);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "session-insights-panel", data: report }]);
+    await expect(tools.snapshot().customTools[0].execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: report });
+  });
+
+  test("generates a README report without overwriting project files", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await writeFile(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "demo", version: "1.2.3", description: "Demo project", scripts: { test: "vitest", build: "tsc" } }),
+      "utf8",
+    );
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(readmeGenPlugin);
+    const result = await tools.snapshot().customTools[0].execute("call-1", {}, undefined, undefined, {} as never);
+    expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("# demo") });
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining("npm run test") });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "readme-gen-panel", data: { generated: true, name: "demo", scripts: 2 } }]);
   });
 });

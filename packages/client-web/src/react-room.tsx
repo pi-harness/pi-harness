@@ -65,6 +65,8 @@ const capability = (name: string): string => {
     ["dependency-checker", "工程诊断"],
     ["at-file", "文件上下文"],
     ["test-harness", "测试"],
+    ["session-insights", "会话统计"],
+    ["readme-gen", "文档生成"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -85,6 +87,8 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/at-file", "@file context"],
     ["@pi-harness/core/plugins/fail-logger", "Failure Logger"],
     ["@pi-harness/core/plugins/test-harness", "Test Harness"],
+    ["@pi-harness/core/plugins/session-insights", "Session Insights"],
+    ["@pi-harness/core/plugins/readme-gen", "README Generator"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -886,6 +890,50 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 ))
               : null}
           </div>
+        </div>
+      ) : panel.id === "session-insights-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {(() => {
+            const tokens = data?.tokens !== null && typeof data?.tokens === "object" ? (data.tokens as Record<string, unknown>) : {};
+            const usage = data?.contextUsage !== null && typeof data?.contextUsage === "object" ? (data.contextUsage as Record<string, unknown>) : {};
+            return (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ["消息", data?.totalMessages ?? 0],
+                    ["工具调用", data?.toolCalls ?? 0],
+                    ["成本", `$${Number(data?.cost ?? 0).toFixed(4)}`],
+                  ].map(([label, item]) => (
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
+                      <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
+                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(item)}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-[#30343b]">上下文</span>
+                    <strong className="font-mono text-[12px] text-[#315fb8]">{String(usage.percent ?? "—")}%</strong>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#71809a]">
+                    {String(tokens.total ?? 0)} tracked tokens · 输入 {String(tokens.input ?? 0)} · 输出 {String(tokens.output ?? 0)}
+                  </p>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      ) : panel.id === "readme-gen-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.generated === true ? (
+            <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+              已生成 {String(data.name ?? "项目")} 的 README 概览：{String(data.scripts ?? 0)} 个脚本，{String(data.plugins ?? 0)} 个运行时插件。
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿。
+            </div>
+          )}
         </div>
       ) : panel.id === "fail-logger-panel" ? (
         <div className="mt-3 grid gap-3">

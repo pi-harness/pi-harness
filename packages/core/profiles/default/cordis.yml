@@ -44,6 +44,12 @@
     - id: test-harness
       name: "@pi-harness/core/plugins/test-harness"
       config: {}
+    - id: session-insights
+      name: "@pi-harness/core/plugins/session-insights"
+      config: {}
+    - id: readme-gen
+      name: "@pi-harness/core/plugins/readme-gen"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
