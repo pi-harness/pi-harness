@@ -1093,6 +1093,19 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       commands: commands.status === "fulfilled" ? commands.value : current.commands,
     }));
   }, [api, marketplaceCapability, marketplacePage, marketplaceQuery]);
+  const createNewSession = useCallback(async () => {
+    setPromptError("");
+    try {
+      await api.createSession();
+      setSettings(undefined);
+      setPage("session");
+      setView("chat");
+      setSessionMenuOpen(false);
+      await refresh();
+    } catch (cause: unknown) {
+      setPromptError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [api, refresh]);
   useEffect(() => {
     void refresh();
     const unsubscribe = api.subscribeEvents(() => void refresh());
@@ -1180,7 +1193,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </article>
           ))
         ) : (
-          <Workspace status={data.status} onCreate={() => void api.createSession().then(refresh)} onStarter={setDraft} onToml={() => setSettings("toml")} />
+          <Workspace status={data.status} onCreate={() => void createNewSession()} onStarter={setDraft} onToml={() => setSettings("toml")} />
         )}
         {events.map((event, index) => (
           <RuntimeCard event={event} key={`${value(event.type, "event")}-${index}`} />
@@ -1293,7 +1306,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <span className="version">0.9.4</span>
         </header>
         <div className="sidebar-actions">
-          <button className="new-session" onClick={() => void api.createSession().then(refresh)} type="button">
+          <button className="new-session" onClick={() => void createNewSession()} type="button">
             ＋ 新建会话
           </button>
           <input onChange={(event) => setSearch(event.target.value)} placeholder="搜索会话" type="search" value={search} />
@@ -1428,7 +1441,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 className="session-action"
                 onClick={() => {
                   setSessionMenuOpen(false);
-                  void api.createSession().then(refresh);
+                  void createNewSession();
                 }}
                 type="button"
               >
