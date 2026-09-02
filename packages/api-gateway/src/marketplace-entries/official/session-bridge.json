@@ -1,0 +1,16 @@
+{
+  "id": "session-bridge",
+  "packageName": "@pi-harness/core/plugins/session-bridge",
+  "version": "0.1.2",
+  "name": "Session Bridge",
+  "description": "Export and import bounded, reviewable session handoffs with model and attachment metadata.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "workflow", "label": "工作流" },
+  "capabilities": ["session handoff", "import/export"],
+  "hooks": ["session manager", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/session-bridge", "config": {} }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "dependency-checker",
+  "packageName": "@pi-harness/core/plugins/dependency-checker",
+  "version": "0.1.2",
+  "name": "Dependency Checker",
+  "description": "Compare declared and installed dependencies and report missing or invalid package versions.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "workflow", "label": "工作流" },
+  "capabilities": ["dependencies", "diagnostics", "package health"],
+  "hooks": ["workspace access", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/dependency-checker", "config": {} }
+}

@@ -14,6 +14,7 @@ import {
   MARKETPLACE_PLUGINS,
   paginateMarketplace,
   searchMarketplace,
+  needsMarketplacePackageInstall,
   type MarketplacePlugin,
 } from "./marketplace.js";
 import { parseGitWorktrees, type WorkspaceSummary } from "./workspaces.js";
@@ -855,8 +856,14 @@ export default {
           let profileBefore: string | undefined;
           let entryId: string | undefined;
           try {
-            await runProcess("npm", ["install", "--save-exact", "--package-lock=false", `${plugin.packageName}@${plugin.version}`], services.launch.cwd);
+            if (needsMarketplacePackageInstall(plugin)) {
+              await runProcess("npm", ["install", "--save-exact", "--package-lock=false", `${plugin.packageName}@${plugin.version}`], services.launch.cwd);
+            }
             profileBefore = await appendMarketplaceProfile(configPath, plugin);
+            if (!needsMarketplacePackageInstall(plugin)) {
+              sendJson(response, 200, { plugin, installed: false, restartRequired: true });
+              return;
+            }
             entryId = await loader.create({
               id: `marketplace-${plugin.id}`,
               name: plugin.packageName,

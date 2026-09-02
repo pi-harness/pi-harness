@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
@@ -473,6 +473,40 @@ describe("API gateway plugin", () => {
     expect(tooLong.status).toBe(400);
     const invalidPage = await fetch(context.webServer.url + "/api/marketplace?page=-1");
     expect(invalidPage.status).toBe(400);
+  });
+
+  test("writes bundled official plugin entries without invoking npm", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-install-"));
+    const configPath = join(cwd, "pi.toml");
+    await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-install-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd, agentDir: cwd, configPath, args: [], requestExit() {} });
+    let createCalled = false;
+    context.reflect.provide("loader", {
+      entries() {
+        return [];
+      },
+      create: () => {
+        createCalled = true;
+        return Promise.reject(new Error("bundled plugin must not be dynamically created"));
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/marketplace/install", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "skill-guard" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: false, restartRequired: true, plugin: { id: "skill-guard" } });
+    expect(createCalled).toBe(false);
+    await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/core/plugins/skill-guard"');
   });
 
   test("marks legacy random-id marketplace entries as removable", async () => {

@@ -1,0 +1,16 @@
+{
+  "id": "cost-meter",
+  "packageName": "@pi-harness/core/plugins/cost-meter",
+  "version": "0.1.2",
+  "name": "Cost Meter",
+  "description": "Track current-session, daily, and persisted model costs with optional budget thresholds.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "observability", "label": "可观测性" },
+  "capabilities": ["cost", "budget", "usage"],
+  "hooks": ["agent end", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/cost-meter", "config": { "dailyBudget": 0 } }
+}

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { MARKETPLACE_CAPABILITIES, MARKETPLACE_CATEGORIES, MARKETPLACE_PLUGINS, paginateMarketplace, searchMarketplace } from "../src/marketplace.js";
+import {
+  MARKETPLACE_CAPABILITIES,
+  MARKETPLACE_CATEGORIES,
+  MARKETPLACE_PLUGINS,
+  needsMarketplacePackageInstall,
+  paginateMarketplace,
+  searchMarketplace,
+} from "../src/marketplace.js";
 
 describe("plugin marketplace registry", () => {
   test("contains reviewable, uniquely identified entries", () => {
@@ -10,11 +17,38 @@ describe("plugin marketplace registry", () => {
     ).toBe(true);
   });
 
+  test("publishes the high-value official plugins in the same marketplace registry", () => {
+    const official = new Map(MARKETPLACE_PLUGINS.filter((plugin) => plugin.source === "official").map((plugin) => [plugin.id, plugin]));
+    expect(official.get("agent-teams")?.category.id).toBe("collaboration");
+    expect(official.get("plugin-stars")?.category.id).toBe("discovery");
+    expect(official.get("vision-toolkit")?.category.id).toBe("multimodal");
+    expect(official.get("session-bridge")?.category.id).toBe("workflow");
+    expect(official.get("skill-guard")?.category.id).toBe("security");
+    expect(official.get("cost-meter")?.category.id).toBe("observability");
+    expect(official.get("skill-catalog")?.category.id).toBe("discovery");
+    expect(official.get("prompt-guard")?.category.id).toBe("security");
+    expect(official.get("browser-fetch")?.category.id).toBe("web");
+    expect(official.get("web-research")?.category.id).toBe("web");
+    expect(official.get("mcp-client")?.category.id).toBe("tools");
+    expect(official.get("at-file")?.category.id).toBe("context");
+    expect(official.get("dependency-checker")?.category.id).toBe("workflow");
+    expect(official.get("token-guard")?.category.id).toBe("observability");
+  });
+
+  test("recognizes bundled core plugin subpaths without requiring an npm install", () => {
+    const bundled = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "skill-guard");
+    const external = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "cordis-timer");
+    expect(bundled).toBeDefined();
+    expect(external).toBeDefined();
+    expect(needsMarketplacePackageInstall(bundled!)).toBe(false);
+    expect(needsMarketplacePackageInstall(external!)).toBe(true);
+  });
+
   test("filters by query and capability without mutating the registry", () => {
     const result = searchMarketplace("timer", "scheduling");
     expect(result.map((plugin) => plugin.packageName)).toEqual(["@deepseek-ai/cordis-plugin-timer"]);
     expect(searchMarketplace("does-not-exist")).toEqual([]);
-    expect(MARKETPLACE_PLUGINS.length).toBe(3);
+    expect(MARKETPLACE_PLUGINS.length).toBeGreaterThan(3);
   });
 
   test("filters by a declared category independently from capabilities", () => {
@@ -26,7 +60,13 @@ describe("plugin marketplace registry", () => {
 
   test("loads one entry per file and paginates the filtered result", () => {
     const page = paginateMarketplace(searchMarketplace(), 1, 2);
-    expect(page).toEqual({ items: MARKETPLACE_PLUGINS.slice(2, 3), total: 3, page: 1, pageSize: 2, hasNext: false });
+    expect(page).toEqual({
+      items: MARKETPLACE_PLUGINS.slice(2, 4),
+      total: MARKETPLACE_PLUGINS.length,
+      page: 1,
+      pageSize: 2,
+      hasNext: MARKETPLACE_PLUGINS.length > 4,
+    });
     expect(MARKETPLACE_CAPABILITIES).toContain("scheduling");
   });
 });

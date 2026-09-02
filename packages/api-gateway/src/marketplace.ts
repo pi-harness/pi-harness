@@ -33,7 +33,7 @@ export interface MarketplaceCategory {
   readonly count: number;
 }
 
-const npmPackagePattern = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/;
+const npmPackagePattern = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+(?:\/[a-z0-9._~-]+)*$/;
 const entryIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const categoryIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -117,6 +117,10 @@ function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
 }
 
 export const MARKETPLACE_PLUGINS: readonly MarketplacePlugin[] = loadMarketplacePlugins();
+
+export function needsMarketplacePackageInstall(plugin: MarketplacePlugin): boolean {
+  return !plugin.packageName.startsWith("@pi-harness/core/plugins/");
+}
 
 export function searchMarketplace(query = "", capability = "", category = ""): readonly MarketplacePlugin[] {
   const normalizedQuery = query.trim().toLowerCase();

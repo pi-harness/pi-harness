@@ -168,7 +168,7 @@ export interface ClientApi {
   togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin }>;
   uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string }>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number, category?: string): Promise<ClientMarketplacePage>;
-  installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean }>;
+  installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean }>;
   listCommands(): Promise<readonly ClientCommand[]>;
   selectModel(provider: string, model: string): Promise<{ model: ClientModel }>;
   getConfig(): Promise<ClientPiConfig>;
@@ -309,7 +309,7 @@ export function createClientApi(): ClientApi {
         `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&category=${encodeURIComponent(category)}&page=${page}&pageSize=${pageSize}`,
       ),
     installMarketplace: (id) =>
-      requestJson<{ plugin: ClientMarketplacePlugin; installed: boolean }>("/api/marketplace/install", {
+      requestJson<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean }>("/api/marketplace/install", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id }),

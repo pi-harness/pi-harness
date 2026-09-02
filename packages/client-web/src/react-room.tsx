@@ -3029,15 +3029,18 @@ function Marketplace({
   onBack: () => void;
   onToml: () => void;
   installedPackages: ReadonlySet<string>;
-  onInstall: (plugin: ClientMarketplacePlugin) => Promise<void>;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
 }) {
   const [installing, setInstalling] = useState<string>();
   const [installError, setInstallError] = useState("");
+  const [installNotice, setInstallNotice] = useState("");
   const install = async (plugin: ClientMarketplacePlugin) => {
     setInstallError("");
+    setInstallNotice("");
     setInstalling(plugin.id);
     try {
-      await onInstall(plugin);
+      const result = await onInstall(plugin);
+      if (result.restartRequired === true) setInstallNotice("已写入 profile，重启 Pi Harness 后生效。");
     } catch (error) {
       setInstallError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -3173,6 +3176,7 @@ function Marketplace({
             ))}
             {!plugins.length && <div className="p-7 text-center text-[12px] text-[#81858c]">没有匹配的插件。</div>}
           </div>
+          {installNotice && <p className="mt-2 text-[11px] text-[#4176e6]">{installNotice}</p>}
           {installError && <p className="mt-2 text-[11px] text-[#ec1313]">安装失败：{installError}</p>}
           <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[11px] text-[#81858c]">
             <button
@@ -3219,16 +3223,19 @@ function MarketplaceDetail({
 }: {
   plugin: ClientMarketplacePlugin;
   installed: boolean;
-  onInstall: (plugin: ClientMarketplacePlugin) => Promise<void>;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
   onBack: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const install = async () => {
     setError("");
+    setNotice("");
     setBusy(true);
     try {
-      await onInstall(plugin);
+      const result = await onInstall(plugin);
+      if (result.restartRequired === true) setNotice("已写入 profile，重启 Pi Harness 后生效。");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -3284,6 +3291,7 @@ function MarketplaceDetail({
               </div>
             </div>
             <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">{plugin.description}</p>
+            {notice && <p className="mt-3 text-[12px] text-[#4176e6]">{notice}</p>}
             {error && <p className="mt-3 text-[12px] text-[#ec1313]">安装失败：{error}</p>}
           </header>
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -4678,8 +4686,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         installed={installedPackages.has(marketplaceDetail.packageName)}
         onBack={() => setMarketplacePluginId(undefined)}
         onInstall={async (plugin) => {
-          await api.installMarketplace(plugin.id);
+          const result = await api.installMarketplace(plugin.id);
           await refresh();
+          return result;
         }}
       />
     ) : (
@@ -4711,8 +4720,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         onToml={() => setSettings("toml")}
         installedPackages={installedPackages}
         onInstall={async (plugin) => {
-          await api.installMarketplace(plugin.id);
+          const result = await api.installMarketplace(plugin.id);
           await refresh();
+          return result;
         }}
       />
     )
