@@ -36,6 +36,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("recall-unread")?.category.id).toBe("workflow");
     expect(official.get("turn-rewind")?.category.id).toBe("workflow");
     expect(official.get("context-doctor")?.category.id).toBe("observability");
+    expect(official.get("history-compressor")?.category.id).toBe("context");
   });
 
   test("recognizes bundled core plugin subpaths without requiring an npm install", () => {
