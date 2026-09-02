@@ -130,6 +130,7 @@ const capability = (name: string): string => {
     ["better-sidebar", "侧栏概览"],
     ["archify", "架构地图"],
     ["mirage-bridge", "Mirage 虚拟终端"],
+    ["theme-studio", "主题"],
     ["reverse-skill", "技能隔离"],
     ["colleague-skill", "角色交接"],
     ["prompt-library", "提示词库"],
@@ -212,6 +213,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/better-sidebar", "Better Sidebar"],
     ["@pi-harness/core/plugins/archify", "Architecture Map"],
     ["@pi-harness/core/plugins/mirage-bridge", "Mirage Bridge"],
+    ["@pi-harness/core/plugins/theme-studio", "Theme Studio"],
     ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
     ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
     ["@pi-harness/core/plugins/prompt-library", "Prompt Library"],
@@ -3039,6 +3041,34 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           )}
         </div>
+      ) : panel.id === "theme-studio-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <div className="min-w-0">
+              <strong className="block text-[12px] text-[#30343b]">{value(data?.label ?? "Light")}</strong>
+              <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(data?.description ?? "")}</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-[#edf3fe] px-2 py-1 font-mono text-[10px] text-[#4176e6]">{value(data?.theme ?? "light")}</span>
+          </div>
+          {Array.isArray(data?.presets) ? (
+            <div className="grid grid-cols-2 gap-2">
+              {data.presets.map((preset, index) => {
+                const item = preset !== null && typeof preset === "object" ? (preset as Record<string, unknown>) : {};
+                const selected = item.id === data.theme;
+                return (
+                  <div
+                    className={`rounded-lg border px-3 py-2 ${selected ? "border-[#9bbcff] bg-[#f6f8ff]" : "border-[#edf0f3] bg-white"}`}
+                    key={`${value(item.id ?? "theme")}-${index}`}
+                  >
+                    <strong className="block text-[11px] text-[#30343b]">{value(item.label ?? item.id ?? "主题")}</strong>
+                    <span className="mt-1 block truncate text-[10px] text-[#8a949f]">{value(item.description ?? "")}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          <p className="text-[10px] leading-4 text-[#8a949f]">可让 Agent 调用 theme_set 切换预设；选择会保存到当前 session，并由 React 根节点应用 token。</p>
+        </div>
       ) : panel.id === "mirage-bridge-panel" ? (
         <div className="mt-3 grid gap-3">
           <div
@@ -5812,13 +5842,26 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     betterSidebarPanel?.data !== null && typeof betterSidebarPanel?.data === "object" && !Array.isArray(betterSidebarPanel?.data)
       ? (betterSidebarPanel.data as Record<string, unknown>)
       : undefined;
+  const themeStudioPanel = data.pluginPanels.find((panel) => panel.id === "theme-studio-panel");
+  const themeStudioData =
+    themeStudioPanel?.data !== null && typeof themeStudioPanel?.data === "object" && !Array.isArray(themeStudioPanel?.data)
+      ? (themeStudioPanel.data as Record<string, unknown>)
+      : undefined;
+  const themeStyle = useMemo(() => {
+    if (!themeStudioData?.tokens || typeof themeStudioData.tokens !== "object" || Array.isArray(themeStudioData.tokens)) return undefined;
+    const tokens = Object.entries(themeStudioData.tokens as Record<string, unknown>).filter(
+      ([key, token]) => key.startsWith("--") && typeof token === "string",
+    );
+    return tokens.length ? Object.fromEntries(tokens) : undefined;
+  }, [themeStudioData]);
+  const activeTheme = typeof themeStudioData?.theme === "string" ? themeStudioData.theme : undefined;
   const useCommand = (value: string) => {
     setDraft(value);
     setCommandOpen(false);
     setCommandQuery("");
   };
   return (
-    <div className="app-frame">
+    <div className="app-frame" data-theme={activeTheme} style={themeStyle}>
       <aside className="sidebar">
         <header className="brand-row">
           <span className="pi-mark" aria-hidden="true">
