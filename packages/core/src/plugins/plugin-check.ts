@@ -8,6 +8,16 @@ import { parse } from "yaml";
 const maxScanEntries = 50;
 const packageNamePattern = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/u;
 const coreRowIds = new Set(["tools", "session", "llm", "web", "permission", "agent"]);
+const ignoredScanDirectories = new Set([".git", "node_modules", ".pi", "dist", "build"]);
+
+export function isPluginRepositoryName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    !ignoredScanDirectories.has(name) &&
+    !name.startsWith(".") &&
+    (name.startsWith("dsh-") || name.startsWith("pi-") || name.endsWith("-plugin"))
+  );
+}
 const schemaChecks = [
   { code: "no-manifest", label: "package.json exists and is valid JSON" },
   { code: "invalid-name-format", label: "package name follows npm naming rules" },
@@ -116,7 +126,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
       addIssue(checks, "malformed-patch", "failed", "patch could not be parsed: " + (error instanceof Error ? error.message : String(error)));
     }
   }
-  if (/dsh\s+plugin\s+--profile\s+\S+\s+add/iu.test(readme))
+  if (/(?:dsh|pi)\s+plugin\s+--profile\s+\S+\s+add/iu.test(readme))
     checks.push({ code: "missing-profile-install-example", status: "passed", message: "README has a profile install example" });
   else addIssue(checks, "missing-profile-install-example", "warning", "README has no standard profile install example");
   if (/(?:git\s+apply|cp\s+.*(?:monorepo|src\/)|modify\s+.*core)/iu.test(readme))
@@ -137,7 +147,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   if (errors.some((entry) => entry.code === "no-patch" || entry.code === "malformed-patch"))
     suggestions.push("Add a valid runtime patch sequence with a unique plugin row id.");
   if (warnings.some((entry) => entry.code === "missing-profile-install-example"))
-    suggestions.push("Document the standard dsh plugin --profile web add installation command.");
+    suggestions.push("Document the standard pi plugin --profile web add installation command.");
   const verdict = errors.length > 0 || (strict && warnings.length > 0) ? "fail" : warnings.length > 0 ? "warn" : "pass";
   const passed = checks.filter((check) => check.status === "passed").length;
   return {
@@ -174,7 +184,7 @@ export default {
       }
       const entries = await readdir(target, { withFileTypes: true });
       const candidates = entries
-        .filter((entry) => entry.isDirectory() && entry.name.startsWith("dsh-"))
+        .filter((entry) => entry.isDirectory() && isPluginRepositoryName(entry.name))
         .slice(0, scanLimit)
         .map((entry) => join(target, entry.name));
       const reports = await Promise.all(candidates.map((candidate) => checkRepository(candidate, strict)));
@@ -185,8 +195,8 @@ export default {
       defineTool({
         name: "plugin_check",
         label: "Check plugins",
-        description: "Read-only health checks for DSH plugin repositories; never modifies or builds the inspected path.",
-        promptSnippet: "check a DSH plugin repository",
+        description: "Read-only health checks for Pi Harness plugin repositories; never modifies or builds the inspected path.",
+        promptSnippet: "check a Pi Harness plugin repository",
         parameters: Type.Object({
           action: Type.Union(["check", "scan", "schema"]),
           path: Type.Optional(Type.String({ description: "Repository path for check, parent directory for scan" })),
