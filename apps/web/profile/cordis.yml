@@ -199,6 +199,9 @@
     - id: turn-rewind
       name: "@pi-harness/core/plugins/turn-rewind"
       config: {}
+    - id: session-export
+      name: "@pi-harness/core/plugins/session-export"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:

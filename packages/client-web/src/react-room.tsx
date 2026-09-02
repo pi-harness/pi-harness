@@ -119,6 +119,7 @@ const capability = (name: string): string => {
     ["skill-guard", "Skill 安全"],
     ["recall-unread", "会话召回"],
     ["turn-rewind", "会话回退"],
+    ["session-export", "会话导出"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -189,6 +190,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/skill-guard", "Skill Guard"],
     ["@pi-harness/core/plugins/recall-unread", "Recall Unread"],
     ["@pi-harness/core/plugins/turn-rewind", "Turn Rewind"],
+    ["@pi-harness/core/plugins/session-export", "Session Export"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1144,6 +1146,26 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           </div>
           {data?.lastError ? <p className="text-[11px] text-[#b42318]">最近错误：{value(data.lastError)}</p> : null}
+        </div>
+      ) : panel.id === "session-export-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              return (
+                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">最近导出</span>
+                  <code className="mt-2 block truncate text-[11px] text-[#315fb8]">{value(latest.path ?? "pi-session.md")}</code>
+                  <p className="mt-1 text-[10px] text-[#65707b]">
+                    {value(latest.messages ?? 0)} 条消息 · {value(latest.bytes ?? 0)} bytes
+                  </p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有导出当前会话。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">导出文件只允许写入当前工作区内的 .md 路径，覆盖已有文件需要显式确认。</p>
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
