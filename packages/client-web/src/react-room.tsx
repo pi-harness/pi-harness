@@ -125,6 +125,7 @@ const capability = (name: string): string => {
     ["llm-verifier", "模型校验"],
     ["module-search", "模块检索"],
     ["workspace-navigator", "工作区导航"],
+    ["better-sidebar", "侧栏概览"],
     ["reverse-skill", "技能隔离"],
     ["colleague-skill", "角色交接"],
     ["prompt-library", "提示词库"],
@@ -204,6 +205,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/llm-verifier", "LLM Verifier"],
     ["@pi-harness/core/plugins/module-search", "Module Search"],
     ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
+    ["@pi-harness/core/plugins/better-sidebar", "Better Sidebar"],
     ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
     ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
     ["@pi-harness/core/plugins/prompt-library", "Prompt Library"],
@@ -1313,6 +1315,42 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入符号名后显示模块检索结果。</div>
           )}
         </div>
+      ) : panel.id === "better-sidebar-panel" ? (
+        (() => {
+          const changedFiles = Array.isArray(data?.changedFiles) ? data.changedFiles : [];
+          const clean = data?.clean === true;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data?.cwd ?? "当前工作区")}</code>
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${clean ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                  >
+                    {clean ? "clean" : `${value(data?.changedCount ?? changedFiles.length)} 个变更`}
+                  </span>
+                </div>
+                <p className="mt-2 font-mono text-[10px] text-[#65707b]">{value(data?.summary ?? "等待工作区扫描")}</p>
+                <p className="mt-1 text-[10px] text-[#8a949f]">
+                  会话 {value(data?.sessionId ?? "—")} · 目录 {value(data?.directoryCount ?? 0)} · 文件 {value(data?.fileCount ?? 0)}
+                </p>
+              </div>
+              {changedFiles.length > 0 ? (
+                <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                  {changedFiles.slice(0, 8).map((item, index) => {
+                    const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                    return (
+                      <code className="truncate py-0.5 text-[10px] text-[#65707b]" key={`${value(entry.path ?? "file")}-${index}`}>
+                        {value(entry.status ?? "??")} {value(entry.path ?? "未命名")}
+                      </code>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {data?.truncated === true ? <p className="text-[10px] text-[#8a949f]">目录摘要已截断，执行 sidebar_overview 获取最新概览。</p> : null}
+            </div>
+          );
+        })()
       ) : panel.id === "workspace-navigator-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.latest && typeof data.latest === "object" ? (
@@ -5494,6 +5532,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const groups = sessionGroups(filteredSessions);
   const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
   const visibleCommands = filterCommands(data.commands, commandQuery);
+  const betterSidebarPanel = data.pluginPanels.find((panel) => panel.id === "better-sidebar-panel");
+  const betterSidebarData =
+    betterSidebarPanel?.data !== null && typeof betterSidebarPanel?.data === "object" && !Array.isArray(betterSidebarPanel?.data)
+      ? (betterSidebarPanel.data as Record<string, unknown>)
+      : undefined;
   const useCommand = (value: string) => {
     setDraft(value);
     setCommandOpen(false);
@@ -5815,6 +5858,32 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 下一页
               </button>
             </div>
+          )}
+          {betterSidebarData && (
+            <section aria-label="工作区概览" className="mx-3 mt-3 rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <strong className="text-[11px] font-semibold text-[#253044]">工作区概览</strong>
+                <span
+                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean === true ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                >
+                  {betterSidebarData.clean === true ? "clean" : `${value(betterSidebarData.changedCount ?? 0)} 变更`}
+                </span>
+              </div>
+              <code className="mt-2 block truncate text-[10px] text-[#315fb8]">{value(betterSidebarData.cwd ?? "当前工作区")}</code>
+              <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{value(betterSidebarData.branch ?? "非 Git 工作区")}</p>
+              {Array.isArray(betterSidebarData.changedFiles) && betterSidebarData.changedFiles.length > 0 ? (
+                <div className="mt-2 grid gap-1 border-t border-[#dce5f5] pt-2">
+                  {betterSidebarData.changedFiles.slice(0, 3).map((item, index) => {
+                    const file = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                    return (
+                      <code className="truncate text-[9px] text-[#65707b]" key={`${value(file.path ?? "file")}-${index}`}>
+                        {value(file.status ?? "??")} {value(file.path ?? "未命名")}
+                      </code>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
           )}
         </div>
         <footer className="sidebar-footer">
