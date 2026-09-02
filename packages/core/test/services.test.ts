@@ -19,6 +19,7 @@ import toolsPlugin from "../src/plugins/tools.js";
 import contextPlugin from "../src/plugins/context.js";
 import agentTeamsPlugin from "../src/plugins/agent-teams.js";
 import pluginDevPlugin from "../src/plugins/plugin-dev.js";
+import openPetsPlugin from "../src/plugins/openpets.js";
 import modlensPlugin from "../src/plugins/modlens.js";
 import tokenGuardPlugin from "../src/plugins/token-guard.js";
 import gitTimeCapsulePlugin from "../src/plugins/git-time-capsule.js";
@@ -502,6 +503,31 @@ describe("Pi domain plugins", () => {
     });
     expect(reloads).toBe(1);
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "plugin-dev-panel", data: { status: "reloaded" } }]);
+  });
+
+  test("reacts to Pi session events with a durable OpenPets companion state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/openpets", data }),
+      },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(openPetsPlugin);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "openpets-panel", data: { mood: "focused" } }]);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("pet-1", { action: "feed" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { mood: "happy", energy: 100 },
+    });
+    expect(entries).toHaveLength(2);
   });
 
   test("attaches an in-workspace image through the modlens tool", async () => {

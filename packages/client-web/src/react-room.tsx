@@ -108,6 +108,8 @@ const capability = (name: string): string => {
     ["anchored-standard", "轨迹锚定"],
     ["telemetry-blocker", "遥测拦截"],
     ["change-verifier", "变更门禁"],
+    ["plugin-dev", "插件开发"],
+    ["openpets", "桌面伙伴"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -170,6 +172,8 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/anchored-standard", "Anchored Standard"],
     ["@pi-harness/core/plugins/telemetry-blocker", "Telemetry Blocker"],
     ["@pi-harness/core/plugins/change-verifier", "Change Verifier"],
+    ["@pi-harness/core/plugins/plugin-dev", "Plugin Dev"],
+    ["@pi-harness/core/plugins/openpets", "OpenPets"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -2160,6 +2164,26 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
           <p className="text-[10px] text-[#8a949f]">{value(data?.reason ?? "修改本地扩展后调用 plugin_dev_reload")}</p>
           {data?.error ? <p className="rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{value(data.error)}</p> : null}
+        </div>
+      ) : panel.id === "openpets-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center gap-3 rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#dceaff] text-[20px] text-[#4176e6]">◉</span>
+            <div className="min-w-0 flex-1">
+              <strong className="block truncate text-[13px] text-[#30343b]">{value(data?.name ?? "Pi")}</strong>
+              <span className="text-[10px] text-[#8a949f]">{value(data?.lastEvent ?? "session_start")}</span>
+            </div>
+            <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{value(data?.mood ?? "idle")}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              能量 <strong className="ml-1 text-[#30343b]">{value(data?.energy ?? 0)}%</strong>
+            </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              互动 <strong className="ml-1 text-[#30343b]">{value(data?.interactions ?? 0)}</strong>
+            </div>
+          </div>
+          <p className="text-[10px] text-[#8a949f]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
         </div>
       ) : panel.id === "change-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
