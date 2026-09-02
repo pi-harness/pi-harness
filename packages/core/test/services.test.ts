@@ -41,6 +41,8 @@ import obsidianSyncPlugin from "../src/plugins/obsidian-sync.js";
 import contextDoctorPlugin from "../src/plugins/context-doctor.js";
 import historyCompressorPlugin from "../src/plugins/history-compressor.js";
 import reviewerBotPlugin from "../src/plugins/reviewer-bot.js";
+import autoModePlugin from "../src/plugins/auto-mode.js";
+import planExecutePlugin from "../src/plugins/plan-execute.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -612,6 +614,58 @@ describe("Pi domain plugins", () => {
     });
     await expect((await import("node:fs/promises")).readFile(join(cwd, "app.ts"), "utf8")).resolves.toContain("value = 2");
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "reviewer-bot-panel", data: { latest: { status: "warning", changedFiles: 1 } } }]);
+  });
+
+  test("executes safe argv commands and blocks risky auto-mode commands without confirmation", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec");
+    expect(tool).toBeDefined();
+    await expect(tool!.execute("call-1", { command: ["node", "-e", "process.stdout.write('ok')"] }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { allowed: true, exitCode: 0, stdout: "ok" },
+    });
+    await expect(tool!.execute("call-2", { command: ["rm", "-f", "file"] }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/);
+    await expect(tool!.execute("call-3", { command: ["sh", "-c", "echo bad"], confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /shell wrapper/iu,
+    );
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "auto-mode-panel", data: { mode: "safe", blocked: 2, last: { allowed: true } } }]);
+  });
+
+  test("creates and advances a plan through the plan-execute plugin", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(planExecutePlugin);
+    const create = tools.snapshot().customTools.find((candidate) => candidate.name === "plan_create");
+    const advance = tools.snapshot().customTools.find((candidate) => candidate.name === "plan_advance");
+    expect(create).toBeDefined();
+    expect(advance).toBeDefined();
+    await expect(
+      create!.execute("call-1", { title: "Ship feature", steps: ["Implement", "Verify"] }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: {
+        title: "Ship feature",
+        steps: [
+          expect.objectContaining({ id: 1, title: "Implement", status: "pending" }),
+          expect.objectContaining({ id: 2, title: "Verify", status: "pending" }),
+        ],
+      },
+    });
+    await expect(advance!.execute("call-2", { step: 1, status: "done" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: {
+        steps: [
+          { id: 1, status: "done" },
+          { id: 2, status: "pending" },
+        ],
+      },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "plan-execute-panel", data: { title: "Ship feature", completed: 1, total: 2 } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

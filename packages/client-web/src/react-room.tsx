@@ -81,6 +81,8 @@ const capability = (name: string): string => {
     ["context-doctor", "上下文诊断"],
     ["history-compressor", "历史压缩"],
     ["reviewer-bot", "代码审查"],
+    ["auto-mode", "安全执行"],
+    ["plan-execute", "计划执行"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -117,6 +119,8 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/context-doctor", "Context Doctor"],
     ["@pi-harness/core/plugins/history-compressor", "History Compressor"],
     ["@pi-harness/core/plugins/reviewer-bot", "Reviewer Bot"],
+    ["@pi-harness/core/plugins/auto-mode", "Auto Mode"],
+    ["@pi-harness/core/plugins/plan-execute", "Plan Execute"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1039,6 +1043,62 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               还没有审查当前改动。可让 Agent 调用 review_changes。
             </div>
+          )}
+        </div>
+      ) : panel.id === "auto-mode-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">{data?.mode === "confirm" ? "确认模式" : "安全模式"}</span>
+            <span className="font-mono text-[#65707b]">超时 {String(data?.timeoutMs ?? "—")} ms</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">阻断次数</span>
+              <strong className="mt-1 block text-[17px] text-[#30343b]">{String(data?.blocked ?? 0)} 次</strong>
+            </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">最近命令</span>
+              <strong className="mt-1 block truncate font-mono text-[11px] text-[#30343b]">
+                {data?.last && typeof data.last === "object" ? String((data.last as Record<string, unknown>).command ?? "—") : "—"}
+              </strong>
+            </div>
+          </div>
+          {data?.last && typeof data.last === "object" ? (
+            <pre className="max-h-32 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+              {String((data.last as Record<string, unknown>).stdout ?? "") || String((data.last as Record<string, unknown>).stderr ?? "无输出")}
+            </pre>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              尚未执行命令。Agent 可调用 auto_mode_exec。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "plan-execute-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+            <span className="truncate text-[11px] font-medium text-[#30343b]">{data?.title ? String(data.title) : "尚未创建计划"}</span>
+            <span className="font-mono text-[11px] text-[#4176e6]">
+              {String(data?.completed ?? 0)} / {String(data?.total ?? 0)}
+            </span>
+          </div>
+          {Array.isArray(data?.steps) && data.steps.length > 0 ? (
+            <ol className="grid gap-1.5">
+              {data.steps.map((step, index) => {
+                const item = step && typeof step === "object" ? (step as Record<string, unknown>) : {};
+                const status = String(item.status ?? "pending");
+                return (
+                  <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]" key={String(item.id ?? index)}>
+                    <span
+                      className={`h-2 w-2 rounded-full ${status === "done" ? "bg-[#32a35a]" : status === "in_progress" ? "bg-[#4176e6]" : status === "skipped" ? "bg-[#a0a7b0]" : "bg-[#d7dce2]"}`}
+                    />
+                    <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[#198754]" : "text-[#30343b]"}`}>{String(item.title ?? "步骤")}</span>
+                    <span className="font-mono text-[10px] text-[#8a949f]">{status}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">Agent 可调用 plan_create 创建执行计划。</div>
           )}
         </div>
       ) : panel.id === "readme-gen-panel" ? (

@@ -92,6 +92,12 @@
     - id: reviewer-bot
       name: "@pi-harness/core/plugins/reviewer-bot"
       config: {}
+    - id: auto-mode
+      name: "@pi-harness/core/plugins/auto-mode"
+      config: {}
+    - id: plan-execute
+      name: "@pi-harness/core/plugins/plan-execute"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
