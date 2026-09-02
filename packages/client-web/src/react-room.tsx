@@ -22,6 +22,7 @@ import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
 import { marketplaceCategoryTabs, readMarketplaceDetailId } from "./marketplace-navigation.js";
 import { pluginStarsRows } from "./plugin-stars-view.js";
+import { browserSessionTabs } from "./browser-session-view.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -3005,35 +3006,73 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">max:512KiB · read-only</span>
         </div>
       ) : panel.id === "browser-session-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.endpoint ?? "本地浏览器未连接")}</span>
-              <strong className="font-mono text-[12px] text-[#4176e6]">{value(Array.isArray(data?.tabs) ? data.tabs.length : 0)} tabs</strong>
+        (() => {
+          const tabs = Array.isArray(data?.tabs)
+            ? browserSessionTabs(
+                data.tabs.flatMap((tab): Array<{ targetId: string; title: string; url: string }> => {
+                  if (tab === null || typeof tab !== "object") return [];
+                  const item = tab as Record<string, unknown>;
+                  return typeof item.targetId === "string" && typeof item.url === "string"
+                    ? [{ targetId: item.targetId, title: typeof item.title === "string" ? item.title : "", url: item.url }]
+                    : [];
+                }),
+                8,
+              )
+            : [];
+          const latest =
+            data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
+          const latestAction = latest?.screenshot
+            ? "已截图"
+            : latest?.clicked === true
+              ? "已点击"
+              : latest?.text
+                ? "已读取"
+                : latest?.status === "navigated"
+                  ? "已导航"
+                  : undefined;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.endpoint ?? "本地浏览器未连接")}</span>
+                  <span
+                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.connected === true ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#fff4e5] text-[#b26a00]"}`}
+                  >
+                    {data?.connected === true ? "已连接" : "未连接"}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-[#8a949f]">Chrome DevTools Protocol · {tabs.length} 个可调试页面</p>
+                {data?.connected === false ? (
+                  <p className="mt-2 text-[11px] text-[#b42318]">请使用 remote-debugging-port 启动 Chrome。{value(data.error, "")}</p>
+                ) : null}
+              </div>
+              {latestAction ? (
+                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[11px]">
+                  <span className="text-[#65707b]">最近动作</span>
+                  <strong className="font-mono text-[#315fb8]">{latestAction}</strong>
+                </div>
+              ) : null}
+              {tabs.length > 0 ? (
+                <div className="grid gap-2">
+                  {tabs.map((tab) => (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={tab.targetId}>
+                      <strong className="block truncate text-[11px] text-[#30343b]">{tab.title}</strong>
+                      <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{tab.url}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有可调试的浏览器页面。</div>
+              )}
+              <div className="flex flex-wrap gap-2 text-[10px] text-[#8a949f]">
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">tabs</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">read</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">click</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">screenshot</span>
+              </div>
             </div>
-            <p className="mt-2 text-[11px] text-[#8a949f]">通过 Chrome DevTools Protocol 操作已启动浏览器，不执行页面外部脚本。</p>
-            {data?.connected === false ? (
-              <p className="mt-2 text-[11px] text-[#b42318]">未连接：请使用 remote-debugging-port 启动 Chrome。{value(data.error, "")}</p>
-            ) : null}
-          </div>
-          {Array.isArray(data?.tabs) && data.tabs.length > 0 ? (
-            <div className="grid gap-2">
-              {data.tabs.slice(0, 8).map((tab, index) => {
-                const item = typeof tab === "object" && tab !== null ? (tab as Record<string, unknown>) : {};
-                return (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${value(item.targetId ?? "tab")}-${index}`}>
-                    <strong className="block truncate text-[11px] text-[#30343b]">{value(item.title ?? "未命名页面")}</strong>
-                    <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{value(item.url, "")}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
-              没有可调试的浏览器页面。请使用 remote-debugging-port 启动 Chrome。
-            </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "mcp-client-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
