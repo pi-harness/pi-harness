@@ -128,6 +128,7 @@ const capability = (name: string): string => {
     ["module-search", "模块检索"],
     ["workspace-navigator", "工作区导航"],
     ["better-sidebar", "侧栏概览"],
+    ["archify", "架构地图"],
     ["reverse-skill", "技能隔离"],
     ["colleague-skill", "角色交接"],
     ["prompt-library", "提示词库"],
@@ -208,6 +209,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/module-search", "Module Search"],
     ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
     ["@pi-harness/core/plugins/better-sidebar", "Better Sidebar"],
+    ["@pi-harness/core/plugins/archify", "Architecture Map"],
     ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
     ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
     ["@pi-harness/core/plugins/prompt-library", "Prompt Library"],
@@ -2483,6 +2485,65 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           );
         })()
+      ) : panel.id === "archify-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const components = Array.isArray(report.components) ? report.components : [];
+              const dependencies = Array.isArray(report.dependencies) ? report.dependencies : [];
+              return (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      <span className="block text-[10px] text-[#8a949f]">组件</span>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(components.length)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      <span className="block text-[10px] text-[#8a949f]">外部依赖</span>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(dependencies.length)}</strong>
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    {components.slice(0, 8).map((entry, index) => {
+                      const component = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                      return (
+                        <div
+                          className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]"
+                          key={`${value(component.path ?? "component")}-${index}`}
+                        >
+                          <span className="h-2 w-2 rounded-full bg-[#4176e6]"></span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-[#30343b]">{value(component.path ?? "组件")}</span>
+                          <span className="font-mono text-[10px] text-[#8a949f]">{value(component.files ?? 0)} files</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {dependencies.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {dependencies.slice(0, 12).map((dependency, index) => (
+                        <span
+                          className="rounded-md border border-[#dce5f5] bg-[#f6f8ff] px-2 py-1 font-mono text-[10px] text-[#315fb8]"
+                          key={`${value(dependency)}-${index}`}
+                        >
+                          {value(dependency)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                    {value(report.mermaid, "")}
+                  </pre>
+                  {report.truncated === true ? <p className="text-[10px] text-[#b26a00]">扫描达到节点上限，架构图可能不完整。</p> : null}
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 architecture_map 生成当前工作区架构图。
+            </div>
+          )}
+        </div>
       ) : panel.id === "canvas-draw-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
