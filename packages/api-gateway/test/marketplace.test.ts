@@ -48,6 +48,11 @@ describe("plugin marketplace registry", () => {
     expect(official.get("test-harness")?.category.id).toBe("testing");
     expect(official.get("git-time-capsule")?.category.id).toBe("workflow");
     expect(official.get("yaml-validator")?.category.id).toBe("developer");
+    expect(official.get("browser-session")?.category.id).toBe("web");
+    expect(official.get("docker-sandbox")?.category.id).toBe("security");
+    expect(official.get("mock-server")?.category.id).toBe("tools");
+    expect(official.get("sql-lens")?.category.id).toBe("tools");
+    expect(official.get("i18n-pair")?.category.id).toBe("workflow");
   });
 
   test("recognizes bundled core plugin subpaths without requiring an npm install", () => {
