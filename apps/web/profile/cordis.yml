@@ -132,6 +132,9 @@
       name: "@pi-harness/core/plugins/cost-meter"
       config:
         dailyBudget: 0
+    - id: skill-catalog
+      name: "@pi-harness/core/plugins/skill-catalog"
+      config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}

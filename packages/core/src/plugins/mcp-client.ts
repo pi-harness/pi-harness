@@ -4,6 +4,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { PiMcpServerSnapshot } from "../services.js";
 
 type JsonObject = Record<string, unknown>;
 type McpTool = { name: string; description?: string; inputSchema?: unknown };
@@ -502,6 +503,22 @@ export default {
         },
       }),
     );
+    const serverSnapshot = (): PiMcpServerSnapshot[] => {
+      const running = [...servers.values()].map((server) => ({
+        id: server.id,
+        command: [...server.command],
+        status: server.status,
+        startedAt: server.startedAt,
+      }));
+      const active = new Set(running.map((server) => server.id));
+      return [
+        ...running,
+        ...[...configured.values()]
+          .filter((definition) => !active.has(definition.id))
+          .map((definition) => ({ id: definition.id, command: [...definition.command], status: "stopped", startedAt: 0 })),
+      ];
+    };
+    context.provide("piMcp", { snapshot: () => ({ servers: serverSnapshot() }) });
     const disposePanel = context.piPluginUi.register({
       id: "mcp-client-panel",
       pluginId: "@pi-harness/core/plugins/mcp-client",
@@ -514,12 +531,7 @@ export default {
         resources: latest?.resources ?? [],
         prompts: latest?.prompts ?? [],
         lastCall: latest?.lastCall ?? null,
-        servers: [
-          ...[...servers.values()].map((server) => ({ id: server.id, command: server.command, status: server.status, startedAt: server.startedAt })),
-          ...[...configured.values()]
-            .filter((definition) => !servers.has(definition.id))
-            .map((definition) => ({ id: definition.id, command: definition.command, status: "stopped", startedAt: 0 })),
-        ],
+        servers: serverSnapshot(),
       }),
     });
     context.effect(() => () => {

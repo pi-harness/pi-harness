@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
@@ -66,6 +66,7 @@ import pluginRadarPlugin from "../src/plugins/plugin-radar.js";
 import pluginCheckPlugin, { type PluginCheckScanReport } from "../src/plugins/plugin-check.js";
 import annotationPlugin from "../src/plugins/annotation.js";
 import costMeterPlugin from "../src/plugins/cost-meter.js";
+import skillCatalogPlugin from "../src/plugins/skill-catalog.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1879,5 +1880,37 @@ describe("Pi domain plugins", () => {
     if (panel === undefined) throw new Error("cost-meter-panel was not registered");
     expect((panel.data as { entries: unknown[] }).entries).toHaveLength(1);
     expect(await readFile(join(agentDir, "cost-meter.json"), "utf8")).toContain("session-1");
+  });
+
+  test("lists loaded skills and MCP servers without exposing write operations", async () => {
+    const { context, cwd } = await createContext();
+    const skillPath = join(cwd, ".pi", "skills", "review", "SKILL.md");
+    await mkdir(join(cwd, ".pi", "skills", "review"), { recursive: true });
+    await writeFile(skillPath, "---\nname: review\ndescription: Review code\n---\nReview the diff carefully.\n", "utf8");
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piResources", {
+      resourceLoader: {
+        getSkills: () => ({
+          skills: [
+            { name: "review", description: "Review code", filePath: skillPath, baseDir: dirname(skillPath), sourceInfo: {}, disableModelInvocation: false },
+          ],
+          diagnostics: [],
+        }),
+      },
+    } as never);
+    context.provide("piMcp", { snapshot: () => ({ servers: [{ id: "docs", command: ["node", "server.js"], status: "running", startedAt: 1 }] }) });
+    await context.plugin(skillCatalogPlugin, {});
+    const tool = tools.snapshot().customTools.find((entry) => entry.name === "skill_catalog");
+    if (tool === undefined) throw new Error("skill_catalog was not registered");
+    const list = await tool.execute("list", { action: "list", query: "review" }, undefined, undefined, {} as never);
+    expect(list.details).toMatchObject({ skills: [{ name: "review" }], total: 1 });
+    const read = await tool.execute("read", { action: "read", name: "review" }, undefined, undefined, {} as never);
+    expect(read.content[0]?.text).toContain("Review the diff carefully");
+    const mcp = await tool.execute("mcp", { action: "mcp" }, undefined, undefined, {} as never);
+    expect(mcp.details).toMatchObject({ servers: [{ id: "docs", status: "running" }] });
+    expect((await panels.snapshot())[0]).toMatchObject({ id: "skill-catalog-panel", data: { skillCount: 1, mcpCount: 1 } });
   });
 });

@@ -92,6 +92,7 @@ const capability = (name: string): string => {
     ["plugin-check", "插件体检"],
     ["annotation", "批注上下文"],
     ["cost-meter", "成本账本"],
+    ["skill-catalog", "技能目录"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -151,6 +152,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-check", "Plugin Check"],
     ["@pi-harness/core/plugins/annotation", "Annotations"],
     ["@pi-harness/core/plugins/cost-meter", "Cost Meter"],
+    ["@pi-harness/core/plugins/skill-catalog", "Skills Catalog"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1370,6 +1372,72 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
+            </div>
+          );
+        })()
+      ) : panel.id === "skill-catalog-panel" ? (
+        (() => {
+          const skills = Array.isArray(data?.skills) ? data.skills : [];
+          const servers = Array.isArray(data?.mcpServers) ? data.mcpServers : [];
+          const diagnostics = Array.isArray(data?.diagnostics) ? data.diagnostics : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">Skills</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.skillCount ?? 0)}</strong>
+                </div>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">MCP 服务器</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.mcpCount ?? 0)}</strong>
+                </div>
+              </div>
+              {skills.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {skills.slice(0, 8).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.name ?? "skill")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.name, "未命名技能")}</strong>
+                          <span className="rounded bg-[#f2f3f5] px-1.5 py-0.5 text-[9px] text-[#65707b]">{value(item.scope, "unknown")}</span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[10px] text-[#8a949f]">{value(item.description, "无描述")}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前运行时没有加载 Skill。</div>
+              )}
+              {servers.length > 0 ? (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-[#65707b]">MCP 状态</div>
+                  <ul className="grid gap-1.5">
+                    {servers.slice(0, 6).map((entry, index) => {
+                      const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                      const running = item.status === "running";
+                      return (
+                        <li
+                          className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                          key={`${value(item.id ?? "server")}-${index}`}
+                        >
+                          <span className="truncate font-mono text-[#65707b]">{value(item.id, "未命名服务器")}</span>
+                          <span className={`rounded px-1.5 py-0.5 ${running ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#f2f3f5] text-[#65707b]"}`}>
+                            {value(item.status, "unknown")}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+              {diagnostics.length > 0 ? (
+                <div className="rounded-lg border border-[#fff0c2] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a5a00]">
+                  资源诊断：{diagnostics.length} 条警告
+                </div>
+              ) : null}
+              <div className="text-[10px] text-[#9aa3ad]">只读查看 runtime 已加载的 Skill 与 MCP 状态；配置写入仍由各自插件负责。</div>
             </div>
           );
         })()
