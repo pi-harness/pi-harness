@@ -7,22 +7,28 @@ import { describe, expect, test } from "vitest";
 import { runCli, type CliEnvironment } from "../src/main.js";
 
 interface TestEnvironment extends CliEnvironment {
+  readonly stdin: Readable;
   readonly output: string[];
   readonly errors: string[];
   readonly forcedExitCodes: number[];
   emitSignal(signal: NodeJS.Signals): void;
 }
 
-function createEnvironment(cwd = process.cwd(), input = "", shutdownTimeoutMs = 5_000): TestEnvironment {
+function createEnvironment(cwd = process.cwd(), input: string | null = "", shutdownTimeoutMs = 5_000): TestEnvironment {
   const output: string[] = [];
   const errors: string[] = [];
   const forcedExitCodes: number[] = [];
   const signals = new Set<(signal: NodeJS.Signals) => void>();
+  const stdin = new Readable({ read() {} });
+  if (input !== null) {
+    if (input.length > 0) stdin.push(input);
+    stdin.push(null);
+  }
   return {
     cwd,
     agentDir: join(cwd, ".pi-agent-test"),
     version: "0.1.0-test",
-    stdin: Readable.from([input]),
+    stdin,
     stdout: new Writable({ write(chunk, _encoding, callback) { output.push(String(chunk)); callback(); } }),
     stderr: new Writable({ write(chunk, _encoding, callback) { errors.push(String(chunk)); callback(); } }),
     output,
@@ -140,6 +146,30 @@ describe("runCli", () => {
 
     await expect(result).resolves.toBe(143);
     expect(environment.forcedExitCodes).toEqual([143]);
+  });
+
+  test("forces the bin exit on a repeated signal instead of waiting for the shutdown deadline", async () => {
+    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piRuntime", { async abort() { return new Promise(() => {}); }, async dispose() {} }); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`);
+    const environment = createEnvironment(profile.directory, "", 60_000);
+    const result = runCli(["--config", profile.configPath], environment);
+    await waitForFileContent(join(profile.directory, "marker.txt"), "started");
+
+    environment.emitSignal("SIGINT");
+    environment.emitSignal("SIGINT");
+
+    expect(environment.forcedExitCodes).toEqual([130]);
+    expect(environment.errors.join("")).toContain("Received SIGINT again");
+    await expect(Promise.race([result, new Promise((resolve) => setTimeout(() => resolve("pending"), 200))])).resolves.toBe("pending");
+  });
+
+  test("does not exit with the restart code when the process is not supervised", async () => {
+    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { inject: ["piHarnessLaunch"], apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piApplication", { async run() { ctx.loader.exit(); return 0; } }); } };`);
+    const environment = createEnvironment(profile.directory);
+
+    const exitCode = await runCli(["--config", profile.configPath], environment);
+
+    expect(exitCode).toBe(0);
+    expect(environment.errors.join("")).toContain("not supervised");
   });
 
   test("returns a usage error for a missing config", async () => {

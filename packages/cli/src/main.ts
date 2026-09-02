@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
-import { bootHarness, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
+import { BUILTIN_PROFILES, bootHarness, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
 import { CliUsageError, parseLauncherArgs } from "./args.js";
 import { NodeStdio } from "./node-stdio.js";
 import { PI_HARNESS_RESTART_EXIT_CODE } from "./relaunch.js";
@@ -13,6 +13,7 @@ export interface CliEnvironment {
   readonly stdout: Writable;
   readonly stderr: Writable;
   readonly shutdownTimeoutMs: number;
+  readonly supervised?: boolean;
   forceExit(code: number): void;
   onSignal(listener: (signal: NodeJS.Signals) => void): () => void;
 }
@@ -29,6 +30,21 @@ async function settleWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<
   return result;
 }
 
+const HELP_TEXT = `Usage: pih [--profile <name> | --config <path>] [--dump-config] [--] [--prompt <text> | <prompt>]
+
+Launcher options (recognized before the first application argument):
+  --profile <name>   Built-in profile to boot; one of ${BUILTIN_PROFILES.join(", ")} (default: default)
+  --config <path>    Cordis entry-tree YAML or JSON to boot instead of a built-in profile
+  --dump-config      Print the resolved profile file and exit without importing any plugin
+  -h, --help         Print this message and exit
+  -v, --version      Print the launcher version and exit
+
+Every remaining argument, including a \`--\` separator, is passed unchanged to the active
+application plugin. The bundled stdio application reads its prompt from --prompt <text>,
+--prompt=<text>, a positional prompt, or stdin, and needs \`--\` before a prompt that starts
+with a dash.
+`;
+
 function signalExitCode(signal: NodeJS.Signals): number {
   return signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143;
 }
@@ -44,7 +60,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     return error instanceof CliUsageError ? 2 : 1;
   }
   if (invocation.mode === "help") {
-    environment.stdout.write("Usage: pih [--profile <name> | --config <path>] [--dump-config] [--] [--prompt <text> | <prompt>]\n");
+    environment.stdout.write(HELP_TEXT);
     return 0;
   }
   if (invocation.mode === "version") {
@@ -83,17 +99,29 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     signalledExit = resolve;
   });
   const startupAbort = new AbortController();
+  const stdio = new NodeStdio(environment.stdin, environment.stdout, environment.stderr);
+  let signalCount = 0;
   const removeSignals = environment.onSignal((signal) => {
     const code = signalExitCode(signal);
+    signalCount += 1;
+    if (signalCount > 1) {
+      environment.stderr.write(`Received ${signal} again; exiting immediately\n`);
+      forceExit(code);
+      return;
+    }
     signalledExit?.(code);
+    stdio.close();
     startupAbort.abort(new Error(`Received ${signal}`));
   });
   try {
-    const stdio = new NodeStdio(environment.stdin, environment.stdout, environment.stderr);
     const bootOutcome: Promise<BootOutcome> = bootHarness({
       configPath,
       signal: startupAbort.signal,
       onFullReload() {
+        if (environment.supervised !== true) {
+          environment.stderr.write("Cordis requested a full reload but this process is not supervised; restart the CLI to apply the change\n");
+          return;
+        }
         requestedExit?.(PI_HARNESS_RESTART_EXIT_CODE);
       },
       prepare(context) {
@@ -145,6 +173,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     return 1;
   } finally {
     removeSignals();
+    stdio.close();
     if (harness !== undefined) {
       const disposed = await settleWithin(harness.dispose().then(() => undefined, (error: unknown) => {
         environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);

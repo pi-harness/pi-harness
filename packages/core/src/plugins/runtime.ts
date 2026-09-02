@@ -2,6 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { createAgentSessionFromServices, createAgentSessionRuntime, type AgentSession, type CreateAgentSessionRuntimeFactory } from "@earendil-works/pi-coding-agent";
 import { PiRuntime } from "../runtime.js";
+import { assertKnownConfigKeys } from "../config.js";
 
 export interface RuntimePluginConfig {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -16,6 +17,7 @@ export default {
   inject: ["piModels", "piResources", "piSession", "piTools"],
   Config,
   async apply(context: Context, config: RuntimePluginConfig) {
+    assertKnownConfigKeys("pi-runtime", config, ["thinkingLevel"]);
     const tools = context.piTools.acquire();
     context.effect(() => () => tools.release());
     const requestedTools = [...tools.names, ...tools.customTools.map((tool) => tool.name)];
@@ -30,6 +32,10 @@ export default {
         tools: requestedTools,
         customTools: tools.customTools,
       });
+      if (result.extensionsResult.errors.length > 0) {
+        result.session.dispose();
+        throw new Error(`Pi extensions failed to load:\n${result.extensionsResult.errors.map((failure) => `${failure.path}: ${failure.error}`).join("\n")}`);
+      }
       return { ...result, services, diagnostics: services.diagnostics };
     };
     const sessionRuntime = await createAgentSessionRuntime(createRuntime, {
@@ -39,9 +45,6 @@ export default {
     });
     const runtime = new PiRuntime(sessionRuntime);
     const bindSession = async (session: AgentSession): Promise<void> => {
-      const activeTools = new Set(session.getAllTools().map((tool) => tool.name));
-      const missingTools = requestedTools.filter((name) => !activeTools.has(name));
-      if (missingTools.length > 0) throw new Error(`Pi tools are not registered: ${missingTools.join(", ")}`);
       await session.bindExtensions({
         mode: "print",
         abortHandler: () => {
@@ -51,23 +54,37 @@ export default {
           context.emit("pi/extension-error", error);
         },
       });
+      // Reconciled after binding so a tool an extension registers from session_start is visible here.
+      const activeTools = new Set(session.getAllTools().map((tool) => tool.name));
+      const missingTools = requestedTools.filter((name) => !activeTools.has(name));
+      if (missingTools.length > 0) throw new Error(`Pi tools are not registered: ${missingTools.join(", ")}`);
     };
-    context.provide("piRuntime", runtime);
     let unsubscribe: (() => void) | undefined;
     const rebindSession = async (session: AgentSession): Promise<void> => {
       unsubscribe?.();
       await bindSession(session);
       unsubscribe = session.subscribe((event) => {
-        context.emit("pi/session-event", event);
+        // A throwing listener must not unwind back into Pi's event dispatch and kill the run.
+        try {
+          context.emit("pi/session-event", event);
+        } catch (error) {
+          context.emit("pi/extension-error", { extensionPath: "pi/session-event", event: event.type, error: error instanceof Error ? error.message : String(error) });
+        }
       });
     };
-    sessionRuntime.setRebindSession(rebindSession);
-    await rebindSession(sessionRuntime.session);
-    context.effect(() => {
-      return async () => {
-        unsubscribe?.();
-        await runtime.dispose();
-      };
-    });
+    try {
+      context.effect(() => {
+        return async () => {
+          unsubscribe?.();
+          await runtime.dispose();
+        };
+      });
+      context.provide("piRuntime", runtime);
+      sessionRuntime.setRebindSession(rebindSession);
+      await rebindSession(sessionRuntime.session);
+    } catch (error) {
+      await runtime.dispose();
+      throw error;
+    }
   },
 };

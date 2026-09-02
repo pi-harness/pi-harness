@@ -7,7 +7,7 @@
 - id: hmr
   name: "@deepseek-ai/cordis-plugin-hmr"
   config:
-    base: !!js piHarnessLaunch.cwd
+    base: !!js piHarnessLaunch.cwdUrl
     root:
       - .
 - id: agent

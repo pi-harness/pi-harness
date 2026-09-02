@@ -2,17 +2,21 @@
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli, type CliEnvironment } from "./main.js";
 import { shouldRelaunchForDevelopmentProfile, superviseDevelopmentProcess } from "./relaunch.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
+const configuredAgentDir = process.env.PI_AGENT_DIR?.trim();
+const agentDir = configuredAgentDir === undefined || configuredAgentDir.length === 0 ? join(homedir(), ".pi", "agent") : resolve(configuredAgentDir);
+
 const environment: CliEnvironment = {
   cwd: process.cwd(),
-  agentDir: process.env.PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
+  agentDir,
   version: packageJson.version,
+  supervised: process.env.PI_HARNESS_SUPERVISED === "1",
   stdin: process.stdin,
   stdout: process.stdout,
   stderr: process.stderr,
@@ -35,7 +39,12 @@ const environment: CliEnvironment = {
 
 const args = process.argv.slice(2);
 if (shouldRelaunchForDevelopmentProfile(args, process.execArgv)) {
-  process.exitCode = await superviseDevelopmentProcess(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], { stdio: "inherit" });
+  try {
+    process.exitCode = await superviseDevelopmentProcess(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], { stdio: "inherit", env: { ...process.env, PI_HARNESS_SUPERVISED: "1" } });
+  } catch (error) {
+    process.stderr.write(`Pi Harness could not start the supervised development process: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 } else {
   process.exitCode = await runCli(args, environment);
 }

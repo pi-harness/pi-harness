@@ -1,3 +1,5 @@
+import { isAbsolute } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
 import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, AgentSessionServices, ExtensionError, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -5,6 +7,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export interface PiHarnessLaunch {
   readonly cwd: string;
+  readonly cwdUrl?: string;
   readonly agentDir: string;
   readonly args: readonly string[];
   requestExit(code: number): void;
@@ -46,6 +49,8 @@ export interface PiToolsLease extends PiToolsSnapshot {
   release(): void;
 }
 
+const PI_BUILTIN_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+
 export class PiToolRegistry {
   readonly #names: string[];
   readonly #customTools = new Map<string, ToolDefinition>();
@@ -58,9 +63,10 @@ export class PiToolRegistry {
   register(tool: ToolDefinition): () => void {
     if (this.#leases > 0) throw new Error(`Pi tool registry is leased by pi-runtime; declare a Cordis injection that activates ${tool.name} before pi-runtime`);
     if (this.#names.includes(tool.name) || this.#customTools.has(tool.name)) throw new Error(`Pi tool is already registered: ${tool.name}`);
+    if (PI_BUILTIN_TOOL_NAMES.includes(tool.name)) throw new Error(`Pi tool name is reserved by a built-in tool: ${tool.name}`);
     this.#customTools.set(tool.name, tool);
     return () => {
-      this.#customTools.delete(tool.name);
+      if (this.#customTools.get(tool.name) === tool) this.#customTools.delete(tool.name);
     };
   }
 
@@ -100,6 +106,8 @@ declare module "@deepseek-ai/cordis" {
 }
 
 export function provideLaunchContext(context: Context, launch: PiHarnessLaunch): () => void {
-  const value: PiHarnessLaunch = Object.freeze({ ...launch, args: Object.freeze([...launch.args]) });
+  if (!isAbsolute(launch.cwd)) throw new Error(`Pi Harness launch cwd must be an absolute path: ${launch.cwd}`);
+  if (!isAbsolute(launch.agentDir)) throw new Error(`Pi Harness agent directory must be an absolute path: ${launch.agentDir}`);
+  const value: PiHarnessLaunch = Object.freeze({ ...launch, cwdUrl: pathToFileURL(launch.cwd).href, args: Object.freeze([...launch.args]) });
   return context.provide("piHarnessLaunch", value);
 }
