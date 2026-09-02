@@ -1340,6 +1340,36 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   <p className="text-[10px] leading-4 text-[#8a949f]">
                     目录 {value(latest.directoryCount ?? 0)} 个，文件 {value(latest.fileCount ?? 0)} 个；跳过依赖和构建目录。
                   </p>
+                  {data?.git && typeof data.git === "object"
+                    ? (() => {
+                        const git = data.git as Record<string, unknown>;
+                        const entries = Array.isArray(git.entries) ? git.entries : [];
+                        const available = git.available === true;
+                        return (
+                          <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-medium text-[#253044]">Git 状态</span>
+                              <span className={`text-[10px] ${!available ? "text-[#8a949f]" : git.clean === true ? "text-[#198754]" : "text-[#b42318]"}`}>
+                                {!available ? "不可用" : git.clean === true ? "clean" : `${entries.length} 个变更`}
+                              </span>
+                            </div>
+                            {available ? <p className="mt-1 font-mono text-[10px] text-[#65707b]">{value(git.branch ?? "detached HEAD")}</p> : null}
+                            {entries.length > 0 ? (
+                              <div className="mt-2 grid gap-1">
+                                {entries.slice(0, 12).map((item, index) => {
+                                  const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                                  return (
+                                    <code className="truncate text-[10px] text-[#65707b]" key={`${value(entry.path ?? "file")}-${index}`}>
+                                      {value(entry.status ?? "??")} {value(entry.path ?? "未命名")}
+                                    </code>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()
+                    : null}
                 </>
               );
             })()
