@@ -6,7 +6,7 @@ type ReloadState = { status: "idle" | "reloaded" | "failed"; reason: string; rel
 
 export default {
   name: "pi-plugin-dev",
-  inject: ["piRuntime", "piPluginUi", "piTools"],
+  inject: ["piPluginUi", "piTools"],
   apply(context: Context) {
     let latest: ReloadState = { status: "idle", reason: "" };
     const unregisterTool = context.piTools.register(
@@ -19,7 +19,9 @@ export default {
         async execute(_toolCallId, params): Promise<AgentToolResult<ReloadState>> {
           const reason = params.reason?.trim() || "manual plugin reload";
           try {
-            await context.piRuntime.session.reload();
+            const runtime = context.get("piRuntime") as { session: { reload(): Promise<void> } } | undefined;
+            if (runtime === undefined) throw new Error("Pi runtime is not available; enable the runtime plugin before reloading");
+            await runtime.session.reload();
             latest = { status: "reloaded", reason, reloadedAt: new Date().toISOString() };
             return { content: [{ type: "text", text: `Pi plugins reloaded: ${reason}` }], details: latest };
           } catch (error) {

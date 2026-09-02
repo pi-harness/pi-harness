@@ -74,13 +74,13 @@
     - id: yaml-validator
       name: "@pi-harness/core/plugins/yaml-validator"
       config: {}
+    - id: plugin-dev
+      name: "@pi-harness/core/plugins/plugin-dev"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
         thinkingLevel: medium
-    - id: plugin-dev
-      name: "@pi-harness/core/plugins/plugin-dev"
-      config: {}
     - id: context
       name: "@pi-harness/core/plugins/context"
       config: {}
