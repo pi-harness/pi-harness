@@ -71,10 +71,10 @@ export default {
       defineTool({
         name: "session_tab_manage",
         label: "Session tabs",
-        description: "Pin, rename, remove, or list lightweight session tabs without deleting session files.",
+        description: "Pin, rename, activate, remove, or list lightweight session tabs without deleting session files.",
         promptSnippet: "organize open Pi sessions as named tabs",
         parameters: Type.Object({
-          action: Type.Union(["pin", "unpin", "rename", "remove", "list"]),
+          action: Type.Union(["pin", "unpin", "rename", "activate", "remove", "list"]),
           sessionPath: Type.Optional(Type.String()),
           label: Type.Optional(Type.String()),
         }),
@@ -83,6 +83,14 @@ export default {
           const targetPath = params.sessionPath?.trim() || active.sessionPath;
           const target = state.tabs.find((tab) => tab.sessionPath === targetPath);
           if (params.action === "list") return { content: [{ type: "text", text: `${state.tabs.length} session tab(s).` }], details: state };
+          if (params.action === "activate") {
+            if (target === undefined) throw new Error("Session tab not found");
+            state.activeId = target.id;
+            target.updatedAt = new Date().toISOString();
+            await persist(path, state);
+            writes += 1;
+            return { content: [{ type: "text", text: `Active session tab: ${target.label}` }], details: state };
+          }
           if (params.action === "remove") {
             if (target === undefined) throw new Error("Session tab not found");
             state.tabs = state.tabs.filter((tab) => tab !== target);
@@ -94,11 +102,16 @@ export default {
             target.label = label;
             target.updatedAt = new Date().toISOString();
             state.activeId = target.id;
-          } else {
+          } else if (params.action === "pin") {
             const tab = upsert(active.id, targetPath, params.label, params.action === "pin");
             await persist(path, state);
             writes += 1;
-            return { content: [{ type: "text", text: `${params.action === "pin" ? "Pinned" : "Unpinned"} session tab: ${tab.label}` }], details: tab };
+            return { content: [{ type: "text", text: `Pinned session tab: ${tab.label}` }], details: tab };
+          } else {
+            if (target === undefined) throw new Error("Session tab not found");
+            target.pinned = false;
+            target.updatedAt = new Date().toISOString();
+            state.activeId = target.id;
           }
           await persist(path, state);
           writes += 1;
