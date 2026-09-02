@@ -33,6 +33,8 @@ export class PiRuntime implements PiRuntimeService {
     this.#disposed = true;
     try {
       if (!this.session.isIdle) await this.session.abort();
+      const runner = this.session.extensionRunner;
+      if (runner.hasHandlers("session_shutdown")) await runner.emit({ type: "session_shutdown", reason: "quit" });
     } finally {
       this.#sessionDisposed = true;
       this.session.dispose();

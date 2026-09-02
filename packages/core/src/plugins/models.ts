@@ -28,6 +28,7 @@ export default {
       modelsPath: join(agentDir, "models.json"),
       modelsStorePath: join(agentDir, "models-store.json"),
       refreshOnCreate: config.refreshOnCreate ?? false,
+      allowModelNetwork: config.refreshOnCreate ?? false,
     });
     context.provide("piModelRuntime", { runtime, provider: config.provider, model: config.model });
   },

@@ -33,12 +33,6 @@ export default {
       session.dispose();
       throw new Error(`Pi extensions failed to load:\n${extensionsResult.errors.map((failure) => `${failure.path}: ${failure.error}`).join("\n")}`);
     }
-    const activeTools = new Set(session.getAllTools().map((tool) => tool.name));
-    const missingTools = requestedTools.filter((name) => !activeTools.has(name));
-    if (missingTools.length > 0) {
-      session.dispose();
-      throw new Error(`Pi tools are not registered: ${missingTools.join(", ")}`);
-    }
     const runtime = new PiRuntime(session);
     try {
       context.effect(() => {
@@ -64,6 +58,9 @@ export default {
           context.emit("pi/extension-error", error);
         },
       });
+      const activeTools = new Set(session.getAllTools().map((tool) => tool.name));
+      const missingTools = requestedTools.filter((name) => !activeTools.has(name));
+      if (missingTools.length > 0) throw new Error(`Pi tools are not registered: ${missingTools.join(", ")}`);
     } catch (error) {
       await runtime.dispose();
       throw error;

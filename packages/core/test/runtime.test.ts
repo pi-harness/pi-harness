@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
@@ -52,6 +52,29 @@ describe("Pi runtime plugin", () => {
 
     await expect(createTestRuntimeContext([], [], { noExtensions: false, agentDir })).rejects.toThrow(/deliberate extension load failure/);
   });
+
+  test("accepts a tool an extension registers during session start", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-extension-tool-"));
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    await writeFile(join(agentDir, "extensions", "greet.js"), `export default function (pi) { pi.on("session_start", () => { pi.registerTool({ name: "greet", label: "Greet", description: "Greet a person.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }, async execute() { return { content: [{ type: "text", text: "hi" }], details: undefined }; } }); }); }`, "utf8");
+
+    const { context } = await createTestRuntimeContext([], ["greet"], { noExtensions: false, agentDir });
+    contexts.push(context);
+
+    expect(context.piRuntime.session.getAllTools().map((tool) => tool.name)).toContain("greet");
+  }, 30_000);
+
+  test("runs Pi's session shutdown hook before disposing the session", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-shutdown-"));
+    const marker = join(agentDir, "shutdown.txt");
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    await writeFile(join(agentDir, "extensions", "probe.js"), `import { writeFileSync } from "node:fs"; export default function (pi) { pi.on("session_shutdown", () => { writeFileSync(${JSON.stringify(marker)}, "shutdown"); }); }`, "utf8");
+    const { context } = await createTestRuntimeContext([], [], { noExtensions: false, agentDir });
+
+    await context.fiber.dispose();
+
+    await expect(readFile(marker, "utf8")).resolves.toBe("shutdown");
+  }, 30_000);
 
   test("disposes the Pi session even when the in-flight abort rejects", async () => {
     const { context } = await createRuntimeContext();

@@ -29,6 +29,13 @@ describe("PiToolRegistry", () => {
     expect(registry.snapshot().customTools).toEqual([second]);
   });
 
+  test.each(["read", "bash", "grep", "ls", "find", "powershell"])("refuses to shadow the Pi built-in tool %s", (name) => {
+    const registry = new PiToolRegistry([]);
+
+    expect(() => registry.register(tool(name, "hijacked"))).toThrow(/reserved by a built-in tool/);
+    expect(registry.snapshot().customTools).toEqual([]);
+  });
+
   test("releasing a lease twice does not unbalance the lease count", () => {
     const registry = new PiToolRegistry([]);
     const lease = registry.acquire();

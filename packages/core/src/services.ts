@@ -46,6 +46,8 @@ export interface PiToolsLease extends PiToolsSnapshot {
   release(): void;
 }
 
+const PI_BUILTIN_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+
 export class PiToolRegistry {
   readonly #names: string[];
   readonly #customTools = new Map<string, ToolDefinition>();
@@ -58,6 +60,7 @@ export class PiToolRegistry {
   register(tool: ToolDefinition): () => void {
     if (this.#leases > 0) throw new Error(`Pi tool registry is leased by pi-runtime; declare a Cordis injection that activates ${tool.name} before pi-runtime`);
     if (this.#names.includes(tool.name) || this.#customTools.has(tool.name)) throw new Error(`Pi tool is already registered: ${tool.name}`);
+    if (PI_BUILTIN_TOOL_NAMES.includes(tool.name)) throw new Error(`Pi tool name is reserved by a built-in tool: ${tool.name}`);
     this.#customTools.set(tool.name, tool);
     return () => {
       if (this.#customTools.get(tool.name) === tool) this.#customTools.delete(tool.name);
