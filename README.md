@@ -72,7 +72,7 @@ A custom profile that mounts `@deepseek-ai/cordis-plugin-hmr` must start the CLI
 
 Profiles are YAML arrays of Cordis Loader entries. Every entry needs a stable `id`, a module `name`, and optional `config`, `inject`, `group`, or `disabled` fields. IDs must be unique across the complete entry tree because Cordis groups share their owning tree's entry store.
 
-Bare module specifiers resolve from the directory containing the profile. Keep project profiles in a package that installs every referenced plugin. Relative specifiers resolve from the same directory.
+Bare module specifiers resolve from the directory containing the profile, so a project profile can name any plugin installed in that project. Relative specifiers resolve from the same directory. Ids must be unique across the complete entry tree, and a collision fails startup rather than silently dropping one of the colliding entries.
 
 Pi Harness reads and hot-refreshes profile files but does not persist Loader mutations back into them. This prevents an activation rollback from rewriting a source profile; edit the YAML directly to make changes.
 
@@ -115,7 +115,9 @@ This uses Cordis injection for deterministic ordering. A late contribution fails
 
 - A profile can load arbitrary Node.js modules. Treat profile files and plugin packages as executable code.
 - Missing modules, invalid configuration, unresolved injections, model lookup failures, and plugin activation failures abort startup and dispose the partial tree. Configuration validation rejects unknown keys, so a mistyped `name:` in place of `names:` fails startup instead of silently restoring a default toolset.
-- The runtime does not fall back to a different model or storage backend.
+- The runtime does not fall back to a different model or storage backend. A Pi extension that fails to load aborts startup instead of leaving the agent with a silently reduced tool set.
+- The bundled stdio application writes the assistant's answer to stdout and everything else to stderr: one line per tool execution, one per failed tool, and one per provider retry. A run that produces no assistant text, or whose response is truncated by the model's output limit, exits non-zero.
+- A closed stdout (`pih ... | head`) stops output without killing the process, so the Cordis tree is still disposed.
 - Signals cancel startup or abort the active Pi run before the Cordis tree is disposed. Runtime abort and root disposal have a five-second deadline, after which the executable forces the signal-compatible exit code. A repeated signal during that window forces the exit immediately. A pending prompt read is cancelled too, so a signal never leaves the process alive holding an open stdin pipe, and cancelling the interactive prompt with Ctrl-C exits 130 rather than the usage code 2.
 - The production profile excludes HMR. Development HMR grants access to Node internal ESM loader APIs only in the relaunched development process.
 - Existing Pi resources and extensions under `PI_AGENT_DIR` participate in startup and shutdown. Use an isolated agent directory for deterministic tests.
