@@ -825,9 +825,18 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 const task = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 return (
                   <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${value(task.id ?? "task")}-${index}`}>
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</span>
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</span>
+                      {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
+                        <span className="mt-0.5 block truncate font-mono text-[9px] text-[#9aa3ad]">依赖：{task.dependsOn.join(", ")}</span>
+                      ) : null}
+                    </div>
                     <span className="text-[10px] text-[#8a949f]">{value(task.assignee ?? "unassigned")}</span>
-                    <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{value(task.status ?? "todo")}</span>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[#fff4e5] text-[#b26a00]" : task.status === "done" ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#edf3fe] text-[#4176e6]"}`}
+                    >
+                      {value(task.status ?? "todo")}
+                    </span>
                   </div>
                 );
               })

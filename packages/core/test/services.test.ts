@@ -436,10 +436,30 @@ describe("Pi domain plugins", () => {
     await expect(tool.execute("call-1", { action: "add_task", title: "Review plugin manifest" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       content: [{ text: "Task task-1 created." }],
     });
+    await expect(
+      tool.execute("call-2", { action: "add_task", title: "Run integration checks", dependsOn: ["task-1"] }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { item: { id: "task-2", status: "blocked", dependsOn: ["task-1"] } } });
+    await expect(tool.execute("call-3", { action: "update_task", id: "task-1", status: "done" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { item: { id: "task-1", status: "done" } },
+    });
     await expect(panels.snapshot()).resolves.toMatchObject([
-      { id: "agent-teams-panel", data: { tasks: [{ title: "Review plugin manifest", status: "todo" }] } },
+      { id: "agent-teams-panel", data: { tasks: [{ status: "done" }, { id: "task-2", status: "todo" }] } },
     ]);
-    expect(entries).toHaveLength(1);
+    await expect(tool.execute("call-4", { action: "claim_task", assignee: "builder" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { item: { id: "task-2", status: "in_progress", assignee: "builder" } },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        id: "agent-teams-panel",
+        data: {
+          tasks: [
+            { title: "Review plugin manifest", status: "done" },
+            { title: "Run integration checks", status: "in_progress" },
+          ],
+        },
+      },
+    ]);
+    expect(entries).toHaveLength(4);
   });
 
   test("attaches an in-workspace image through the modlens tool", async () => {
