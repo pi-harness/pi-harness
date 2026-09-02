@@ -3,6 +3,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { PiMcpServerSnapshot } from "../services.js";
+import { buildSkillInjection, type SkillInjection } from "./reverse-skill.js";
 
 const maxQueryLength = 120;
 const maxSkillBytes = 128 * 1024;
@@ -20,6 +21,10 @@ export interface SkillCatalogReport {
   total: number;
   skills: SkillCatalogItem[];
   diagnostics: Array<{ type: string; message: string }>;
+}
+
+export function prepareSkillRead(name: string, content: string): SkillInjection {
+  return buildSkillInjection(content, name);
 }
 
 function queryText(value: string | undefined): string {
@@ -57,17 +62,15 @@ export default {
       defineTool({
         name: "skill_catalog",
         label: "Skill catalog",
-        description: "Inspect loaded Agent Skills, read one skill file, and inspect managed MCP server status without changing configuration.",
+        description:
+          "Inspect loaded Agent Skills, safely read one skill file through a bounded data boundary, and inspect MCP status without changing configuration.",
         promptSnippet: "inspect loaded skills or managed MCP server status",
         parameters: Type.Object({
           action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("mcp")]),
           query: Type.Optional(Type.String()),
           name: Type.Optional(Type.String()),
         }),
-        async execute(
-          _toolCallId,
-          params,
-        ): Promise<AgentToolResult<SkillCatalogReport | { name: string; content: string } | { servers: readonly PiMcpServerSnapshot[] }>> {
+        async execute(_toolCallId, params): Promise<AgentToolResult<SkillCatalogReport | SkillInjection | { servers: readonly PiMcpServerSnapshot[] }>> {
           if (params.action === "mcp") {
             const result = readMcp();
             return {
@@ -88,7 +91,9 @@ export default {
           if (skill === undefined) throw new Error(`Skill was not found: ${name}`);
           const content = await readFile(skill.filePath, "utf8");
           if (Buffer.byteLength(content, "utf8") > maxSkillBytes) throw new Error(`Skill file exceeds ${maxSkillBytes} bytes`);
-          return { content: [{ type: "text", text: content }], details: { name, content } };
+          const result = prepareSkillRead(name, content);
+          const message = result.content === null ? `Skill ${result.name} was blocked from catalog output (${result.risk}).` : result.content;
+          return { content: [{ type: "text", text: message }], details: result };
         },
       }),
     );

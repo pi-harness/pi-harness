@@ -3,14 +3,14 @@
   "packageName": "@pi-harness/core/plugins/skill-catalog",
   "version": "0.1.2",
   "name": "Skills Catalog",
-  "description": "List and inspect loaded Agent Skills plus managed MCP server status without changing configuration.",
+  "description": "List loaded Agent Skills and safely inspect one through a bounded untrusted-data boundary, plus managed MCP status.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
   "category": { "id": "discovery", "label": "发现与生态" },
-  "capabilities": ["skills", "MCP", "diagnostics"],
-  "hooks": ["resource loader", "plugin UI"],
+  "capabilities": ["skills", "safe skill reading", "MCP", "diagnostics"],
+  "hooks": ["resource loader", "skill guard", "plugin UI"],
   "profile": { "name": "@pi-harness/core/plugins/skill-catalog", "config": {} }
 }
