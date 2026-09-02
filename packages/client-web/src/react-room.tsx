@@ -94,6 +94,7 @@ const capability = (name: string): string => {
     ["synapse", "会话地图"],
     ["hol-guard", "安全防护"],
     ["plugin-radar", "生态雷达"],
+    ["plugin-stars", "排行榜"],
     ["plugin-check", "插件体检"],
     ["annotation", "批注上下文"],
     ["cost-meter", "成本账本"],
@@ -179,6 +180,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-dev", "Plugin Dev"],
     ["@pi-harness/core/plugins/openpets", "OpenPets"],
     ["@pi-harness/core/plugins/vision-toolkit", "Vision Toolkit"],
+    ["@pi-harness/core/plugins/plugin-stars", "Plugin Stars"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);

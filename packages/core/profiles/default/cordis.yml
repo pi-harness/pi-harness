@@ -74,6 +74,9 @@
     - id: browser-session
       name: "@pi-harness/core/plugins/browser-session"
       config: {}
+    - id: plugin-stars
+      name: "@pi-harness/core/plugins/plugin-stars"
+      config: {}
     - id: yaml-validator
       name: "@pi-harness/core/plugins/yaml-validator"
       config: {}

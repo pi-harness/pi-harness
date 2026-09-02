@@ -44,6 +44,7 @@ describe("packaged profiles", () => {
     expect(harness.context.get("hmr")).toBeUndefined();
     expect(names).not.toContain("@deepseek-ai/cordis-plugin-hmr");
     expect(names).toContain("@pi-harness/core/plugins/vision-toolkit");
+    expect(names).toContain("@pi-harness/core/plugins/plugin-stars");
   });
 
   test("boots the development profile with logger, timer, and HMR plugins", async () => {
