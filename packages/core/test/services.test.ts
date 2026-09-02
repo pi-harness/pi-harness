@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
-import { createServer as createTcpServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -46,9 +45,44 @@ import planExecutePlugin from "../src/plugins/plan-execute.js";
 import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
 import memoryPlugin from "../src/plugins/memory.js";
 import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
+import imageCompressorPlugin from "../src/plugins/image-compressor.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
+
+function waitForChromeEndpoint(chrome: ChildProcess): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let buffer = "";
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Chrome did not expose a DevTools endpoint within 15 seconds"));
+    }, 15_000);
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      chrome.stderr?.off("data", onData);
+      chrome.off("error", onError);
+      chrome.off("exit", onExit);
+    };
+    const onData = (chunk: Buffer | string): void => {
+      buffer += String(chunk);
+      const match = buffer.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//u);
+      if (match === null) return;
+      cleanup();
+      resolve(`http://127.0.0.1:${match[1]}`);
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null): void => {
+      cleanup();
+      reject(new Error(`Chrome exited before exposing DevTools (code ${code ?? "unknown"})`));
+    };
+    chrome.stderr?.on("data", onData);
+    chrome.on("error", onError);
+    chrome.on("exit", onExit);
+  });
+}
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
@@ -785,6 +819,32 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "canvas-draw-panel", data: { nodeCount: 2, edgeCount: 1 } }]);
   });
 
+  test("losslessly recompresses a workspace PNG with explicit write confirmation", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await writeFile(
+      join(cwd, "source.png"),
+      Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
+    );
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(imageCompressorPlugin);
+    const compress = tools.snapshot().customTools.find((candidate) => candidate.name === "image_compress");
+    expect(compress).toBeDefined();
+    await expect(
+      compress!.execute("call-1", { path: "source.png", outputPath: "compressed.png", confirm: false }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/confirm=true/);
+    await expect(
+      compress!.execute("call-2", { path: "source.png", outputPath: "compressed.png", confirm: true }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { inputPath: "source.png", outputPath: "compressed.png", format: "png", saved: true },
+    });
+    const output = await (await import("node:fs/promises")).readFile(join(cwd, "compressed.png"));
+    expect(output.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))).toBe(true);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "image-compressor-panel", data: { last: { outputPath: "compressed.png", saved: true } } }]);
+  });
+
   test("discovers and calls tools through an MCP stdio server", async () => {
     const { context, cwd } = await createContext();
     const server = join(cwd, "mcp-fixture.mjs");
@@ -902,15 +962,6 @@ describe("Pi domain plugins", () => {
       pageServer.once("error", reject);
       pageServer.listen(0, "127.0.0.1", () => resolve());
     });
-    const portProbe = createTcpServer();
-    await new Promise<void>((resolve, reject) => {
-      portProbe.once("error", reject);
-      portProbe.listen(0, "127.0.0.1", () => resolve());
-    });
-    const portAddress = portProbe.address();
-    if (portAddress === null || typeof portAddress === "string") throw new Error("Chrome port probe failed");
-    const debugPort = portAddress.port;
-    await new Promise<void>((resolve) => portProbe.close(() => resolve()));
     const profileDir = await mkdtemp(join(tmpdir(), "pi-harness-chrome-"));
     const chrome = execFile(
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -924,21 +975,13 @@ describe("Pi domain plugins", () => {
         "--no-sandbox",
         "--remote-debugging-address=127.0.0.1",
         `--user-data-dir=${profileDir}`,
-        `--remote-debugging-port=${debugPort}`,
+        "--remote-debugging-port=0",
         "about:blank",
       ],
-      { stdio: "ignore" },
+      { stdio: ["ignore", "ignore", "pipe"] },
     );
     try {
-      let endpoint = `http://127.0.0.1:${debugPort}`;
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        try {
-          const response = await fetch(`${endpoint}/json/version`);
-          if (response.ok) break;
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-      }
+      const endpoint = await waitForChromeEndpoint(chrome);
       const { context } = await createContext();
       const panels = new PiPluginUiRegistry();
       const tools = new PiToolRegistry();

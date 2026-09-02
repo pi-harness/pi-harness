@@ -107,6 +107,9 @@
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}
+    - id: image-compressor
+      name: "@pi-harness/core/plugins/image-compressor"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

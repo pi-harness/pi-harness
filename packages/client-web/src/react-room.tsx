@@ -86,6 +86,7 @@ const capability = (name: string): string => {
     ["plugin-finder", "插件发现"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
+    ["image-compressor", "图片压缩"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -127,6 +128,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
+    ["@pi-harness/core/plugins/image-compressor", "Image Compressor"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1183,6 +1185,27 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               Agent 可调用 canvas_draw 生成流程图源码。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "image-compressor-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">PNG 无损压缩</span>
+            <span className="font-mono text-[#65707b]">上限 32 MiB</span>
+          </div>
+          {data?.last && typeof data.last === "object" ? (
+            (() => {
+              const report = data.last as Record<string, unknown>;
+              return (
+                <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+                  {String(report.inputPath ?? "图片")} → {String(report.outputPath ?? "输出")}，节省 {String(report.savedBytes ?? 0)} bytes
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 image_compress，写入前必须 confirm=true。
             </div>
           )}
         </div>
