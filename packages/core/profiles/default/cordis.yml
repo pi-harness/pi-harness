@@ -92,6 +92,9 @@
     - id: skill-guard
       name: "@pi-harness/core/plugins/skill-guard"
       config: {}
+    - id: recall-unread
+      name: "@pi-harness/core/plugins/recall-unread"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

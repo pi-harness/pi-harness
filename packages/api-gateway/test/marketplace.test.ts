@@ -33,6 +33,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("at-file")?.category.id).toBe("context");
     expect(official.get("dependency-checker")?.category.id).toBe("workflow");
     expect(official.get("token-guard")?.category.id).toBe("observability");
+    expect(official.get("recall-unread")?.category.id).toBe("workflow");
   });
 
   test("recognizes bundled core plugin subpaths without requiring an npm install", () => {

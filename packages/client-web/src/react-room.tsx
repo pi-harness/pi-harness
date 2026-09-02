@@ -117,6 +117,7 @@ const capability = (name: string): string => {
     ["vision-toolkit", "视觉素材"],
     ["session-bridge", "会话交接"],
     ["skill-guard", "Skill 安全"],
+    ["recall-unread", "会话召回"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -185,6 +186,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-stars", "Plugin Stars"],
     ["@pi-harness/core/plugins/session-bridge", "Session Bridge"],
     ["@pi-harness/core/plugins/skill-guard", "Skill Guard"],
+    ["@pi-harness/core/plugins/recall-unread", "Recall Unread"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -2023,6 +2025,28 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               Agent 可调用 workspace_search 检索当前工作区。
             </div>
+          )}
+        </div>
+      ) : panel.id === "recall-unread-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">未回答会话</span>
+            <strong className="font-mono text-[#4176e6]">{value(data?.total ?? 0)} 个</strong>
+          </div>
+          {Array.isArray(data?.items) && data.items.length > 0 ? (
+            <div className="grid gap-2">
+              {data.items.slice(0, 8).map((item, index) => {
+                const session = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(session.id ?? "session")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
+                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(session.message ?? "")}</p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有以未回答用户消息结束的会话。</div>
           )}
         </div>
       ) : panel.id === "skill-guard-panel" ? (

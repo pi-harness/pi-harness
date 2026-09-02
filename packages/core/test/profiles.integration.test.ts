@@ -47,6 +47,7 @@ describe("packaged profiles", () => {
     expect(names).toContain("@pi-harness/core/plugins/plugin-stars");
     expect(names).toContain("@pi-harness/core/plugins/session-bridge");
     expect(names).toContain("@pi-harness/core/plugins/skill-guard");
+    expect(names).toContain("@pi-harness/core/plugins/recall-unread");
   });
 
   test("boots the development profile with logger, timer, and HMR plugins", async () => {
