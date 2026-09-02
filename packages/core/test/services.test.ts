@@ -65,6 +65,7 @@ import holGuardPlugin from "../src/plugins/hol-guard.js";
 import pluginRadarPlugin from "../src/plugins/plugin-radar.js";
 import pluginCheckPlugin, { type PluginCheckScanReport } from "../src/plugins/plugin-check.js";
 import annotationPlugin from "../src/plugins/annotation.js";
+import costMeterPlugin from "../src/plugins/cost-meter.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1846,5 +1847,37 @@ describe("Pi domain plugins", () => {
     expect((await tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).details).toMatchObject({ count: 1 });
     await tool.execute("clear", { action: "clear" }, undefined, undefined, {} as never);
     expect((await panels.snapshot())[0]).toMatchObject({ data: { count: 0, annotations: [] } });
+  });
+
+  test("persists completed session costs and exposes a daily budget report", async () => {
+    const { context, agentDir } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    const sessionStats = {
+      sessionFile: undefined,
+      sessionId: "session-1",
+      userMessages: 2,
+      assistantMessages: 2,
+      toolCalls: 1,
+      toolResults: 1,
+      totalMessages: 4,
+      tokens: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150 },
+      cost: 1.25,
+    };
+    context.provide("piRuntime", { session: { getSessionStats: () => sessionStats } } as never);
+    await context.plugin(costMeterPlugin, { dailyBudget: 5 });
+    context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const tool = tools.snapshot().customTools.find((entry) => entry.name === "cost_report");
+    if (tool === undefined) throw new Error("cost_report was not registered");
+    const report = await tool.execute("report", {}, undefined, undefined, {} as never);
+    expect(report.details).toMatchObject({ sessionCost: 1.25, todayCost: 1.25, budget: 5, budgetPercent: 25 });
+    const panel = (await panels.snapshot())[0];
+    expect(panel).toMatchObject({ id: "cost-meter-panel", data: { todayCost: 1.25 } });
+    if (panel === undefined) throw new Error("cost-meter-panel was not registered");
+    expect((panel.data as { entries: unknown[] }).entries).toHaveLength(1);
+    expect(await readFile(join(agentDir, "cost-meter.json"), "utf8")).toContain("session-1");
   });
 });

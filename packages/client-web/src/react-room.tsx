@@ -91,6 +91,7 @@ const capability = (name: string): string => {
     ["plugin-radar", "生态雷达"],
     ["plugin-check", "插件体检"],
     ["annotation", "批注上下文"],
+    ["cost-meter", "成本账本"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -149,6 +150,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-radar", "Plugin Radar"],
     ["@pi-harness/core/plugins/plugin-check", "Plugin Check"],
     ["@pi-harness/core/plugins/annotation", "Annotations"],
+    ["@pi-harness/core/plugins/cost-meter", "Cost Meter"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1368,6 +1370,69 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
+            </div>
+          );
+        })()
+      ) : panel.id === "cost-meter-panel" ? (
+        (() => {
+          const budget = typeof data?.budget === "number" ? data.budget : null;
+          const budgetPercent = typeof data?.budgetPercent === "number" ? data.budgetPercent : null;
+          const entries = Array.isArray(data?.entries) ? data.entries : [];
+          const budgetClass =
+            budgetPercent !== null && budgetPercent >= 100
+              ? "text-[#b42318]"
+              : budgetPercent !== null && budgetPercent >= 80
+                ? "text-[#a15c00]"
+                : "text-[#198754]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["今日", `$${Number(data?.todayCost ?? 0).toFixed(4)}`],
+                  ["当前会话", `$${Number(data?.sessionCost ?? 0).toFixed(4)}`],
+                  ["累计", `$${Number(data?.lifetimeCost ?? 0).toFixed(4)}`],
+                ].map(([label, item]) => (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[15px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#65707b]">每日预算</span>
+                  <strong className={budgetClass}>{budget === null ? "未设置" : `$${budget.toFixed(4)} · ${budgetPercent?.toFixed(2) ?? "0.00"}%`}</strong>
+                </div>
+                {budget !== null ? (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#dfe8f7]">
+                    <div
+                      className={`h-full ${budgetPercent !== null && budgetPercent >= 100 ? "bg-[#d64545]" : "bg-[#4c83e8]"}`}
+                      style={{ width: `${Math.min(100, budgetPercent ?? 0)}%` }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+              {entries.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {entries.slice(0, 5).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li
+                        className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                        key={`${value(item.sessionId ?? "session")}-${index}`}
+                      >
+                        <span className="truncate font-mono text-[#65707b]">{value(item.sessionId ?? "未知会话")}</span>
+                        <strong className="font-mono text-[#30343b]">${Number(item.cost ?? 0).toFixed(4)}</strong>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未记录已完成会话。Agent 可调用 cost_report 的 refresh 操作写入账本。
+                </div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">仅记录运行时报告的实际成本，不内置或猜测模型价格。</div>
             </div>
           );
         })()
