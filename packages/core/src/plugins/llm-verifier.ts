@@ -6,6 +6,8 @@ import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agen
 const maxClaimLength = 2_000;
 const maxEvidenceLength = 12_000;
 const maxRationaleLength = 2_000;
+const maxBatchSize = 8;
+const maxHistorySize = 12;
 
 export type VerifierVerdict = "pass" | "fail" | "unknown";
 export type VerifierReport = {
@@ -15,6 +17,15 @@ export type VerifierReport = {
   evidenceChars: number;
   model: { provider: string; id: string };
   checkedAt: string;
+};
+export type VerifierHistorySummary = {
+  total: number;
+  counts: Record<VerifierVerdict, number>;
+  recent: readonly Pick<VerifierReport, "verdict">[];
+};
+export type VerifierBatchReport = {
+  results: readonly VerifierReport[];
+  summary: VerifierHistorySummary;
 };
 
 export interface LlmVerifierPluginConfig {
@@ -44,6 +55,12 @@ export function parseVerifierResponse(value: string): { verdict: VerifierVerdict
   return { verdict, rationale };
 }
 
+export function summarizeVerifierHistory(history: readonly Pick<VerifierReport, "verdict">[]): VerifierHistorySummary {
+  const counts: Record<VerifierVerdict, number> = { pass: 0, fail: 0, unknown: 0 };
+  for (const report of history) counts[report.verdict] += 1;
+  return { total: history.length, counts, recent: [...history] };
+}
+
 function responseText(value: unknown): string {
   if (value === null || typeof value !== "object") return "";
   const content = (value as { content?: unknown }).content;
@@ -67,6 +84,7 @@ export default {
     const modelId = config.model?.trim() || runtimeService.model;
     const maxTokens = Math.min(2_048, Math.max(64, Math.trunc(config.maxTokens ?? 512)));
     let latest: VerifierReport | undefined;
+    let history: VerifierReport[] = [];
     const verify = async (claimInput: string, evidenceInput: string): Promise<VerifierReport> => {
       const claim = bounded(claimInput, "Verification claim", maxClaimLength);
       const evidence = bounded(evidenceInput, "Verification evidence", maxEvidenceLength);
@@ -83,6 +101,7 @@ export default {
       );
       const parsed = parseVerifierResponse(responseText(response));
       latest = { ...parsed, claim, evidenceChars: evidence.length, model: { provider, id: model.id }, checkedAt: new Date().toISOString() };
+      history = [latest, ...history].slice(0, maxHistorySize);
       return latest;
     };
     const unregisterTool = context.piTools.register(
@@ -101,16 +120,44 @@ export default {
         },
       }),
     );
+    const unregisterBatchTool = context.piTools.register(
+      defineTool({
+        name: "llm_verify_batch",
+        label: "Verify claims in batch",
+        description: "Verify up to eight independent claims sequentially and return an auditable verdict summary.",
+        promptSnippet: "verify several claims against their evidence in one audit",
+        parameters: Type.Object({
+          items: Type.Array(
+            Type.Object({
+              claim: Type.String({ description: "The claim to verify, 1-2000 characters" }),
+              evidence: Type.String({ description: "Untrusted evidence, 1-12000 characters" }),
+            }),
+            { description: "One to eight claim/evidence pairs" },
+          ),
+        }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<VerifierBatchReport>> {
+          if (params.items.length < 1 || params.items.length > maxBatchSize) throw new Error(`Batch verification accepts 1-${maxBatchSize} items`);
+          const results: VerifierReport[] = [];
+          for (const item of params.items) results.push(await verify(item.claim, item.evidence));
+          const summary = summarizeVerifierHistory(history);
+          return {
+            content: [{ type: "text", text: results.map((result, index) => `${index + 1}. ${result.verdict}: ${result.rationale}`).join("\n") }],
+            details: { results, summary },
+          };
+        },
+      }),
+    );
     const disposePanel = context.piPluginUi.register({
       id: "llm-verifier-panel",
       pluginId: "@pi-harness/core/plugins/llm-verifier",
       title: "LLM Verifier",
       description: "用配置的校验模型对声明和证据进行独立判断。",
       icon: "⊙",
-      read: () => ({ provider, model: modelId, maxTokens, latest: latest ?? null }),
+      read: () => ({ provider, model: modelId, maxTokens, latest: latest ?? null, history: summarizeVerifierHistory(history) }),
     });
     context.effect(() => () => {
       unregisterTool();
+      unregisterBatchTool();
       disposePanel();
     });
   },

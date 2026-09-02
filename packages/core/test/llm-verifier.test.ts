@@ -1,10 +1,18 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
-import { parseVerifierResponse } from "../src/plugins/llm-verifier.js";
+import { parseVerifierResponse, summarizeVerifierHistory } from "../src/plugins/llm-verifier.js";
 import llmVerifierPlugin from "../src/plugins/llm-verifier.js";
 
 describe("llm verifier", () => {
+  test("summarizes verdict history for audit panels", () => {
+    expect(summarizeVerifierHistory([{ verdict: "pass" }, { verdict: "fail" }, { verdict: "unknown" }, { verdict: "pass" }] as never)).toEqual({
+      total: 4,
+      counts: { pass: 2, fail: 1, unknown: 1 },
+      recent: [{ verdict: "pass" }, { verdict: "fail" }, { verdict: "unknown" }, { verdict: "pass" }],
+    });
+  });
+
   test("parses a bounded verdict and rationale from model output", () => {
     expect(parseVerifierResponse("VERDICT: pass\nRATIONALE: The test output covers the claimed behavior.")).toEqual({
       verdict: "pass",
@@ -38,7 +46,25 @@ describe("llm verifier", () => {
       await expect(
         tool!.execute("call-1", { claim: "The change is covered", evidence: "npx vitest run: 3 passed" }, undefined, undefined, {} as never),
       ).resolves.toMatchObject({ details: { verdict: "pass", model: { provider: "everyapi", id: "verifier-model" } } });
-      await expect(panels.snapshot()).resolves.toMatchObject([{ id: "llm-verifier-panel", data: { latest: { verdict: "pass" } } }]);
+      const batchTool = tools.snapshot().customTools.find((candidate) => candidate.name === "llm_verify_batch");
+      expect(batchTool).toBeDefined();
+      await expect(
+        batchTool!.execute(
+          "call-2",
+          {
+            items: [
+              { claim: "The unit suite passes", evidence: "75 tests passed" },
+              { claim: "The build passes", evidence: "tsc exited 0" },
+            ],
+          },
+          undefined,
+          undefined,
+          {} as never,
+        ),
+      ).resolves.toMatchObject({ details: { results: [{ verdict: "pass" }, { verdict: "pass" }], summary: { total: 3, counts: { pass: 3 } } } });
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        { id: "llm-verifier-panel", data: { latest: { verdict: "pass" }, history: { total: 3, counts: { pass: 3 } } } },
+      ]);
     } finally {
       await context.fiber.dispose();
     }

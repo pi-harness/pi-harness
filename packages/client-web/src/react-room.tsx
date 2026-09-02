@@ -1286,6 +1286,32 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               {value(data?.provider ?? "—")}/{value(data?.model ?? "—")}
             </code>
           </div>
+          {data?.history && typeof data.history === "object"
+            ? (() => {
+                const history = data.history as Record<string, unknown>;
+                const counts = history.counts && typeof history.counts === "object" ? (history.counts as Record<string, unknown>) : {};
+                return (
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#8a949f]">累计</span>
+                      <strong className="mt-1 block text-[15px] text-[#30343b]">{value(history.total ?? 0)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#f0fbf4] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#198754]">通过</span>
+                      <strong className="mt-1 block text-[15px] text-[#198754]">{value(counts.pass ?? 0)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#fff5f5] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#b42318]">失败</span>
+                      <strong className="mt-1 block text-[15px] text-[#b42318]">{value(counts.fail ?? 0)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#fffaf0] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#9a6700]">未知</span>
+                      <strong className="mt-1 block text-[15px] text-[#9a6700]">{value(counts.unknown ?? 0)}</strong>
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
               const latest = data.latest as Record<string, unknown>;
