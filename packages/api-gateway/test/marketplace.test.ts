@@ -39,6 +39,10 @@ describe("plugin marketplace registry", () => {
     expect(official.get("history-compressor")?.category.id).toBe("context");
     expect(official.get("reviewer-bot")?.category.id).toBe("workflow");
     expect(official.get("auto-mode")?.category.id).toBe("security");
+    expect(official.get("plan-execute")?.category.id).toBe("workflow");
+    expect(official.get("canvas-draw")?.category.id).toBe("multimodal");
+    expect(official.get("image-compressor")?.category.id).toBe("multimodal");
+    expect(official.get("code2skill")?.category.id).toBe("tools");
   });
 
   test("recognizes bundled core plugin subpaths without requiring an npm install", () => {
