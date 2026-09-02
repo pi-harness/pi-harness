@@ -18,6 +18,7 @@ import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 import contextPlugin from "../src/plugins/context.js";
 import agentTeamsPlugin from "../src/plugins/agent-teams.js";
+import pluginDevPlugin from "../src/plugins/plugin-dev.js";
 import modlensPlugin from "../src/plugins/modlens.js";
 import tokenGuardPlugin from "../src/plugins/token-guard.js";
 import gitTimeCapsulePlugin from "../src/plugins/git-time-capsule.js";
@@ -475,6 +476,32 @@ describe("Pi domain plugins", () => {
       status: "working",
     });
     expect(entries).toHaveLength(6);
+  });
+
+  test("reloads the live Pi session through the plugin-dev bridge", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    let reloads = 0;
+    context.provide("piRuntime", {
+      session: {
+        reload: () =>
+          Promise.resolve().then(() => {
+            reloads += 1;
+          }),
+      },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+
+    await context.plugin(pluginDevPlugin);
+    const tool = tools.snapshot().customTools[0];
+    await expect(tool.execute("reload-1", { reason: "更新本地插件" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "reloaded", reason: "更新本地插件" },
+    });
+    expect(reloads).toBe(1);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "plugin-dev-panel", data: { status: "reloaded" } }]);
   });
 
   test("attaches an in-workspace image through the modlens tool", async () => {

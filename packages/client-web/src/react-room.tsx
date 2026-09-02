@@ -2150,6 +2150,17 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
           <p className="text-[10px] text-[#8a949f]">只记录事件名和计数，不保留事件属性，也不会发起网络请求。</p>
         </div>
+      ) : panel.id === "plugin-dev-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div
+            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.status === "reloaded" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : data?.status === "failed" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]"}`}
+          >
+            <span>{data?.status === "reloaded" ? "插件已重载" : data?.status === "failed" ? "插件重载失败" : "等待重载"}</span>
+            <strong className="font-mono">{value(data?.status ?? "idle")}</strong>
+          </div>
+          <p className="text-[10px] text-[#8a949f]">{value(data?.reason ?? "修改本地扩展后调用 plugin_dev_reload")}</p>
+          {data?.error ? <p className="rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{value(data.error)}</p> : null}
+        </div>
       ) : panel.id === "change-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
