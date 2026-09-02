@@ -89,6 +89,7 @@ const capability = (name: string): string => {
     ["image-compressor", "图片压缩"],
     ["workspace-search", "工作区检索"],
     ["prompt-guard", "提示词防护"],
+    ["code2skill", "技能打包"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -133,6 +134,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/image-compressor", "Image Compressor"],
     ["@pi-harness/core/plugins/workspace-search", "Workspace Search"],
     ["@pi-harness/core/plugins/prompt-guard", "Prompt Guard"],
+    ["@pi-harness/core/plugins/code2skill", "Code2Skill"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1279,6 +1281,27 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               Agent 可调用 prompt_guard_scan 检查不可信文本。
             </div>
           )}
+        </div>
+      ) : panel.id === "code2skill-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">已生成技能</span>
+              <strong className="font-mono text-[12px] text-[#315fb8]">{String(data?.generated ?? 0)}</strong>
+            </div>
+            {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+              <p className="mt-2 truncate text-[11px] text-[#65707b]">
+                {String((data.latest as Record<string, unknown>).slug ?? "skill")} ·{" "}
+                {String(
+                  Array.isArray((data.latest as Record<string, unknown>).files) ? ((data.latest as Record<string, unknown>).files as unknown[]).length : 0,
+                )}{" "}
+                个参考文件
+              </p>
+            ) : (
+              <p className="mt-2 text-[11px] text-[#8a949f]">还没有生成技能。可让 Agent 调用 skill_pack_create。</p>
+            )}
+          </div>
+          <p className="text-[10px] text-[#8a949f]">输出目录：项目 .pi/skills/&lt;name&gt;，包含 SKILL.md 和原始参考文件。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">

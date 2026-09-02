@@ -116,6 +116,9 @@
     - id: prompt-guard
       name: "@pi-harness/core/plugins/prompt-guard"
       config: {}
+    - id: code2skill
+      name: "@pi-harness/core/plugins/code2skill"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -48,6 +48,7 @@ import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
 import imageCompressorPlugin from "../src/plugins/image-compressor.js";
 import workspaceSearchPlugin from "../src/plugins/workspace-search.js";
 import promptGuardPlugin from "../src/plugins/prompt-guard.js";
+import code2SkillPlugin from "../src/plugins/code2skill.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -902,6 +903,25 @@ describe("Pi domain plugins", () => {
     const snapshot = await panels.snapshot();
     expect(snapshot).toMatchObject([{ id: "prompt-guard-panel", data: { risk: "review", scans: 3, latest: { risk: "review" } } }]);
     expect(JSON.stringify(snapshot)).not.toContain("Explain the parser implementation");
+  });
+
+  test("packages selected source files into a local skill directory", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await mkdir(join(cwd, "src"), { recursive: true });
+    await writeFile(join(cwd, "src", "parser.ts"), "export function parse(input: string) { return input.trim(); }\n", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(code2SkillPlugin);
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "skill_pack_create");
+    expect(tool).toBeDefined();
+    await expect(
+      tool!.execute("call-1", { name: "Parser Guide", description: "Explain parser conventions", files: ["src/parser.ts"] }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { slug: "parser-guide", files: [{ path: "src/parser.ts" }] } });
+    await expect(readFile(join(cwd, ".pi", "skills", "parser-guide", "SKILL.md"), "utf8")).resolves.toContain("Explain parser conventions");
+    await expect(readFile(join(cwd, ".pi", "skills", "parser-guide", "references", "src", "parser.ts"), "utf8")).resolves.toContain("parse");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "code2skill-panel", data: { generated: 1, latest: { slug: "parser-guide" } } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {
