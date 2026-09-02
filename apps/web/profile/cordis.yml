@@ -113,6 +113,9 @@
     - id: workspace-search
       name: "@pi-harness/core/plugins/workspace-search"
       config: {}
+    - id: prompt-guard
+      name: "@pi-harness/core/plugins/prompt-guard"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

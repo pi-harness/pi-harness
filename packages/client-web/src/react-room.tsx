@@ -88,6 +88,7 @@ const capability = (name: string): string => {
     ["canvas-draw", "流程图"],
     ["image-compressor", "图片压缩"],
     ["workspace-search", "工作区检索"],
+    ["prompt-guard", "提示词防护"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -131,6 +132,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
     ["@pi-harness/core/plugins/image-compressor", "Image Compressor"],
     ["@pi-harness/core/plugins/workspace-search", "Workspace Search"],
+    ["@pi-harness/core/plugins/prompt-guard", "Prompt Guard"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1242,6 +1244,39 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               Agent 可调用 workspace_search 检索当前工作区。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "prompt-guard-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div
+            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : data?.risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+          >
+            <span>{data?.risk === "blocked" ? "高风险，需阻断" : data?.risk === "review" ? "需要人工复核" : "未发现风险"}</span>
+            <strong className="font-mono">{String(data?.scans ?? 0)} 次扫描</strong>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const findings = Array.isArray(report.findings) ? report.findings : [];
+              return findings.length > 0 ? (
+                <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+                  {findings.slice(0, 4).map((finding, index) => {
+                    const item = finding && typeof finding === "object" ? (finding as Record<string, unknown>) : {};
+                    return (
+                      <li key={`${String(item.code ?? "finding")}-${index}`}>
+                        <strong className="font-mono text-[#30343b]">{String(item.code ?? "finding")}</strong>：{String(item.message ?? "")}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">最近一次扫描未发现风险。</div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 prompt_guard_scan 检查不可信文本。
             </div>
           )}
         </div>
