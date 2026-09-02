@@ -211,6 +211,9 @@
     - id: llm-verifier
       name: "@pi-harness/core/plugins/llm-verifier"
       config: {}
+    - id: module-search
+      name: "@pi-harness/core/plugins/module-search"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:

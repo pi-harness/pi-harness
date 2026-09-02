@@ -123,6 +123,7 @@ const capability = (name: string): string => {
     ["session-search", "会话搜索"],
     ["session-bookmarks", "会话书签"],
     ["llm-verifier", "模型校验"],
+    ["module-search", "模块检索"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -197,6 +198,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/session-search", "Session Search"],
     ["@pi-harness/core/plugins/session-bookmarks", "Session Bookmarks"],
     ["@pi-harness/core/plugins/llm-verifier", "LLM Verifier"],
+    ["@pi-harness/core/plugins/module-search", "Module Search"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1256,6 +1258,49 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有执行模型校验。</div>
           )}
           <p className="text-[10px] leading-4 text-[#8a949f]">证据按不可信数据处理，输入有长度上限；模型返回非结构化结果时显示 unknown。</p>
+        </div>
+      ) : panel.id === "module-search-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const matches = Array.isArray(latest.matches) ? latest.matches : [];
+              return (
+                <>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                    <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.query ?? "")}</code>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(matches.length)} 个结果</strong>
+                  </div>
+                  {matches.length > 0 ? (
+                    <div className="grid gap-2">
+                      {matches.slice(0, 10).map((item, index) => {
+                        const match = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                        return (
+                          <div
+                            className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2"
+                            key={`${value(match.path ?? "module")}:${value(match.line ?? index)}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <code className="min-w-0 truncate text-[10px] text-[#315fb8]">
+                                {value(match.path ?? "—")}:{value(match.line ?? "—")}
+                              </code>
+                              <span className="shrink-0 text-[10px] uppercase text-[#8a949f]">{value(match.kind ?? "symbol")}</span>
+                            </div>
+                            <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(match.name ?? "未命名符号")}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的模块符号。</div>
+                  )}
+                  <p className="text-[10px] leading-4 text-[#8a949f]">扫描 {value(latest.scannedFiles ?? 0)} 个源码文件，跳过依赖和构建目录。</p>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入符号名后显示模块检索结果。</div>
+          )}
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
