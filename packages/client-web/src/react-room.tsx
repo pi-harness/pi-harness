@@ -869,7 +869,18 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 )}
               </strong>
             </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">可执行任务</span>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
+                {value(Array.isArray(data?.readyTasks) ? data.readyTasks.length : 0)}
+              </strong>
+            </div>
           </div>
+          {Array.isArray(data?.dependencyCycle) && data.dependencyCycle.length > 1 ? (
+            <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[11px] text-[#b42318]">
+              依赖循环：{data.dependencyCycle.map((item) => value(item)).join(" → ")}
+            </div>
+          ) : null}
           <div className="grid gap-2">
             {Array.isArray(data?.members) && data.members.length > 0 ? (
               data.members.map((item, index) => {

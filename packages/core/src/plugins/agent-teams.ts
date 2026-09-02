@@ -3,13 +3,52 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 
 const customType = "pi-harness/agent-teams";
-type TeamTask = { id: string; title: string; assignee: string; status: string; dependsOn: string[] };
+export type TeamTask = { id: string; title: string; assignee: string; status: string; dependsOn: string[] };
 type TeamMessage = { id: string; from: string; to: string; body: string; timestamp: string; read: boolean };
 type TeamState = {
   members: { id: string; name: string; role: string; status: string }[];
   tasks: TeamTask[];
   messages: TeamMessage[];
 };
+
+export function dependencyCycle(tasks: readonly TeamTask[]): string[] | null {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const path: string[] = [];
+  const visit = (id: string): string[] | null => {
+    if (visiting.has(id)) {
+      const start = path.indexOf(id);
+      return start >= 0 ? [...path.slice(start), id] : [id, id];
+    }
+    if (visited.has(id)) return null;
+    const task = byId.get(id);
+    if (task === undefined) {
+      visited.add(id);
+      return null;
+    }
+    visiting.add(id);
+    path.push(id);
+    for (const dependency of task.dependsOn) {
+      const cycle = visit(dependency);
+      if (cycle !== null) return cycle;
+    }
+    path.pop();
+    visiting.delete(id);
+    visited.add(id);
+    return null;
+  };
+  for (const task of tasks) {
+    const cycle = visit(task.id);
+    if (cycle !== null) return cycle;
+  }
+  return null;
+}
+
+export function readyTeamTasks(tasks: readonly TeamTask[]): TeamTask[] {
+  const completed = new Set(tasks.filter((task) => task.status === "done").map((task) => task.id));
+  return tasks.filter((task) => task.status === "todo" && task.dependsOn.every((dependency) => completed.has(dependency)));
+}
 
 const initialState = (): TeamState => ({
   members: [
@@ -77,7 +116,7 @@ function syncMemberStatuses(state: TeamState): void {
 
 function nextReadyTask(state: TeamState, assignee: string): TeamTask {
   refreshTaskReadiness(state);
-  const task = state.tasks.find((item) => item.status === "todo");
+  const task = readyTeamTasks(state.tasks)[0];
   if (task === undefined) throw new Error("No ready team task is available");
   task.status = "in_progress";
   task.assignee = assignee || task.assignee;
@@ -128,6 +167,11 @@ export default {
                 dependsOn,
               };
               state.tasks.push(task);
+              const cycle = dependencyCycle(state.tasks);
+              if (cycle !== null) {
+                state.tasks.pop();
+                throw new Error(`Task dependency cycle detected: ${cycle.join(" → ")}`);
+              }
               refreshTaskReadiness(state);
               syncMemberStatuses(state);
               persist(context, state);
@@ -138,6 +182,19 @@ export default {
               if (!task) throw new Error(`Task not found: ${params.id ?? ""}`);
               if (params.title?.trim()) task.title = params.title.trim();
               if (params.assignee?.trim()) task.assignee = params.assignee.trim();
+              if (params.dependsOn !== undefined) {
+                const dependsOn = [...new Set(params.dependsOn.map((item) => item.trim()).filter(Boolean))];
+                if (dependsOn.includes(task.id)) throw new Error("A task cannot depend on itself");
+                if (dependsOn.some((dependency) => !state.tasks.some((item) => item.id === dependency)))
+                  throw new Error("All task dependencies must already exist");
+                const previous = task.dependsOn;
+                task.dependsOn = dependsOn;
+                const cycle = dependencyCycle(state.tasks);
+                if (cycle !== null) {
+                  task.dependsOn = previous;
+                  throw new Error(`Task dependency cycle detected: ${cycle.join(" → ")}`);
+                }
+              }
               if (params.status?.trim()) {
                 if (
                   params.status.trim() === "done" &&
@@ -216,7 +273,15 @@ export default {
       title: "Agent Teams",
       description: "查看协作成员、任务状态和当前会话中的持久化任务队列。",
       icon: "◎",
-      read: () => readState(context),
+      read: () => {
+        const state = readState(context);
+        const cycle = dependencyCycle(state.tasks);
+        return {
+          ...state,
+          readyTasks: readyTeamTasks(state.tasks).map((task) => task.id),
+          dependencyCycle: cycle,
+        };
+      },
     });
     context.effect(() => () => {
       unregisterTool();
