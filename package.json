@@ -10,39 +10,38 @@
   "bugs": {
     "url": "https://github.com/pi-harness/pi-harness/issues"
   },
-  "type": "module",
+  "bin": {
+    "pi-harness": "./apps/web/server-dist/bin.js",
+    "pih": "./packages/cli/dist/bin.js"
+  },
   "workspaces": [
     "packages/*",
     "apps/*",
     "examples/*"
   ],
-  "engines": {
-    "node": ">=22.19.0"
-  },
-  "bin": {
-    "pih": "./packages/cli/dist/bin.js",
-    "pi-harness": "./apps/web/server-dist/bin.js"
-  },
   "files": [
     "apps/web",
     "packages"
   ],
+  "type": "module",
+  "scripts": {
+    "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
+    "build:web": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
+    "web": "npm run build:web && node apps/web/server-dist/bin.js",
+    "format": "vp fmt . --write",
+    "format:check": "vp fmt . --check",
+    "prepack": "npm run build:web",
+    "clean": "npm run clean --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "npm run build && vitest run",
+    "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
+  },
   "dependencies": {
     "@pi-harness/api-gateway": "0.1.2",
     "@pi-harness/cli": "0.1.2",
     "@pi-harness/core": "0.1.2",
     "@pi-harness/host-webserver": "0.1.2",
     "@pi-harness/web-app": "0.1.2"
-  },
-  "scripts": {
-    "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
-    "build:web": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
-    "web": "npm run build:web && node apps/web/server-dist/bin.js",
-    "prepack": "npm run build:web",
-    "clean": "npm run clean --workspaces --if-present",
-    "lint": "eslint .",
-    "test": "npm run build && vitest run",
-    "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -52,6 +51,10 @@
     "eslint": "10.9.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.68.0",
-    "vitest": "4.1.9"
+    "vite-plus": "0.3.0",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

@@ -1,8 +1,11 @@
 {
   "name": "@pi-harness/plugin-hello",
   "version": "0.1.2",
-  "description": "Example Cordis plugin that contributes a Pi tool",
   "private": true,
+  "description": "Example Cordis plugin that contributes a Pi tool",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,12 +14,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
-  },
-  "files": [
-    "dist"
-  ],
-  "engines": {
-    "node": ">=22.19.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -28,5 +25,8 @@
     "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4",
     "@pi-harness/core": "0.1.2"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

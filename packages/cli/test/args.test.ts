@@ -28,7 +28,12 @@ describe("parseLauncherArgs", () => {
     expect(parseLauncherArgs(["--config", "./custom.yml", "--dump-config"])).toEqual({ mode: "run", configPath: "./custom.yml", dumpConfig: true, args: [] });
   });
 
-  test.each([["--help", "help"], ["-h", "help"], ["--version", "version"], ["-v", "version"]] as const)("maps %s to %s mode", (flag, mode) => {
+  test.each([
+    ["--help", "help"],
+    ["-h", "help"],
+    ["--version", "version"],
+    ["-v", "version"],
+  ] as const)("maps %s to %s mode", (flag, mode) => {
     expect(parseLauncherArgs([flag])).toEqual({ mode });
   });
 

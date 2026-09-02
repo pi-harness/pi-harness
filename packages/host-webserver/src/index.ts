@@ -89,7 +89,7 @@ export default {
           if (fallback === handler) fallback = undefined;
         };
       },
-      close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
+      close: () => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
     };
     context.provide("webServer", service);
     context.effect(() => async () => service.close());

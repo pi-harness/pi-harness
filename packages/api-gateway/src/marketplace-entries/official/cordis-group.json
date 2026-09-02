@@ -1,0 +1,15 @@
+{
+  "id": "cordis-group",
+  "packageName": "@deepseek-ai/cordis-plugin-group",
+  "version": "1.0.1",
+  "name": "Plugin groups",
+  "description": "Composes nested plugin trees with explicit ownership and rollback.",
+  "author": "DeepSeek AI",
+  "repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "capabilities": ["composition", "lifecycle"],
+  "hooks": ["nested plugin tree"],
+  "profile": { "name": "@deepseek-ai/cordis-plugin-group", "group": true, "config": [] }
+}

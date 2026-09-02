@@ -119,7 +119,7 @@ export class StdioApplication implements PiHarnessApplication {
       if (signal?.aborted === true) return PROMPT_CANCELLED_EXIT_CODE;
       let prompt: string;
       try {
-        prompt = promptFromArgs(this.#launch.args) ?? await this.#stdio.readPrompt();
+        prompt = promptFromArgs(this.#launch.args) ?? (await this.#stdio.readPrompt());
       } catch (error) {
         if (error instanceof PiHarnessStdioCancelledError) return PROMPT_CANCELLED_EXIT_CODE;
         this.#stdio.writeError(`${error instanceof Error ? error.message : String(error)}\n`);

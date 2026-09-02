@@ -10,7 +10,9 @@ describe("Pi Harness design contract", () => {
   });
 
   it("covers the event cards shown in the design", () => {
-    expect(new Set(DESIGN_TURNS.map((turn) => turn.kind))).toEqual(new Set(["user", "reasoning", "plugin", "tool", "text", "approval", "subagent", "todo", "stats"]));
+    expect(new Set(DESIGN_TURNS.map((turn) => turn.kind))).toEqual(
+      new Set(["user", "reasoning", "plugin", "tool", "text", "approval", "subagent", "todo", "stats"]),
+    );
     expect(DESIGN_EVENTS.some((event) => event.source === "plugin_hook")).toBe(true);
     expect(DESIGN_EVENTS.some((event) => event.source === "subagent")).toBe(true);
   });

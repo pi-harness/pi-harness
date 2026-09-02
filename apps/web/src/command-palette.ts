@@ -27,11 +27,16 @@ export function installCommandPalette(root: HTMLElement): () => void {
   const close = () => {
     palette.hidden = true;
     input.value = "";
-    buttons.forEach((button) => { button.hidden = false; button.classList.remove("active"); });
+    buttons.forEach((button) => {
+      button.hidden = false;
+      button.classList.remove("active");
+    });
   };
   const filter = () => {
     const query = input.value.trim().toLowerCase();
-    buttons.forEach((button) => { button.hidden = query.length > 0 && !button.textContent?.toLowerCase().includes(query); });
+    buttons.forEach((button) => {
+      button.hidden = query.length > 0 && !button.textContent?.toLowerCase().includes(query);
+    });
     focusActive();
   };
   const select = (button: HTMLButtonElement) => {
@@ -44,17 +49,33 @@ export function installCommandPalette(root: HTMLElement): () => void {
   const onTrigger = () => open();
   const onInput = () => filter();
   const onKeydown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") { close(); return; }
+    if (event.key === "Escape") {
+      close();
+      return;
+    }
     const visible = visibleButtons();
-    if (event.key === "ArrowDown" && visible.length > 0) { event.preventDefault(); activeIndex = (activeIndex + 1) % visible.length; focusActive(); }
-    if (event.key === "ArrowUp" && visible.length > 0) { event.preventDefault(); activeIndex = (activeIndex - 1 + visible.length) % visible.length; focusActive(); }
-    if (event.key === "Enter" && visible.length > 0) { event.preventDefault(); select(visible[activeIndex]!); }
+    if (event.key === "ArrowDown" && visible.length > 0) {
+      event.preventDefault();
+      activeIndex = (activeIndex + 1) % visible.length;
+      focusActive();
+    }
+    if (event.key === "ArrowUp" && visible.length > 0) {
+      event.preventDefault();
+      activeIndex = (activeIndex - 1 + visible.length) % visible.length;
+      focusActive();
+    }
+    if (event.key === "Enter" && visible.length > 0) {
+      event.preventDefault();
+      select(visible[activeIndex]!);
+    }
   };
   const onPromptInput = () => {
     const value = prompt.value;
     if (value.startsWith("/")) open(value.slice(1));
   };
-  const onBackdrop = (event: MouseEvent) => { if (event.target === palette) close(); };
+  const onBackdrop = (event: MouseEvent) => {
+    if (event.target === palette) close();
+  };
   const onCommandClick = (event: Event) => select(event.currentTarget as HTMLButtonElement);
   const onPermission = () => {
     const asking = permission?.getAttribute("aria-pressed") !== "true";

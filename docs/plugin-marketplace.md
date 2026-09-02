@@ -6,7 +6,7 @@ The marketplace is a reviewed index of Cordis plugins that can be loaded by a Pi
 
 1. Publish the package to npm and include a public repository, license, README, and lifecycle-safe tests.
 2. Verify that the package exports a Cordis plugin and document its `config`, injected services, capabilities, and hooks.
-3. Add one entry to [`packages/api-gateway/src/marketplace-registry.json`](../packages/api-gateway/src/marketplace-registry.json). Validate it against [`marketplace-entry.schema.json`](./marketplace-entry.schema.json).
+3. Add one JSON file under [`packages/api-gateway/src/marketplace-entries`](../packages/api-gateway/src/marketplace-entries), using `official` or `community` as the first directory. Validate it against [`marketplace-entry.schema.json`](./marketplace-entry.schema.json). The build copies these shards into the package; there is no hand-maintained aggregate registry.
 4. Run `npm test`, `npm run lint`, and `git diff --check`, then open a pull request. Marketplace entries are reviewed like code; a package is not listed just because it exists on npm.
 
 The `version` field is pinned deliberately. A version change is a reviewable marketplace update, and the package must be re-tested before the PR is merged.
@@ -17,7 +17,7 @@ Each entry has a stable kebab-case `id`, an npm `packageName` and exact semver `
 
 ## Install and enable
 
-The UI's install action copies two things: `npm install --save-exact <package>@<version>` and the profile entry. Review the package source and lockfile changes, run the project's tests, then add the entry to the profile that owns the plugin tree. Pi Harness will fail startup rather than silently ignore a missing or invalid plugin.
+The UI's install action copies two things: `npm install --save-exact <package>@<version>` and the profile entry. Review the package source and lockfile changes, run the project's tests, then add the entry to the profile that owns the plugin tree. Pi Harness will fail startup rather than silently ignore a missing or invalid plugin. The marketplace endpoint returns bounded pages, so the client never downloads the complete registry at once.
 
 ## Review checklist
 
@@ -26,3 +26,4 @@ The UI's install action copies two things: `npm install --save-exact <package>@<
 - Plugin activation and disposal are covered by tests; no global mutable singleton is required.
 - Capabilities and hooks describe observable behavior rather than marketing claims.
 - The profile entry has the minimum configuration needed to activate the plugin.
+- The entry file is scoped to the contributor's plugin; do not edit a shared aggregate file.

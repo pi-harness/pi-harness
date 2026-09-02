@@ -1,7 +1,15 @@
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
-import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, AgentSessionServices, ExtensionError, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSession,
+  AgentSessionEvent,
+  AgentSessionRuntime,
+  AgentSessionServices,
+  ExtensionError,
+  SessionManager,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -9,6 +17,7 @@ export interface PiHarnessLaunch {
   readonly cwd: string;
   readonly cwdUrl?: string;
   readonly agentDir: string;
+  readonly configPath?: string;
   readonly args: readonly string[];
   requestExit(code: number): void;
 }
@@ -38,6 +47,17 @@ export interface PiRuntimeService {
   prompt(text: string): Promise<void>;
   abort(): Promise<void>;
   dispose(): Promise<void>;
+}
+
+export interface PiTelemetryEvent {
+  readonly name: string;
+  readonly properties?: Readonly<Record<string, unknown>>;
+}
+
+export interface PiTelemetryService {
+  readonly enabled: false;
+  send(event: PiTelemetryEvent): { blocked: true; name: string };
+  snapshot(): { blocked: number; names: readonly string[] };
 }
 
 export interface PiToolsSnapshot {
@@ -88,6 +108,70 @@ export class PiToolRegistry {
   }
 }
 
+export interface PiPluginPanel {
+  readonly id: string;
+  readonly pluginId: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly icon?: string;
+  readonly visible?: () => boolean | Promise<boolean>;
+  readonly read: () => unknown;
+}
+
+export interface PiPluginPanelSnapshot {
+  readonly id: string;
+  readonly pluginId: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly icon?: string;
+  readonly data?: unknown;
+  readonly error?: string;
+}
+
+export class PiPluginUiRegistry {
+  readonly #panels = new Map<string, PiPluginPanel>();
+
+  register(panel: PiPluginPanel): () => void {
+    if (panel.id.trim() === "" || panel.pluginId.trim() === "" || panel.title.trim() === "")
+      throw new Error("Plugin UI panel id, pluginId, and title are required");
+    if (this.#panels.has(panel.id)) throw new Error(`Plugin UI panel is already registered: ${panel.id}`);
+    this.#panels.set(panel.id, panel);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      if (this.#panels.get(panel.id) === panel) this.#panels.delete(panel.id);
+    };
+  }
+
+  async snapshot(): Promise<readonly PiPluginPanelSnapshot[]> {
+    const snapshots: PiPluginPanelSnapshot[] = [];
+    for (const panel of this.#panels.values()) {
+      if (panel.visible !== undefined && !(await panel.visible())) continue;
+      try {
+        snapshots.push({
+          id: panel.id,
+          pluginId: panel.pluginId,
+          title: panel.title,
+          ...(panel.description === undefined ? {} : { description: panel.description }),
+          ...(panel.icon === undefined ? {} : { icon: panel.icon }),
+          data: await panel.read(),
+        });
+      } catch (error) {
+        snapshots.push({
+          id: panel.id,
+          pluginId: panel.pluginId,
+          title: panel.title,
+          ...(panel.description === undefined ? {} : { description: panel.description }),
+          ...(panel.icon === undefined ? {} : { icon: panel.icon }),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return snapshots;
+  }
+}
+
 declare module "@deepseek-ai/cordis" {
   interface Context {
     piHarnessLaunch: PiHarnessLaunch;
@@ -96,12 +180,15 @@ declare module "@deepseek-ai/cordis" {
     piResources: PiResourcesService;
     piSession: PiSessionService;
     piTools: PiToolRegistry;
+    piPluginUi: PiPluginUiRegistry;
     piRuntime: PiRuntimeService;
+    piTelemetry: PiTelemetryService;
   }
 
   interface Events {
     "pi/session-event"(event: AgentSessionEvent): void;
     "pi/extension-error"(error: ExtensionError): void;
+    "pi/telemetry"(event: PiTelemetryEvent): void;
   }
 }
 

@@ -12,6 +12,9 @@
   "bugs": {
     "url": "https://github.com/pi-harness/pi-harness/issues"
   },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,19 +24,16 @@
       "import": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
-  "engines": {
-    "node": ">=22.19.0"
-  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-marketplace-entries.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@pi-harness/core": "0.1.2",
     "@pi-harness/host-webserver": "0.1.2"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

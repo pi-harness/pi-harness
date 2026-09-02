@@ -5,7 +5,7 @@
     - id: models
       name: "@pi-harness/core/plugins/models"
       config:
-        provider: !!js process.env.PI_HARNESS_PROVIDER ?? 'deepseek'
+        provider: !!js process.env.PI_HARNESS_PROVIDER ?? 'everyapi'
         model: !!js process.env.PI_HARNESS_MODEL ?? 'deepseek-v4-flash'
         refreshOnCreate: false
     - id: resources
@@ -26,10 +26,152 @@
           - bash
           - edit
           - write
+    - id: agent-teams
+      name: "@pi-harness/core/plugins/agent-teams"
+      config: {}
+    - id: modlens
+      name: "@pi-harness/core/plugins/modlens"
+      config: {}
+    - id: git-time-capsule
+      name: "@pi-harness/core/plugins/git-time-capsule"
+      config: {}
+    - id: dependency-checker
+      name: "@pi-harness/core/plugins/dependency-checker"
+      config: {}
+    - id: at-file
+      name: "@pi-harness/core/plugins/at-file"
+      config: {}
+    - id: test-harness
+      name: "@pi-harness/core/plugins/test-harness"
+      config: {}
+    - id: session-insights
+      name: "@pi-harness/core/plugins/session-insights"
+      config: {}
+    - id: readme-gen
+      name: "@pi-harness/core/plugins/readme-gen"
+      config: {}
+    - id: i18n-pair
+      name: "@pi-harness/core/plugins/i18n-pair"
+      config: {}
+    - id: cleaner
+      name: "@pi-harness/core/plugins/cleaner"
+      config: {}
+    - id: sql-lens
+      name: "@pi-harness/core/plugins/sql-lens"
+      config: {}
+    - id: docker-sandbox
+      name: "@pi-harness/core/plugins/docker-sandbox"
+      config: {}
+    - id: mcp-client
+      name: "@pi-harness/core/plugins/mcp-client"
+      config: {}
+    - id: browser-fetch
+      name: "@pi-harness/core/plugins/browser-fetch"
+      config: {}
+    - id: web-research
+      name: "@pi-harness/core/plugins/web-research"
+      config: {}
+    - id: browser-session
+      name: "@pi-harness/core/plugins/browser-session"
+      config: {}
+    - id: yaml-validator
+      name: "@pi-harness/core/plugins/yaml-validator"
+      config: {}
+    - id: mock-server
+      name: "@pi-harness/core/plugins/mock-server"
+      config: {}
+    - id: cli-notifier
+      name: "@pi-harness/core/plugins/cli-notifier"
+      config: {}
+    - id: obsidian-sync
+      name: "@pi-harness/core/plugins/obsidian-sync"
+      config: {}
+    - id: context-doctor
+      name: "@pi-harness/core/plugins/context-doctor"
+      config: {}
+    - id: history-compressor
+      name: "@pi-harness/core/plugins/history-compressor"
+      config: {}
+    - id: reviewer-bot
+      name: "@pi-harness/core/plugins/reviewer-bot"
+      config: {}
+    - id: auto-mode
+      name: "@pi-harness/core/plugins/auto-mode"
+      config: {}
+    - id: plan-execute
+      name: "@pi-harness/core/plugins/plan-execute"
+      config: {}
+    - id: plugin-finder
+      name: "@pi-harness/core/plugins/plugin-finder"
+      config: {}
+    - id: memory
+      name: "@pi-harness/core/plugins/memory"
+      config: {}
+    - id: graph-memory
+      name: "@pi-harness/core/plugins/graph-memory"
+      config: {}
+    - id: taskboard
+      name: "@pi-harness/core/plugins/taskboard"
+      config: {}
+    - id: synapse
+      name: "@pi-harness/core/plugins/synapse"
+      config: {}
+    - id: hol-guard
+      name: "@pi-harness/core/plugins/hol-guard"
+      config: {}
+    - id: plugin-radar
+      name: "@pi-harness/core/plugins/plugin-radar"
+      config: {}
+    - id: plugin-check
+      name: "@pi-harness/core/plugins/plugin-check"
+      config: {}
+    - id: annotation
+      name: "@pi-harness/core/plugins/annotation"
+      config: {}
+    - id: canvas-draw
+      name: "@pi-harness/core/plugins/canvas-draw"
+      config: {}
+    - id: image-compressor
+      name: "@pi-harness/core/plugins/image-compressor"
+      config: {}
+    - id: workspace-search
+      name: "@pi-harness/core/plugins/workspace-search"
+      config: {}
+    - id: prompt-guard
+      name: "@pi-harness/core/plugins/prompt-guard"
+      config: {}
+    - id: code2skill
+      name: "@pi-harness/core/plugins/code2skill"
+      config: {}
+    - id: tab-manager
+      name: "@pi-harness/core/plugins/tab-manager"
+      config: {}
+    - id: genui
+      name: "@pi-harness/core/plugins/genui"
+      config: {}
+    - id: anchored-standard
+      name: "@pi-harness/core/plugins/anchored-standard"
+      config: {}
+    - id: telemetry-blocker
+      name: "@pi-harness/core/plugins/telemetry-blocker"
+      config: {}
+    - id: change-verifier
+      name: "@pi-harness/core/plugins/change-verifier"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
         thinkingLevel: medium
+    - id: context
+      name: "@pi-harness/core/plugins/context"
+      config: {}
+    - id: token-guard
+      name: "@pi-harness/core/plugins/token-guard"
+      config:
+        maxPercent: 90
+    - id: fail-logger
+      name: "@pi-harness/core/plugins/fail-logger"
+      config: {}
     - id: webserver
       name: "@pi-harness/host-webserver"
       config:

@@ -140,7 +140,10 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
         });
         provideStdioContext(context, stdio);
       },
-    }).then((booted): BootOutcome => ({ kind: "ready", harness: booted }), (error: unknown): BootOutcome => ({ kind: "error", error }));
+    }).then(
+      (booted): BootOutcome => ({ kind: "ready", harness: booted }),
+      (error: unknown): BootOutcome => ({ kind: "error", error }),
+    );
     const startup = await Promise.race([bootOutcome, signalPromise.then((code) => ({ kind: "signal" as const, code }))]);
     if (startup.kind === "signal") {
       resultCode = startup.code;
@@ -180,7 +183,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     }
     return result.code;
   } catch (error) {
-    environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
     resultCode = 1;
     return 1;
   } finally {

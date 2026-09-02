@@ -12,6 +12,10 @@
   "bugs": {
     "url": "https://github.com/pi-harness/pi-harness/issues"
   },
+  "files": [
+    "dist",
+    "profiles"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,13 +29,6 @@
       "import": "./dist/plugins/*.js"
     },
     "./package.json": "./package.json"
-  },
-  "files": [
-    "dist",
-    "profiles"
-  ],
-  "engines": {
-    "node": ">=22.19.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -50,5 +47,8 @@
     "@earendil-works/pi-agent-core": "0.84.4",
     "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }
