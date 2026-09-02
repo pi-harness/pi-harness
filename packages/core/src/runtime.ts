@@ -12,6 +12,7 @@ export class PiRuntimeDisposedError extends Error {
 export class PiRuntime implements PiRuntimeService {
   readonly sessionRuntime: AgentSessionRuntime;
   #disposed = false;
+  #sessionDisposed = false;
 
   constructor(sessionRuntime: AgentSessionRuntime) {
     this.sessionRuntime = sessionRuntime;
@@ -23,17 +24,23 @@ export class PiRuntime implements PiRuntimeService {
 
   async prompt(text: string): Promise<void> {
     if (this.#disposed) throw new PiRuntimeDisposedError();
-    await this.sessionRuntime.session.prompt(text);
+    await this.session.prompt(text);
   }
 
   async abort(): Promise<void> {
-    if (this.#disposed) return;
-    await this.sessionRuntime.session.abort();
+    if (this.#sessionDisposed) return;
+    await this.session.abort();
   }
 
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
-    await this.sessionRuntime.dispose();
+    try {
+      // Settle an in-flight turn first so its tool results are persisted before session_shutdown runs.
+      if (!this.session.isIdle) await this.session.abort();
+    } finally {
+      this.#sessionDisposed = true;
+      await this.sessionRuntime.dispose();
+    }
   }
 }

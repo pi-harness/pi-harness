@@ -2,6 +2,16 @@
   "name": "@pi-harness/host-webserver",
   "version": "0.1.2",
   "description": "Cordis route-registration service for the Pi Harness web host",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-harness/pi-harness.git",
+    "directory": "packages/host-webserver"
+  },
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
   "files": [
     "dist"
   ],

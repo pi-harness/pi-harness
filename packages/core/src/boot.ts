@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Context, type FiberState } from "@deepseek-ai/cordis";
@@ -5,8 +6,39 @@ import Group from "@deepseek-ai/cordis-plugin-group";
 import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader, { type EntryOptions } from "@deepseek-ai/cordis-plugin-loader";
 
+function assertUniqueEntryIds(entries: readonly EntryOptions[], seen = new Map<string, string>()): void {
+  for (const entry of entries) {
+    if (typeof entry.id === "string" && entry.id.length > 0) {
+      const previous = seen.get(entry.id);
+      if (previous !== undefined) throw new Error(`Duplicate loader entry id "${entry.id}" is used by both ${previous} and ${entry.name}; ids must be unique across the whole profile because nested groups share their tree's entry store`);
+      seen.set(entry.id, entry.name);
+    }
+    if (entry.group === true && Array.isArray(entry.config)) assertUniqueEntryIds(entry.config as EntryOptions[], seen);
+  }
+}
+
 class ReadonlyInclude extends Include {
+  constructor(ctx: Context, config: Include.Config) {
+    super(ctx, config);
+    const update = this.root.update.bind(this.root);
+    this.root.update = async (entries: EntryOptions[]) => {
+      assertUniqueEntryIds(entries);
+      await update(entries);
+    };
+  }
+
   override write(): void {}
+
+  override import(name: string, getOuterStack?: () => string[]): unknown {
+    if (this.ctx.loader.internal !== undefined || name.startsWith("cordis:") || name.startsWith(".") || name.startsWith("/") || name.includes("://")) return super.import(name, getOuterStack);
+    let resolved: string;
+    try {
+      resolved = createRequire(this.filename).resolve(name);
+    } catch {
+      return super.import(name, getOuterStack);
+    }
+    return super.import(pathToFileURL(resolved).href, getOuterStack);
+  }
 }
 
 export interface BootHarnessOptions {
@@ -26,7 +58,10 @@ const FIBER_ACTIVE = 2 as FiberState.ACTIVE;
 const FIBER_FAILED = 3 as FiberState.FAILED;
 
 function formatError(error: unknown): string {
-  return error instanceof Error ? (error.stack ?? error.message) : String(error);
+  if (error instanceof AggregateError) return error.errors.map(formatError).join("\n");
+  if (!(error instanceof Error)) return String(error);
+  const own = error.stack ?? error.message;
+  return error.cause === undefined ? own : `${own}\ncaused by: ${formatError(error.cause)}`;
 }
 
 async function assertEntriesActivated(context: Context): Promise<void> {
@@ -87,7 +122,8 @@ export async function bootHarness(options: BootHarnessOptions): Promise<BootedHa
     stage = "plugin tree activation";
     await mountProfile(context, configPath);
     await context.get("loader")?.await();
-    if (context.get("loader") !== undefined) await assertEntriesActivated(context);
+    await assertEntriesActivated(context);
+    if (options.signal?.aborted === true) throw new Error("Pi Harness startup was aborted", { cause: options.signal.reason });
   } catch (cause) {
     await context.fiber.dispose();
     throw new Error(`Pi Harness ${stage} failed: ${formatError(cause)}`, { cause });

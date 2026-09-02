@@ -20,9 +20,9 @@ export function parseLauncherArgs(args: readonly string[]): LauncherInvocation {
   let dumpConfig = false;
   const applicationArgs: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = args[index] ?? "";
     if (arg === "--") {
-      applicationArgs.push(...args.slice(index + 1));
+      applicationArgs.push(...args.slice(index));
       break;
     }
     if (arg === "--help" || arg === "-h") return { mode: "help" };
@@ -31,20 +31,23 @@ export function parseLauncherArgs(args: readonly string[]): LauncherInvocation {
       dumpConfig = true;
       continue;
     }
-    if (arg === "--profile") {
+    if (arg === "--profile" || arg.startsWith("--profile=")) {
       if (profileExplicit) throw new CliUsageError("--profile may only be specified once");
-      profile = optionValue(args, index, "--profile");
+      profile = arg === "--profile" ? optionValue(args, index, "--profile") : arg.slice("--profile=".length);
+      if (profile.length === 0) throw new CliUsageError("--profile requires a value");
       profileExplicit = true;
-      index += 1;
+      if (arg === "--profile") index += 1;
       continue;
     }
-    if (arg === "--config") {
+    if (arg === "--config" || arg.startsWith("--config=")) {
       if (configPath !== undefined) throw new CliUsageError("--config may only be specified once");
-      configPath = optionValue(args, index, "--config");
-      index += 1;
+      configPath = arg === "--config" ? optionValue(args, index, "--config") : arg.slice("--config=".length);
+      if (configPath.length === 0) throw new CliUsageError("--config requires a value");
+      if (arg === "--config") index += 1;
       continue;
     }
-    applicationArgs.push(arg ?? "");
+    applicationArgs.push(...args.slice(index));
+    break;
   }
   if (profileExplicit && configPath !== undefined) throw new CliUsageError("--profile and --config cannot be used together");
   return configPath === undefined

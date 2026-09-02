@@ -1,6 +1,15 @@
 {
   "name": "@pi-harness/pi-harness",
   "version": "0.1.2",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-harness/pi-harness.git"
+  },
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
   "bin": {
     "pi-harness": "./apps/web/server-dist/bin.js",
     "pih": "./packages/cli/dist/bin.js"
