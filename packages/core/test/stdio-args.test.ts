@@ -3,13 +3,14 @@ import { describe, expect, test } from "vitest";
 import { PiHarnessStdioCancelledError, StdioApplication, type PiHarnessStdio } from "../src/stdio.js";
 import type { PiHarnessLaunch, PiRuntimeService } from "../src/services.js";
 
-function createRuntime(): PiRuntimeService & { prompts: string[] } {
+function createRuntime(onPrompt?: () => void): PiRuntimeService & { prompts: string[] } {
   const prompts: string[] = [];
   return {
     prompts,
-    session: { messages: [] } as unknown as AgentSession,
+    session: { messages: [{ role: "assistant", stopReason: "stop" }] } as unknown as AgentSession,
     prompt(text) {
       prompts.push(text);
+      onPrompt?.();
       return Promise.resolve();
     },
     abort() {
@@ -49,10 +50,15 @@ function createStdio(prompt: string | Error = ""): PiHarnessStdio & { output: st
 }
 
 async function runWith(args: string[], stdinPrompt: string | Error = ""): Promise<{ code: number; prompts: string[]; errors: string[]; reads: number }> {
-  const runtime = createRuntime();
   const stdio = createStdio(stdinPrompt);
-  const code = await new StdioApplication(runtime, createLaunch(args), stdio).run();
+  const runtime = createRuntime(() => application.writeSessionEvent(assistantText("answer")));
+  const application = new StdioApplication(runtime, createLaunch(args), stdio);
+  const code = await application.run();
   return { code, prompts: runtime.prompts, errors: stdio.errors, reads: stdio.reads };
+}
+
+function assistantText(delta: string): AgentSessionEvent {
+  return { type: "message_update", assistantMessageEvent: { type: "text_delta", delta } } as unknown as AgentSessionEvent;
 }
 
 describe("stdio prompt arguments", () => {
@@ -113,11 +119,58 @@ describe("stdio session events", () => {
     const application = new StdioApplication(runtime, createLaunch(["--prompt", "hi"]), stdio);
     const run = application.run();
     application.writeSessionEvent({ type: "tool_execution_start", toolCallId: "1", toolName: "write", args: { text: "x".repeat(5_000) } });
+    application.writeSessionEvent(assistantText("done"));
     await run;
 
     const line = stdio.errors.join("");
     expect(line.split("\n").filter(Boolean)).toHaveLength(1);
     expect(line.length).toBeLessThan(160);
     expect(line).toContain("...");
+  });
+});
+
+describe("stdio run outcome", () => {
+  function createApplication(messages: unknown[]): { application: StdioApplication; stdio: ReturnType<typeof createStdio> } {
+    const runtime = createRuntime();
+    (runtime.session as unknown as { messages: unknown[] }).messages = messages;
+    const stdio = createStdio("prompt");
+    return { application: new StdioApplication(runtime, createLaunch(["--prompt", "hi"]), stdio), stdio };
+  }
+
+  test("separates assistant turns interrupted by a tool call", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "stop" }]);
+    const run = application.run();
+    application.writeSessionEvent(assistantText("Let me look."));
+    application.writeSessionEvent({ type: "tool_execution_start", toolCallId: "1", toolName: "read", args: {} });
+    application.writeSessionEvent(assistantText("Now I will fix it."));
+    await run;
+
+    expect(stdio.output.join("")).toBe("Let me look.\nNow I will fix it.\n");
+  });
+
+  test("reports a response truncated by the model output limit as a failure", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "length" }]);
+    const run = application.run();
+    application.writeSessionEvent(assistantText("half a sen"));
+
+    await expect(run).resolves.toBe(1);
+    expect(stdio.errors.join("")).toContain("truncated");
+  });
+
+  test("reads the last assistant message even when a tool result follows it", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "error", errorMessage: "provider exploded" }, { role: "toolResult" }]);
+    const run = application.run();
+    application.writeSessionEvent(assistantText("partial"));
+
+    await expect(run).resolves.toBe(1);
+    expect(stdio.errors.join("")).toContain("provider exploded");
+  });
+
+  test("does not report success for a run that produced no assistant text", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "stop" }]);
+
+    await expect(application.run()).resolves.toBe(1);
+    expect(stdio.output).toEqual([]);
+    expect(stdio.errors.join("")).toContain("no output");
   });
 });

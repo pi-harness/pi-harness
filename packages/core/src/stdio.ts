@@ -68,6 +68,8 @@ export class StdioApplication implements PiHarnessApplication {
   readonly #launch: PiHarnessLaunch;
   readonly #stdio: PiHarnessStdio;
   #running = false;
+  #pendingSeparator = false;
+  #wroteOutput = false;
 
   constructor(runtime: PiRuntimeService, launch: PiHarnessLaunch, stdio: PiHarnessStdio) {
     this.#runtime = runtime;
@@ -78,10 +80,16 @@ export class StdioApplication implements PiHarnessApplication {
   writeSessionEvent(event: AgentSessionEvent): void {
     if (!this.#running) return;
     if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+      if (this.#pendingSeparator) {
+        this.#pendingSeparator = false;
+        this.#stdio.writeOutput("\n");
+      }
+      this.#wroteOutput = true;
       this.#stdio.writeOutput(event.assistantMessageEvent.delta);
       return;
     }
     if (event.type === "tool_execution_start") {
+      if (this.#wroteOutput) this.#pendingSeparator = true;
       this.#stdio.writeError(`> ${event.toolName} ${summarizeToolArguments(event.args)}\n`);
       return;
     }
@@ -115,15 +123,22 @@ export class StdioApplication implements PiHarnessApplication {
         this.#stdio.writeError(`${error instanceof Error ? error.message : String(error)}\n`);
         return 1;
       }
-      const lastMessage = this.#runtime.session.messages.at(-1);
-      if (lastMessage?.role === "assistant" && (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted")) {
-        this.#stdio.writeError(`${lastMessage.errorMessage ?? `Request ${lastMessage.stopReason}`}\n`);
+      const lastAssistantMessage = this.#runtime.session.messages.findLast((message) => message.role === "assistant");
+      const stopReason = lastAssistantMessage?.stopReason;
+      if (stopReason === "error" || stopReason === "aborted" || stopReason === "length") {
+        if (this.#wroteOutput) this.#stdio.writeOutput("\n");
+        this.#stdio.writeError(`${lastAssistantMessage?.errorMessage ?? (stopReason === "length" ? "Response was truncated by the model's output limit" : `Request ${stopReason}`)}\n`);
+        return 1;
+      }
+      if (!this.#wroteOutput) {
+        this.#stdio.writeError("The agent produced no output\n");
         return 1;
       }
       this.#stdio.writeOutput("\n");
       return 0;
     } finally {
       this.#running = false;
+      this.#pendingSeparator = false;
     }
   }
 }

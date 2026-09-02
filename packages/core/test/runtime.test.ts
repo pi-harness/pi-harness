@@ -53,6 +53,22 @@ describe("Pi runtime plugin", () => {
     await expect(createTestRuntimeContext([], [], { noExtensions: false, agentDir })).rejects.toThrow(/deliberate extension load failure/);
   });
 
+  test("disposes the Pi session even when the in-flight abort rejects", async () => {
+    const { context } = await createRuntimeContext();
+    const runtime = context.piRuntime;
+    const session = runtime.session as unknown as { abort: () => Promise<void>; dispose: () => void };
+    const realDispose = session.dispose.bind(session);
+    let disposed = 0;
+    Object.defineProperty(session, "isIdle", { value: false, configurable: true });
+    session.abort = () => Promise.reject(new Error("abort failed"));
+    session.dispose = () => { disposed += 1; realDispose(); };
+
+    await expect(runtime.dispose()).rejects.toThrow(/abort failed/);
+
+    expect(disposed).toBe(1);
+    await expect(runtime.prompt("too late")).rejects.toThrow(/disposed/);
+  });
+
   test("keeps the agent run alive when a pi/session-event listener throws", async () => {
     const { context, responseText, callCount } = await createRuntimeContext();
     const extensionErrors: string[] = [];

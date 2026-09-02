@@ -58,7 +58,10 @@ const FIBER_ACTIVE = 2 as FiberState.ACTIVE;
 const FIBER_FAILED = 3 as FiberState.FAILED;
 
 function formatError(error: unknown): string {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
+  if (error instanceof AggregateError) return error.errors.map(formatError).join("\n");
+  if (!(error instanceof Error)) return String(error);
+  const own = error.stack ?? error.message;
+  return error.cause === undefined ? own : `${own}\ncaused by: ${formatError(error.cause)}`;
 }
 
 async function assertEntriesActivated(context: Context): Promise<void> {
@@ -119,7 +122,8 @@ export async function bootHarness(options: BootHarnessOptions): Promise<BootedHa
     stage = "plugin tree activation";
     await mountProfile(context, configPath);
     await context.get("loader")?.await();
-    if (context.get("loader") !== undefined) await assertEntriesActivated(context);
+    await assertEntriesActivated(context);
+    if (options.signal?.aborted === true) throw new Error("Pi Harness startup was aborted", { cause: options.signal.reason });
   } catch (cause) {
     await context.fiber.dispose();
     throw new Error(`Pi Harness ${stage} failed: ${formatError(cause)}`, { cause });
