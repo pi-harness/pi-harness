@@ -88,6 +88,7 @@ const capability = (name: string): string => {
     ["taskboard", "任务看板"],
     ["synapse", "会话地图"],
     ["hol-guard", "安全防护"],
+    ["plugin-radar", "生态雷达"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -143,6 +144,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/taskboard", "Taskboard"],
     ["@pi-harness/core/plugins/synapse", "Synapse"],
     ["@pi-harness/core/plugins/hol-guard", "HOL Guard"],
+    ["@pi-harness/core/plugins/plugin-radar", "Plugin Radar"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1362,6 +1364,63 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
+            </div>
+          );
+        })()
+      ) : panel.id === "plugin-radar-panel" ? (
+        (() => {
+          const results = Array.isArray(data?.results) ? data.results : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                <span className="text-[#65707b]">GitHub DSH 生态</span>
+                <span className="font-mono text-[#4176e6]">
+                  {value(data?.total ?? 0)} 个仓库 · {Array.isArray(data?.sources) ? data.sources.length : 0} 个来源
+                </span>
+              </div>
+              {data?.query ? <div className="text-[11px] text-[#65707b]">查询：{value(data.query)}</div> : null}
+              {results.length > 0 ? (
+                <ol className="grid gap-1.5">
+                  {results.slice(0, 8).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const topics = Array.isArray(item.topics) ? item.topics.filter((topic): topic is string => typeof topic === "string").slice(0, 3) : [];
+                    const url = typeof item.url === "string" ? item.url : undefined;
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.fullName ?? "repo")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-4 shrink-0 text-right font-mono text-[10px] text-[#9aa3ad]">{index + 1}</span>
+                          {url ? (
+                            <a
+                              className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#315fb8] hover:underline"
+                              href={url}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              {value(item.fullName ?? item.name ?? "未知仓库")}
+                            </a>
+                          ) : (
+                            <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">
+                              {value(item.fullName ?? item.name ?? "未知仓库")}
+                            </strong>
+                          )}
+                          <span className="shrink-0 font-mono text-[10px] text-[#a15c00]">★ {value(item.stars ?? 0)}</span>
+                        </div>
+                        <p className="mt-1 truncate pl-6 text-[10px] text-[#65707b]">{value(item.description, "暂无描述")}</p>
+                        <div className="mt-1 flex min-w-0 items-center gap-2 pl-6 text-[9px] text-[#9aa3ad]">
+                          {item.language ? <span>{value(item.language)}</span> : null}
+                          {item.updatedAt ? <span className="font-mono">更新 {value(item.updatedAt)}</span> : null}
+                          {topics.length > 0 ? <span className="truncate">{topics.map((topic) => `#${topic}`).join(" ")}</span> : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未搜索插件。Agent 可调用 plugin_radar_search 从 GitHub 发现 DSH 插件。
+                </div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">只读 GitHub 搜索，按 Star 降序；不会安装、执行或修改第三方仓库。</div>
             </div>
           );
         })()

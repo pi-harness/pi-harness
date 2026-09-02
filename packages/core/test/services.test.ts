@@ -62,6 +62,7 @@ import { buildSynapseGraph } from "../src/plugins/synapse.js";
 import synapsePlugin from "../src/plugins/synapse.js";
 import { inspectGuardInput } from "../src/plugins/hol-guard.js";
 import holGuardPlugin from "../src/plugins/hol-guard.js";
+import pluginRadarPlugin from "../src/plugins/plugin-radar.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1712,5 +1713,73 @@ describe("Pi domain plugins", () => {
       details: { valid: false, errors: [{ line: 2 }] },
     });
     await expect(tool.execute("call-3", { path: "../invalid.yml" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
+  });
+
+  test("searches GitHub DSH plugins and exposes a bounded radar snapshot", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    const mockFetch: typeof fetch = (input) => {
+      const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      requests.push(requestUrl);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            total_count: 2,
+            items: [
+              {
+                name: "dsh-synapse",
+                full_name: "liangmianya/dsh-synapse",
+                html_url: "https://github.com/liangmianya/dsh-synapse",
+                description: "Visual session map",
+                stargazers_count: 309,
+                language: "TypeScript",
+                updated_at: "2026-09-02T07:00:00Z",
+                topics: ["dsh-plugin", "deepseek-harness"],
+              },
+              {
+                name: "dsh-taskboard",
+                full_name: "shengsheng90/dsh-taskboard",
+                html_url: "https://github.com/shengsheng90/dsh-taskboard",
+                description: null,
+                stargazers_count: 277,
+                language: null,
+                updated_at: "2026-09-01T07:00:00Z",
+                topics: [],
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+    };
+    globalThis.fetch = mockFetch;
+    try {
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(pluginRadarPlugin, { apiUrl: "https://api.github.test", limit: 5 });
+      const tool = tools.snapshot().customTools.find((entry) => entry.name === "plugin_radar_search");
+      if (tool === undefined) throw new Error("plugin_radar_search was not registered");
+      const result = await tool.execute("call-1", { query: "memory" }, undefined, undefined, {} as never);
+      const textContent = result.content.find((entry) => entry.type === "text");
+      expect(textContent?.text).toContain("liangmianya/dsh-synapse");
+      expect(result.details).toMatchObject({ query: "memory", total: 2 });
+      expect((result.details as { results: Array<{ fullName: string; stars: number }> }).results[0]).toMatchObject({
+        fullName: "liangmianya/dsh-synapse",
+        stars: 309,
+      });
+      expect(requests[0]).toContain("api.github.test/search/repositories?");
+      expect(requests[0]).toContain("topic%3Adsh-plugin");
+      expect(requests).toHaveLength(2);
+      const snapshot = await panels.snapshot();
+      expect(snapshot).toHaveLength(1);
+      expect(snapshot[0]).toMatchObject({ id: "plugin-radar-panel", data: { query: "memory", total: 2 } });
+      expect((snapshot[0].data as { results: Array<{ fullName: string }> }).results[0].fullName).toBe("liangmianya/dsh-synapse");
+      await expect(tool.execute("call-2", { query: "x".repeat(81) }, undefined, undefined, {} as never)).rejects.toThrow(/0-80 characters/iu);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

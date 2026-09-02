@@ -119,6 +119,9 @@
     - id: hol-guard
       name: "@pi-harness/core/plugins/hol-guard"
       config: {}
+    - id: plugin-radar
+      name: "@pi-harness/core/plugins/plugin-radar"
+      config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}
