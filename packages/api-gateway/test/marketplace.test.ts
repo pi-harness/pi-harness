@@ -64,6 +64,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("plugin-dev")?.category.id).toBe("developer");
     expect(official.get("session-export")?.category.id).toBe("workflow");
     expect(official.get("session-search")?.category.id).toBe("discovery");
+    expect(official.get("session-bookmarks")?.category.id).toBe("workflow");
     expect(official.get("cleaner")?.category.id).toBe("developer");
     expect(official.get("cli-notifier")?.category.id).toBe("workflow");
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");

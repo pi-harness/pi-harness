@@ -121,6 +121,7 @@ const capability = (name: string): string => {
     ["turn-rewind", "会话回退"],
     ["session-export", "会话导出"],
     ["session-search", "会话搜索"],
+    ["session-bookmarks", "会话书签"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -193,6 +194,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/turn-rewind", "Turn Rewind"],
     ["@pi-harness/core/plugins/session-export", "Session Export"],
     ["@pi-harness/core/plugins/session-search", "Session Search"],
+    ["@pi-harness/core/plugins/session-bookmarks", "Session Bookmarks"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1199,6 +1201,29 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : data?.query ? (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的历史会话。</div>
           ) : null}
+        </div>
+      ) : panel.id === "session-bookmarks-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <span className="text-[11px] text-[#65707b]">当前会话的持久化书签</span>
+            <strong className="font-mono text-[11px] text-[#4176e6]">{value(data?.total ?? 0)} 个书签</strong>
+          </div>
+          {Array.isArray(data?.bookmarks) && data.bookmarks.length > 0 ? (
+            <div className="grid gap-2">
+              {data.bookmarks.slice(0, 12).map((item, index) => {
+                const bookmark = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(bookmark.id ?? "bookmark")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{value(bookmark.label ?? "未命名书签")}</strong>
+                    <code className="mt-1 block truncate text-[10px] text-[#8a949f]">entry: {value(bookmark.entryId ?? "—")}</code>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有标记重要节点。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">书签独立保存在 agent 目录，不会改写 Pi 原生会话记录。</p>
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
