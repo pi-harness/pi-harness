@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Context, type FiberState } from "@deepseek-ai/cordis";
@@ -7,6 +8,17 @@ import Loader, { type EntryOptions } from "@deepseek-ai/cordis-plugin-loader";
 
 class ReadonlyInclude extends Include {
   override write(): void {}
+
+  override import(name: string, getOuterStack?: () => string[]): unknown {
+    if (this.ctx.loader.internal !== undefined || name.startsWith("cordis:") || name.startsWith(".") || name.startsWith("/") || name.includes("://")) return super.import(name, getOuterStack);
+    let resolved: string;
+    try {
+      resolved = createRequire(this.filename).resolve(name);
+    } catch {
+      return super.import(name, getOuterStack);
+    }
+    return super.import(pathToFileURL(resolved).href, getOuterStack);
+  }
 }
 
 export interface BootHarnessOptions {
