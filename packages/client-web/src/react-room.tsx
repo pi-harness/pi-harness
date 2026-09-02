@@ -90,6 +90,7 @@ const capability = (name: string): string => {
     ["hol-guard", "安全防护"],
     ["plugin-radar", "生态雷达"],
     ["plugin-check", "插件体检"],
+    ["annotation", "批注上下文"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -147,6 +148,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/hol-guard", "HOL Guard"],
     ["@pi-harness/core/plugins/plugin-radar", "Plugin Radar"],
     ["@pi-harness/core/plugins/plugin-check", "Plugin Check"],
+    ["@pi-harness/core/plugins/annotation", "Annotations"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1366,6 +1368,46 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
+            </div>
+          );
+        })()
+      ) : panel.id === "annotation-panel" ? (
+        (() => {
+          const annotations = Array.isArray(data?.annotations) ? data.annotations : [];
+          const lastPrompt = typeof data?.lastPrompt === "string" ? data.lastPrompt : "";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                <span className="text-[#65707b]">待发送批注</span>
+                <strong className="font-mono text-[#4176e6]">{value(data?.count ?? 0)} 条</strong>
+              </div>
+              {annotations.length > 0 ? (
+                <ol className="grid gap-1.5">
+                  {annotations.slice(0, 8).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? index)}-${index}`}>
+                        <div className="flex items-start gap-2 text-[10px]">
+                          <span className="rounded bg-[#edf3fe] px-1.5 py-0.5 font-mono text-[#315fb8]">#{value(item.id ?? index + 1)}</span>
+                          <p className="min-w-0 flex-1 whitespace-pre-wrap text-[#30343b]">{value(item.quote, "")}</p>
+                        </div>
+                        {item.note ? <p className="mt-1 pl-8 text-[10px] text-[#8a949f]">{value(item.note)}</p> : null}
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未收集批注。Agent 可调用 annotation_manage 的 add 操作记录回复片段。
+                </div>
+              )}
+              {lastPrompt ? (
+                <details className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]">
+                  <summary className="cursor-pointer text-[#65707b]">最近生成的提问上下文</summary>
+                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px] text-[#30343b]">{lastPrompt}</pre>
+                </details>
+              ) : null}
+              <div className="text-[10px] text-[#9aa3ad]">批注按编号累积；生成上下文不会改写原会话消息。</div>
             </div>
           );
         })()

@@ -64,6 +64,7 @@ import { inspectGuardInput } from "../src/plugins/hol-guard.js";
 import holGuardPlugin from "../src/plugins/hol-guard.js";
 import pluginRadarPlugin from "../src/plugins/plugin-radar.js";
 import pluginCheckPlugin, { type PluginCheckScanReport } from "../src/plugins/plugin-check.js";
+import annotationPlugin from "../src/plugins/annotation.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1817,5 +1818,33 @@ describe("Pi domain plugins", () => {
     const schemaChecks = (schemaResult.details as { checks: Array<{ code: string }> }).checks;
     expect(schemaChecks.some((check) => check.code === "missing-main-or-types")).toBe(true);
     expect(await readFile(join(good, "cordis.patch.yml"), "utf8")).toBe("- id: dsh-good\n  name: dsh-good\n");
+  });
+
+  test("manages numbered annotations and renders a model-ready prompt block", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(annotationPlugin, {});
+    const tool = tools.snapshot().customTools.find((entry) => entry.name === "annotation_manage");
+    if (tool === undefined) throw new Error("annotation_manage was not registered");
+    const first = await tool.execute(
+      "add-1",
+      { action: "add", quote: "Use the streaming transport", note: "Keep this behavior" },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(first.details).toMatchObject({ id: 1, quote: "Use the streaming transport", note: "Keep this behavior" });
+    await tool.execute("add-2", { action: "add", quote: "Render Markdown with a library" }, undefined, undefined, {} as never);
+    const prompt = await tool.execute("prompt", { action: "prompt", question: "What should we change?" }, undefined, undefined, {} as never);
+    expect(prompt.content[0]?.text).toContain("Annotation 1");
+    expect(prompt.content[0]?.text).toContain("What should we change?");
+    expect((await panels.snapshot())[0]).toMatchObject({ id: "annotation-panel", data: { count: 2 } });
+    await tool.execute("remove", { action: "remove", id: 1 }, undefined, undefined, {} as never);
+    expect((await tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).details).toMatchObject({ count: 1 });
+    await tool.execute("clear", { action: "clear" }, undefined, undefined, {} as never);
+    expect((await panels.snapshot())[0]).toMatchObject({ data: { count: 0, annotations: [] } });
   });
 });

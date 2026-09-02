@@ -125,6 +125,9 @@
     - id: plugin-check
       name: "@pi-harness/core/plugins/plugin-check"
       config: {}
+    - id: annotation
+      name: "@pi-harness/core/plugins/annotation"
+      config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}
