@@ -801,6 +801,17 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               <span className="block text-[10px] text-[#8a949f]">任务</span>
               <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.tasks) ? data.tasks.length : 0)}</strong>
             </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">未读消息</span>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
+                {value(
+                  Array.isArray(data?.messages)
+                    ? data.messages.filter((message) => message !== null && typeof message === "object" && (message as Record<string, unknown>).read !== true)
+                        .length
+                    : 0,
+                )}
+              </strong>
+            </div>
           </div>
           <div className="grid gap-2">
             {Array.isArray(data?.members) && data.members.length > 0 ? (
@@ -842,6 +853,36 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })
             ) : (
               <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">还没有任务。可让 Agent 使用 team_task 创建。</div>
+            )}
+          </div>
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-[#30343b]">团队消息</span>
+              <span className="font-mono text-[10px] text-[#8a949f]">durable mailbox</span>
+            </div>
+            {Array.isArray(data?.messages) && data.messages.length > 0 ? (
+              Array.from(data.messages as readonly unknown[])
+                .reverse()
+                .slice(0, 5)
+                .map((item, index) => {
+                  const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                  return (
+                    <div
+                      className={`rounded-lg border px-3 py-2 ${message.read === true ? "border-[#edf0f3] bg-white" : "border-[#cfe0ff] bg-[#f4f8ff]"}`}
+                      key={`${value(message.id ?? "message")}-${index}`}
+                    >
+                      <div className="flex items-center gap-2 text-[10px] text-[#8a949f]">
+                        <span className="font-mono text-[#4176e6]">
+                          {value(message.from ?? "unknown")} → {value(message.to ?? "unknown")}
+                        </span>
+                        <span className="ml-auto">{message.read === true ? "已读" : "未读"}</span>
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-[#30343b]">{value(message.body ?? "")}</p>
+                    </div>
+                  );
+                })
+            ) : (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">暂无团队消息。</div>
             )}
           </div>
         </div>

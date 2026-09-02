@@ -4,9 +4,11 @@ import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agen
 
 const customType = "pi-harness/agent-teams";
 type TeamTask = { id: string; title: string; assignee: string; status: string; dependsOn: string[] };
+type TeamMessage = { id: string; from: string; to: string; body: string; timestamp: string; read: boolean };
 type TeamState = {
   members: { id: string; name: string; role: string; status: string }[];
   tasks: TeamTask[];
+  messages: TeamMessage[];
 };
 
 const initialState = (): TeamState => ({
@@ -16,6 +18,7 @@ const initialState = (): TeamState => ({
     { id: "reviewer", name: "Reviewer", role: "验证结果", status: "idle" },
   ],
   tasks: [],
+  messages: [],
 });
 
 function readState(context: Context): TeamState {
@@ -34,7 +37,23 @@ function readState(context: Context): TeamState {
       dependsOn: Array.isArray(item.dependsOn) ? item.dependsOn.filter((id): id is string => typeof id === "string" && id.trim() !== "") : [],
     };
   });
-  return structuredClone({ members: value.members, tasks });
+  const messages = Array.isArray(value.messages)
+    ? value.messages.flatMap((message, index) => {
+        const item = message as Partial<TeamMessage>;
+        if (typeof item.from !== "string" || typeof item.to !== "string" || typeof item.body !== "string") return [];
+        return [
+          {
+            id: typeof item.id === "string" && item.id.trim() !== "" ? item.id : `message-${index + 1}`,
+            from: item.from,
+            to: item.to,
+            body: item.body,
+            timestamp: typeof item.timestamp === "string" ? item.timestamp : new Date(0).toISOString(),
+            read: item.read === true,
+          },
+        ];
+      })
+    : [];
+  return structuredClone({ members: value.members, tasks, messages });
 }
 
 function persist(context: Context, state: TeamState): void {
@@ -46,6 +65,13 @@ function refreshTaskReadiness(state: TeamState): void {
   for (const task of state.tasks) {
     if (task.status === "blocked" && task.dependsOn.every((id) => completed.has(id))) task.status = "todo";
     if ((task.status === "todo" || task.status === "blocked") && task.dependsOn.some((id) => !completed.has(id))) task.status = "blocked";
+  }
+}
+
+function syncMemberStatuses(state: TeamState): void {
+  const activeAssignees = new Set(state.tasks.filter((task) => task.status === "in_progress").map((task) => task.assignee));
+  for (const member of state.members) {
+    if (member.status === "working" || activeAssignees.has(member.id)) member.status = activeAssignees.has(member.id) ? "working" : "idle";
   }
 }
 
@@ -66,10 +92,10 @@ export default {
       defineTool({
         name: "team_task",
         label: "Team task",
-        description: "Create or update a durable agent-team member or task in the current Pi session.",
-        promptSnippet: "manage durable team members and tasks",
+        description: "Create or update durable agent-team members, tasks, and mailbox messages in the current Pi session.",
+        promptSnippet: "manage durable team members, tasks, and mailbox messages",
         parameters: Type.Object({
-          action: Type.String({ description: "add_task, update_task, claim_task, or add_member" }),
+          action: Type.String({ description: "add_task, update_task, claim_task, add_member, send_message, or read_messages" }),
           id: Type.Optional(Type.String()),
           title: Type.Optional(Type.String()),
           assignee: Type.Optional(Type.String()),
@@ -77,6 +103,10 @@ export default {
           role: Type.Optional(Type.String()),
           status: Type.Optional(Type.String()),
           dependsOn: Type.Optional(Type.Array(Type.String())),
+          from: Type.Optional(Type.String()),
+          to: Type.Optional(Type.String()),
+          body: Type.Optional(Type.String()),
+          unreadOnly: Type.Optional(Type.Boolean()),
         }),
         execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
           return Promise.resolve().then(() => {
@@ -99,6 +129,7 @@ export default {
               };
               state.tasks.push(task);
               refreshTaskReadiness(state);
+              syncMemberStatuses(state);
               persist(context, state);
               return { content: [{ type: "text" as const, text: `Task ${task.id} created.` }], details: { kind: "task", item: task } };
             }
@@ -116,11 +147,15 @@ export default {
                 task.status = params.status.trim();
               }
               refreshTaskReadiness(state);
+              syncMemberStatuses(state);
               persist(context, state);
               return { content: [{ type: "text" as const, text: `Task ${task.id} updated.` }], details: { kind: "task", item: task } };
             }
             if (params.action === "claim_task") {
               const task = nextReadyTask(state, params.assignee?.trim() || "unassigned");
+              const member = state.members.find((item) => item.id === task.assignee);
+              if (member !== undefined) member.status = "working";
+              syncMemberStatuses(state);
               persist(context, state);
               return { content: [{ type: "text" as const, text: `Task ${task.id} claimed.` }], details: { kind: "task", item: task } };
             }
@@ -133,9 +168,42 @@ export default {
                 role: params.role?.trim() || "协作成员",
                 status: params.status?.trim() || "idle",
               };
+              if (state.members.some((item) => item.id === member.id)) throw new Error(`Member already exists: ${member.id}`);
               state.members.push(member);
               persist(context, state);
               return { content: [{ type: "text" as const, text: `Member ${member.name} added.` }], details: { kind: "member", item: member } };
+            }
+            if (params.action === "send_message") {
+              const from = params.from?.trim();
+              const to = params.to?.trim();
+              const body = params.body?.trim();
+              if (!from || !to || !body) throw new Error("from, to, and body are required when action is send_message");
+              if (!state.members.some((item) => item.id === from)) throw new Error(`Unknown sender: ${from}`);
+              if (!state.members.some((item) => item.id === to)) throw new Error(`Unknown recipient: ${to}`);
+              if (body.length > 4000) throw new Error("Message body must be 4000 characters or fewer");
+              const message: TeamMessage = {
+                id: `message-${state.messages.length + 1}`,
+                from,
+                to,
+                body,
+                timestamp: new Date().toISOString(),
+                read: false,
+              };
+              state.messages.push(message);
+              persist(context, state);
+              return { content: [{ type: "text" as const, text: `Message ${message.id} sent.` }], details: { kind: "message", item: message } };
+            }
+            if (params.action === "read_messages") {
+              const to = params.to?.trim();
+              if (!to) throw new Error("to is required when action is read_messages");
+              if (!state.members.some((item) => item.id === to)) throw new Error(`Unknown recipient: ${to}`);
+              const messages = state.messages.filter((message) => message.to === to && (!params.unreadOnly || !message.read));
+              for (const message of messages) message.read = true;
+              if (messages.length > 0) persist(context, state);
+              return {
+                content: [{ type: "text" as const, text: `${messages.length} message${messages.length === 1 ? "" : "s"} read.` }],
+                details: { kind: "mailbox", messages },
+              };
             }
             throw new Error(`Unknown team action: ${params.action}`);
           });

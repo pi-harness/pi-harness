@@ -448,6 +448,17 @@ describe("Pi domain plugins", () => {
     await expect(tool.execute("call-4", { action: "claim_task", assignee: "builder" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { item: { id: "task-2", status: "in_progress", assignee: "builder" } },
     });
+    await expect(
+      tool.execute("call-5", { action: "send_message", from: "builder", to: "reviewer", body: "实现已完成，请开始复核" }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { item: { from: "builder", to: "reviewer", body: "实现已完成，请开始复核", read: false } } });
+    await expect(tool.execute("call-6", { action: "read_messages", to: "reviewer" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { messages: [{ from: "builder", to: "reviewer", body: "实现已完成，请开始复核", read: true }] },
+    });
+    await expect(
+      tool.execute("call-7", { action: "read_messages", to: "reviewer", unreadOnly: true }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { messages: [] },
+    });
     await expect(panels.snapshot()).resolves.toMatchObject([
       {
         id: "agent-teams-panel",
@@ -459,7 +470,11 @@ describe("Pi domain plugins", () => {
         },
       },
     ]);
-    expect(entries).toHaveLength(4);
+    const panel = (await panels.snapshot())[0];
+    expect((panel.data as { members: { id: string; status: string }[] }).members.find((member) => member.id === "builder")).toMatchObject({
+      status: "working",
+    });
+    expect(entries).toHaveLength(6);
   });
 
   test("attaches an in-workspace image through the modlens tool", async () => {
