@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
@@ -58,6 +59,14 @@ import changeVerifierPlugin from "../src/plugins/change-verifier.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
+const chromeExecutable = [
+  process.env.PI_HARNESS_TEST_CHROME_PATH,
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+].find((candidate): candidate is string => candidate !== undefined && existsSync(candidate));
 
 function waitForChromeEndpoint(chrome: ChildProcess): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1341,78 +1350,83 @@ describe("Pi domain plugins", () => {
     await expect(insecurePanels.snapshot()).resolves.toEqual([]);
   });
 
-  test("connects to a real Chrome DevTools session for tabs, text, and clicks", async () => {
-    const pageServer = createServer((_request, response) => {
-      response.setHeader("content-type", "text/html; charset=utf-8");
-      response.end(
-        '<html><body><button id="toggle" onclick="document.body.dataset.clicked=\'yes\'">Click me</button><p>Browser session fixture</p></body></html>',
+  test.skipIf(chromeExecutable === undefined)(
+    "connects to a real Chrome DevTools session for tabs, text, and clicks",
+    async () => {
+      if (chromeExecutable === undefined) throw new Error("Chrome availability changed after test discovery");
+      const pageServer = createServer((_request, response) => {
+        response.setHeader("content-type", "text/html; charset=utf-8");
+        response.end(
+          '<html><body><button id="toggle" onclick="document.body.dataset.clicked=\'yes\'">Click me</button><p>Browser session fixture</p></body></html>',
+        );
+      });
+      await new Promise<void>((resolve, reject) => {
+        pageServer.once("error", reject);
+        pageServer.listen(0, "127.0.0.1", () => resolve());
+      });
+      const profileDir = await mkdtemp(join(tmpdir(), "pi-harness-chrome-"));
+      const chrome = execFile(
+        chromeExecutable,
+        [
+          "--headless=new",
+          "--disable-gpu",
+          "--disable-software-rasterizer",
+          "--disable-dev-shm-usage",
+          "--no-first-run",
+          "--no-default-browser-check",
+          "--no-sandbox",
+          "--remote-debugging-address=127.0.0.1",
+          `--user-data-dir=${profileDir}`,
+          "--remote-debugging-port=0",
+          "about:blank",
+        ],
+        { stdio: ["ignore", "ignore", "pipe"] },
       );
-    });
-    await new Promise<void>((resolve, reject) => {
-      pageServer.once("error", reject);
-      pageServer.listen(0, "127.0.0.1", () => resolve());
-    });
-    const profileDir = await mkdtemp(join(tmpdir(), "pi-harness-chrome-"));
-    const chrome = execFile(
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      [
-        "--headless=new",
-        "--disable-gpu",
-        "--disable-software-rasterizer",
-        "--disable-dev-shm-usage",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--no-sandbox",
-        "--remote-debugging-address=127.0.0.1",
-        `--user-data-dir=${profileDir}`,
-        "--remote-debugging-port=0",
-        "about:blank",
-      ],
-      { stdio: ["ignore", "ignore", "pipe"] },
-    );
-    try {
-      const endpoint = await waitForChromeEndpoint(chrome);
-      const { context } = await createContext();
-      const panels = new PiPluginUiRegistry();
-      const tools = new PiToolRegistry();
-      context.provide("piTools", tools);
-      context.provide("piPluginUi", panels);
-      await context.plugin(browserSessionPlugin, { endpoint });
-      const registered = tools.snapshot().customTools;
-      const tabsTool = registered.find((tool) => tool.name === "browser_tabs");
-      const navigateTool = registered.find((tool) => tool.name === "browser_navigate");
-      const readTool = registered.find((tool) => tool.name === "browser_read");
-      const clickTool = registered.find((tool) => tool.name === "browser_click");
-      expect(tabsTool).toBeDefined();
-      expect(navigateTool).toBeDefined();
-      const tabs = await tabsTool!.execute("call-1", {}, undefined, undefined, {} as never);
-      const tab = (tabs.details as { tabs: Array<{ targetId: string }> }).tabs.find((item) => item.targetId);
-      expect(tab).toBeDefined();
-      await expect(
-        navigateTool!.execute(
-          "call-2",
-          { targetId: tab!.targetId, url: `http://127.0.0.1:${(pageServer.address() as { port: number }).port}/` },
-          undefined,
-          undefined,
-          {} as never,
-        ),
-      ).resolves.toMatchObject({ details: { status: "navigated" } });
-      await expect(readTool!.execute("call-3", { targetId: tab!.targetId }, undefined, undefined, {} as never)).resolves.toMatchObject({
-        details: { text: expect.stringContaining("Browser session fixture") },
-      });
-      await expect(clickTool!.execute("call-4", { targetId: tab!.targetId, selector: "#toggle" }, undefined, undefined, {} as never)).resolves.toMatchObject({
-        details: { clicked: true },
-      });
-    } finally {
-      chrome.kill("SIGKILL");
-      await new Promise<void>((resolve) => {
-        if (chrome.exitCode !== null) resolve();
-        else chrome.once("exit", () => resolve());
-      });
-      await rm(profileDir, { recursive: true, force: true });
-      await new Promise<void>((resolve, reject) => pageServer.close((error) => (error ? reject(error) : resolve())));
-    }
-  }, 30_000);
+      try {
+        const endpoint = await waitForChromeEndpoint(chrome);
+        const { context } = await createContext();
+        const panels = new PiPluginUiRegistry();
+        const tools = new PiToolRegistry();
+        context.provide("piTools", tools);
+        context.provide("piPluginUi", panels);
+        await context.plugin(browserSessionPlugin, { endpoint });
+        const registered = tools.snapshot().customTools;
+        const tabsTool = registered.find((tool) => tool.name === "browser_tabs");
+        const navigateTool = registered.find((tool) => tool.name === "browser_navigate");
+        const readTool = registered.find((tool) => tool.name === "browser_read");
+        const clickTool = registered.find((tool) => tool.name === "browser_click");
+        expect(tabsTool).toBeDefined();
+        expect(navigateTool).toBeDefined();
+        const tabs = await tabsTool!.execute("call-1", {}, undefined, undefined, {} as never);
+        const tab = (tabs.details as { tabs: Array<{ targetId: string }> }).tabs.find((item) => item.targetId);
+        expect(tab).toBeDefined();
+        await expect(
+          navigateTool!.execute(
+            "call-2",
+            { targetId: tab!.targetId, url: `http://127.0.0.1:${(pageServer.address() as { port: number }).port}/` },
+            undefined,
+            undefined,
+            {} as never,
+          ),
+        ).resolves.toMatchObject({ details: { status: "navigated" } });
+        await expect(readTool!.execute("call-3", { targetId: tab!.targetId }, undefined, undefined, {} as never)).resolves.toMatchObject({
+          details: { text: expect.stringContaining("Browser session fixture") },
+        });
+        await expect(clickTool!.execute("call-4", { targetId: tab!.targetId, selector: "#toggle" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+          details: { clicked: true },
+        });
+      } finally {
+        chrome.kill("SIGKILL");
+        await new Promise<void>((resolve) => {
+          if (chrome.exitCode !== null) resolve();
+          else chrome.once("exit", () => resolve());
+        });
+        await rm(profileDir, { recursive: true, force: true });
+        await new Promise<void>((resolve, reject) => pageServer.close((error) => (error ? reject(error) : resolve())));
+      }
+    },
+    30_000,
+  );
 
   test("validates YAML files with line-aware diagnostics without modifying them", async () => {
     const { context, cwd } = await createContext();
