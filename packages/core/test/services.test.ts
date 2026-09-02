@@ -43,6 +43,7 @@ import historyCompressorPlugin from "../src/plugins/history-compressor.js";
 import reviewerBotPlugin from "../src/plugins/reviewer-bot.js";
 import autoModePlugin from "../src/plugins/auto-mode.js";
 import planExecutePlugin from "../src/plugins/plan-execute.js";
+import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -668,6 +669,48 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "plan-execute-panel", data: { title: "Ship feature", completed: 1, total: 2 } }]);
   });
 
+  test("searches a configured npm registry through the plugin-finder plugin", async () => {
+    const server = createServer((request, response) => {
+      expect(request.url).toContain("/-/v1/search?text=keywords%3Acordis-plugin+logger&size=5");
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          objects: [
+            {
+              package: { name: "@example/cordis-plugin-logger", version: "1.2.3", description: "Logger plugin", links: { npm: "https://npm.example/plugin" } },
+              score: { final: 0.91 },
+            },
+          ],
+          total: 1,
+        }),
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Test server did not bind to a port");
+    try {
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(pluginFinderPlugin, { registryUrl: `http://127.0.0.1:${address.port}`, limit: 5 });
+      const search = tools.snapshot().customTools.find((candidate) => candidate.name === "plugin_search");
+      expect(search).toBeDefined();
+      await expect(search!.execute("call-1", { query: "logger" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { query: "logger", total: 1, results: [{ name: "@example/cordis-plugin-logger", version: "1.2.3", score: 0.91 }] },
+      });
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        { id: "plugin-finder-panel", data: { query: "logger", total: 1, results: [{ name: "@example/cordis-plugin-logger" }] } },
+      ]);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
   test("discovers and calls tools through an MCP stdio server", async () => {
     const { context, cwd } = await createContext();
     const server = join(cwd, "mcp-fixture.mjs");
@@ -798,10 +841,14 @@ describe("Pi domain plugins", () => {
     const chrome = execFile(
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       [
-        "--headless=new",
+        "--headless",
         "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--disable-dev-shm-usage",
         "--no-first-run",
         "--no-default-browser-check",
+        "--no-sandbox",
+        "--remote-debugging-address=127.0.0.1",
         `--user-data-dir=${profileDir}`,
         `--remote-debugging-port=${debugPort}`,
         "about:blank",

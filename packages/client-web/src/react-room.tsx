@@ -83,6 +83,7 @@ const capability = (name: string): string => {
     ["reviewer-bot", "代码审查"],
     ["auto-mode", "安全执行"],
     ["plan-execute", "计划执行"],
+    ["plugin-finder", "插件发现"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -121,6 +122,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/reviewer-bot", "Reviewer Bot"],
     ["@pi-harness/core/plugins/auto-mode", "Auto Mode"],
     ["@pi-harness/core/plugins/plan-execute", "Plan Execute"],
+    ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1099,6 +1101,43 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </ol>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">Agent 可调用 plan_create 创建执行计划。</div>
+          )}
+        </div>
+      ) : panel.id === "plugin-finder-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">只读 Registry 搜索</span>
+            <span className="font-mono text-[#65707b]">上限 {String(data?.limit ?? "—")}</span>
+          </div>
+          {data?.query ? (
+            <>
+              <div className="flex items-center justify-between text-[11px] text-[#65707b]">
+                <span>查询：{String(data.query)}</span>
+                <strong className="font-mono text-[#4176e6]">{String(data.total ?? 0)} 个结果</strong>
+              </div>
+              {Array.isArray(data?.results) && data.results.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {data.results.slice(0, 5).map((result, index) => {
+                    const item = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${String(item.name ?? "plugin")}-${index}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <strong className="truncate font-mono text-[11px] text-[#30343b]">{String(item.name ?? "未知插件")}</strong>
+                          <span className="font-mono text-[10px] text-[#8a949f]">v{String(item.version ?? "—")}</span>
+                        </div>
+                        <p className="mt-1 truncate text-[10px] text-[#8a949f]">{String(item.description ?? "")}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配插件。</div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 plugin_search 搜索 npm Registry。
+            </div>
           )}
         </div>
       ) : panel.id === "readme-gen-panel" ? (

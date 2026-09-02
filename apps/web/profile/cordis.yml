@@ -98,6 +98,9 @@
     - id: plan-execute
       name: "@pi-harness/core/plugins/plan-execute"
       config: {}
+    - id: plugin-finder
+      name: "@pi-harness/core/plugins/plugin-finder"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
