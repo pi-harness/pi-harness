@@ -115,6 +115,7 @@ const capability = (name: string): string => {
     ["plugin-dev", "插件开发"],
     ["openpets", "桌面伙伴"],
     ["vision-toolkit", "视觉素材"],
+    ["session-bridge", "会话交接"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -181,6 +182,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/openpets", "OpenPets"],
     ["@pi-harness/core/plugins/vision-toolkit", "Vision Toolkit"],
     ["@pi-harness/core/plugins/plugin-stars", "Plugin Stars"],
+    ["@pi-harness/core/plugins/session-bridge", "Session Bridge"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
