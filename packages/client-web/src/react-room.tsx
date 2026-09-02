@@ -21,6 +21,7 @@ import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
 import { marketplaceCategoryTabs, readMarketplaceDetailId } from "./marketplace-navigation.js";
+import { pluginStarsRows } from "./plugin-stars-view.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -1654,6 +1655,70 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </ol>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">Agent 可调用 plan_create 创建执行计划。</div>
+          )}
+        </div>
+      ) : panel.id === "plugin-stars-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">社区排行榜</span>
+            <span className="font-mono text-[#65707b]">上限 {value(data?.limit ?? "—")}</span>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const entries = Array.isArray(latest.results)
+                ? latest.results.flatMap((entry): Array<{ fullName: string; name: string; stars: number; htmlUrl: string; updatedAt: string }> => {
+                    if (entry === null || typeof entry !== "object") return [];
+                    const item = entry as Record<string, unknown>;
+                    if (
+                      typeof item.fullName !== "string" ||
+                      typeof item.name !== "string" ||
+                      typeof item.stars !== "number" ||
+                      typeof item.htmlUrl !== "string" ||
+                      typeof item.updatedAt !== "string"
+                    )
+                      return [];
+                    return [{ fullName: item.fullName, name: item.name, stars: item.stars, htmlUrl: item.htmlUrl, updatedAt: item.updatedAt }];
+                  })
+                : [];
+              const rows = pluginStarsRows(entries, 8);
+              return (
+                <>
+                  <div className="flex items-center justify-between text-[11px] text-[#65707b]">
+                    <span>查询：{value(latest.query, "全部")}</span>
+                    <strong className="font-mono text-[#4176e6]">{value(latest.total ?? rows.length)} 个结果</strong>
+                  </div>
+                  {rows.length > 0 ? (
+                    <ol className="grid gap-1.5">
+                      {rows.map((row) => (
+                        <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={row.fullName}>
+                          <span className="w-5 shrink-0 text-center font-mono text-[10px] text-[#9a6700]">#{row.rank}</span>
+                          <div className="min-w-0 flex-1">
+                            <a
+                              className="block truncate font-mono text-[11px] text-[#315fb8] hover:underline"
+                              href={row.htmlUrl}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              {row.fullName}
+                            </a>
+                            <span className="block truncate text-[10px] text-[#9aa3ad]">更新于 {row.updatedAt || "未知"}</span>
+                          </div>
+                          <span className="shrink-0 font-mono text-[10px] text-[#b26a00]">★ {row.stars.toLocaleString()}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的社区插件。</div>
+                  )}
+                  <p className="text-[10px] leading-4 text-[#8a949f]">来源：{value(latest.source, "dsh-plugin-stars")} · 仅展示公开仓库信息，不会自动安装。</p>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。
+            </div>
           )}
         </div>
       ) : panel.id === "plugin-finder-panel" ? (
