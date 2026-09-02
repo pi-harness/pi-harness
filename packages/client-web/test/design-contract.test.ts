@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DESIGN_EVENTS, DESIGN_PLUGINS, DESIGN_SESSIONS, DESIGN_WORKSPACES, DESIGN_TURNS, DESIGN_PROVIDERS, DESIGN_TOML } from "../src/design-contract.js";
+import { marketplaceDetailPath, readMarketplaceDetailId } from "../src/marketplace-navigation.js";
 
 describe("Pi Harness design contract", () => {
   it("keeps the workspace and session surfaces represented", () => {
@@ -22,5 +23,11 @@ describe("Pi Harness design contract", () => {
     expect(DESIGN_PROVIDERS.map((provider) => provider.id)).toEqual(["deepseek", "anthropic"]);
     expect(DESIGN_TOML).toContain("[[packages]]");
     expect(DESIGN_TOML).toContain("[sandbox]");
+  });
+
+  it("uses a stable secondary route for marketplace details", () => {
+    expect(marketplaceDetailPath("cordis-timer")).toBe("?page=marketplace&plugin=cordis-timer");
+    expect(readMarketplaceDetailId(new URLSearchParams("page=marketplace&plugin=cordis-timer"))).toBe("cordis-timer");
+    expect(readMarketplaceDetailId(new URLSearchParams("page=plugins&plugin=cordis-timer"))).toBeUndefined();
   });
 });

@@ -13,6 +13,7 @@ export interface MarketplacePlugin {
   readonly license: string;
   readonly source: "official" | "community";
   readonly status: "verified" | "experimental";
+  readonly category: { readonly id: string; readonly label: string };
   readonly capabilities: readonly string[];
   readonly hooks: readonly string[];
   readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
@@ -26,9 +27,16 @@ export interface MarketplacePage {
   readonly hasNext: boolean;
 }
 
+export interface MarketplaceCategory {
+  readonly id: string;
+  readonly label: string;
+  readonly count: number;
+}
+
 const npmPackagePattern = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/;
 const entryIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const categoryIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -37,6 +45,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
   if (!isRecord(value)) return false;
   const profile = value.profile;
+  const category = value.category;
   return (
     typeof value.id === "string" &&
     entryIdPattern.test(value.id) &&
@@ -56,6 +65,11 @@ function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
     value.license.trim() !== "" &&
     (value.source === "official" || value.source === "community") &&
     (value.status === "verified" || value.status === "experimental") &&
+    isRecord(category) &&
+    typeof category.id === "string" &&
+    categoryIdPattern.test(category.id) &&
+    typeof category.label === "string" &&
+    category.label.trim() !== "" &&
     Array.isArray(value.capabilities) &&
     value.capabilities.length > 0 &&
     value.capabilities.every((entry) => typeof entry === "string" && entry.trim() !== "") &&
@@ -104,14 +118,16 @@ function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
 
 export const MARKETPLACE_PLUGINS: readonly MarketplacePlugin[] = loadMarketplacePlugins();
 
-export function searchMarketplace(query = "", capability = ""): readonly MarketplacePlugin[] {
+export function searchMarketplace(query = "", capability = "", category = ""): readonly MarketplacePlugin[] {
   const normalizedQuery = query.trim().toLowerCase();
   const normalizedCapability = capability.trim().toLowerCase();
+  const normalizedCategory = category.trim().toLowerCase();
   return MARKETPLACE_PLUGINS.filter((plugin) => {
     const searchable = [plugin.name, plugin.packageName, plugin.description, plugin.author, ...plugin.capabilities, ...plugin.hooks].join(" ").toLowerCase();
     return (
       (normalizedQuery === "" || searchable.includes(normalizedQuery)) &&
-      (normalizedCapability === "" || plugin.capabilities.some((item) => item.toLowerCase() === normalizedCapability))
+      (normalizedCapability === "" || plugin.capabilities.some((item) => item.toLowerCase() === normalizedCapability)) &&
+      (normalizedCategory === "" || plugin.category.id.toLowerCase() === normalizedCategory)
     );
   });
 }
@@ -130,3 +146,8 @@ export function paginateMarketplace(items: readonly MarketplacePlugin[], page = 
 }
 
 export const MARKETPLACE_CAPABILITIES = [...new Set(MARKETPLACE_PLUGINS.flatMap((plugin) => plugin.capabilities))].sort();
+export const MARKETPLACE_CATEGORIES: readonly MarketplaceCategory[] = [
+  ...new Map(MARKETPLACE_PLUGINS.map((plugin) => [plugin.category.id, { id: plugin.category.id, label: plugin.category.label, count: 0 }])).values(),
+]
+  .map((category) => ({ ...category, count: MARKETPLACE_PLUGINS.filter((plugin) => plugin.category.id === category.id).length }))
+  .sort((a, b) => a.label.localeCompare(b.label));

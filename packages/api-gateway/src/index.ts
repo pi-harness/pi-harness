@@ -8,7 +8,14 @@ import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from 
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
-import { MARKETPLACE_CAPABILITIES, MARKETPLACE_PLUGINS, paginateMarketplace, searchMarketplace, type MarketplacePlugin } from "./marketplace.js";
+import {
+  MARKETPLACE_CAPABILITIES,
+  MARKETPLACE_CATEGORIES,
+  MARKETPLACE_PLUGINS,
+  paginateMarketplace,
+  searchMarketplace,
+  type MarketplacePlugin,
+} from "./marketplace.js";
 import { parseGitWorktrees, type WorkspaceSummary } from "./workspaces.js";
 
 interface ApiServices {
@@ -432,9 +439,9 @@ export default {
   inject: ["webServer", "piRuntime", "piModels", "piHarnessLaunch"],
   apply(context: Context) {
     const services: ApiServices = {
-      runtime: context.piRuntime,
-      models: context.piModels,
-      launch: context.piHarnessLaunch,
+      runtime: context.reflect.get("piRuntime") as PiRuntimeService,
+      models: context.reflect.get("piModels") as PiModelsService,
+      launch: context.reflect.get("piHarnessLaunch") as PiHarnessLaunch,
       webServer: context.webServer,
       loader: context.reflect.get("loader") as Loader | undefined,
       pluginUi: context.reflect.get("piPluginUi") as PiPluginUiRegistry | undefined,
@@ -453,7 +460,9 @@ export default {
         writeSse(response, { type: "event", event });
       }
     };
-    const unsubscribeEvents = services.runtime.sessionRuntime ? context.on("pi/session-event", handleEvent) : services.runtime.session.subscribe(handleEvent);
+    const unsubscribeEvents = services.runtime.sessionRuntime
+      ? context.on("pi/session-event" as never, handleEvent as never)
+      : services.runtime.session.subscribe(handleEvent);
     const disposeStatus = services.webServer.register({
       path: "/api/status",
       handler(_request, response) {
@@ -781,11 +790,13 @@ export default {
         const url = new URL(request.url ?? "/api/marketplace", "http://localhost");
         const query = url.searchParams.get("q") ?? "";
         const capability = url.searchParams.get("capability") ?? "";
+        const category = url.searchParams.get("category") ?? "";
         const page = Number(url.searchParams.get("page") ?? "0");
         const pageSize = Number(url.searchParams.get("pageSize") ?? "24");
         if (
           query.length > 120 ||
           capability.length > 80 ||
+          category.length > 80 ||
           !Number.isInteger(page) ||
           page < 0 ||
           !Number.isInteger(pageSize) ||
@@ -795,7 +806,11 @@ export default {
           sendJson(response, 400, { error: "Invalid marketplace query" });
           return;
         }
-        sendJson(response, 200, { ...paginateMarketplace(searchMarketplace(query, capability), page, pageSize), capabilities: MARKETPLACE_CAPABILITIES });
+        sendJson(response, 200, {
+          ...paginateMarketplace(searchMarketplace(query, capability, category), page, pageSize),
+          capabilities: MARKETPLACE_CAPABILITIES,
+          categories: MARKETPLACE_CATEGORIES,
+        });
       },
     });
     let marketplaceInstallInFlight = false;

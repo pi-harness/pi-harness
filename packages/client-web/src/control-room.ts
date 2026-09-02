@@ -65,13 +65,20 @@ export interface ClientMarketplacePlugin {
   readonly license: string;
   readonly source: "official" | "community";
   readonly status: "verified" | "experimental";
+  readonly category: { readonly id: string; readonly label: string };
   readonly capabilities: readonly string[];
   readonly hooks: readonly string[];
   readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
 }
+export interface ClientMarketplaceCategory {
+  readonly id: string;
+  readonly label: string;
+  readonly count: number;
+}
 export interface ClientMarketplacePage {
   readonly items: readonly ClientMarketplacePlugin[];
   readonly capabilities: readonly string[];
+  readonly categories: readonly ClientMarketplaceCategory[];
   readonly total: number;
   readonly page: number;
   readonly pageSize: number;
@@ -160,7 +167,7 @@ export interface ClientApi {
   listPluginPanels(): Promise<readonly ClientPluginPanel[]>;
   togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin }>;
   uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string }>;
-  listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number): Promise<ClientMarketplacePage>;
+  listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number, category?: string): Promise<ClientMarketplacePage>;
   installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean }>;
   listCommands(): Promise<readonly ClientCommand[]>;
   selectModel(provider: string, model: string): Promise<{ model: ClientModel }>;
@@ -297,9 +304,9 @@ export function createClientApi(): ClientApi {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id }),
       }),
-    listMarketplace: (query = "", capability = "", page = 0, pageSize = 24) =>
+    listMarketplace: (query = "", capability = "", page = 0, pageSize = 24, category = "") =>
       requestJson<ClientMarketplacePage>(
-        `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&page=${page}&pageSize=${pageSize}`,
+        `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&category=${encodeURIComponent(category)}&page=${page}&pageSize=${pageSize}`,
       ),
     installMarketplace: (id) =>
       requestJson<{ plugin: ClientMarketplacePlugin; installed: boolean }>("/api/marketplace/install", {

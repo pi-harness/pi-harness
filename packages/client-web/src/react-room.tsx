@@ -4,6 +4,7 @@ import {
   type ClientApi,
   type ClientCommand,
   type ClientFile,
+  type ClientMarketplaceCategory,
   type ClientMarketplacePlugin,
   type ClientModel,
   type ClientPiConfig,
@@ -19,6 +20,7 @@ import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
+import { readMarketplaceDetailId } from "./marketplace-navigation.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -36,6 +38,7 @@ interface RoomData {
   pluginPanels: readonly ClientPluginPanel[];
   marketplace: readonly ClientMarketplacePlugin[];
   marketplaceCapabilities: readonly string[];
+  marketplaceCategories: readonly ClientMarketplaceCategory[];
   marketplaceTotal: number;
   marketplacePage: number;
   marketplaceHasNext: boolean;
@@ -188,9 +191,20 @@ const readQueryState = (): {
   sessionPath?: string;
   marketplaceQuery: string;
   marketplaceCapability: string;
+  marketplaceCategory: string;
+  marketplacePlugin: string | undefined;
   marketplacePage: number;
 } => {
-  if (typeof window === "undefined") return { page: "session", view: "chat", marketplaceQuery: "", marketplaceCapability: "", marketplacePage: 0 };
+  if (typeof window === "undefined")
+    return {
+      page: "session",
+      view: "chat",
+      marketplaceQuery: "",
+      marketplaceCapability: "",
+      marketplaceCategory: "",
+      marketplacePlugin: undefined,
+      marketplacePage: 0,
+    };
   const params = new URLSearchParams(window.location.search);
   const page = params.get("page");
   const view = params.get("view");
@@ -206,6 +220,8 @@ const readQueryState = (): {
     sessionPath: params.get("session") ?? undefined,
     marketplaceQuery: params.get("marketplaceQuery") ?? "",
     marketplaceCapability: params.get("capability") ?? "",
+    marketplaceCategory: params.get("category") ?? "",
+    marketplacePlugin: readMarketplaceDetailId(params),
     marketplacePage: Number.isFinite(pageNumber) && pageNumber >= 0 ? pageNumber : 0,
   };
 };
@@ -2923,14 +2939,18 @@ function Plugins({
 function Marketplace({
   plugins,
   capabilities,
+  categories,
   total,
   page,
   hasNext,
   query,
   capabilityFilter,
+  categoryFilter,
   onQueryChange,
   onCapabilityChange,
+  onCategoryChange,
   onPageChange,
+  onOpenDetail,
   onBack,
   onToml,
   installedPackages,
@@ -2938,14 +2958,18 @@ function Marketplace({
 }: {
   plugins: readonly ClientMarketplacePlugin[];
   capabilities: readonly string[];
+  categories: readonly ClientMarketplaceCategory[];
   total: number;
   page: number;
   hasNext: boolean;
   query: string;
   capabilityFilter: string;
+  categoryFilter: string;
   onQueryChange: (value: string) => void;
   onCapabilityChange: (value: string) => void;
+  onCategoryChange: (value: string) => void;
   onPageChange: (value: number) => void;
+  onOpenDetail: (plugin: ClientMarketplacePlugin) => void;
   onBack: () => void;
   onToml: () => void;
   installedPackages: ReadonlySet<string>;
@@ -3010,6 +3034,14 @@ function Marketplace({
             placeholder="搜索名称、包名、能力…"
             value={query}
           />
+          <select className="marketplace-filter" aria-label="按分类筛选" onChange={(event) => onCategoryChange(event.target.value)} value={categoryFilter}>
+            <option value="">全部分类</option>
+            {categories.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label} · {item.count}
+              </option>
+            ))}
+          </select>
           <select className="marketplace-filter" aria-label="按能力筛选" onChange={(event) => onCapabilityChange(event.target.value)} value={capabilityFilter}>
             <option value="">全部能力</option>
             {capabilities.map((item) => (
@@ -3047,6 +3079,7 @@ function Marketplace({
                       >
                         {plugin.source === "official" ? "官方" : "社区"}
                       </span>
+                      <span className="rounded bg-[#f2edff] px-1.5 py-px text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
                     </div>
                     <code className="marketplace-package">
                       {displayPluginName(plugin.packageName)} · v{plugin.version}
@@ -3070,6 +3103,9 @@ function Marketplace({
                   <span>
                     {plugin.author} · {plugin.license}
                   </span>
+                  <button onClick={() => onOpenDetail(plugin)} type="button">
+                    查看详情
+                  </button>
                   <a href={plugin.repository} target="_blank" rel="noreferrer">
                     查看源码 ↗
                   </a>
@@ -3112,6 +3148,142 @@ function Marketplace({
             >
               查看贡献规范 ↗
             </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MarketplaceDetail({
+  plugin,
+  installed,
+  onInstall,
+  onBack,
+}: {
+  plugin: ClientMarketplacePlugin;
+  installed: boolean;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<void>;
+  onBack: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const install = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      await onInstall(plugin);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="marketplace-page flex min-w-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="subnav">
+          <button onClick={onBack} type="button">
+            ← 插件市场
+          </button>
+          <span>插件详情</span>
+        </div>
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <header className="border-b border-[#e3e7ee] pb-7">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#4176e6]">
+                {plugin.source === "official" ? "官方插件" : "社区插件"}
+              </span>
+              <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
+              <span
+                className={
+                  plugin.status === "verified"
+                    ? "rounded bg-[#e6faed] px-2 py-1 font-mono text-[10px] text-[#16a34a]"
+                    : "rounded bg-[#fff5e7] px-2 py-1 font-mono text-[10px] text-[#dd8629]"
+                }
+              >
+                {plugin.status === "verified" ? "已验证" : "实验性"}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-end justify-between gap-5">
+              <div className="min-w-0">
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#8a949f]">PLUGIN DETAIL</p>
+                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#20252b]">{plugin.name}</h1>
+                <code className="mt-3 block break-all text-[12px] text-[#6f7883]">
+                  {plugin.packageName} · v{plugin.version}
+                </code>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="rounded-md border border-black/10 bg-white px-3 py-2 text-[12px] text-[#20252b]" onClick={onBack} type="button">
+                  返回市场
+                </button>
+                <button
+                  className="rounded-md bg-[#20252b] px-3 py-2 text-[12px] text-white disabled:cursor-default disabled:opacity-50"
+                  disabled={installed || busy}
+                  onClick={() => void install()}
+                  type="button"
+                >
+                  {installed ? "已安装" : busy ? "安装中…" : "安装插件"}
+                </button>
+              </div>
+            </div>
+            <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">{plugin.description}</p>
+            {error && <p className="mt-3 text-[12px] text-[#ec1313]">安装失败：{error}</p>}
+          </header>
+          <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="space-y-4">
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <h2 className="text-[13px] font-semibold text-[#20252b]">插件能力</h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {plugin.capabilities.map((item) => (
+                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 font-mono text-[11px] text-[#61666b]" key={item}>
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </section>
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <h2 className="text-[13px] font-semibold text-[#20252b]">扩展点</h2>
+                <div className="mt-4 space-y-2">
+                  {plugin.hooks.map((item) => (
+                    <div className="rounded-md bg-[#f8f9fb] px-3 py-2 font-mono text-[11px] text-[#61666b]" key={item}>
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <h2 className="text-[13px] font-semibold text-[#20252b]">运行配置</h2>
+                <p className="mt-1 text-[12px] text-[#8a949f]">安装后会以这个 profile 写入 pi.toml。</p>
+                <pre className="mt-4 overflow-auto rounded-lg bg-[#f7f8fa] p-4 text-[11px] leading-6 text-[#3b424b]">
+                  <code>{JSON.stringify(plugin.profile, null, 2)}</code>
+                </pre>
+              </section>
+            </div>
+            <aside className="h-fit rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
+              <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">作者</dt>
+                  <dd className="text-right text-[#3b424b]">{plugin.author}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">许可证</dt>
+                  <dd className="font-mono text-[#3b424b]">{plugin.license}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">分类</dt>
+                  <dd className="text-right text-[#3b424b]">{plugin.category.label}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">版本</dt>
+                  <dd className="font-mono text-[#3b424b]">{plugin.version}</dd>
+                </div>
+              </dl>
+              <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#4176e6]" href={plugin.repository} target="_blank" rel="noreferrer">
+                查看源码 ↗
+              </a>
+            </aside>
           </div>
         </div>
       </div>
@@ -3993,6 +4165,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     pluginPanels: [],
     marketplace: [],
     marketplaceCapabilities: [],
+    marketplaceCategories: [],
     marketplaceTotal: 0,
     marketplacePage: 0,
     marketplaceHasNext: false,
@@ -4027,6 +4200,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
   const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
+  const [marketplaceCategory, setMarketplaceCategory] = useState(initialQueryState.marketplaceCategory);
+  const [marketplacePluginId, setMarketplacePluginId] = useState<string | undefined>(initialQueryState.marketplacePlugin);
+  const [marketplaceDetail, setMarketplaceDetail] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [permission, setPermission] = useState(true);
   const [contextExpanded, setContextExpanded] = useState(false);
@@ -4087,11 +4263,36 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     else params.delete("marketplaceQuery");
     if (marketplaceCapability) params.set("capability", marketplaceCapability);
     else params.delete("capability");
+    if (marketplaceCategory) params.set("category", marketplaceCategory);
+    else params.delete("category");
+    if (page === "marketplace" && marketplacePluginId) params.set("plugin", marketplacePluginId);
+    else params.delete("plugin");
     if (marketplacePage > 0) params.set("marketplacePage", String(marketplacePage));
     else params.delete("marketplacePage");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, selectedSessionPath, settings, view]);
+  }, [marketplaceCapability, marketplaceCategory, marketplacePage, marketplacePluginId, marketplaceQuery, page, selectedSessionPath, settings, view]);
+  useEffect(() => {
+    if (marketplacePluginId === undefined) {
+      setMarketplaceDetail(undefined);
+      return;
+    }
+    const visible = data.marketplace.find((plugin) => plugin.id === marketplacePluginId);
+    if (visible !== undefined) {
+      setMarketplaceDetail(visible);
+      return;
+    }
+    let cancelled = false;
+    void api.listMarketplace("", "", 0, 100).then((result) => {
+      if (cancelled) return;
+      const plugin = result.items.find((item) => item.id === marketplacePluginId);
+      if (plugin === undefined) setMarketplacePluginId(undefined);
+      else setMarketplaceDetail(plugin);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, data.marketplace, marketplacePluginId]);
   const refresh = useCallback(async () => {
     const [status, session, sessions, files, models, providers, plugins, pluginPanels, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
@@ -4102,7 +4303,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       api.listProviders(),
       api.listPlugins(),
       api.listPluginPanels(),
-      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage),
+      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory),
       api.listCommands(),
       api.listWorkspaces(),
     ]);
@@ -4117,6 +4318,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       pluginPanels: pluginPanels.status === "fulfilled" ? pluginPanels.value : current.pluginPanels,
       marketplace: marketplace.status === "fulfilled" ? marketplace.value.items : current.marketplace,
       marketplaceCapabilities: marketplace.status === "fulfilled" ? marketplace.value.capabilities : current.marketplaceCapabilities,
+      marketplaceCategories: marketplace.status === "fulfilled" ? marketplace.value.categories : current.marketplaceCategories,
       marketplaceTotal: marketplace.status === "fulfilled" ? marketplace.value.total : current.marketplaceTotal,
       marketplacePage: marketplace.status === "fulfilled" ? marketplace.value.page : current.marketplacePage,
       marketplaceHasNext: marketplace.status === "fulfilled" ? marketplace.value.hasNext : current.marketplaceHasNext,
@@ -4127,7 +4329,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
-  }, [api, includeArchivedSessions, marketplaceCapability, marketplacePage, marketplaceQuery, sessionPage]);
+  }, [api, includeArchivedSessions, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -4414,31 +4616,50 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
     />
   ) : page === "marketplace" ? (
-    <Marketplace
-      plugins={data.marketplace}
-      capabilities={data.marketplaceCapabilities}
-      total={data.marketplaceTotal}
-      page={data.marketplacePage}
-      hasNext={data.marketplaceHasNext}
-      query={marketplaceQuery}
-      capabilityFilter={marketplaceCapability}
-      onQueryChange={(value) => {
-        setMarketplaceQuery(value);
-        setMarketplacePage(0);
-      }}
-      onCapabilityChange={(value) => {
-        setMarketplaceCapability(value);
-        setMarketplacePage(0);
-      }}
-      onPageChange={setMarketplacePage}
-      onBack={() => setPage("plugins")}
-      onToml={() => setSettings("toml")}
-      installedPackages={installedPackages}
-      onInstall={async (plugin) => {
-        await api.installMarketplace(plugin.id);
-        await refresh();
-      }}
-    />
+    marketplaceDetail ? (
+      <MarketplaceDetail
+        plugin={marketplaceDetail}
+        installed={installedPackages.has(marketplaceDetail.packageName)}
+        onBack={() => setMarketplacePluginId(undefined)}
+        onInstall={async (plugin) => {
+          await api.installMarketplace(plugin.id);
+          await refresh();
+        }}
+      />
+    ) : (
+      <Marketplace
+        plugins={data.marketplace}
+        capabilities={data.marketplaceCapabilities}
+        categories={data.marketplaceCategories}
+        total={data.marketplaceTotal}
+        page={data.marketplacePage}
+        hasNext={data.marketplaceHasNext}
+        query={marketplaceQuery}
+        capabilityFilter={marketplaceCapability}
+        categoryFilter={marketplaceCategory}
+        onQueryChange={(value) => {
+          setMarketplaceQuery(value);
+          setMarketplacePage(0);
+        }}
+        onCapabilityChange={(value) => {
+          setMarketplaceCapability(value);
+          setMarketplacePage(0);
+        }}
+        onCategoryChange={(value) => {
+          setMarketplaceCategory(value);
+          setMarketplacePage(0);
+        }}
+        onOpenDetail={(plugin) => setMarketplacePluginId(plugin.id)}
+        onPageChange={setMarketplacePage}
+        onBack={() => setPage("plugins")}
+        onToml={() => setSettings("toml")}
+        installedPackages={installedPackages}
+        onInstall={async (plugin) => {
+          await api.installMarketplace(plugin.id);
+          await refresh();
+        }}
+      />
+    )
   ) : view === "chat" ? (
     <section className="view-panel chat-view">
       <div
