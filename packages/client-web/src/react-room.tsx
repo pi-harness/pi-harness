@@ -120,6 +120,7 @@ const capability = (name: string): string => {
     ["recall-unread", "会话召回"],
     ["turn-rewind", "会话回退"],
     ["session-export", "会话导出"],
+    ["session-search", "会话搜索"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -191,6 +192,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/recall-unread", "Recall Unread"],
     ["@pi-harness/core/plugins/turn-rewind", "Turn Rewind"],
     ["@pi-harness/core/plugins/session-export", "Session Export"],
+    ["@pi-harness/core/plugins/session-search", "Session Search"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1166,6 +1168,37 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有导出当前会话。</div>
           )}
           <p className="text-[10px] leading-4 text-[#8a949f]">导出文件只允许写入当前工作区内的 .md 路径，覆盖已有文件需要显式确认。</p>
+        </div>
+      ) : panel.id === "session-search-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.query ? (
+            <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+              <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data.query)}</code>
+              <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(data.total ?? 0)} 个会话</strong>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入查询后显示匹配的历史会话。</div>
+          )}
+          {Array.isArray(data?.items) && data.items.length > 0 ? (
+            <div className="grid gap-2">
+              {data.items.slice(0, 8).map((item, index) => {
+                const session = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const hits = Array.isArray(session.hits) ? session.hits : [];
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(session.id ?? "session")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
+                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">
+                      {hits
+                        .map((hit) => (hit !== null && typeof hit === "object" ? value((hit as Record<string, unknown>).text ?? "") : value(hit)))
+                        .join(" | ")}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : data?.query ? (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的历史会话。</div>
+          ) : null}
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">

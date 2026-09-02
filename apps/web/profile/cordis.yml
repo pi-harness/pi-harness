@@ -202,6 +202,9 @@
     - id: session-export
       name: "@pi-harness/core/plugins/session-export"
       config: {}
+    - id: session-search
+      name: "@pi-harness/core/plugins/session-search"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:
