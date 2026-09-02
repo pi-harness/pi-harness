@@ -1,0 +1,16 @@
+{
+  "id": "readme-gen",
+  "packageName": "@pi-harness/core/plugins/readme-gen",
+  "version": "0.1.2",
+  "name": "README Gen",
+  "description": "Generate a bounded README report from project metadata and Git state without overwriting the repository README.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "developer", "label": "开发工具" },
+  "capabilities": ["README report", "project metadata", "Git summary"],
+  "hooks": ["workspace files", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/readme-gen", "config": {} }
+}

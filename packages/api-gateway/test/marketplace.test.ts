@@ -53,6 +53,11 @@ describe("plugin marketplace registry", () => {
     expect(official.get("mock-server")?.category.id).toBe("tools");
     expect(official.get("sql-lens")?.category.id).toBe("tools");
     expect(official.get("i18n-pair")?.category.id).toBe("workflow");
+    expect(official.get("plugin-finder")?.category.id).toBe("discovery");
+    expect(official.get("readme-gen")?.category.id).toBe("developer");
+    expect(official.get("anchored-standard")?.category.id).toBe("security");
+    expect(official.get("change-verifier")?.category.id).toBe("workflow");
+    expect(official.get("openpets")?.category.id).toBe("web");
     expect(official.get("cleaner")?.category.id).toBe("developer");
     expect(official.get("cli-notifier")?.category.id).toBe("workflow");
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");
