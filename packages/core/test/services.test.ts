@@ -1950,7 +1950,7 @@ describe("Pi domain plugins", () => {
   });
 
   test("reports MCP server health and bridged tools through the console plugin", async () => {
-    const { context } = await createContext();
+    const { context, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     context.provide("piTools", tools);
@@ -1967,7 +1967,8 @@ describe("Pi domain plugins", () => {
         execute: () => Promise.resolve({ content: [{ type: "text", text: "ok" }] }),
       }),
     );
-    await context.plugin(mcpPanelPlugin, {});
+    const patchPath = join(agentDir, "cordis.patch.yml");
+    await context.plugin(mcpPanelPlugin, { patchPath });
     const tool = tools.snapshot().customTools.find((entry) => entry.name === "mcp_panel");
     if (tool === undefined) throw new Error("mcp_panel was not registered");
     const status = await tool.execute("status", { action: "status" }, undefined, undefined, {} as never);
@@ -1976,6 +1977,26 @@ describe("Pi domain plugins", () => {
     expect(listed.details).toMatchObject({ serverId: "docs", tools: [{ name: "mcp__docs__search" }] });
     const health = await tool.execute("health", { action: "health", serverId: "docs" }, undefined, undefined, {} as never);
     expect(health.details).toMatchObject({ serverId: "docs", status: "running", severity: "ok", suggestions: [] });
+    const preview = await tool.execute(
+      "preview",
+      { action: "preview", serverId: "docs", command: ["node", "server.js"], autoStart: true },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(preview.content[0]?.text).toContain("@pi-harness/core/plugins/mcp-client");
+    const denied = tool.execute("apply-denied", { action: "apply", serverId: "docs", command: ["node", "server.js"] }, undefined, undefined, {} as never);
+    await expect(denied).rejects.toThrow(/confirm=true/);
+    const applied = await tool.execute(
+      "apply",
+      { action: "apply", serverId: "docs", command: ["node", "server.js"], autoStart: true, confirm: true },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(applied.details).toMatchObject({ action: "apply", serverId: "docs", path: patchPath });
+    expect(await readFile(patchPath, "utf8")).toContain("mcp-docs");
+    expect(await readFile(`${patchPath}.bak`, "utf8")).toBe("");
     expect((await panels.snapshot())[0]).toMatchObject({ id: "mcp-panel", data: { servers: [{ id: "docs", toolCount: 1 }] } });
   });
 });

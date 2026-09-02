@@ -2393,7 +2393,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ) : (
                 <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前没有 MCP 服务器快照。</div>
               )}
-              <div className="text-[10px] text-[#9aa3ad]">只读读取官方 MCP bridge 状态；健康建议通过 mcp_panel 的 health 操作查看。</div>
+              <div className="text-[10px] text-[#9aa3ad]">
+                只读读取官方 MCP bridge 状态；健康建议通过 mcp_panel 的 health 操作查看。
+                {data?.writesEnabled === true ? ` 已启用 profile patch 写入：${value(data.patchPath)}` : " profile patch 写入未配置，apply 会被拒绝。"}
+              </div>
             </div>
           );
         })()
