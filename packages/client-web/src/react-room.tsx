@@ -20,7 +20,7 @@ import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
-import { readMarketplaceDetailId } from "./marketplace-navigation.js";
+import { marketplaceCategoryTabs, readMarketplaceDetailId } from "./marketplace-navigation.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -3457,6 +3457,7 @@ function Marketplace({
   const [installing, setInstalling] = useState<string>();
   const [installError, setInstallError] = useState("");
   const [installNotice, setInstallNotice] = useState("");
+  const categoryTabs = marketplaceCategoryTabs(categories);
   const install = async (plugin: ClientMarketplacePlugin) => {
     setInstallError("");
     setInstallNotice("");
@@ -3516,14 +3517,6 @@ function Marketplace({
             placeholder="搜索名称、包名、能力…"
             value={query}
           />
-          <select className="marketplace-filter" aria-label="按分类筛选" onChange={(event) => onCategoryChange(event.target.value)} value={categoryFilter}>
-            <option value="">全部分类</option>
-            {categories.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label} · {item.count}
-              </option>
-            ))}
-          </select>
           <select className="marketplace-filter" aria-label="按能力筛选" onChange={(event) => onCapabilityChange(event.target.value)} value={capabilityFilter}>
             <option value="">全部能力</option>
             {capabilities.map((item) => (
@@ -3534,6 +3527,27 @@ function Marketplace({
           </select>
           <span className="marketplace-count">{total} 个已审核条目</span>
         </div>
+        <nav aria-label="插件分类" className="flex min-w-0 gap-1 overflow-x-auto border-b border-black/[0.08] bg-white px-5 py-2.5">
+          {categoryTabs.map((category) => {
+            const active = categoryFilter === category.id;
+            return (
+              <button
+                aria-pressed={active}
+                className={
+                  active
+                    ? "flex flex-none items-center gap-1.5 rounded-full bg-[#e4edfd] px-3 py-1.5 text-[11px] font-medium text-[#4176e6]"
+                    : "flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] text-[#61666b] hover:bg-[#f1f4f9]"
+                }
+                key={category.id || "all"}
+                onClick={() => onCategoryChange(category.id)}
+                type="button"
+              >
+                <span>{category.label}</span>
+                <span className={active ? "font-mono text-[10px] text-[#4176e6]/75" : "font-mono text-[10px] text-[#9aa1aa]"}>{category.count}</span>
+              </button>
+            );
+          })}
+        </nav>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
