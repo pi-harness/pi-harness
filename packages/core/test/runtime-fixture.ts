@@ -15,7 +15,7 @@ export async function createTestRuntimeContext(responses: FauxResponseStep[], to
   const agentDir = resourceOptions.agentDir ?? await mkdtemp(join(tmpdir(), "pi-harness-runtime-agent-"));
   const context = new Context();
   provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
-  const modelRuntime = await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null });
+  const modelRuntime = await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null, authPath: join(agentDir, "auth.json"), modelsStorePath: join(agentDir, "models-store.json") });
   const faux = fauxProvider({ provider: "pi-harness-test", models: [{ id: "deterministic" }] });
   faux.setResponses(responses);
   modelRuntime.registerNativeProvider(faux.provider);

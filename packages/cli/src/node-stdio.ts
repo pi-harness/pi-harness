@@ -53,9 +53,12 @@ export class NodeStdio implements PiHarnessStdio {
     this.#readline = readline;
     readline.on("SIGINT", () => this.close());
     try {
-      return await readline.question("> ", { signal: this.#abort.signal });
+      return await Promise.race([
+        readline.question("> ", { signal: this.#abort.signal }),
+        new Promise<string>((_, reject) => readline.once("close", () => reject(new PiHarnessStdioCancelledError()))),
+      ]);
     } catch (cause) {
-      throw this.#abort.signal.aborted ? new PiHarnessStdioCancelledError() : cause;
+      throw this.#abort.signal.aborted || cause instanceof PiHarnessStdioCancelledError ? new PiHarnessStdioCancelledError() : cause;
     } finally {
       this.#readline = undefined;
       readline.close();

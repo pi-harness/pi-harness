@@ -6,7 +6,27 @@ import Group from "@deepseek-ai/cordis-plugin-group";
 import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader, { type EntryOptions } from "@deepseek-ai/cordis-plugin-loader";
 
+function assertUniqueEntryIds(entries: readonly EntryOptions[], seen = new Map<string, string>()): void {
+  for (const entry of entries) {
+    if (typeof entry.id === "string" && entry.id.length > 0) {
+      const previous = seen.get(entry.id);
+      if (previous !== undefined) throw new Error(`Duplicate loader entry id "${entry.id}" is used by both ${previous} and ${entry.name}; ids must be unique across the whole profile because nested groups share their tree's entry store`);
+      seen.set(entry.id, entry.name);
+    }
+    if (entry.group === true && Array.isArray(entry.config)) assertUniqueEntryIds(entry.config as EntryOptions[], seen);
+  }
+}
+
 class ReadonlyInclude extends Include {
+  constructor(ctx: Context, config: Include.Config) {
+    super(ctx, config);
+    const update = this.root.update.bind(this.root);
+    this.root.update = async (entries: EntryOptions[]) => {
+      assertUniqueEntryIds(entries);
+      await update(entries);
+    };
+  }
+
   override write(): void {}
 
   override import(name: string, getOuterStack?: () => string[]): unknown {
