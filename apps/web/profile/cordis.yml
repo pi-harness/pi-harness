@@ -191,6 +191,9 @@
     - id: fail-logger
       name: "@pi-harness/core/plugins/fail-logger"
       config: {}
+    - id: vision-toolkit
+      name: "@pi-harness/core/plugins/vision-toolkit"
+      config: {}
     - id: webserver
       name: "@pi-harness/host-webserver"
       config:

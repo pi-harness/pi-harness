@@ -32,6 +32,9 @@
     - id: modlens
       name: "@pi-harness/core/plugins/modlens"
       config: {}
+    - id: vision-toolkit
+      name: "@pi-harness/core/plugins/vision-toolkit"
+      config: {}
     - id: git-time-capsule
       name: "@pi-harness/core/plugins/git-time-capsule"
       config: {}

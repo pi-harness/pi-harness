@@ -113,6 +113,7 @@ const capability = (name: string): string => {
     ["change-verifier", "变更门禁"],
     ["plugin-dev", "插件开发"],
     ["openpets", "桌面伙伴"],
+    ["vision-toolkit", "视觉素材"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -177,6 +178,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/change-verifier", "Change Verifier"],
     ["@pi-harness/core/plugins/plugin-dev", "Plugin Dev"],
     ["@pi-harness/core/plugins/openpets", "OpenPets"],
+    ["@pi-harness/core/plugins/vision-toolkit", "Vision Toolkit"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
