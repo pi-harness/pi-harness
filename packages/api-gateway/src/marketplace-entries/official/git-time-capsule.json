@@ -1,0 +1,16 @@
+{
+  "id": "git-time-capsule",
+  "packageName": "@pi-harness/core/plugins/git-time-capsule",
+  "version": "0.1.2",
+  "name": "Git Time Capsule",
+  "description": "Create lightweight Git savepoints before agent changes so a task can be reviewed or restored safely.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "workflow", "label": "工作流" },
+  "capabilities": ["git savepoint", "change recovery", "rollback"],
+  "hooks": ["Git repository", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/git-time-capsule", "config": {} }
+}

@@ -43,6 +43,11 @@ describe("plugin marketplace registry", () => {
     expect(official.get("canvas-draw")?.category.id).toBe("multimodal");
     expect(official.get("image-compressor")?.category.id).toBe("multimodal");
     expect(official.get("code2skill")?.category.id).toBe("tools");
+    expect(official.get("workspace-search")?.category.id).toBe("context");
+    expect(official.get("plugin-check")?.category.id).toBe("security");
+    expect(official.get("test-harness")?.category.id).toBe("testing");
+    expect(official.get("git-time-capsule")?.category.id).toBe("workflow");
+    expect(official.get("yaml-validator")?.category.id).toBe("developer");
   });
 
   test("recognizes bundled core plugin subpaths without requiring an npm install", () => {
