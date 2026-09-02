@@ -223,6 +223,9 @@
     - id: colleague-skill
       name: "@pi-harness/core/plugins/colleague-skill"
       config: {}
+    - id: prompt-library
+      name: "@pi-harness/core/plugins/prompt-library"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:

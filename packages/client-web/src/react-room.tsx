@@ -127,6 +127,7 @@ const capability = (name: string): string => {
     ["workspace-navigator", "工作区导航"],
     ["reverse-skill", "技能隔离"],
     ["colleague-skill", "角色交接"],
+    ["prompt-library", "提示词库"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -205,6 +206,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
     ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
     ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
+    ["@pi-harness/core/plugins/prompt-library", "Prompt Library"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1380,6 +1382,40 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 workspace_tree 后显示工作区结构。</div>
           )}
+        </div>
+      ) : panel.id === "prompt-library-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {Array.isArray(data?.templates) && data.templates.length > 0 ? (
+            <div className="grid gap-2">
+              {data.templates.slice(0, 12).map((item, index) => {
+                const template = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const tags = Array.isArray(template.tags) ? template.tags.filter((tag): tag is string => typeof tag === "string") : [];
+                return (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={`${value(template.id ?? "prompt")}-${index}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="truncate text-[11px] text-[#253044]">{value(template.title ?? "未命名提示词")}</strong>
+                      <code className="shrink-0 text-[10px] text-[#8a949f]">{value(template.id ?? "—")}</code>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(template.prompt ?? "")}</p>
+                    {tags.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {tags.slice(0, 6).map((tag) => (
+                          <span className="rounded bg-[#f6f8ff] px-1.5 py-0.5 text-[9px] text-[#315fb8]" key={tag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有保存的提示词。可让 Agent 调用 prompt_library 保存模板。
+            </div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">共 {value(data?.total ?? 0)} 个模板，数据跟随当前会话。</p>
         </div>
       ) : panel.id === "colleague-skill-panel" ? (
         <div className="mt-3 grid gap-3">

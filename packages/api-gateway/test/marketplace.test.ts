@@ -70,6 +70,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("workspace-navigator")?.category.id).toBe("developer");
     expect(official.get("reverse-skill")?.category.id).toBe("security");
     expect(official.get("colleague-skill")?.category.id).toBe("workflow");
+    expect(official.get("prompt-library")?.category.id).toBe("workflow");
     expect(official.get("cleaner")?.category.id).toBe("developer");
     expect(official.get("cli-notifier")?.category.id).toBe("workflow");
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");
