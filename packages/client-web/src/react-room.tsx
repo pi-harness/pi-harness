@@ -1013,8 +1013,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             const report = data?.report !== null && typeof data?.report === "object" ? (data.report as Record<string, unknown>) : {};
             const missing: unknown[] = Array.isArray(report.missing) ? report.missing : [];
             const invalid: unknown[] = Array.isArray(report.invalid) ? report.invalid : [];
+            const conflicts: unknown[] = Array.isArray(report.conflicts) ? report.conflicts : [];
             return (
               <>
+                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                  <span className="text-[#65707b]">清单类型</span>
+                  <strong className="font-mono uppercase text-[#315fb8]">{value(report.ecosystem ?? "npm")}</strong>
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     ["声明", report.declared ?? 0],
@@ -1028,12 +1033,28 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   ))}
                 </div>
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length || conflicts.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
                 >
                   {missing.length || invalid.length
                     ? `缺失或无效：${[...missing, ...invalid].map((item) => value(item)).join(", ")}`
                     : "依赖声明与本地安装一致。"}
                 </div>
+                {conflicts.length > 0 ? (
+                  <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-3 text-[11px] text-[#8a6200]">
+                    <strong>版本冲突</strong>
+                    <ul className="mt-1 grid gap-1 pl-4">
+                      {conflicts.slice(0, 6).map((item, index) => {
+                        const conflict = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                        const constraints = Array.isArray(conflict.constraints) ? conflict.constraints.map((constraint) => value(constraint)).join(" · ") : "—";
+                        return (
+                          <li key={`${value(conflict.name ?? "dependency")}-${index}`}>
+                            <code>{value(conflict.name ?? "dependency")}</code>：{constraints}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
               </>
             );
           })()}
