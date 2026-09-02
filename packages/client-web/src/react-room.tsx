@@ -126,6 +126,7 @@ const capability = (name: string): string => {
     ["module-search", "模块检索"],
     ["workspace-navigator", "工作区导航"],
     ["reverse-skill", "技能隔离"],
+    ["colleague-skill", "角色交接"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -203,6 +204,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/module-search", "Module Search"],
     ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
     ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
+    ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1375,6 +1377,46 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             })()
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 workspace_tree 后显示工作区结构。</div>
+          )}
+        </div>
+      ) : panel.id === "colleague-skill-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const handoff = data.latest as Record<string, unknown>;
+              const list = (key: string): string[] =>
+                Array.isArray(handoff[key]) ? handoff[key].filter((item): item is string => typeof item === "string") : [];
+              const constraints = list("constraints");
+              const files = list("files");
+              const acceptance = list("acceptance");
+              return (
+                <>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                    <span className="text-[11px] text-[#65707b]">交接给</span>
+                    <strong className="text-[11px] text-[#315fb8]">{value(handoff.toRole)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3 text-[11px] text-[#253044]">{value(handoff.objective)}</div>
+                  {handoff.context ? <p className="rounded-lg bg-[#f6f8fa] px-3 py-2 text-[10px] leading-4 text-[#65707b]">{value(handoff.context)}</p> : null}
+                  {files.length > 0 ? (
+                    <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                      {files.slice(0, 8).map((file) => (
+                        <code className="truncate text-[10px] text-[#65707b]" key={file}>
+                          {file}
+                        </code>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+                    <span>约束 {constraints.length} 条</span>
+                    <span>验收 {acceptance.length} 条</span>
+                  </div>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              执行 colleague_handoff 后显示角色交接包。
+            </div>
           )}
         </div>
       ) : panel.id === "reverse-skill-panel" ? (

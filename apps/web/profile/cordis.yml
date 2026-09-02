@@ -220,6 +220,9 @@
     - id: reverse-skill
       name: "@pi-harness/core/plugins/reverse-skill"
       config: {}
+    - id: colleague-skill
+      name: "@pi-harness/core/plugins/colleague-skill"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:
