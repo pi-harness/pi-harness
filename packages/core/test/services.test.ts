@@ -1748,7 +1748,7 @@ describe("Pi domain plugins", () => {
     await expect(insecurePanels.snapshot()).resolves.toEqual([]);
   });
 
-  test.skipIf(chromeExecutable === undefined)(
+  test.skipIf(chromeExecutable === undefined || (process.env.CI === "true" && process.env.PI_HARNESS_TEST_CHROME_PATH === undefined))(
     "connects to a real Chrome DevTools session for tabs, text, and clicks",
     async () => {
       if (chromeExecutable === undefined) throw new Error("Chrome availability changed after test discovery");
