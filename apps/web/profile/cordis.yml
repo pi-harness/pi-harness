@@ -110,6 +110,9 @@
     - id: image-compressor
       name: "@pi-harness/core/plugins/image-compressor"
       config: {}
+    - id: workspace-search
+      name: "@pi-harness/core/plugins/workspace-search"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

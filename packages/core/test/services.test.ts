@@ -46,6 +46,7 @@ import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
 import memoryPlugin from "../src/plugins/memory.js";
 import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
 import imageCompressorPlugin from "../src/plugins/image-compressor.js";
+import workspaceSearchPlugin from "../src/plugins/workspace-search.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -843,6 +844,29 @@ describe("Pi domain plugins", () => {
     const output = await (await import("node:fs/promises")).readFile(join(cwd, "compressed.png"));
     expect(output.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))).toBe(true);
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "image-compressor-panel", data: { last: { outputPath: "compressed.png", saved: true } } }]);
+  });
+
+  test("searches bounded workspace text and reports file locations", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    await mkdir(join(cwd, "src"), { recursive: true });
+    await mkdir(join(cwd, "node_modules", "ignored"), { recursive: true });
+    await writeFile(join(cwd, "src", "a.ts"), "const needle = true;\n", "utf8");
+    await writeFile(join(cwd, "src", "b.ts"), "const other = false;\n", "utf8");
+    await writeFile(join(cwd, "node_modules", "ignored", "bad.ts"), "const needle = false;\n", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(workspaceSearchPlugin);
+    const search = tools.snapshot().customTools.find((candidate) => candidate.name === "workspace_search");
+    expect(search).toBeDefined();
+    await expect(search!.execute("call-1", { query: "needle" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { matches: [{ path: "src/a.ts", line: 1, text: "const needle = true;" }], scannedFiles: 2, truncated: false },
+    });
+    await expect(search!.execute("call-2", { query: "needle", path: "../" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /inside the current workspace/iu,
+    );
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "workspace-search-panel", data: { query: "needle", matchCount: 1 } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

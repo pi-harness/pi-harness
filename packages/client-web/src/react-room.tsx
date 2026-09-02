@@ -87,6 +87,7 @@ const capability = (name: string): string => {
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
     ["image-compressor", "图片压缩"],
+    ["workspace-search", "工作区检索"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -129,6 +130,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
     ["@pi-harness/core/plugins/image-compressor", "Image Compressor"],
+    ["@pi-harness/core/plugins/workspace-search", "Workspace Search"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1206,6 +1208,40 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               Agent 可调用 image_compress，写入前必须 confirm=true。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "workspace-search-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">工作区文本检索</span>
+            <span className="font-mono text-[#4176e6]">{String(data?.matchCount ?? 0)} 个匹配</span>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const matches = Array.isArray(report.matches) ? report.matches : [];
+              return matches.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {matches.slice(0, 5).map((match, index) => {
+                    const item = match && typeof match === "object" ? (match as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${String(item.path ?? "match")}-${index}`}>
+                        <strong className="block truncate font-mono text-[10px] text-[#4176e6]">
+                          {String(item.path ?? "未知文件")}:{String(item.line ?? "?")}
+                        </strong>
+                        <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{String(item.text ?? "")}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配内容。</div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 workspace_search 检索当前工作区。
             </div>
           )}
         </div>
