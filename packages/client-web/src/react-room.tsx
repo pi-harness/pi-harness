@@ -124,6 +124,7 @@ const capability = (name: string): string => {
     ["session-bookmarks", "会话书签"],
     ["llm-verifier", "模型校验"],
     ["module-search", "模块检索"],
+    ["workspace-navigator", "工作区导航"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -199,6 +200,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/session-bookmarks", "Session Bookmarks"],
     ["@pi-harness/core/plugins/llm-verifier", "LLM Verifier"],
     ["@pi-harness/core/plugins/module-search", "Module Search"],
+    ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1300,6 +1302,47 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             })()
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入符号名后显示模块检索结果。</div>
+          )}
+        </div>
+      ) : panel.id === "workspace-navigator-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const nodes = Array.isArray(latest.nodes) ? latest.nodes : [];
+              return (
+                <>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                    <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.path ?? ".")}</code>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(nodes.length)} 个节点</strong>
+                  </div>
+                  {nodes.length > 0 ? (
+                    <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                      {nodes.slice(0, 36).map((item, index) => {
+                        const node = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                        const depth = typeof node.depth === "number" ? Math.min(6, Math.max(1, node.depth)) : 1;
+                        return (
+                          <div className="flex items-center gap-2 truncate py-1 text-[10px] text-[#65707b]" key={`${value(node.path ?? "node")}-${index}`}>
+                            <span className="shrink-0 text-[#9aa3ad]">
+                              {"· ".repeat(depth - 1)}
+                              {node.kind === "directory" ? "▾" : "·"}
+                            </span>
+                            <code className="truncate">{value(node.name ?? node.path ?? "未命名")}</code>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前目录为空。</div>
+                  )}
+                  <p className="text-[10px] leading-4 text-[#8a949f]">
+                    目录 {value(latest.directoryCount ?? 0)} 个，文件 {value(latest.fileCount ?? 0)} 个；跳过依赖和构建目录。
+                  </p>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 workspace_tree 后显示工作区结构。</div>
           )}
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
