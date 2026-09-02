@@ -45,6 +45,8 @@ application plugin. The bundled stdio application reads its prompt from --prompt
 with a dash.
 `;
 
+const FLUSH_TIMEOUT_MS = 2_000;
+
 function signalExitCode(signal: NodeJS.Signals): number {
   return signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143;
 }
@@ -85,9 +87,12 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
   let harness: BootedHarness | undefined;
   let resultCode: number | undefined;
   let forcedExit = false;
-  const forceExit = (code: number) => {
+  const forceExit = async (code: number, flush = true) => {
     if (forcedExit) return;
     forcedExit = true;
+    // process.exit discards whatever is still buffered for a pipe, so the answer is flushed first.
+    // A repeated signal is the user asking to leave now, so that path skips the wait.
+    if (flush) await settleWithin(stdio.flush(), FLUSH_TIMEOUT_MS);
     environment.forceExit(code);
   };
   let requestedExit: ((code: number) => void) | undefined;
@@ -106,7 +111,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     signalCount += 1;
     if (signalCount > 1) {
       environment.stderr.write(`Received ${signal} again; exiting immediately\n`);
-      forceExit(code);
+      void forceExit(code, false);
       return;
     }
     signalledExit?.(code);
@@ -141,7 +146,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
       resultCode = startup.code;
       const settled = await settleWithin(bootOutcome, environment.shutdownTimeoutMs);
       if (!settled.settled) {
-        forceExit(startup.code);
+        await forceExit(startup.code);
         return startup.code;
       }
       if (settled.value.kind === "ready") harness = settled.value.harness;
@@ -151,20 +156,27 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     harness = startup.harness;
     const application = harness.context.get("piApplication");
     if (application === undefined) throw new Error("Cordis profile did not provide a piApplication service");
+    const shutdownAbort = new AbortController();
+    const applicationRun = application.run(shutdownAbort.signal).then((code) => ({ source: "application" as const, code }));
     const result = await Promise.race([
-      application.run().then((code) => ({ source: "application" as const, code })),
+      applicationRun,
       requestedExitPromise.then((code) => ({ source: "request" as const, code })),
       signalPromise.then((code) => ({ source: "signal" as const, code })),
     ]);
     resultCode = result.code;
     if (result.source !== "application") {
+      shutdownAbort.abort(new Error("Pi Harness is shutting down"));
       const runtime = harness.context.get("piRuntime");
       if (runtime !== undefined) {
         const aborted = await settleWithin(runtime.abort().then(() => undefined, (error: unknown) => {
           environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
         }), environment.shutdownTimeoutMs);
-        if (!aborted.settled) forceExit(result.code);
+        if (!aborted.settled) await forceExit(result.code);
       }
+      // The application surface outlives the runtime abort unless it honours the signal, and
+      // Node waits for it before exiting, so it gets the same deadline as everything else.
+      const finished = await settleWithin(applicationRun.then(() => undefined, () => undefined), environment.shutdownTimeoutMs);
+      if (!finished.settled) await forceExit(result.code);
     }
     return result.code;
   } catch (error) {
@@ -178,7 +190,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
       const disposed = await settleWithin(harness.dispose().then(() => undefined, (error: unknown) => {
         environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
       }), environment.shutdownTimeoutMs);
-      if (!disposed.settled) forceExit(resultCode ?? 1);
+      if (!disposed.settled) await forceExit(resultCode ?? 1);
     }
   }
 }

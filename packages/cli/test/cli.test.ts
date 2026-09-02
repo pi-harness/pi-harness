@@ -113,7 +113,7 @@ describe("runCli", () => {
   });
 
   test("aborts and disposes a running application on SIGINT", async () => {
-    const profile = await createApplicationProfile(`import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run() { appendFileSync(config.markerPath, ":run"); return new Promise(() => {}); } }); } };`);
+    const profile = await createApplicationProfile(`import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run(signal) { appendFileSync(config.markerPath, ":run"); await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true })); appendFileSync(config.markerPath, ":aborted"); return 0; } }); } };`);
     const environment = createEnvironment(profile.directory);
     const result = runCli(["--config", profile.configPath], environment);
     const markerPath = join(profile.directory, "marker.txt");
@@ -122,7 +122,20 @@ describe("runCli", () => {
     environment.emitSignal("SIGINT");
 
     await expect(result).resolves.toBe(130);
-    await expect(readFile(markerPath, "utf8")).resolves.toBe("started:run:disposed");
+    await expect(readFile(markerPath, "utf8")).resolves.toBe("started:run:aborted:disposed");
+    expect(environment.forcedExitCodes).toEqual([]);
+  });
+
+  test("forces the bin exit when an application ignores the shutdown signal", async () => {
+    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`);
+    const environment = createEnvironment(profile.directory, "", 25);
+    const result = runCli(["--config", profile.configPath], environment);
+    await waitForFileContent(join(profile.directory, "marker.txt"), "started");
+
+    environment.emitSignal("SIGINT");
+
+    await expect(result).resolves.toBe(130);
+    expect(environment.forcedExitCodes).toEqual([130]);
   });
 
   test("handles SIGTERM while the Cordis plugin tree is still starting", async () => {

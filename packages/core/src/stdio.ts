@@ -14,10 +14,17 @@ export interface PiHarnessStdio {
   readPrompt(): Promise<string>;
   writeOutput(text: string): void;
   writeError(text: string): void;
+  /** Resolve once everything written so far has reached the underlying stream. */
+  flush?(): Promise<void>;
 }
 
 export interface PiHarnessApplication {
-  run(): Promise<number>;
+  /**
+   * Run the application surface to completion.
+   *
+   * @param signal - aborted when the host is shutting down; a surface that can block must unwind on it.
+   */
+  run(signal?: AbortSignal): Promise<number>;
 }
 
 declare module "@deepseek-ai/cordis" {
@@ -101,10 +108,15 @@ export class StdioApplication implements PiHarnessApplication {
     if (event.type === "auto_retry_start") this.#stdio.writeError(`Retrying after ${event.errorMessage} (attempt ${event.attempt}/${event.maxAttempts})\n`);
   }
 
-  async run(): Promise<number> {
+  async run(signal?: AbortSignal): Promise<number> {
     if (this.#running) throw new Error("stdio application is already running");
     this.#running = true;
+    const onAbort = () => {
+      void this.#runtime.abort().catch(() => {});
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     try {
+      if (signal?.aborted === true) return PROMPT_CANCELLED_EXIT_CODE;
       let prompt: string;
       try {
         prompt = promptFromArgs(this.#launch.args) ?? await this.#stdio.readPrompt();
@@ -137,8 +149,10 @@ export class StdioApplication implements PiHarnessApplication {
       this.#stdio.writeOutput("\n");
       return 0;
     } finally {
+      signal?.removeEventListener("abort", onAbort);
       this.#running = false;
       this.#pendingSeparator = false;
+      await this.#stdio.flush?.();
     }
   }
 }
