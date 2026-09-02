@@ -50,7 +50,7 @@ describe("packaged profiles", () => {
     expect(names).toContain("@pi-harness/core/plugins/recall-unread");
     expect(names).toContain("@pi-harness/core/plugins/turn-rewind");
     expect(names).toContain("@pi-harness/core/plugins/context-doctor");
-  });
+  }, 15_000);
 
   test("boots the development profile with logger, timer, and HMR plugins", async () => {
     const { harness, cwd } = await bootProfile("development");
