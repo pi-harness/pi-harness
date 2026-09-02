@@ -84,6 +84,7 @@ const capability = (name: string): string => {
     ["auto-mode", "安全执行"],
     ["plan-execute", "计划执行"],
     ["plugin-finder", "插件发现"],
+    ["memory", "跨会话记忆"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -123,6 +124,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/auto-mode", "Auto Mode"],
     ["@pi-harness/core/plugins/plan-execute", "Plan Execute"],
     ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
+    ["@pi-harness/core/plugins/memory", "Memory"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1137,6 +1139,30 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               Agent 可调用 plugin_search 搜索 npm Registry。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "memory-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">跨会话记忆</span>
+            <span className="font-mono text-[#4176e6]">{String(data?.count ?? 0)} 条</span>
+          </div>
+          {Array.isArray(data?.memories) && data.memories.length > 0 ? (
+            <ul className="grid gap-1.5">
+              {data.memories.slice(0, 5).map((memory, index) => {
+                const item = memory && typeof memory === "object" ? (memory as Record<string, unknown>) : {};
+                return (
+                  <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${String(item.key ?? "memory")}-${index}`}>
+                    <strong className="block truncate font-mono text-[11px] text-[#30343b]">{String(item.key ?? "未知键")}</strong>
+                    <p className="mt-1 truncate text-[10px] text-[#8a949f]">{String(item.value ?? "")}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              尚未保存记忆。Agent 可调用 memory_set 明确写入。
             </div>
           )}
         </div>

@@ -101,6 +101,9 @@
     - id: plugin-finder
       name: "@pi-harness/core/plugins/plugin-finder"
       config: {}
+    - id: memory
+      name: "@pi-harness/core/plugins/memory"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

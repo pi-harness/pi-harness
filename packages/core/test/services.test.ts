@@ -44,6 +44,7 @@ import reviewerBotPlugin from "../src/plugins/reviewer-bot.js";
 import autoModePlugin from "../src/plugins/auto-mode.js";
 import planExecutePlugin from "../src/plugins/plan-execute.js";
 import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
+import memoryPlugin from "../src/plugins/memory.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -709,6 +710,47 @@ describe("Pi domain plugins", () => {
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
+  });
+
+  test("persists explicit memories and searches them across plugin lifecycles", async () => {
+    const first = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    first.context.provide("piTools", tools);
+    first.context.provide("piPluginUi", panels);
+    await first.context.plugin(memoryPlugin);
+    const set = tools.snapshot().customTools.find((candidate) => candidate.name === "memory_set");
+    const search = tools.snapshot().customTools.find((candidate) => candidate.name === "memory_search");
+    const remove = tools.snapshot().customTools.find((candidate) => candidate.name === "memory_delete");
+    expect(set).toBeDefined();
+    expect(search).toBeDefined();
+    expect(remove).toBeDefined();
+    await expect(
+      set!.execute("call-1", { key: "deploy-target", value: "staging cluster", tags: ["release", "infra"] }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { key: "deploy-target", value: "staging cluster", tags: ["release", "infra"] },
+    });
+    await expect(search!.execute("call-2", { query: "staging" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 1, memories: [{ key: "deploy-target" }] },
+    });
+    await first.context.fiber.dispose();
+    const second = new Context();
+    contexts.push(second);
+    provideLaunchContext(second, { cwd: first.cwd, agentDir: first.agentDir, args: [], requestExit() {} });
+    const secondPanels = new PiPluginUiRegistry();
+    const secondTools = new PiToolRegistry();
+    second.provide("piTools", secondTools);
+    second.provide("piPluginUi", secondPanels);
+    await second.plugin(memoryPlugin);
+    const loadedSearch = secondTools.snapshot().customTools.find((candidate) => candidate.name === "memory_search");
+    const loadedRemove = secondTools.snapshot().customTools.find((candidate) => candidate.name === "memory_delete");
+    await expect(loadedSearch!.execute("call-3", { query: "deploy-target" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 1 },
+    });
+    await expect(loadedRemove!.execute("call-4", { key: "deploy-target", confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { removed: true },
+    });
+    await expect(secondPanels.snapshot()).resolves.toMatchObject([{ id: "memory-panel", data: { count: 0 } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {
