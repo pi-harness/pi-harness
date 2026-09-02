@@ -31,7 +31,7 @@ export default {
       defineTool({
         name: "plugin_search",
         label: "Search plugins",
-        description: "Search the configured npm registry for Cordis and Pi Harness plugins. This is read-only and never installs packages.",
+        description: "Search the configured npm registry for Pi Harness plugins. This is read-only and never installs packages.",
         promptSnippet: "search the plugin registry for an extension",
         parameters: Type.Object({ query: Type.String({ description: "Plugin name or capability keywords" }) }),
         async execute(_toolCallId, params): Promise<AgentToolResult<PluginSearchReport>> {
@@ -77,7 +77,7 @@ export default {
       id: "plugin-finder-panel",
       pluginId: "@pi-harness/core/plugins/plugin-finder",
       title: "Plugin Finder",
-      description: "只读搜索 npm Registry 中的 Cordis 插件，不会自动安装或执行未审核代码。",
+      description: "只读搜索 npm Registry 中的 Pi Harness 插件，不会自动安装或执行未审核代码。",
       icon: "⌕",
       read: () => ({ registryUrl, limit, query: latest?.query ?? null, total: latest?.total ?? 0, results: latest?.results ?? [] }),
     });

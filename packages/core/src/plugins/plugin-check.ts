@@ -13,7 +13,7 @@ const schemaChecks = [
   { code: "invalid-name-format", label: "package name follows npm naming rules" },
   { code: "missing-main-or-types", label: "main or types entry is declared" },
   { code: "no-source-entry", label: "a source entry or src directory exists" },
-  { code: "no-patch", label: "Cordis patch or bundle declaration exists" },
+  { code: "no-patch", label: "Runtime patch or bundle declaration exists" },
   { code: "malformed-patch", label: "patch root is a sequence of entries" },
   { code: "duplicate-row-id", label: "patch row ids are unique" },
   { code: "core-row-id", label: "patch does not replace core rows" },
@@ -96,7 +96,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
       // Try the next supported patch filename.
     }
   }
-  if (patchSource === undefined) addIssue(checks, "no-patch", "failed", "no Cordis patch or bundle declaration found");
+  if (patchSource === undefined) addIssue(checks, "no-patch", "failed", "no runtime patch or bundle declaration found");
   else {
     try {
       const parsed = parse(patchSource) as unknown;
@@ -135,7 +135,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   if (errors.some((entry) => entry.code === "no-manifest" || entry.code === "missing-main-or-types"))
     suggestions.push("Add a valid package.json with main/types and a buildable entry point.");
   if (errors.some((entry) => entry.code === "no-patch" || entry.code === "malformed-patch"))
-    suggestions.push("Add a valid Cordis patch sequence with a unique plugin row id.");
+    suggestions.push("Add a valid runtime patch sequence with a unique plugin row id.");
   if (warnings.some((entry) => entry.code === "missing-profile-install-example"))
     suggestions.push("Document the standard dsh plugin --profile web add installation command.");
   const verdict = errors.length > 0 || (strict && warnings.length > 0) ? "fail" : warnings.length > 0 ? "warn" : "pass";
