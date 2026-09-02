@@ -65,6 +65,9 @@
     - id: mcp-client
       name: "@pi-harness/core/plugins/mcp-client"
       config: {}
+    - id: mcp-panel
+      name: "@pi-harness/core/plugins/mcp-panel"
+      config: {}
     - id: browser-fetch
       name: "@pi-harness/core/plugins/browser-fetch"
       config: {}

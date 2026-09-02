@@ -68,6 +68,7 @@ import annotationPlugin from "../src/plugins/annotation.js";
 import costMeterPlugin from "../src/plugins/cost-meter.js";
 import skillCatalogPlugin from "../src/plugins/skill-catalog.js";
 import undoSavepointPlugin from "../src/plugins/undo-savepoint.js";
+import mcpPanelPlugin from "../src/plugins/mcp-panel.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1946,5 +1947,35 @@ describe("Pi domain plugins", () => {
     const mcp = await tool.execute("mcp", { action: "mcp" }, undefined, undefined, {} as never);
     expect(mcp.details).toMatchObject({ servers: [{ id: "docs", status: "running" }] });
     expect((await panels.snapshot())[0]).toMatchObject({ id: "skill-catalog-panel", data: { skillCount: 1, mcpCount: 1 } });
+  });
+
+  test("reports MCP server health and bridged tools through the console plugin", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piMcp", {
+      snapshot: () => ({ servers: [{ id: "docs", command: ["node", "server.js"], status: "running", startedAt: 1 }] }),
+    });
+    tools.register(
+      defineTool({
+        name: "mcp__docs__search",
+        label: "MCP search",
+        description: "Search documentation",
+        parameters: Type.Object({}),
+        execute: () => Promise.resolve({ content: [{ type: "text", text: "ok" }] }),
+      }),
+    );
+    await context.plugin(mcpPanelPlugin, {});
+    const tool = tools.snapshot().customTools.find((entry) => entry.name === "mcp_panel");
+    if (tool === undefined) throw new Error("mcp_panel was not registered");
+    const status = await tool.execute("status", { action: "status" }, undefined, undefined, {} as never);
+    expect(status.details).toMatchObject({ servers: [{ id: "docs", status: "running", toolCount: 1 }] });
+    const listed = await tool.execute("tools", { action: "tools", serverId: "docs" }, undefined, undefined, {} as never);
+    expect(listed.details).toMatchObject({ serverId: "docs", tools: [{ name: "mcp__docs__search" }] });
+    const health = await tool.execute("health", { action: "health", serverId: "docs" }, undefined, undefined, {} as never);
+    expect(health.details).toMatchObject({ serverId: "docs", status: "running", severity: "ok", suggestions: [] });
+    expect((await panels.snapshot())[0]).toMatchObject({ id: "mcp-panel", data: { servers: [{ id: "docs", toolCount: 1 }] } });
   });
 });

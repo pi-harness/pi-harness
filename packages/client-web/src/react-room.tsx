@@ -73,6 +73,7 @@ const capability = (name: string): string => {
     ["sql-lens", "数据库"],
     ["docker-sandbox", "沙箱"],
     ["mcp-client", "工具协议"],
+    ["mcp-panel", "MCP 控制台"],
     ["browser-fetch", "网页抓取"],
     ["web-research", "联网研究"],
     ["browser-session", "浏览器会话"],
@@ -134,6 +135,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/sql-lens", "SQL Lens"],
     ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox"],
     ["@pi-harness/core/plugins/mcp-client", "MCP Client"],
+    ["@pi-harness/core/plugins/mcp-panel", "MCP Console"],
     ["@pi-harness/core/plugins/browser-fetch", "Browser Fetch"],
     ["@pi-harness/core/plugins/web-research", "Web Research"],
     ["@pi-harness/core/plugins/browser-session", "Browser Session"],
@@ -2361,6 +2363,40 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           ) : null}
         </div>
+      ) : panel.id === "mcp-panel" ? (
+        (() => {
+          const servers = Array.isArray(data?.servers) ? data.servers : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              {servers.length > 0 ? (
+                <ul className="grid gap-2">
+                  {servers.map((entry, index) => {
+                    const server = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const healthy = server.status === "running";
+                    return (
+                      <li className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${value(server.id ?? "server")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{value(server.id, "未命名服务器")}</strong>
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] ${healthy ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff5f5] text-[#b42318]"}`}>
+                            {value(server.status, "unknown")}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#8a949f]">
+                          <span>{value(server.toolCount, "0")} 个桥接工具</span>
+                          <span>·</span>
+                          <span>{value(server.statusSource, "runtime")}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前没有 MCP 服务器快照。</div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">只读读取官方 MCP bridge 状态；健康建议通过 mcp_panel 的 health 操作查看。</div>
+            </div>
+          );
+        })()
       ) : panel.id === "mock-server-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
