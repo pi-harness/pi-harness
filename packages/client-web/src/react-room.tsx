@@ -87,6 +87,7 @@ const capability = (name: string): string => {
     ["plugin-finder", "插件发现"],
     ["taskboard", "任务看板"],
     ["synapse", "会话地图"],
+    ["hol-guard", "安全防护"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -141,6 +142,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
     ["@pi-harness/core/plugins/taskboard", "Taskboard"],
     ["@pi-harness/core/plugins/synapse", "Synapse"],
+    ["@pi-harness/core/plugins/hol-guard", "HOL Guard"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1360,6 +1362,62 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
+            </div>
+          );
+        })()
+      ) : panel.id === "hol-guard-panel" ? (
+        (() => {
+          const receipts = Array.isArray(data?.receipts) ? data.receipts : [];
+          const latest = data?.latest !== null && typeof data?.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
+          const riskLabel = (risk: unknown): string => (risk === "blocked" ? "已阻断" : risk === "review" ? "需复核" : "安全");
+          const riskClass = (risk: unknown): string =>
+            risk === "blocked" ? "bg-[#fff0f0] text-[#b42318]" : risk === "review" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#eaf8f0] text-[#198754]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["已阻断", data?.blocked ?? 0],
+                  ["需复核", data?.review ?? 0],
+                  ["安全", data?.safe ?? 0],
+                ].map(([label, count]) => (
+                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                  </div>
+                ))}
+              </div>
+              {latest ? (
+                <div className={`flex items-center justify-between rounded-lg border border-[#e3e7ee] px-3 py-2 text-[10px] ${riskClass(latest.risk)}`}>
+                  <span>最近一次：{value(latest.source, "unknown")}</span>
+                  <strong>
+                    {riskLabel(latest.risk)} · {value(latest.findings && Array.isArray(latest.findings) ? latest.findings.length : 0)} 项
+                  </strong>
+                </div>
+              ) : null}
+              {receipts.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">最近风险摘要</li>
+                  {receipts.slice(0, 8).map((entry, index) => {
+                    const receipt = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const findings = Array.isArray(receipt.findings) ? receipt.findings : [];
+                    return (
+                      <li
+                        className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                        key={`${value(receipt.source)}-${index}`}
+                      >
+                        <span className={`rounded px-1.5 py-0.5 ${riskClass(receipt.risk)}`}>{riskLabel(receipt.risk)}</span>
+                        <span className="min-w-0 flex-1 truncate font-mono text-[#65707b]">{value(receipt.source, "unknown")}</span>
+                        <span className="text-[#8a949f]">{findings.length} 项</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未收到工具调用。Agent 可调用 hol_guard_scan 预检命令或文本。
+                </div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">仅保存风险摘要和计数，不保存命令、路径或凭据原文；当前模式为审计。</div>
             </div>
           );
         })()

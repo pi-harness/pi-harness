@@ -60,6 +60,8 @@ import telemetryBlockerPlugin from "../src/plugins/telemetry-blocker.js";
 import changeVerifierPlugin from "../src/plugins/change-verifier.js";
 import { buildSynapseGraph } from "../src/plugins/synapse.js";
 import synapsePlugin from "../src/plugins/synapse.js";
+import { inspectGuardInput } from "../src/plugins/hol-guard.js";
+import holGuardPlugin from "../src/plugins/hol-guard.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -209,6 +211,32 @@ describe("Pi domain plugins", () => {
     expect(panels[0]?.id).toBe("synapse-panel");
     expect(panels[0]?.pluginId).toBe("@pi-harness/core/plugins/synapse");
     expect(panels[0]?.data).toEqual({ nodes: [], edges: [], orphanCount: 0, refreshes: 1 });
+  });
+
+  test("classifies hol-guard preflight input without retaining the source", () => {
+    expect(inspectGuardInput({ command: "git reset --hard HEAD~1" }, "tool:bash")).toMatchObject({
+      source: "tool:bash",
+      risk: "blocked",
+      findings: [expect.objectContaining({ code: "destructive_command", severity: "high" })],
+    });
+    const sensitive = inspectGuardInput({ path: ".env", content: "OPENAI_API_KEY=sk-live-example" }, "tool:read");
+    expect(sensitive.risk).toBe("blocked");
+    expect(sensitive.findings.map((finding) => finding.code)).toEqual(expect.arrayContaining(["sensitive_path", "credential_pattern"]));
+    expect(inspectGuardInput({ command: "git status --short" }, "tool:bash")).toMatchObject({ risk: "safe", findings: [] });
+  });
+
+  test("audits tool-call events into bounded risk receipts", async () => {
+    const { context } = await createContext();
+    await context.plugin(toolsPlugin, { names: [] });
+    await context.plugin(holGuardPlugin, { maxReceipts: 2 });
+
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "one", toolName: "bash", args: { command: "git reset --hard HEAD" } });
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "two", toolName: "bash", args: { command: "git status" } });
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "three", toolName: "bash", args: { command: "rm -rf ./build" } });
+
+    const [panel] = await context.piPluginUi.snapshot();
+    expect(panel?.data).toMatchObject({ mode: "audit", events: 3, blocked: 2, safe: 1, receipts: [{ risk: "blocked" }, { risk: "safe" }] });
+    expect(JSON.stringify(panel?.data)).not.toContain("git reset --hard HEAD");
   });
 
   test("fails activation when the selected model does not exist", async () => {

@@ -116,6 +116,9 @@
     - id: synapse
       name: "@pi-harness/core/plugins/synapse"
       config: {}
+    - id: hol-guard
+      name: "@pi-harness/core/plugins/hol-guard"
+      config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}
