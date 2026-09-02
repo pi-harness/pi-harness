@@ -2627,6 +2627,53 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </div>
             ))}
           </div>
+          <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-[#30343b]">消息组成</span>
+              <span className="text-[10px] text-[#8a949f]">按角色统计</span>
+            </div>
+            <div className="mt-2 grid grid-cols-5 gap-1.5">
+              {[
+                ["用户", (data?.composition as Record<string, unknown> | undefined)?.user ?? 0],
+                ["助手", (data?.composition as Record<string, unknown> | undefined)?.assistant ?? 0],
+                ["工具", (data?.composition as Record<string, unknown> | undefined)?.toolResult ?? 0],
+                ["系统", (data?.composition as Record<string, unknown> | undefined)?.system ?? 0],
+                ["其他", (data?.composition as Record<string, unknown> | undefined)?.other ?? 0],
+              ].map(([label, item]) => (
+                <div className="rounded bg-[#f6f8fa] px-2 py-1.5 text-center" key={value(label)}>
+                  <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                  <strong className="mt-0.5 block font-mono text-[13px] text-[#30343b]">{value(item)}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-[#30343b]">最近上下文事件</span>
+              <span className="text-[10px] text-[#8a949f]">最多保留 50 条</span>
+            </div>
+            <div className="mt-2 max-h-28 overflow-auto">
+              {Array.isArray(data?.recentEvents) && data.recentEvents.length > 0 ? (
+                data.recentEvents
+                  .slice(-6)
+                  .reverse()
+                  .map((item, index) => {
+                    const event = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                    return (
+                      <div
+                        className="flex items-center justify-between border-b border-[#f0f2f5] py-1.5 last:border-b-0"
+                        key={`${value(event.type)}-${value(event.at)}-${index}`}
+                      >
+                        <span className="font-mono text-[10px] text-[#5d6d82]">{value(event.type, "unknown")}</span>
+                        <span className="text-[10px] text-[#9aa3ad]">{typeof event.at === "number" ? new Date(event.at).toLocaleTimeString() : "—"}</span>
+                      </div>
+                    );
+                  })
+              ) : (
+                <div className="py-2 text-[11px] text-[#8a949f]">暂无上下文事件。</div>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="mt-3 grid gap-2">

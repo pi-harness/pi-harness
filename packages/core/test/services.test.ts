@@ -366,12 +366,27 @@ describe("Pi domain plugins", () => {
     const context = new Context();
     contexts.push(context);
     const panels = new PiPluginUiRegistry();
+    const toolRegistry = new PiToolRegistry();
     context.provide("piRuntime", {
       session: { messages: [{ role: "user" }], getContextUsage: () => ({ tokens: 1200, contextWindow: 8000, percent: 15 }) },
     } as never);
     context.provide("piPluginUi", panels);
+    context.provide("piTools", toolRegistry);
 
     await context.plugin(contextPlugin);
+
+    context.emit("pi/session-event", { type: "message_start" } as never);
+    context.emit("pi/session-event", { type: "compaction_start" } as never);
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          events: 2,
+          compactions: 1,
+          eventTypes: { message_start: 1, compaction_start: 1 },
+          recentEvents: [{ type: "message_start" }, { type: "compaction_start" }],
+        },
+      },
+    ]);
 
     await expect(panels.snapshot()).resolves.toEqual([
       {
@@ -380,9 +395,25 @@ describe("Pi domain plugins", () => {
         title: "上下文洞察",
         description: "查看当前上下文占用、消息规模和压缩事件。",
         icon: "◒",
-        data: { tokens: 1200, contextWindow: 8000, percent: 15, messages: 1, events: 0, compactions: 0 },
+        data: {
+          tokens: 1200,
+          contextWindow: 8000,
+          percent: 15,
+          messages: 1,
+          events: 2,
+          compactions: 1,
+          composition: { user: 1, assistant: 0, toolResult: 0, system: 0, other: 0 },
+          eventTypes: { message_start: 1, compaction_start: 1 },
+          recentEvents: [expect.objectContaining({ type: "message_start" }), expect.objectContaining({ type: "compaction_start" })],
+        },
       },
     ]);
+
+    const inspect = toolRegistry.snapshot().customTools.find((entry) => entry.name === "context_inspect");
+    if (inspect === undefined) throw new Error("context_inspect was not registered");
+    await expect(inspect.execute("inspect-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { composition: { user: 1 }, messages: 1 },
+    });
   });
 
   test("persists agent team tasks and exposes a live collaboration panel", async () => {

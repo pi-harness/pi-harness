@@ -171,13 +171,13 @@
     - id: change-verifier
       name: "@pi-harness/core/plugins/change-verifier"
       config: {}
+    - id: context
+      name: "@pi-harness/core/plugins/context"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
         thinkingLevel: medium
-    - id: context
-      name: "@pi-harness/core/plugins/context"
-      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:
