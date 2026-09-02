@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { basename, relative, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
