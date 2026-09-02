@@ -53,6 +53,7 @@ import tabManagerPlugin from "../src/plugins/tab-manager.js";
 import genUiPlugin from "../src/plugins/genui.js";
 import anchoredStandardPlugin from "../src/plugins/anchored-standard.js";
 import telemetryBlockerPlugin from "../src/plugins/telemetry-blocker.js";
+import changeVerifierPlugin from "../src/plugins/change-verifier.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1022,6 +1023,42 @@ describe("Pi domain plugins", () => {
     });
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "telemetry-blocker-panel", data: { blocked: 2, enabled: false } }]);
     expect(JSON.stringify(await panels.snapshot())).not.toContain("secret text");
+  });
+
+  test("combines project tests and change review into one verification gate", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    tools.register(
+      defineTool({
+        name: "run_project_tests",
+        label: "Tests",
+        description: "fixture",
+        parameters: Type.Object({ script: Type.Optional(Type.String()) }),
+        async execute() {
+          return { content: [{ type: "text" as const, text: "tests passed" }], details: { script: "test", exitCode: 0, durationMs: 120 } };
+        },
+      }),
+    );
+    tools.register(
+      defineTool({
+        name: "review_changes",
+        label: "Review",
+        description: "fixture",
+        parameters: Type.Object({}),
+        async execute() {
+          return { content: [{ type: "text" as const, text: "one warning" }], details: { status: "warning", findings: [{ severity: "warning" }] } };
+        },
+      }),
+    );
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(changeVerifierPlugin);
+    const verify = tools.snapshot().customTools.find((candidate) => candidate.name === "verify_change_gate");
+    await expect(verify!.execute("call-1", { script: "test" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "warning", tests: { exitCode: 0 }, review: { status: "warning" } },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "change-verifier-panel", data: { runs: 1, latest: { status: "warning" } } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

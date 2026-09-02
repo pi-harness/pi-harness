@@ -94,6 +94,7 @@ const capability = (name: string): string => {
     ["genui", "结构化界面"],
     ["anchored-standard", "轨迹锚定"],
     ["telemetry-blocker", "遥测拦截"],
+    ["change-verifier", "变更门禁"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -143,6 +144,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/genui", "GenUI"],
     ["@pi-harness/core/plugins/anchored-standard", "Anchored Standard"],
     ["@pi-harness/core/plugins/telemetry-blocker", "Telemetry Blocker"],
+    ["@pi-harness/core/plugins/change-verifier", "Change Verifier"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1409,6 +1411,40 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             {Array.isArray(data?.names) && data.names.length > 0 ? `事件名：${data.names.slice(0, 8).map(String).join("、")}` : "尚未收到遥测事件。"}
           </div>
           <p className="text-[10px] text-[#8a949f]">只记录事件名和计数，不保留事件属性，也不会发起网络请求。</p>
+        </div>
+      ) : panel.id === "change-verifier-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const tests = report.tests && typeof report.tests === "object" ? (report.tests as Record<string, unknown>) : {};
+              const review = report.review && typeof report.review === "object" ? (report.review as Record<string, unknown>) : {};
+              const status = String(report.status ?? "fail");
+              return (
+                <>
+                  <div
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                  >
+                    <span>{status === "pass" ? "门禁通过" : status === "warning" ? "门禁有警告" : "门禁失败"}</span>
+                    <strong className="font-mono">{String(data.runs ?? 0)} 次</strong>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      测试 exit <strong className="ml-1 text-[#30343b]">{String(tests.exitCode ?? "—")}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      审查 <strong className="ml-1 text-[#30343b]">{String(review.status ?? "—")}</strong>
+                    </div>
+                  </div>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有执行发布门禁。可让 Agent 调用 verify_change_gate。
+            </div>
+          )}
+          <p className="text-[10px] text-[#8a949f]">复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">

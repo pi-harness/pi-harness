@@ -131,6 +131,9 @@
     - id: telemetry-blocker
       name: "@pi-harness/core/plugins/telemetry-blocker"
       config: {}
+    - id: change-verifier
+      name: "@pi-harness/core/plugins/change-verifier"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
