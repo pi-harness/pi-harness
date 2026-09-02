@@ -129,6 +129,7 @@ const capability = (name: string): string => {
     ["workspace-navigator", "工作区导航"],
     ["better-sidebar", "侧栏概览"],
     ["archify", "架构地图"],
+    ["mirage-bridge", "Mirage 虚拟终端"],
     ["reverse-skill", "技能隔离"],
     ["colleague-skill", "角色交接"],
     ["prompt-library", "提示词库"],
@@ -210,6 +211,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
     ["@pi-harness/core/plugins/better-sidebar", "Better Sidebar"],
     ["@pi-harness/core/plugins/archify", "Architecture Map"],
+    ["@pi-harness/core/plugins/mirage-bridge", "Mirage Bridge"],
     ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
     ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
     ["@pi-harness/core/plugins/prompt-library", "Prompt Library"],
@@ -3036,6 +3038,44 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               还没有查询数据库。可让 Agent 调用 sql_readonly。
             </div>
           )}
+        </div>
+      ) : panel.id === "mirage-bridge-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div
+            className={`rounded-lg border px-3 py-3 ${data?.available === true ? "border-[#b9e6c9] bg-[#f0fbf4]" : data?.available === false ? "border-[#f3dfab] bg-[#fffaf0]" : "border-[#e3e7ee] bg-[#f6f8fa]"}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">官方 Mirage CLI</span>
+              <strong
+                className={`text-[11px] ${data?.available === true ? "text-[#198754]" : data?.available === false ? "text-[#9a6700]" : "text-[#8a949f]"}`}
+              >
+                {data?.available === true ? "已连接" : data?.available === false ? "未检测到" : "未检查"}
+              </strong>
+            </div>
+            <p className="mt-2 truncate font-mono text-[10px] text-[#65707b]">{value(data?.version ?? data?.executable ?? "mirage")}</p>
+            <p className="mt-1 text-[11px] text-[#65707b]">虚拟工作区：{value(data?.workspaceId ?? "未配置")}</p>
+          </div>
+          {data?.lastRun && typeof data.lastRun === "object" ? (
+            (() => {
+              const run = data.lastRun as Record<string, unknown>;
+              return (
+                <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate font-mono text-[10px] text-[#30343b]">{value(run.command ?? "")}</span>
+                    <strong className={`shrink-0 text-[11px] ${run.exitCode === 0 ? "text-[#198754]" : "text-[#b42318]"}`}>
+                      exit {value(run.exitCode ?? "—")}
+                    </strong>
+                  </div>
+                  <p className="mt-1 text-[10px] text-[#65707b]">耗时 {value(run.durationMs ?? 0)} ms</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              先调用 mirage_doctor 检查 CLI，再调用 mirage_execute。
+            </div>
+          )}
+          {data?.lastError ? <p className="text-[10px] leading-4 text-[#9a6700]">{value(data.lastError)}</p> : null}
         </div>
       ) : panel.id === "docker-sandbox-panel" ? (
         <div className="mt-3 grid gap-3">
