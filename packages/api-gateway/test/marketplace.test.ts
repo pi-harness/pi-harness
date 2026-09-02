@@ -60,6 +60,8 @@ describe("plugin marketplace registry", () => {
     expect(official.get("openpets")?.category.id).toBe("web");
     expect(official.get("session-insights")?.category.id).toBe("observability");
     expect(official.get("mcp-panel")?.category.id).toBe("tools");
+    expect(official.get("fail-logger")?.category.id).toBe("observability");
+    expect(official.get("plugin-dev")?.category.id).toBe("developer");
     expect(official.get("cleaner")?.category.id).toBe("developer");
     expect(official.get("cli-notifier")?.category.id).toBe("workflow");
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");
