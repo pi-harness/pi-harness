@@ -104,6 +104,23 @@ function waitForChromeEndpoint(chrome: ChildProcess): Promise<string> {
   });
 }
 
+async function stopChrome(chrome: ChildProcess): Promise<void> {
+  const stopped = new Promise<void>((resolve) => {
+    if (chrome.exitCode !== null || chrome.signalCode !== null) resolve();
+    else chrome.once("exit", () => resolve());
+  });
+  if (process.platform === "win32" || chrome.pid === undefined) {
+    chrome.kill("SIGKILL");
+  } else {
+    try {
+      process.kill(-chrome.pid, "SIGKILL");
+    } catch {
+      chrome.kill("SIGKILL");
+    }
+  }
+  await stopped;
+}
+
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
 });
@@ -1380,7 +1397,7 @@ describe("Pi domain plugins", () => {
           "--remote-debugging-port=0",
           "about:blank",
         ],
-        { stdio: ["ignore", "ignore", "pipe"] },
+        { detached: process.platform !== "win32", stdio: ["ignore", "ignore", "pipe"] },
       );
       try {
         const endpoint = await waitForChromeEndpoint(chrome);
@@ -1416,12 +1433,8 @@ describe("Pi domain plugins", () => {
           details: { clicked: true },
         });
       } finally {
-        chrome.kill("SIGKILL");
-        await new Promise<void>((resolve) => {
-          if (chrome.exitCode !== null) resolve();
-          else chrome.once("exit", () => resolve());
-        });
-        await rm(profileDir, { recursive: true, force: true });
+        await stopChrome(chrome);
+        await rm(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
         await new Promise<void>((resolve, reject) => pageServer.close((error) => (error ? reject(error) : resolve())));
       }
     },
