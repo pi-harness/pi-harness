@@ -2,6 +2,16 @@
   "name": "@pi-harness/client-web",
   "version": "0.1.2",
   "description": "Browser-side Cordis client plugins for the Pi Harness web surface",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-harness/pi-harness.git",
+    "directory": "packages/client-web"
+  },
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
