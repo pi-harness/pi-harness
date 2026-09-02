@@ -92,11 +92,16 @@ export default {
         description: "Scan text for prompt injection, secret exfiltration, and remote payload indicators without retaining the source text.",
         promptSnippet: "scan untrusted text for prompt injection risks",
         parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<PromptGuardReport>> {
-          const report = inspect(params.text, params.source ?? "tool");
-          latest = report;
-          scans += 1;
-          return { content: [{ type: "text", text: `${report.risk}: ${report.findings.length} finding(s), score ${report.score}.` }], details: report };
+        execute(_toolCallId, params): Promise<AgentToolResult<PromptGuardReport>> {
+          return Promise.resolve().then(() => {
+            const report = inspect(params.text, params.source ?? "tool");
+            latest = report;
+            scans += 1;
+            return {
+              content: [{ type: "text" as const, text: `${report.risk}: ${report.findings.length} finding(s), score ${report.score}.` }],
+              details: report,
+            };
+          });
         },
       }),
     );

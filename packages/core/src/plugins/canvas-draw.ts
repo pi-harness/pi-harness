@@ -41,34 +41,36 @@ export default {
           nodes: Type.Array(Type.Object({ id: Type.String(), label: Type.String() })),
           edges: Type.Array(Type.Object({ from: Type.String(), to: Type.String(), label: Type.Optional(Type.String()) })),
         }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<CanvasReport>> {
-          const nodes = params.nodes.map((node) => ({ id: node.id.trim(), label: label(node.label, "Node label") }));
-          const edges = params.edges.map((edge) => ({
-            from: edge.from.trim(),
-            to: edge.to.trim(),
-            ...(edge.label === undefined ? {} : { label: label(edge.label, "Edge label") }),
-          }));
-          if (nodes.length === 0 || nodes.length > maxNodes) throw new Error(`Canvas must contain 1-${maxNodes} nodes`);
-          if (edges.length > maxEdges) throw new Error(`Canvas must contain at most ${maxEdges} edges`);
-          const ids = new Set<string>();
-          for (const node of nodes) {
-            if (!nodeIdPattern.test(node.id)) throw new Error(`Invalid node id: ${node.id}`);
-            if (ids.has(node.id)) throw new Error(`Duplicate node id: ${node.id}`);
-            ids.add(node.id);
-          }
-          for (const edge of edges) {
-            if (!ids.has(edge.from) || !ids.has(edge.to)) throw new Error(`Canvas edge references an unknown node: ${edge.from} -> ${edge.to}`);
-          }
-          const report: CanvasReport = {
-            direction: params.direction ?? "TD",
-            nodes,
-            edges,
-            nodeCount: nodes.length,
-            edgeCount: edges.length,
-            mermaid: render(params.direction ?? "TD", nodes, edges),
-          };
-          latest = report;
-          return { content: [{ type: "text", text: report.mermaid }], details: report };
+        execute(_toolCallId, params): Promise<AgentToolResult<CanvasReport>> {
+          return Promise.resolve().then(() => {
+            const nodes = params.nodes.map((node) => ({ id: node.id.trim(), label: label(node.label, "Node label") }));
+            const edges = params.edges.map((edge) => ({
+              from: edge.from.trim(),
+              to: edge.to.trim(),
+              ...(edge.label === undefined ? {} : { label: label(edge.label, "Edge label") }),
+            }));
+            if (nodes.length === 0 || nodes.length > maxNodes) throw new Error(`Canvas must contain 1-${maxNodes} nodes`);
+            if (edges.length > maxEdges) throw new Error(`Canvas must contain at most ${maxEdges} edges`);
+            const ids = new Set<string>();
+            for (const node of nodes) {
+              if (!nodeIdPattern.test(node.id)) throw new Error(`Invalid node id: ${node.id}`);
+              if (ids.has(node.id)) throw new Error(`Duplicate node id: ${node.id}`);
+              ids.add(node.id);
+            }
+            for (const edge of edges) {
+              if (!ids.has(edge.from) || !ids.has(edge.to)) throw new Error(`Canvas edge references an unknown node: ${edge.from} -> ${edge.to}`);
+            }
+            const report: CanvasReport = {
+              direction: params.direction ?? "TD",
+              nodes,
+              edges,
+              nodeCount: nodes.length,
+              edgeCount: edges.length,
+              mermaid: render(params.direction ?? "TD", nodes, edges),
+            };
+            latest = report;
+            return { content: [{ type: "text" as const, text: report.mermaid }], details: report };
+          });
         },
       }),
     );

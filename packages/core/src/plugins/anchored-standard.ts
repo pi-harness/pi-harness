@@ -55,14 +55,19 @@ export default {
         description: "Audit Agent lifecycle and tool-call ordering against the anchored execution standard.",
         promptSnippet: "audit the current agent trajectory for lifecycle violations",
         parameters: Type.Object({}),
-        async execute(): Promise<AgentToolResult<AnchorReport>> {
-          const result = report();
-          return {
-            content: [
-              { type: "text", text: `${result.status}: ${result.events} events, ${result.toolCalls} tool calls, ${result.violations.length} violation(s).` },
-            ],
-            details: result,
-          };
+        execute(): Promise<AgentToolResult<AnchorReport>> {
+          return Promise.resolve().then(() => {
+            const result = report();
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `${result.status}: ${result.events} events, ${result.toolCalls} tool calls, ${result.violations.length} violation(s).`,
+                },
+              ],
+              details: result,
+            };
+          });
         },
       }),
     );

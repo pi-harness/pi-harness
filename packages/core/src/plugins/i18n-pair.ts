@@ -26,7 +26,7 @@ async function readLocale(workspace: string, requested: string): Promise<{ path:
   try {
     parsed = JSON.parse(source) as unknown;
   } catch (error) {
-    throw new Error(`Invalid locale JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Invalid locale JSON: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   return { path: relative(workspace, target) || ".", keys: new Set(flatten(parsed)) };
 }

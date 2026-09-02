@@ -43,8 +43,8 @@ export default {
             await execFileAsync("docker", ["image", "inspect", image], { timeout: 30_000, maxBuffer: 1_000_000 });
           } catch (error) {
             const failure = error as { code?: number | string; message?: string };
-            if (failure.code === "ENOENT") throw new Error("Docker executable is not available on PATH");
-            throw new Error(`Docker image is not available locally: ${image}`);
+            if (failure.code === "ENOENT") throw new Error("Docker executable is not available on PATH", { cause: error });
+            throw new Error(`Docker image is not available locally: ${image}`, { cause: error });
           }
           const args = [
             "run",

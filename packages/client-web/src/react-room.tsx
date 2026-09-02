@@ -654,9 +654,9 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
 function pluginPanelValue(input: unknown): string {
   if (typeof input === "string") return input;
   try {
-    return JSON.stringify(input, null, 2);
+    return JSON.stringify(input, null, 2) ?? value(input);
   } catch {
-    return String(input);
+    return value(input);
   }
 }
 
@@ -683,7 +683,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-2">
           <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
             <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#8a949f]">最近日志</span>
-            <strong className="mt-1 block text-[20px] font-semibold text-[#20252b]">{String(data?.total ?? 0)}</strong>
+            <strong className="mt-1 block text-[20px] font-semibold text-[#20252b]">{value(data?.total ?? 0)}</strong>
           </div>
           <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3]">
             {items.length ? (
@@ -692,11 +692,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <div
                     className="grid grid-cols-[auto_1fr] gap-2 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
-                    key={`${String(message.time ?? "log")}-${index}`}
+                    key={`${value(message.time ?? "log")}-${index}`}
                   >
-                    <span className="font-mono text-[10px] text-[#8a949f]">{String(message.level ?? "log")}</span>
+                    <span className="font-mono text-[10px] text-[#8a949f]">{value(message.level ?? "log")}</span>
                     <div className="min-w-0">
-                      <strong className="block truncate text-[11px] text-[#30343b]">{String(message.source ?? "runtime")}</strong>
+                      <strong className="block truncate text-[11px] text-[#30343b]">{value(message.source ?? "runtime")}</strong>
                       <span className="block whitespace-pre-wrap break-words text-[11px] leading-4 text-[#65707b]">{pluginPanelValue(message.args ?? "")}</span>
                     </div>
                   </div>
@@ -713,10 +713,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             pluginEntries.map((item, index) => {
               const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
               return (
-                <div className="flex items-center gap-3 border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${String(entry.id ?? "plugin")}-${index}`}>
+                <div className="flex items-center gap-3 border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${value(entry.id ?? "plugin")}-${index}`}>
                   <span className={`h-2 w-2 shrink-0 rounded-full ${entry.enabled === false ? "bg-[#a0a8b2]" : "bg-[#22c55e]"}`}></span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{String(entry.name ?? "plugin")}</span>
-                  <span className="text-[10px] text-[#8a949f]">{String(entry.state ?? "unknown")}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{value(entry.name ?? "plugin")}</span>
+                  <span className="text-[10px] text-[#8a949f]">{value(entry.state ?? "unknown")}</span>
                 </div>
               );
             })
@@ -738,9 +738,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             {capabilities.map((capability, index) => (
               <span
                 className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
-                key={`${String(capability)}-${index}`}
+                key={`${value(capability)}-${index}`}
               >
-                {String(capability)}
+                {value(capability)}
               </span>
             ))}
           </div>
@@ -752,19 +752,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ? capabilities.map((capability, index) => (
                   <span
                     className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-center text-[10px] text-[#4176e6]"
-                    key={`${String(capability)}-${index}`}
+                    key={`${value(capability)}-${index}`}
                   >
-                    {String(capability)}
+                    {value(capability)}
                   </span>
                 ))
               : null}
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
               <span className="block text-[10px] text-[#8a949f]">成员</span>
-              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(Array.isArray(data?.members) ? data.members.length : 0)}</strong>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.members) ? data.members.length : 0)}</strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
               <span className="block text-[10px] text-[#8a949f]">任务</span>
-              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(Array.isArray(data?.tasks) ? data.tasks.length : 0)}</strong>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.tasks) ? data.tasks.length : 0)}</strong>
             </div>
           </div>
           <div className="grid gap-2">
@@ -772,11 +772,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               data.members.map((item, index) => {
                 const member = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 return (
-                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${String(member.id ?? "member")}-${index}`}>
+                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${value(member.id ?? "member")}-${index}`}>
                     <span className="h-2 w-2 rounded-full bg-[#22c55e]"></span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[#30343b]">{String(member.name ?? "成员")}</span>
-                    <span className="text-[10px] text-[#8a949f]">{String(member.role ?? "协作成员")}</span>
-                    <span className="font-mono text-[10px] text-[#4176e6]">{String(member.status ?? "idle")}</span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[#30343b]">{value(member.name ?? "成员")}</span>
+                    <span className="text-[10px] text-[#8a949f]">{value(member.role ?? "协作成员")}</span>
+                    <span className="font-mono text-[10px] text-[#4176e6]">{value(member.status ?? "idle")}</span>
                   </div>
                 );
               })
@@ -789,10 +789,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               data.tasks.map((item, index) => {
                 const task = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 return (
-                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${String(task.id ?? "task")}-${index}`}>
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{String(task.title ?? "未命名任务")}</span>
-                    <span className="text-[10px] text-[#8a949f]">{String(task.assignee ?? "unassigned")}</span>
-                    <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{String(task.status ?? "todo")}</span>
+                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${value(task.id ?? "task")}-${index}`}>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</span>
+                    <span className="text-[10px] text-[#8a949f]">{value(task.assignee ?? "unassigned")}</span>
+                    <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{value(task.status ?? "todo")}</span>
                   </div>
                 );
               })
@@ -810,7 +810,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
             {data?.image !== null && data?.image !== undefined && typeof data.image === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
-                {String((data.image as Record<string, unknown>).path ?? "图片")} · {String((data.image as Record<string, unknown>).bytes ?? 0)} bytes
+                {value((data.image as Record<string, unknown>).path ?? "图片")} · {value((data.image as Record<string, unknown>).bytes ?? 0)} bytes
               </p>
             ) : (
               <p className="mt-2 text-[11px] text-[#8a949f]">调用 vision_inspect 并提供工作区内图片路径。</p>
@@ -820,9 +820,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             {capabilities.map((capability, index) => (
               <span
                 className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
-                key={`${String(capability)}-${index}`}
+                key={`${value(capability)}-${index}`}
               >
-                {String(capability)}
+                {value(capability)}
               </span>
             ))}
           </div>
@@ -836,7 +836,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
             {data?.lastFile !== null && data?.lastFile !== undefined && typeof data.lastFile === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
-                {String((data.lastFile as Record<string, unknown>).path ?? "文件")} · {String((data.lastFile as Record<string, unknown>).bytes ?? 0)} bytes
+                {value((data.lastFile as Record<string, unknown>).path ?? "文件")} · {value((data.lastFile as Record<string, unknown>).bytes ?? 0)} bytes
               </p>
             ) : (
               <p className="mt-2 text-[11px] text-[#8a949f]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
@@ -844,7 +844,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
           <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
             <span>单文件上限</span>
-            <strong className="font-mono text-[#4176e6]">{String(data?.maxBytes ?? 0)} bytes</strong>
+            <strong className="font-mono text-[#4176e6]">{value(data?.maxBytes ?? 0)} bytes</strong>
           </div>
         </div>
       ) : panel.id === "git-time-capsule-panel" ? (
@@ -856,7 +856,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
             {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
-                {String((data.latest as Record<string, unknown>).name ?? "snapshot")} · {String((data.latest as Record<string, unknown>).files ?? 0)} 个文件
+                {value((data.latest as Record<string, unknown>).name ?? "snapshot")} · {value((data.latest as Record<string, unknown>).files ?? 0)} 个文件
               </p>
             ) : (
               <p className="mt-2 text-[11px] text-[#8a949f]">还没有快照。修改代码前让 Agent 调用 git_snapshot。</p>
@@ -864,15 +864,15 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
           <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
             <span>保留快照</span>
-            <strong className="font-mono text-[#4176e6]">{String(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
+            <strong className="font-mono text-[#4176e6]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
           </div>
         </div>
       ) : panel.id === "dependency-checker-panel" ? (
         <div className="mt-3 grid gap-3">
           {(() => {
             const report = data?.report !== null && typeof data?.report === "object" ? (data.report as Record<string, unknown>) : {};
-            const missing = Array.isArray(report.missing) ? report.missing : [];
-            const invalid = Array.isArray(report.invalid) ? report.invalid : [];
+            const missing: unknown[] = Array.isArray(report.missing) ? report.missing : [];
+            const invalid: unknown[] = Array.isArray(report.invalid) ? report.invalid : [];
             return (
               <>
                 <div className="grid grid-cols-3 gap-2">
@@ -881,16 +881,18 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     ["已安装", report.installed ?? 0],
                     ["缺失", missing.length + invalid.length],
                   ].map(([label, item]) => (
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
-                      <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
-                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(item)}</strong>
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                      <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
                     </div>
                   ))}
                 </div>
                 <div
                   className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
                 >
-                  {missing.length || invalid.length ? `缺失或无效：${[...missing, ...invalid].map(String).join(", ")}` : "依赖声明与本地安装一致。"}
+                  {missing.length || invalid.length
+                    ? `缺失或无效：${[...missing, ...invalid].map((item) => value(item)).join(", ")}`
+                    : "依赖声明与本地安装一致。"}
                 </div>
               </>
             );
@@ -902,7 +904,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
               <strong className="font-mono text-[12px] text-[#315fb8]">
-                {String(data?.percent ?? "—")}% / {String(data?.maxPercent ?? "—")}%
+                {value(data?.percent ?? "—")}% / {value(data?.maxPercent ?? "—")}%
               </strong>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
@@ -912,7 +914,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               />
             </div>
             <p className="mt-2 text-[11px] text-[#71809a]">
-              {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${String(data?.aborts ?? 0)}`}
+              {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${value(data?.aborts ?? 0)}`}
             </p>
           </div>
         </div>
@@ -924,10 +926,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-[11px] font-semibold text-[#30343b]">{String(run.command ?? "npm run test")}</span>
-                    <strong className={`text-[12px] ${run.exitCode === 0 ? "text-[#198754]" : "text-[#b42318]"}`}>exit {String(run.exitCode ?? "—")}</strong>
+                    <span className="font-mono text-[11px] font-semibold text-[#30343b]">{value(run.command ?? "npm run test")}</span>
+                    <strong className={`text-[12px] ${run.exitCode === 0 ? "text-[#198754]" : "text-[#b42318]"}`}>exit {value(run.exitCode ?? "—")}</strong>
                   </div>
-                  <p className="mt-2 text-[11px] text-[#65707b]">耗时 {String(run.durationMs ?? 0)} ms</p>
+                  <p className="mt-2 text-[11px] text-[#65707b]">耗时 {value(run.durationMs ?? 0)} ms</p>
                 </div>
               );
             })()
@@ -941,9 +943,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ? data.allowedScripts.map((script, index) => (
                   <span
                     className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
-                    key={`${String(script)}-${index}`}
+                    key={`${value(script)}-${index}`}
                   >
-                    {String(script)}
+                    {value(script)}
                   </span>
                 ))
               : null}
@@ -962,19 +964,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     ["工具调用", data?.toolCalls ?? 0],
                     ["成本", `$${Number(data?.cost ?? 0).toFixed(4)}`],
                   ].map(([label, item]) => (
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
-                      <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
-                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(item)}</strong>
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                      <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
                     </div>
                   ))}
                 </div>
                 <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-[#30343b]">上下文</span>
-                    <strong className="font-mono text-[12px] text-[#315fb8]">{String(usage.percent ?? "—")}%</strong>
+                    <strong className="font-mono text-[12px] text-[#315fb8]">{value(usage.percent ?? "—")}%</strong>
                   </div>
                   <p className="mt-2 text-[11px] text-[#71809a]">
-                    {String(tokens.total ?? 0)} tracked tokens · 输入 {String(tokens.input ?? 0)} · 输出 {String(tokens.output ?? 0)}
+                    {value(tokens.total ?? 0)} tracked tokens · 输入 {value(tokens.input ?? 0)} · 输出 {value(tokens.output ?? 0)}
                   </p>
                 </div>
               </>
@@ -990,20 +992,20 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
           <div className="grid grid-cols-3 gap-2">
             {[
-              ["占用", `${String(data?.usagePercent ?? "—")}%`],
+              ["占用", `${value(data?.usagePercent ?? "—")}%`],
               ["超大消息", data?.oversizedMessages ?? 0],
               ["工具错误", data?.toolErrors ?? 0],
             ].map(([label, item]) => (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
-                <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
-                <strong className="mt-1 block text-[17px] text-[#30343b]">{String(item)}</strong>
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <strong className="mt-1 block text-[17px] text-[#30343b]">{value(item)}</strong>
               </div>
             ))}
           </div>
           {Array.isArray(data?.recommendations) && data.recommendations.length > 0 ? (
             <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
               {data.recommendations.slice(0, 4).map((item, index) => (
-                <li key={`${String(item)}-${index}`}>{String(item)}</li>
+                <li key={`${value(item)}-${index}`}>{value(item)}</li>
               ))}
             </ul>
           ) : null}
@@ -1012,26 +1014,26 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "自动压缩已启用" : "自动压缩已停用"}</span>
-            <strong className="font-mono text-[11px] text-[#4176e6]">阈值 {String(data?.thresholdPercent ?? "—")}%</strong>
+            <strong className="font-mono text-[11px] text-[#4176e6]">阈值 {value(data?.thresholdPercent ?? "—")}%</strong>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
               <span className="block text-[10px] text-[#8a949f]">已压缩</span>
-              <strong className="mt-1 block text-[17px] text-[#30343b]">{String(data?.compactions ?? 0)}</strong>
+              <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.compactions ?? 0)}</strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
               <span className="block text-[10px] text-[#8a949f]">当前占用</span>
-              <strong className="mt-1 block text-[17px] text-[#30343b]">{String(data?.lastUsagePercent ?? "—")}%</strong>
+              <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.lastUsagePercent ?? "—")}%</strong>
             </div>
           </div>
-          {data?.lastError ? <p className="text-[11px] text-[#b42318]">最近错误：{String(data.lastError)}</p> : null}
+          {data?.lastError ? <p className="text-[11px] text-[#b42318]">最近错误：{value(data.lastError)}</p> : null}
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
             (() => {
               const report = data.latest as Record<string, unknown>;
-              const status = String(report.status ?? "pass");
+              const status = value(report.status ?? "pass");
               const findings = Array.isArray(report.findings) ? report.findings : [];
               return (
                 <>
@@ -1039,7 +1041,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
                   >
                     <span>{status === "error" ? "发现阻断风险" : status === "warning" ? "需要关注" : "审查通过"}</span>
-                    <strong className="font-mono">{String(findings.length)} findings</strong>
+                    <strong className="font-mono">{value(findings.length)} findings</strong>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {[
@@ -1047,9 +1049,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       ["新增", report.addedLines ?? 0],
                       ["删除", report.removedLines ?? 0],
                     ].map(([label, item]) => (
-                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
-                        <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
-                        <strong className="mt-1 block text-[17px] text-[#30343b]">{String(item)}</strong>
+                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                        <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                        <strong className="mt-1 block text-[17px] text-[#30343b]">{value(item)}</strong>
                       </div>
                     ))}
                   </div>
@@ -1057,7 +1059,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
                       {findings.slice(0, 4).map((finding, index) => (
                         <li key={index}>
-                          {String(typeof finding === "object" && finding !== null ? ((finding as Record<string, unknown>).message ?? "finding") : finding)}
+                          {value(typeof finding === "object" && finding !== null ? ((finding as Record<string, unknown>).message ?? "finding") : finding)}
                         </li>
                       ))}
                     </ul>
@@ -1075,23 +1077,23 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">{data?.mode === "confirm" ? "确认模式" : "安全模式"}</span>
-            <span className="font-mono text-[#65707b]">超时 {String(data?.timeoutMs ?? "—")} ms</span>
+            <span className="font-mono text-[#65707b]">超时 {value(data?.timeoutMs ?? "—")} ms</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
               <span className="block text-[10px] text-[#8a949f]">阻断次数</span>
-              <strong className="mt-1 block text-[17px] text-[#30343b]">{String(data?.blocked ?? 0)} 次</strong>
+              <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.blocked ?? 0)} 次</strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
               <span className="block text-[10px] text-[#8a949f]">最近命令</span>
               <strong className="mt-1 block truncate font-mono text-[11px] text-[#30343b]">
-                {data?.last && typeof data.last === "object" ? String((data.last as Record<string, unknown>).command ?? "—") : "—"}
+                {data?.last && typeof data.last === "object" ? value((data.last as Record<string, unknown>).command ?? "—") : "—"}
               </strong>
             </div>
           </div>
           {data?.last && typeof data.last === "object" ? (
             <pre className="max-h-32 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
-              {String((data.last as Record<string, unknown>).stdout ?? "") || String((data.last as Record<string, unknown>).stderr ?? "无输出")}
+              {value((data.last as Record<string, unknown>).stdout, "") || value((data.last as Record<string, unknown>).stderr ?? "无输出")}
             </pre>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
@@ -1102,22 +1104,22 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
       ) : panel.id === "plan-execute-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <span className="truncate text-[11px] font-medium text-[#30343b]">{data?.title ? String(data.title) : "尚未创建计划"}</span>
+            <span className="truncate text-[11px] font-medium text-[#30343b]">{data?.title ? value(data.title) : "尚未创建计划"}</span>
             <span className="font-mono text-[11px] text-[#4176e6]">
-              {String(data?.completed ?? 0)} / {String(data?.total ?? 0)}
+              {value(data?.completed ?? 0)} / {value(data?.total ?? 0)}
             </span>
           </div>
           {Array.isArray(data?.steps) && data.steps.length > 0 ? (
             <ol className="grid gap-1.5">
               {data.steps.map((step, index) => {
                 const item = step && typeof step === "object" ? (step as Record<string, unknown>) : {};
-                const status = String(item.status ?? "pending");
+                const status = value(item.status ?? "pending");
                 return (
-                  <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]" key={String(item.id ?? index)}>
+                  <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]" key={value(item.id ?? index)}>
                     <span
                       className={`h-2 w-2 rounded-full ${status === "done" ? "bg-[#32a35a]" : status === "in_progress" ? "bg-[#4176e6]" : status === "skipped" ? "bg-[#a0a7b0]" : "bg-[#d7dce2]"}`}
                     />
-                    <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[#198754]" : "text-[#30343b]"}`}>{String(item.title ?? "步骤")}</span>
+                    <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[#198754]" : "text-[#30343b]"}`}>{value(item.title ?? "步骤")}</span>
                     <span className="font-mono text-[10px] text-[#8a949f]">{status}</span>
                   </li>
                 );
@@ -1131,25 +1133,25 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">只读 Registry 搜索</span>
-            <span className="font-mono text-[#65707b]">上限 {String(data?.limit ?? "—")}</span>
+            <span className="font-mono text-[#65707b]">上限 {value(data?.limit ?? "—")}</span>
           </div>
           {data?.query ? (
             <>
               <div className="flex items-center justify-between text-[11px] text-[#65707b]">
-                <span>查询：{String(data.query)}</span>
-                <strong className="font-mono text-[#4176e6]">{String(data.total ?? 0)} 个结果</strong>
+                <span>查询：{value(data.query)}</span>
+                <strong className="font-mono text-[#4176e6]">{value(data.total ?? 0)} 个结果</strong>
               </div>
               {Array.isArray(data?.results) && data.results.length > 0 ? (
                 <ul className="grid gap-1.5">
                   {data.results.slice(0, 5).map((result, index) => {
                     const item = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${String(item.name ?? "plugin")}-${index}`}>
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.name ?? "plugin")}-${index}`}>
                         <div className="flex items-center justify-between gap-2">
-                          <strong className="truncate font-mono text-[11px] text-[#30343b]">{String(item.name ?? "未知插件")}</strong>
-                          <span className="font-mono text-[10px] text-[#8a949f]">v{String(item.version ?? "—")}</span>
+                          <strong className="truncate font-mono text-[11px] text-[#30343b]">{value(item.name ?? "未知插件")}</strong>
+                          <span className="font-mono text-[10px] text-[#8a949f]">v{value(item.version ?? "—")}</span>
                         </div>
-                        <p className="mt-1 truncate text-[10px] text-[#8a949f]">{String(item.description ?? "")}</p>
+                        <p className="mt-1 truncate text-[10px] text-[#8a949f]">{value(item.description, "")}</p>
                       </li>
                     );
                   })}
@@ -1168,16 +1170,16 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">跨会话记忆</span>
-            <span className="font-mono text-[#4176e6]">{String(data?.count ?? 0)} 条</span>
+            <span className="font-mono text-[#4176e6]">{value(data?.count ?? 0)} 条</span>
           </div>
           {Array.isArray(data?.memories) && data.memories.length > 0 ? (
             <ul className="grid gap-1.5">
               {data.memories.slice(0, 5).map((memory, index) => {
                 const item = memory && typeof memory === "object" ? (memory as Record<string, unknown>) : {};
                 return (
-                  <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${String(item.key ?? "memory")}-${index}`}>
-                    <strong className="block truncate font-mono text-[11px] text-[#30343b]">{String(item.key ?? "未知键")}</strong>
-                    <p className="mt-1 truncate text-[10px] text-[#8a949f]">{String(item.value ?? "")}</p>
+                  <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.key ?? "memory")}-${index}`}>
+                    <strong className="block truncate font-mono text-[11px] text-[#30343b]">{value(item.key ?? "未知键")}</strong>
+                    <p className="mt-1 truncate text-[10px] text-[#8a949f]">{value(item.value, "")}</p>
                   </li>
                 );
               })}
@@ -1193,12 +1195,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">Mermaid 流程图</span>
             <span className="font-mono text-[#4176e6]">
-              {String(data?.nodeCount ?? 0)} 节点 · {String(data?.edgeCount ?? 0)} 连线
+              {value(data?.nodeCount ?? 0)} 节点 · {value(data?.edgeCount ?? 0)} 连线
             </span>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
-              {String((data.latest as Record<string, unknown>).mermaid ?? "")}
+              {value((data.latest as Record<string, unknown>).mermaid, "")}
             </pre>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
@@ -1217,7 +1219,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               const report = data.last as Record<string, unknown>;
               return (
                 <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
-                  {String(report.inputPath ?? "图片")} → {String(report.outputPath ?? "输出")}，节省 {String(report.savedBytes ?? 0)} bytes
+                  {value(report.inputPath ?? "图片")} → {value(report.outputPath ?? "输出")}，节省 {value(report.savedBytes ?? 0)} bytes
                 </div>
               );
             })()
@@ -1231,7 +1233,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">工作区文本检索</span>
-            <span className="font-mono text-[#4176e6]">{String(data?.matchCount ?? 0)} 个匹配</span>
+            <span className="font-mono text-[#4176e6]">{value(data?.matchCount ?? 0)} 个匹配</span>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
@@ -1242,11 +1244,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   {matches.slice(0, 5).map((match, index) => {
                     const item = match && typeof match === "object" ? (match as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${String(item.path ?? "match")}-${index}`}>
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.path ?? "match")}-${index}`}>
                         <strong className="block truncate font-mono text-[10px] text-[#4176e6]">
-                          {String(item.path ?? "未知文件")}:{String(item.line ?? "?")}
+                          {value(item.path ?? "未知文件")}:{value(item.line ?? "?")}
                         </strong>
-                        <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{String(item.text ?? "")}</p>
+                        <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{value(item.text, "")}</p>
                       </li>
                     );
                   })}
@@ -1267,7 +1269,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : data?.risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
           >
             <span>{data?.risk === "blocked" ? "高风险，需阻断" : data?.risk === "review" ? "需要人工复核" : "未发现风险"}</span>
-            <strong className="font-mono">{String(data?.scans ?? 0)} 次扫描</strong>
+            <strong className="font-mono">{value(data?.scans ?? 0)} 次扫描</strong>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
@@ -1278,8 +1280,8 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   {findings.slice(0, 4).map((finding, index) => {
                     const item = finding && typeof finding === "object" ? (finding as Record<string, unknown>) : {};
                     return (
-                      <li key={`${String(item.code ?? "finding")}-${index}`}>
-                        <strong className="font-mono text-[#30343b]">{String(item.code ?? "finding")}</strong>：{String(item.message ?? "")}
+                      <li key={`${value(item.code ?? "finding")}-${index}`}>
+                        <strong className="font-mono text-[#30343b]">{value(item.code ?? "finding")}</strong>：{value(item.message, "")}
                       </li>
                     );
                   })}
@@ -1299,12 +1301,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">已生成技能</span>
-              <strong className="font-mono text-[12px] text-[#315fb8]">{String(data?.generated ?? 0)}</strong>
+              <strong className="font-mono text-[12px] text-[#315fb8]">{value(data?.generated ?? 0)}</strong>
             </div>
             {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
-                {String((data.latest as Record<string, unknown>).slug ?? "skill")} ·{" "}
-                {String(
+                {value((data.latest as Record<string, unknown>).slug ?? "skill")} ·{" "}
+                {value(
                   Array.isArray((data.latest as Record<string, unknown>).files) ? ((data.latest as Record<string, unknown>).files as unknown[]).length : 0,
                 )}{" "}
                 个参考文件
@@ -1331,30 +1333,30 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between text-[11px]">
-                    <strong className="text-[#30343b]">{String(report.title ?? "结构化卡片")}</strong>
-                    <span className="font-mono text-[#8a949f]">{String(data.rendered ?? 0)} 次</span>
+                    <strong className="text-[#30343b]">{value(report.title ?? "结构化卡片")}</strong>
+                    <span className="font-mono text-[#8a949f]">{value(data.rendered ?? 0)} 次</span>
                   </div>
                   {blocks.map((block, index) => {
                     const item = block && typeof block === "object" ? (block as Record<string, unknown>) : {};
-                    const tone = String(item.tone ?? "neutral");
-                    const value = item.value;
+                    const tone = value(item.tone ?? "neutral");
+                    const blockValue = item.value;
                     return item.type === "progress" ? (
-                      <div className={`rounded-lg border px-3 py-2 ${toneClass[tone] ?? toneClass.neutral}`} key={`${String(item.label)}-${index}`}>
+                      <div className={`rounded-lg border px-3 py-2 ${toneClass[tone] ?? toneClass.neutral}`} key={`${value(item.label)}-${index}`}>
                         <div className="flex items-center justify-between text-[10px]">
-                          <span>{String(item.label ?? "进度")}</span>
-                          <strong>{String(value ?? 0)}%</strong>
+                          <span>{value(item.label ?? "进度")}</span>
+                          <strong>{value(blockValue ?? 0)}%</strong>
                         </div>
                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/70">
-                          <div className="h-full rounded-full bg-current" style={{ width: `${Math.max(0, Math.min(100, Number(value) || 0))}%` }} />
+                          <div className="h-full rounded-full bg-current" style={{ width: `${Math.max(0, Math.min(100, Number(blockValue) || 0))}%` }} />
                         </div>
                       </div>
                     ) : (
                       <div
                         className={`flex items-center justify-between rounded-lg border px-3 py-2 text-[11px] ${toneClass[tone] ?? toneClass.neutral}`}
-                        key={`${String(item.label)}-${index}`}
+                        key={`${value(item.label)}-${index}`}
                       >
-                        <span className="text-[#65707b]">{String(item.label ?? "")}</span>
-                        <strong>{String(value ?? "")}</strong>
+                        <span className="text-[#65707b]">{value(item.label, "")}</span>
+                        <strong>{value(blockValue, "")}</strong>
                       </div>
                     );
                   })}
@@ -1379,21 +1381,21 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${violated ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
                 >
                   <span>{violated ? "轨迹存在违规" : data?.status === "anchored" ? "运行已锚定" : "等待 Agent 运行"}</span>
-                  <strong className="font-mono">{String(data?.events ?? 0)} 事件</strong>
+                  <strong className="font-mono">{value(data?.events ?? 0)} 事件</strong>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
                   <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                    工具调用 <strong className="ml-1 text-[#30343b]">{String(data?.toolCalls ?? 0)}</strong>
+                    工具调用 <strong className="ml-1 text-[#30343b]">{value(data?.toolCalls ?? 0)}</strong>
                   </div>
                   <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                    违规项 <strong className="ml-1 text-[#30343b]">{String(violations.length)}</strong>
+                    违规项 <strong className="ml-1 text-[#30343b]">{value(violations.length)}</strong>
                   </div>
                 </div>
                 {violations.length > 0 ? (
                   <ul className="grid gap-1 rounded-lg border border-[#f4caca] bg-[#fffafa] px-3 py-2 text-[10px] text-[#b42318]">
                     {violations.slice(0, 4).map((item, index) => (
-                      <li key={`${String(item)}-${index}`}>
-                        {String(item && typeof item === "object" ? ((item as Record<string, unknown>).message ?? "违规") : item)}
+                      <li key={`${value(item)}-${index}`}>
+                        {value(item && typeof item === "object" ? ((item as Record<string, unknown>).message ?? "违规") : item)}
                       </li>
                     ))}
                   </ul>
@@ -1407,7 +1409,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
             <span>遥测已关闭</span>
-            <strong className="font-mono">拦截 {String(data?.blocked ?? 0)} 次</strong>
+            <strong className="font-mono">拦截 {value(data?.blocked ?? 0)} 次</strong>
           </div>
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[10px] text-[#65707b]">
             {Array.isArray(data?.names) && data.names.length > 0 ? `事件名：${data.names.slice(0, 8).map(String).join("、")}` : "尚未收到遥测事件。"}
@@ -1421,21 +1423,21 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               const report = data.latest as Record<string, unknown>;
               const tests = report.tests && typeof report.tests === "object" ? (report.tests as Record<string, unknown>) : {};
               const review = report.review && typeof report.review === "object" ? (report.review as Record<string, unknown>) : {};
-              const status = String(report.status ?? "fail");
+              const status = value(report.status ?? "fail");
               return (
                 <>
                   <div
                     className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
                   >
                     <span>{status === "pass" ? "门禁通过" : status === "warning" ? "门禁有警告" : "门禁失败"}</span>
-                    <strong className="font-mono">{String(data.runs ?? 0)} 次</strong>
+                    <strong className="font-mono">{value(data.runs ?? 0)} 次</strong>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      测试 exit <strong className="ml-1 text-[#30343b]">{String(tests.exitCode ?? "—")}</strong>
+                      测试 exit <strong className="ml-1 text-[#30343b]">{value(tests.exitCode ?? "—")}</strong>
                     </div>
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      审查 <strong className="ml-1 text-[#30343b]">{String(review.status ?? "—")}</strong>
+                      审查 <strong className="ml-1 text-[#30343b]">{value(review.status ?? "—")}</strong>
                     </div>
                   </div>
                 </>
@@ -1452,7 +1454,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           {data?.generated === true ? (
             <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
-              已生成 {String(data.name ?? "项目")} 的 README 概览：{String(data.scripts ?? 0)} 个脚本，{String(data.plugins ?? 0)} 个运行时插件。
+              已生成 {value(data.name ?? "项目")} 的 README 概览：{value(data.scripts ?? 0)} 个脚本，{value(data.plugins ?? 0)} 个运行时插件。
             </div>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
@@ -1469,8 +1471,8 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <>
                   <div className="flex items-center justify-between rounded-lg bg-[#f6f8fa] px-3 py-3">
-                    <span className="truncate font-mono text-[11px] text-[#30343b]">{String(report.database ?? "database")}</span>
-                    <strong className="font-mono text-[12px] text-[#4176e6]">{String(rows.length)} rows</strong>
+                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(report.database ?? "database")}</span>
+                    <strong className="font-mono text-[12px] text-[#4176e6]">{value(rows.length)} rows</strong>
                   </div>
                   <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
                     {JSON.stringify(rows, null, 2)}
@@ -1492,10 +1494,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="truncate font-mono text-[11px] text-[#30343b]">{String(run.image ?? "image")}</span>
-                    <strong className="font-mono text-[12px] text-[#198754]">exit {String(run.exitCode ?? "—")}</strong>
+                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(run.image ?? "image")}</span>
+                    <strong className="font-mono text-[12px] text-[#198754]">exit {value(run.exitCode ?? "—")}</strong>
                   </div>
-                  <p className="mt-2 text-[11px] text-[#65707b]">{Array.isArray(run.command) ? run.command.map(String).join(" ") : "argv"}</p>
+                  <p className="mt-2 text-[11px] text-[#65707b]">
+                    {Array.isArray(run.command) ? run.command.map((argument) => value(argument)).join(" ") : "argv"}
+                  </p>
                 </div>
               );
             })()
@@ -1504,9 +1508,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           )}
           <div className="flex flex-wrap gap-2">
             {data?.defaults !== null && typeof data?.defaults === "object"
-              ? Object.entries(data.defaults as Record<string, unknown>).map(([key, value]) => (
+              ? Object.entries(data.defaults as Record<string, unknown>).map(([key, entryValue]) => (
                   <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]" key={key}>
-                    {key}:{String(value)}
+                    {key}:{value(entryValue)}
                   </span>
                 ))
               : null}
@@ -1532,10 +1536,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       ["文档", report.documents ?? 0],
                       ["错误", errors.length],
                       ["警告", warnings.length],
-                    ].map(([label, value]) => (
-                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
-                        <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
-                        <strong className="mt-1 block text-[17px] text-[#30343b]">{String(value)}</strong>
+                    ].map(([label, entryValue]) => (
+                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                        <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                        <strong className="mt-1 block text-[17px] text-[#30343b]">{value(entryValue)}</strong>
                       </div>
                     ))}
                   </div>
@@ -1544,8 +1548,8 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       {errors
                         .map((error) =>
                           typeof error === "object" && error !== null
-                            ? `${String((error as Record<string, unknown>).line ?? "?")}:${String((error as Record<string, unknown>).column ?? "?")} ${String((error as Record<string, unknown>).message ?? "")}`
-                            : String(error),
+                            ? `${value((error as Record<string, unknown>).line ?? "?")}:${value((error as Record<string, unknown>).column ?? "?")} ${value((error as Record<string, unknown>).message, "")}`
+                            : value(error),
                         )
                         .join("\n")}
                     </pre>
@@ -1564,12 +1568,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="truncate font-mono text-[11px] text-[#30343b]">{String(data?.endpoint ?? "本地浏览器未连接")}</span>
-              <strong className="font-mono text-[12px] text-[#4176e6]">{String(Array.isArray(data?.tabs) ? data.tabs.length : 0)} tabs</strong>
+              <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.endpoint ?? "本地浏览器未连接")}</span>
+              <strong className="font-mono text-[12px] text-[#4176e6]">{value(Array.isArray(data?.tabs) ? data.tabs.length : 0)} tabs</strong>
             </div>
             <p className="mt-2 text-[11px] text-[#8a949f]">通过 Chrome DevTools Protocol 操作已启动浏览器，不执行页面外部脚本。</p>
             {data?.connected === false ? (
-              <p className="mt-2 text-[11px] text-[#b42318]">未连接：请使用 remote-debugging-port 启动 Chrome。{String(data.error ?? "")}</p>
+              <p className="mt-2 text-[11px] text-[#b42318]">未连接：请使用 remote-debugging-port 启动 Chrome。{value(data.error, "")}</p>
             ) : null}
           </div>
           {Array.isArray(data?.tabs) && data.tabs.length > 0 ? (
@@ -1577,9 +1581,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               {data.tabs.slice(0, 8).map((tab, index) => {
                 const item = typeof tab === "object" && tab !== null ? (tab as Record<string, unknown>) : {};
                 return (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${String(item.targetId ?? "tab")}-${index}`}>
-                    <strong className="block truncate text-[11px] text-[#30343b]">{String(item.title ?? "未命名页面")}</strong>
-                    <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{String(item.url ?? "")}</span>
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${value(item.targetId ?? "tab")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{value(item.title ?? "未命名页面")}</strong>
+                    <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{value(item.url, "")}</span>
                   </div>
                 );
               })}
@@ -1594,17 +1598,17 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="truncate font-mono text-[11px] text-[#30343b]">{String(data?.server ?? "尚未连接 MCP 服务器")}</span>
+              <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.server ?? "尚未连接 MCP 服务器")}</span>
               <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[#4176e6]">
-                <span>{String(Array.isArray(data?.tools) ? data.tools.length : 0)} 工具</span>
+                <span>{value(Array.isArray(data?.tools) ? data.tools.length : 0)} 工具</span>
                 <span className="text-[#a2abb5]">·</span>
-                <span>{String(Array.isArray(data?.resources) ? data.resources.length : 0)} 资源</span>
+                <span>{value(Array.isArray(data?.resources) ? data.resources.length : 0)} 资源</span>
                 <span className="text-[#a2abb5]">·</span>
-                <span>{String(Array.isArray(data?.prompts) ? data.prompts.length : 0)} 提示</span>
+                <span>{value(Array.isArray(data?.prompts) ? data.prompts.length : 0)} 提示</span>
               </div>
             </div>
             <p className="mt-2 text-[11px] text-[#8a949f]">
-              {data?.lastCall === null || data?.lastCall === undefined ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${String(data.lastCall)}`}
+              {data?.lastCall === null || data?.lastCall === undefined ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${value(data.lastCall)}`}
             </p>
           </div>
           {Array.isArray(data?.tools) && data.tools.length > 0 ? (
@@ -1614,9 +1618,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <span
                     className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
-                    key={`${String(item.name ?? "tool")}-${index}`}
+                    key={`${value(item.name ?? "tool")}-${index}`}
                   >
-                    {String(item.name ?? "tool")}
+                    {value(item.name ?? "tool")}
                   </span>
                 );
               })}
@@ -1631,9 +1635,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   return (
                     <span
                       className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
-                      key={`${String(item.uri ?? "resource")}-${index}`}
+                      key={`${value(item.uri ?? "resource")}-${index}`}
                     >
-                      {String(item.name ?? item.uri ?? "resource")}
+                      {value(item.name ?? item.uri ?? "resource")}
                     </span>
                   );
                 })}
@@ -1649,9 +1653,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   return (
                     <span
                       className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
-                      key={`${String(item.name ?? "prompt")}-${index}`}
+                      key={`${value(item.name ?? "prompt")}-${index}`}
                     >
-                      {String(item.name ?? "prompt")}
+                      {value(item.name ?? "prompt")}
                     </span>
                   );
                 })}
@@ -1665,10 +1669,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <div
                     className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]"
-                    key={`${String(item.id ?? "server")}-${index}`}
+                    key={`${value(item.id ?? "server")}-${index}`}
                   >
-                    <span className="font-mono text-[#30343b]">{String(item.id ?? "server")}</span>
-                    <span className="text-[#198754]">{String(item.status ?? "unknown")}</span>
+                    <span className="font-mono text-[#30343b]">{value(item.id ?? "server")}</span>
+                    <span className="text-[#198754]">{value(item.status ?? "unknown")}</span>
                   </div>
                 );
               })}
@@ -1679,25 +1683,25 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.running === true ? "运行中" : "未启动"}</span>
-            <strong className="font-mono text-[11px] text-[#4176e6]">{String(data?.routes ?? 0)} 路由</strong>
+            <strong className="font-mono text-[11px] text-[#4176e6]">{value(data?.routes ?? 0)} 路由</strong>
           </div>
-          {data?.url ? <code className="rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{String(data.url)}</code> : null}
-          {data?.lastRequest ? <p className="text-[11px] text-[#8a949f]">最近请求：{String(data.lastRequest)}</p> : null}
+          {data?.url ? <code className="rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{value(data.url)}</code> : null}
+          {data?.lastRequest ? <p className="text-[11px] text-[#8a949f]">最近请求：{value(data.lastRequest)}</p> : null}
         </div>
       ) : panel.id === "cli-notifier-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "已启用" : "已停用"}</span>
-            <span className="font-mono text-[10px] text-[#8a949f]">{String(data?.platform ?? "unknown")}</span>
+            <span className="font-mono text-[10px] text-[#8a949f]">{value(data?.platform ?? "unknown")}</span>
           </div>
           {Array.isArray(data?.notifications) && data.notifications.length > 0 ? (
             <div className="grid gap-2">
               {data.notifications.slice(0, 5).map((notification, index) => {
                 const item = typeof notification === "object" && notification !== null ? (notification as Record<string, unknown>) : {};
                 return (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]" key={`${String(item.time ?? "notification")}-${index}`}>
-                    <strong className="block text-[#30343b]">{String(item.title ?? "Pi Harness")}</strong>
-                    <span className="mt-1 block text-[#65707b]">{String(item.message ?? "")}</span>
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]" key={`${value(item.time ?? "notification")}-${index}`}>
+                    <strong className="block text-[#30343b]">{value(item.title ?? "Pi Harness")}</strong>
+                    <span className="mt-1 block text-[#65707b]">{value(item.message, "")}</span>
                   </div>
                 );
               })}
@@ -1712,9 +1716,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <span className="font-mono text-[11px] text-[#30343b]">{data?.configured === true ? "已配置" : "未配置 vault"}</span>
             <span className="font-mono text-[10px] text-[#8a949f]">Markdown</span>
           </div>
-          {data?.vaultPath ? <code className="truncate rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{String(data.vaultPath)}</code> : null}
+          {data?.vaultPath ? <code className="truncate rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{value(data.vaultPath)}</code> : null}
           {data?.last !== null && data?.last !== undefined && typeof data.last === "object" ? (
-            <p className="text-[11px] text-[#8a949f]">最近写入：{String((data.last as Record<string, unknown>).relativePath ?? "note.md")}</p>
+            <p className="text-[11px] text-[#8a949f]">最近写入：{value((data.last as Record<string, unknown>).relativePath ?? "note.md")}</p>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有同步笔记。</div>
           )}
@@ -1723,7 +1727,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3 text-[11px]">
             <span className="text-[#315fb8]">{data?.keyless === true ? "Firecrawl 匿名模式" : "Firecrawl 已认证"}</span>
-            <strong className="font-mono text-[#315fb8]">最多 {String(data?.maxResults ?? 8)} 条</strong>
+            <strong className="font-mono text-[#315fb8]">最多 {value(data?.maxResults ?? 8)} 条</strong>
           </div>
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
             (() => {
@@ -1732,7 +1736,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <>
                   <div className="flex items-center justify-between gap-3 text-[11px]">
-                    <strong className="truncate text-[#30343b]">{String(report.query ?? "网页搜索")}</strong>
+                    <strong className="truncate text-[#30343b]">{value(report.query ?? "网页搜索")}</strong>
                     <span className="shrink-0 font-mono text-[#8a949f]">
                       前 {Math.min(8, items.length)} / 共 {items.length}
                     </span>
@@ -1743,14 +1747,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       return (
                         <a
                           className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 transition-colors hover:border-[#bdd0f5] hover:bg-[#fbfdff]"
-                          href={String(item.url ?? "")}
-                          key={`${String(item.url ?? "source")}-${index}`}
+                          href={value(item.url, "")}
+                          key={`${value(item.url ?? "source")}-${index}`}
                           rel="noreferrer"
                           target="_blank"
                         >
-                          <strong className="block truncate text-[11px] text-[#30343b]">{String(item.title ?? item.url ?? "来源")}</strong>
-                          <span className="mt-1 block truncate font-mono text-[10px] text-[#4176e6]">{String(item.source ?? item.url ?? "")}</span>
-                          {item.snippet ? <span className="mt-1 line-clamp-2 block text-[10px] leading-4 text-[#65707b]">{String(item.snippet)}</span> : null}
+                          <strong className="block truncate text-[11px] text-[#30343b]">{value(item.title ?? item.url ?? "来源")}</strong>
+                          <span className="mt-1 block truncate font-mono text-[10px] text-[#4176e6]">{value(item.source ?? item.url, "")}</span>
+                          {item.snippet ? <span className="mt-1 line-clamp-2 block text-[10px] leading-4 text-[#65707b]">{value(item.snippet)}</span> : null}
                         </a>
                       );
                     })}
@@ -1775,11 +1779,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <>
                   <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
-                    <span className="truncate font-mono text-[11px] text-[#30343b]">{String(result.finalUrl ?? result.url ?? "page")}</span>
-                    <strong className="font-mono text-[12px] text-[#198754]">HTTP {String(result.status ?? "—")}</strong>
+                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(result.finalUrl ?? result.url ?? "page")}</span>
+                    <strong className="font-mono text-[12px] text-[#198754]">HTTP {value(result.status ?? "—")}</strong>
                   </div>
                   <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
-                    {String(result.text ?? "")}
+                    {value(result.text, "")}
                   </pre>
                 </>
               );
@@ -1793,7 +1797,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">max:512KiB</span>
             <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">scripts:disabled</span>
             <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">
-              private:{String(data?.allowPrivate === true ? "allowed" : "blocked")}
+              private:{value(data?.allowPrivate === true ? "allowed" : "blocked")}
             </span>
           </div>
         </div>
@@ -1815,11 +1819,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
                       <span className="block text-[10px] text-[#8a949f]">基准键</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{String(report.baseKeys ?? 0)}</strong>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(report.baseKeys ?? 0)}</strong>
                     </div>
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
                       <span className="block text-[10px] text-[#8a949f]">目标键</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{String(report.targetKeys ?? 0)}</strong>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(report.targetKeys ?? 0)}</strong>
                     </div>
                   </div>
                 </>
@@ -1836,20 +1840,20 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">快照清理</span>
-              <strong className="font-mono text-[12px] text-[#4176e6]">{String(Array.isArray(data?.capsules) ? data.capsules.length : 0)} 个</strong>
+              <strong className="font-mono text-[12px] text-[#4176e6]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} 个</strong>
             </div>
             <p className="mt-2 text-[11px] text-[#8a949f]">仅清理 agent 数据目录中的 .patch 快照，必须显式 confirm=true。</p>
           </div>
           <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
             <span>上次清理</span>
-            <strong className="font-mono text-[#4176e6]">{String(data?.lastRemoved ?? 0)} 个</strong>
+            <strong className="font-mono text-[#4176e6]">{value(data?.lastRemoved ?? 0)} 个</strong>
           </div>
         </div>
       ) : panel.id === "fail-logger-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg bg-[#fff5f5] px-3 py-3">
             <span className="text-[11px] font-semibold text-[#7f1d1d]">去重后的失败记录</span>
-            <strong className="font-mono text-[17px] text-[#b42318]">{String(data?.total ?? 0)}</strong>
+            <strong className="font-mono text-[17px] text-[#b42318]">{value(data?.total ?? 0)}</strong>
           </div>
           <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3]">
             {Array.isArray(data?.failures) && data.failures.length > 0 ? (
@@ -1858,10 +1862,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <div
                     className="grid grid-cols-[auto_1fr] gap-2 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
-                    key={`${String(failure.time ?? "failure")}-${index}`}
+                    key={`${value(failure.time ?? "failure")}-${index}`}
                   >
-                    <span className="font-mono text-[10px] text-[#b42318]">{String(failure.source ?? "runtime")}</span>
-                    <span className="break-words text-[11px] leading-4 text-[#65707b]">{String(failure.message ?? "未知错误")}</span>
+                    <span className="font-mono text-[10px] text-[#b42318]">{value(failure.source ?? "runtime")}</span>
+                    <span className="break-words text-[11px] leading-4 text-[#65707b]">{value(failure.message ?? "未知错误")}</span>
                   </div>
                 );
               })
@@ -1876,7 +1880,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="flex items-center justify-between gap-3">
               <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#71809a]">上下文占用</span>
               <strong className="text-[13px] font-semibold text-[#315fb8]">
-                {data?.percent === null || data?.percent === undefined ? "—" : `${String(data.percent)}%`}
+                {data?.percent === null || data?.percent === undefined ? "—" : `${value(data.percent)}%`}
               </strong>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
@@ -1886,8 +1890,8 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               />
             </div>
             <p className="mt-2 text-[11px] text-[#71809a]">
-              {data?.tokens === null || data?.tokens === undefined ? "令牌数未知" : `${String(data.tokens)} tokens`}
-              {data?.contextWindow === null || data?.contextWindow === undefined ? "" : ` / ${String(data.contextWindow)} 上限`}
+              {data?.tokens === null || data?.tokens === undefined ? "令牌数未知" : `${value(data.tokens)} tokens`}
+              {data?.contextWindow === null || data?.contextWindow === undefined ? "" : ` / ${value(data.contextWindow)} 上限`}
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -1896,9 +1900,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ["事件", data?.events ?? 0],
               ["压缩", data?.compactions ?? 0],
             ].map(([label, item]) => (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
-                <span className="block text-[10px] text-[#8a949f]">{String(label)}</span>
-                <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{String(item)}</strong>
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
               </div>
             ))}
           </div>

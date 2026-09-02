@@ -24,7 +24,11 @@ export interface ReviewerBotPluginConfig {
 export const Config: z<ReviewerBotPluginConfig> = z.object({ maxDiffBytes: z.number().default(1024 * 1024) });
 
 function outputOf(error: unknown, key: "stdout" | "stderr"): string {
-  if (typeof error === "object" && error !== null && key in error) return String((error as Record<string, unknown>)[key] ?? "");
+  if (typeof error === "object" && error !== null && key in error) {
+    const output = (error as Record<string, unknown>)[key];
+    if (typeof output === "string") return output;
+    if (Buffer.isBuffer(output)) return output.toString("utf8");
+  }
   return "";
 }
 
@@ -41,8 +45,8 @@ export default {
     const maxDiffBytes = Math.max(16 * 1024, Math.min(8 * 1024 * 1024, Math.trunc(config.maxDiffBytes ?? 1024 * 1024)));
     let latest: ReviewReport | undefined;
     const review = async (): Promise<ReviewReport> => {
-      let diff = "";
-      let names = "";
+      let diff: string;
+      let names: string;
       const findings: ReviewFinding[] = [];
       try {
         [diff, names] = await Promise.all([
@@ -52,6 +56,7 @@ export default {
       } catch (error) {
         throw new Error(
           `Git review requires a repository with a readable HEAD: ${outputOf(error, "stderr").trim() || (error instanceof Error ? error.message : String(error))}`,
+          { cause: error },
         );
       }
       const paths = names

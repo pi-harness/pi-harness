@@ -108,11 +108,24 @@ async function readBoundedJson(response: Response): Promise<FirecrawlPayload> {
     throw new Error("Web research returned invalid JSON");
   }
   if (parsed === null || typeof parsed !== "object") throw new Error("Web research returned an invalid payload");
-  return parsed as FirecrawlPayload;
+  return parsed;
 }
 
 function redactSecret(value: string, secret: string): string {
   return secret === "" ? value : value.split(secret).join("[REDACTED]");
+}
+
+function sanitizedCause(error: unknown, secret: string): Error {
+  const message = redactSecret(error instanceof Error ? error.message : String(error), secret);
+  if (!(error instanceof Error)) return new Error(message);
+  const sanitized = new Error(message);
+  sanitized.name = error.name;
+  if (error.stack !== undefined) sanitized.stack = redactSecret(error.stack, secret);
+  return sanitized;
+}
+
+function searchError(message: string, cause: Error): Error {
+  return new Error(message, { cause });
 }
 
 function validateApiKeyTransport(baseUrl: string, apiKey: string): void {
@@ -207,11 +220,11 @@ export default {
               details: latest,
             };
           } catch (error) {
-            if (timedOut) throw new Error(`Web search timed out after ${timeoutMs} ms`);
-            if (controller.signal.aborted) throw new Error("Web search was cancelled");
-            const message = redactSecret(error instanceof Error ? error.message : String(error), apiKey);
-            if (message.startsWith("Web search returned") || message.startsWith("Web research")) throw new Error(message);
-            throw new Error(`Web search request failed: ${message}`);
+            const cause = sanitizedCause(error, apiKey);
+            if (timedOut) throw searchError(`Web search timed out after ${timeoutMs} ms`, cause);
+            if (controller.signal.aborted) throw searchError("Web search was cancelled", cause);
+            if (cause.message.startsWith("Web search returned") || cause.message.startsWith("Web research")) throw searchError(cause.message, cause);
+            throw searchError(`Web search request failed: ${cause.message}`, cause);
           } finally {
             clearTimeout(timer);
             signal?.removeEventListener("abort", abortFromCaller);

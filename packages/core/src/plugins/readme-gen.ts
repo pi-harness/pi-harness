@@ -13,7 +13,7 @@ async function generate(context: Context): Promise<ReadmeReport> {
   try {
     parsed = JSON.parse(source) as unknown;
   } catch (error) {
-    throw new Error(`Invalid package.json: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Invalid package.json: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("package.json root must be an object");
   const packageJson = parsed as Record<string, unknown>;
@@ -22,7 +22,7 @@ async function generate(context: Context): Promise<ReadmeReport> {
   const description = typeof packageJson.description === "string" ? packageJson.description : "";
   const scripts =
     packageJson.scripts !== null && typeof packageJson.scripts === "object" && !Array.isArray(packageJson.scripts)
-      ? Object.keys(packageJson.scripts as Record<string, unknown>).sort()
+      ? Object.keys(packageJson.scripts).sort()
       : [];
   const loader = context.get("loader") as { entries(): Iterable<{ disabled?: boolean | null; options: { name: string } }> } | undefined;
   const plugins =

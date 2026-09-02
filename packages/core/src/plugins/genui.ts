@@ -48,22 +48,27 @@ export default {
             }),
           ),
         }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<GenUiReport>> {
-          if (params.blocks.length === 0 || params.blocks.length > maxBlocks) throw new Error(`GenUI requires 1 to ${maxBlocks} blocks`);
-          latest = {
-            title: cleanText(params.title, "Title"),
-            blocks: params.blocks.map((block) =>
-              normalizeBlock({
-                type: block.type as BlockType,
-                label: block.label,
-                value: block.value,
-                ...(block.tone === undefined ? {} : { tone: block.tone as Tone }),
-              }),
-            ),
-            renderedAt: new Date().toISOString(),
-          };
-          rendered += 1;
-          return { content: [{ type: "text", text: `Rendered ${latest.blocks.length} structured UI block(s): ${latest.title}` }], details: latest };
+        execute(_toolCallId, params): Promise<AgentToolResult<GenUiReport>> {
+          return Promise.resolve().then(() => {
+            if (params.blocks.length === 0 || params.blocks.length > maxBlocks) throw new Error(`GenUI requires 1 to ${maxBlocks} blocks`);
+            latest = {
+              title: cleanText(params.title, "Title"),
+              blocks: params.blocks.map((block) =>
+                normalizeBlock({
+                  type: block.type as BlockType,
+                  label: block.label,
+                  value: block.value,
+                  ...(block.tone === undefined ? {} : { tone: block.tone as Tone }),
+                }),
+              ),
+              renderedAt: new Date().toISOString(),
+            };
+            rendered += 1;
+            return {
+              content: [{ type: "text" as const, text: `Rendered ${latest.blocks.length} structured UI block(s): ${latest.title}` }],
+              details: latest,
+            };
+          });
         },
       }),
     );

@@ -36,7 +36,7 @@ export default {
         description: "Save the current tracked Git diff as a timestamped patch outside the workspace for rollback or review.",
         promptSnippet: "save a rollback patch before changing code",
         parameters: Type.Object({}),
-        async execute(_toolCallId, _params): Promise<AgentToolResult<{ path: string; bytes: number; files: number }>> {
+        async execute(): Promise<AgentToolResult<{ path: string; bytes: number; files: number }>> {
           const status = await git(context.piHarnessLaunch.cwd, ["status", "--short"]);
           const patch = await git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--binary", "--no-ext-diff", "--", ".", ":(exclude).pi-harness/capsules"]);
           await mkdir(directory, { recursive: true });

@@ -134,8 +134,8 @@ export default {
         description: "Show local HTTP mock server status and route count.",
         promptSnippet: "check the local mock server status",
         parameters: Type.Object({}),
-        async execute(): Promise<AgentToolResult<MockServerState>> {
-          return { content: [{ type: "text", text: `${state.running ? "running" : "stopped"} ${state.url ?? ""}`.trim() }], details: state };
+        execute(): Promise<AgentToolResult<MockServerState>> {
+          return Promise.resolve({ content: [{ type: "text", text: `${state.running ? "running" : "stopped"} ${state.url ?? ""}`.trim() }], details: state });
         },
       }),
     );

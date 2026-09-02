@@ -100,16 +100,17 @@ async function request(child: ChildProcessWithoutNullStreams, id: number, method
         parsed = parseFrames(buffer);
       } catch (error) {
         cleanup();
-        reject(error);
+        reject(error instanceof Error ? error : new Error("Failed to parse MCP response", { cause: error }));
         return;
       }
       buffer = parsed.rest;
       for (const message of parsed.messages) {
         if (message.id !== id) continue;
         cleanup();
-        if (typeof message.error === "object" && message.error !== null)
-          reject(new Error(String((message.error as JsonObject).message ?? "MCP request failed")));
-        else if (typeof message.result === "object" && message.result !== null) resolve(message.result as JsonObject);
+        if (typeof message.error === "object" && message.error !== null) {
+          const errorMessage = (message.error as JsonObject).message;
+          reject(new Error(typeof errorMessage === "string" ? errorMessage : "MCP request failed"));
+        } else if (typeof message.result === "object" && message.result !== null) resolve(message.result as JsonObject);
         else reject(new Error("MCP server returned an invalid response"));
         return;
       }
@@ -148,7 +149,7 @@ async function withServer<T>(command: string[], cwd: string, callback: (child: C
     child.stdin.write(encodeMessage({ jsonrpc: "2.0", method: "notifications/initialized" }));
     return await callback(child);
   } catch (error) {
-    if (error instanceof Error && stderr.trim() !== "") throw new Error(`${error.message}: ${stderr.trim()}`);
+    if (error instanceof Error && stderr.trim() !== "") throw new Error(`${error.message}: ${stderr.trim()}`, { cause: error });
     throw error;
   } finally {
     child.stdin.end();
@@ -203,7 +204,7 @@ export default {
       } catch (error) {
         child.stdin.end();
         child.kill();
-        if (error instanceof Error && stderr.trim() !== "") throw new Error(`${error.message}: ${stderr.trim()}`);
+        if (error instanceof Error && stderr.trim() !== "") throw new Error(`${error.message}: ${stderr.trim()}`, { cause: error });
         throw error;
       }
     };
@@ -394,7 +395,7 @@ export default {
         description: "List persistent MCP stdio servers managed by Pi Harness.",
         promptSnippet: "inspect running MCP server status",
         parameters: Type.Object({}),
-        async execute(_toolCallId): Promise<AgentToolResult<{ servers: Array<{ id: string; command: string[]; status: string; startedAt: number }> }>> {
+        execute(): Promise<AgentToolResult<{ servers: Array<{ id: string; command: string[]; status: string; startedAt: number }> }>> {
           const running = [...servers.values()].map((server) => ({
             id: server.id,
             command: server.command,
@@ -408,7 +409,7 @@ export default {
               .filter((definition) => !active.has(definition.id))
               .map((definition) => ({ id: definition.id, command: definition.command, status: "stopped", startedAt: 0 })),
           ];
-          return {
+          return Promise.resolve({
             content: [
               {
                 type: "text",
@@ -419,7 +420,7 @@ export default {
               },
             ],
             details: { servers: snapshot },
-          };
+          });
         },
       }),
     );

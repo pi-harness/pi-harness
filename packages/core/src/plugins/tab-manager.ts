@@ -45,7 +45,7 @@ export default {
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
   async apply(context: Context) {
     const path = join(context.piHarnessLaunch.agentDir, storageFile);
-    let state = await readState(path);
+    const state = await readState(path);
     let writes = 0;
     const activeSession = (): { id: string; sessionPath: string } => ({
       id: context.piSession.manager.getSessionId(),

@@ -12,7 +12,7 @@ export default {
   inject: ["piRuntime", "piPluginUi"],
   Config,
   apply(context: Context, config: TokenGuardPluginConfig) {
-    let maxPercent = Math.max(1, Math.min(100, config.maxPercent ?? 90));
+    const maxPercent = Math.max(1, Math.min(100, config.maxPercent ?? 90));
     let abortCount = 0;
     let lastPercent: number | null = null;
     let lastTokens: number | null = null;

@@ -39,9 +39,9 @@ export default {
         description: "Report the local telemetry policy. Pi Harness telemetry is disabled and no event properties are retained.",
         promptSnippet: "check whether telemetry is enabled",
         parameters: Type.Object({}),
-        async execute(): Promise<AgentToolResult<TelemetrySnapshot>> {
+        execute(): Promise<AgentToolResult<TelemetrySnapshot>> {
           const snapshot = service.snapshot();
-          return { content: [{ type: "text", text: `Telemetry disabled; blocked ${snapshot.blocked} event(s).` }], details: snapshot };
+          return Promise.resolve({ content: [{ type: "text", text: `Telemetry disabled; blocked ${snapshot.blocked} event(s).` }], details: snapshot });
         },
       }),
     );

@@ -106,7 +106,7 @@ async function fetchPage(rawUrl: string, allowPrivate: boolean): Promise<Browser
         headers: { accept: "text/html, text/plain, application/json;q=0.9, */*;q=0.1", "user-agent": "pi-harness-browser-fetch/0.1" },
       });
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") throw new Error("Browser fetch timed out after 20 seconds");
+      if (error instanceof Error && error.name === "AbortError") throw new Error("Browser fetch timed out after 20 seconds", { cause: error });
       throw error;
     } finally {
       clearTimeout(timer);

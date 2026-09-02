@@ -23,13 +23,15 @@ export default {
         description: "Create or replace a structured execution plan with ordered steps.",
         promptSnippet: "create an execution plan before making a multi-step change",
         parameters: Type.Object({ title: Type.String(), steps: Type.Array(Type.String()) }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<Plan>> {
-          const title = params.title.trim();
-          const steps = params.steps.map((step) => step.trim());
-          if (!title) throw new Error("Plan title cannot be empty");
-          if (steps.length === 0 || steps.length > 50 || steps.some((step) => !step)) throw new Error("Plan must contain 1-50 non-empty steps");
-          plan = { title, steps: steps.map((step, index) => ({ id: index + 1, title: step, status: "pending" })) };
-          return { content: [{ type: "text", text: `Plan created: ${title} (${steps.length} steps)` }], details: plan };
+        execute(_toolCallId, params): Promise<AgentToolResult<Plan>> {
+          return Promise.resolve().then(() => {
+            const title = params.title.trim();
+            const steps = params.steps.map((step) => step.trim());
+            if (!title) throw new Error("Plan title cannot be empty");
+            if (steps.length === 0 || steps.length > 50 || steps.some((step) => !step)) throw new Error("Plan must contain 1-50 non-empty steps");
+            plan = { title, steps: steps.map((step, index) => ({ id: index + 1, title: step, status: "pending" })) };
+            return { content: [{ type: "text" as const, text: `Plan created: ${title} (${steps.length} steps)` }], details: plan };
+          });
         },
       }),
     );
@@ -43,12 +45,14 @@ export default {
           step: Type.Number(),
           status: Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("done"), Type.Literal("skipped")]),
         }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<Plan>> {
-          const current = requirePlan(plan);
-          const index = Math.trunc(params.step) - 1;
-          if (index < 0 || index >= current.steps.length) throw new Error(`Unknown plan step: ${params.step}`);
-          current.steps[index] = { ...current.steps[index]!, status: params.status };
-          return { content: [{ type: "text", text: `Step ${params.step} is now ${params.status}` }], details: current };
+        execute(_toolCallId, params): Promise<AgentToolResult<Plan>> {
+          return Promise.resolve().then(() => {
+            const current = requirePlan(plan);
+            const index = Math.trunc(params.step) - 1;
+            if (index < 0 || index >= current.steps.length) throw new Error(`Unknown plan step: ${params.step}`);
+            current.steps[index] = { ...current.steps[index]!, status: params.status };
+            return { content: [{ type: "text" as const, text: `Step ${params.step} is now ${params.status}` }], details: current };
+          });
         },
       }),
     );

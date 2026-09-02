@@ -49,44 +49,46 @@ export default {
           role: Type.Optional(Type.String()),
           status: Type.Optional(Type.String()),
         }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
-          const state = readState(context);
-          if (params.action === "add_task") {
-            const title = params.title?.trim();
-            if (!title) throw new Error("title is required when action is add_task");
-            const task = {
-              id: params.id?.trim() || `task-${state.tasks.length + 1}`,
-              title,
-              assignee: params.assignee?.trim() || "unassigned",
-              status: params.status?.trim() || "todo",
-            };
-            state.tasks.push(task);
-            persist(context, state);
-            return { content: [{ type: "text", text: `Task ${task.id} created.` }], details: { kind: "task", item: task } };
-          }
-          if (params.action === "update_task") {
-            const task = state.tasks.find((item) => item.id === params.id);
-            if (!task) throw new Error(`Task not found: ${params.id ?? ""}`);
-            if (params.title?.trim()) task.title = params.title.trim();
-            if (params.assignee?.trim()) task.assignee = params.assignee.trim();
-            if (params.status?.trim()) task.status = params.status.trim();
-            persist(context, state);
-            return { content: [{ type: "text", text: `Task ${task.id} updated.` }], details: { kind: "task", item: task } };
-          }
-          if (params.action === "add_member") {
-            const name = params.name?.trim();
-            if (!name) throw new Error("name is required when action is add_member");
-            const member = {
-              id: params.id?.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-              name,
-              role: params.role?.trim() || "协作成员",
-              status: params.status?.trim() || "idle",
-            };
-            state.members.push(member);
-            persist(context, state);
-            return { content: [{ type: "text", text: `Member ${member.name} added.` }], details: { kind: "member", item: member } };
-          }
-          throw new Error(`Unknown team action: ${params.action}`);
+        execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
+          return Promise.resolve().then(() => {
+            const state = readState(context);
+            if (params.action === "add_task") {
+              const title = params.title?.trim();
+              if (!title) throw new Error("title is required when action is add_task");
+              const task = {
+                id: params.id?.trim() || `task-${state.tasks.length + 1}`,
+                title,
+                assignee: params.assignee?.trim() || "unassigned",
+                status: params.status?.trim() || "todo",
+              };
+              state.tasks.push(task);
+              persist(context, state);
+              return { content: [{ type: "text" as const, text: `Task ${task.id} created.` }], details: { kind: "task", item: task } };
+            }
+            if (params.action === "update_task") {
+              const task = state.tasks.find((item) => item.id === params.id);
+              if (!task) throw new Error(`Task not found: ${params.id ?? ""}`);
+              if (params.title?.trim()) task.title = params.title.trim();
+              if (params.assignee?.trim()) task.assignee = params.assignee.trim();
+              if (params.status?.trim()) task.status = params.status.trim();
+              persist(context, state);
+              return { content: [{ type: "text" as const, text: `Task ${task.id} updated.` }], details: { kind: "task", item: task } };
+            }
+            if (params.action === "add_member") {
+              const name = params.name?.trim();
+              if (!name) throw new Error("name is required when action is add_member");
+              const member = {
+                id: params.id?.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                name,
+                role: params.role?.trim() || "协作成员",
+                status: params.status?.trim() || "idle",
+              };
+              state.members.push(member);
+              persist(context, state);
+              return { content: [{ type: "text" as const, text: `Member ${member.name} added.` }], details: { kind: "member", item: member } };
+            }
+            throw new Error(`Unknown team action: ${params.action}`);
+          });
         },
       }),
     );

@@ -327,8 +327,9 @@ describe("Pi domain plugins", () => {
     let aborts = 0;
     context.provide("piRuntime", {
       session: { isStreaming: true, getContextUsage: () => ({ tokens: 7200, contextWindow: 8000, percent: 90 }) },
-      abort: async () => {
+      abort: () => {
         aborts += 1;
+        return Promise.resolve();
       },
     } as never);
     context.provide("piPluginUi", panels);
@@ -352,15 +353,19 @@ describe("Pi domain plugins", () => {
 
     await context.plugin(gitTimeCapsulePlugin);
     const tool = tools.snapshot().customTools[0];
-    await expect(tool.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
-      content: [{ text: expect.stringMatching(/^Git snapshot saved:/) }],
-    });
+    const result = await tool.execute("call-1", {}, undefined, undefined, {} as never);
+    const message = result.content[0];
+    expect(message?.type).toBe("text");
+    expect(message?.type === "text" ? message.text : "").toMatch(/^Git snapshot saved:/);
     const snapshot = await panels.snapshot();
-    expect(snapshot[0]).toMatchObject({
-      id: "git-time-capsule-panel",
-      data: { latest: { files: 1, bytes: expect.any(Number) }, capsules: [{ bytes: expect.any(Number) }] },
-    });
-    expect(String((snapshot[0] as { data?: { latest?: { name?: string } } }).data?.latest?.name)).toMatch(/\.patch$/);
+    expect(snapshot[0]?.id).toBe("git-time-capsule-panel");
+    const capsuleData = snapshot[0]?.data as
+      | { latest?: { files?: unknown; bytes?: unknown; name?: unknown }; capsules?: Array<{ bytes?: unknown }> }
+      | undefined;
+    expect(capsuleData?.latest?.files).toBe(1);
+    expect(typeof capsuleData?.latest?.bytes).toBe("number");
+    expect(typeof capsuleData?.capsules?.[0]?.bytes).toBe("number");
+    expect(capsuleData?.latest?.name).toMatch(/\.patch$/);
   });
 
   test("reports missing local dependencies without contacting a registry", async () => {
@@ -421,7 +426,10 @@ describe("Pi domain plugins", () => {
     await context.plugin(testHarnessPlugin);
     const tool = tools.snapshot().customTools[0];
     await expect(tool.execute("call-1", { script: "rm -rf /" }, undefined, undefined, {} as never)).rejects.toThrow(/not allowed/);
-    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "test-harness-panel", data: { allowedScripts: expect.arrayContaining(["test", "build"]) } }]);
+    const snapshot = await panels.snapshot();
+    expect(snapshot[0]?.id).toBe("test-harness-panel");
+    const allowedScripts = (snapshot[0]?.data as { allowedScripts?: unknown } | undefined)?.allowedScripts;
+    expect(allowedScripts).toEqual(expect.arrayContaining(["test", "build"]));
   });
 
   test("publishes native session usage statistics without duplicating session storage", async () => {
@@ -460,8 +468,11 @@ describe("Pi domain plugins", () => {
     context.provide("piPluginUi", panels);
     await context.plugin(readmeGenPlugin);
     const result = await tools.snapshot().customTools[0].execute("call-1", {}, undefined, undefined, {} as never);
-    expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("# demo") });
-    expect(result.content[0]).toMatchObject({ text: expect.stringContaining("npm run test") });
+    const message = result.content[0];
+    expect(message?.type).toBe("text");
+    const text = message?.type === "text" ? message.text : "";
+    expect(text).toContain("# demo");
+    expect(text).toContain("npm run test");
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "readme-gen-panel", data: { generated: true, name: "demo", scripts: 2 } }]);
   });
 
@@ -571,15 +582,11 @@ describe("Pi domain plugins", () => {
     });
     context.emit("pi/session-event", { type: "agent_end", messages: [{ role: "assistant", stopReason: "stop" }] });
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await expect(panels.snapshot()).resolves.toEqual([
-      expect.objectContaining({
-        id: "cli-notifier-panel",
-        data: expect.objectContaining({
-          enabled: false,
-          notifications: [expect.objectContaining({ message: "Agent turn completed." }), expect.objectContaining({ message: "build finished" })],
-        }),
-      }),
-    ]);
+    const snapshot = await panels.snapshot();
+    expect(snapshot[0]?.id).toBe("cli-notifier-panel");
+    const notificationData = snapshot[0]?.data as { enabled?: unknown; notifications?: Array<{ message?: unknown }> } | undefined;
+    expect(notificationData?.enabled).toBe(false);
+    expect(notificationData?.notifications?.map((notification) => notification.message)).toEqual(["Agent turn completed.", "build finished"]);
   });
 
   test("writes confirmed Markdown notes only inside the configured Obsidian vault", async () => {
@@ -618,8 +625,9 @@ describe("Pi domain plugins", () => {
           { role: "toolResult", isError: true },
         ],
         getContextUsage: () => ({ tokens: 8_000, contextWindow: 10_000, percent: 80 }),
-        compact: async () => {
+        compact: () => {
           compacted += 1;
+          return Promise.resolve();
         },
       },
     } as never);
@@ -647,8 +655,9 @@ describe("Pi domain plugins", () => {
       session: {
         messages: [{ role: "user", content: [{ type: "text", text: "long context" }] }],
         getContextUsage: () => ({ tokens: 9_000, contextWindow: 10_000, percent: 90 }),
-        compact: async () => {
+        compact: () => {
           compacted += 1;
+          return Promise.resolve();
         },
       },
     } as never);
@@ -834,22 +843,22 @@ describe("Pi domain plugins", () => {
     await context.plugin(canvasDrawPlugin);
     const draw = tools.snapshot().customTools.find((candidate) => candidate.name === "canvas_draw");
     expect(draw).toBeDefined();
-    await expect(
-      draw!.execute(
-        "call-1",
-        {
-          direction: "LR",
-          nodes: [
-            { id: "start", label: "Start" },
-            { id: "ship", label: "Ship" },
-          ],
-          edges: [{ from: "start", to: "ship", label: "ready" }],
-        },
-        undefined,
-        undefined,
-        {} as never,
-      ),
-    ).resolves.toMatchObject({ details: { nodeCount: 2, edgeCount: 1, mermaid: expect.stringContaining("start -->|ready| ship") } });
+    const drawResult = await draw!.execute(
+      "call-1",
+      {
+        direction: "LR",
+        nodes: [
+          { id: "start", label: "Start" },
+          { id: "ship", label: "Ship" },
+        ],
+        edges: [{ from: "start", to: "ship", label: "ready" }],
+      },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(drawResult.details).toMatchObject({ nodeCount: 2, edgeCount: 1 });
+    expect((drawResult.details as { mermaid?: unknown }).mermaid).toEqual(expect.stringContaining("start -->|ready| ship"));
     await expect(
       draw!.execute("call-2", { nodes: [{ id: "start", label: "Start" }], edges: [{ from: "start", to: "missing" }] }, undefined, undefined, {} as never),
     ).rejects.toThrow(/unknown node/iu);
@@ -1062,8 +1071,8 @@ describe("Pi domain plugins", () => {
         label: "Tests",
         description: "fixture",
         parameters: Type.Object({ script: Type.Optional(Type.String()) }),
-        async execute() {
-          return { content: [{ type: "text" as const, text: "tests passed" }], details: { script: "test", exitCode: 0, durationMs: 120 } };
+        execute() {
+          return Promise.resolve({ content: [{ type: "text" as const, text: "tests passed" }], details: { script: "test", exitCode: 0, durationMs: 120 } });
         },
       }),
     );
@@ -1073,8 +1082,11 @@ describe("Pi domain plugins", () => {
         label: "Review",
         description: "fixture",
         parameters: Type.Object({}),
-        async execute() {
-          return { content: [{ type: "text" as const, text: "one warning" }], details: { status: "warning", findings: [{ severity: "warning" }] } };
+        execute() {
+          return Promise.resolve({
+            content: [{ type: "text" as const, text: "one warning" }],
+            details: { status: "warning", findings: [{ severity: "warning" }] },
+          });
         },
       }),
     );
@@ -1196,37 +1208,39 @@ describe("Pi domain plugins", () => {
 
   test("searches the web with structured evidence and reuses browser fetch for page reads", async () => {
     const requests: Array<{ authorization: string | null; body: unknown }> = [];
-    const server = createServer(async (request, response) => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of request) chunks.push(Buffer.from(chunk));
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { query?: unknown };
-      requests.push({
-        authorization: request.headers.authorization ?? null,
-        body,
-      });
-      if (body.query === "fail auth") {
-        response.statusCode = 401;
-        response.end("rejected Bearer test-key");
-        return;
-      }
-      if (body.query === "null data") {
+    const server = createServer((request, response) => {
+      void (async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request as AsyncIterable<Uint8Array>) chunks.push(Buffer.from(chunk));
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { query?: unknown };
+        requests.push({
+          authorization: request.headers.authorization ?? null,
+          body,
+        });
+        if (body.query === "fail auth") {
+          response.statusCode = 401;
+          response.end("rejected Bearer test-key");
+          return;
+        }
+        if (body.query === "null data") {
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify({ success: false, data: null }));
+          return;
+        }
+        if (body.query === "oversized response") {
+          response.setHeader("content-type", "application/json");
+          response.setHeader("content-length", String(1024 * 1024 + 1));
+          response.end("{}");
+          return;
+        }
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ success: false, data: null }));
-        return;
-      }
-      if (body.query === "oversized response") {
-        response.setHeader("content-type", "application/json");
-        response.setHeader("content-length", String(1024 * 1024 + 1));
-        response.end("{}");
-        return;
-      }
-      response.setHeader("content-type", "application/json");
-      response.end(
-        JSON.stringify({
-          success: true,
-          data: { web: [{ title: "Pi Harness", url: "https://pi-harness.dev/docs", description: "Plugin-first agent harness" }] },
-        }),
-      );
+        response.end(
+          JSON.stringify({
+            success: true,
+            data: { web: [{ title: "Pi Harness", url: "https://pi-harness.dev/docs", description: "Plugin-first agent harness" }] },
+          }),
+        );
+      })().catch((error: unknown) => response.destroy(error instanceof Error ? error : new Error("Web research fixture failed", { cause: error })));
     });
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -1246,8 +1260,8 @@ describe("Pi domain plugins", () => {
           label: "Browser fetch fixture",
           description: "Browser fetch fixture",
           parameters: Type.Object({ url: Type.String() }),
-          async execute(_toolCallId, params) {
-            return { content: [{ type: "text", text: `page:${params.url}` }], details: { status: 200, finalUrl: params.url } };
+          execute(_toolCallId, params) {
+            return Promise.resolve({ content: [{ type: "text", text: `page:${params.url}` }], details: { status: 200, finalUrl: params.url } });
           },
         }),
       );
@@ -1349,8 +1363,8 @@ describe("Pi domain plugins", () => {
         label: "Existing read page",
         description: "Existing read page",
         parameters: Type.Object({ url: Type.String() }),
-        async execute() {
-          return { content: [{ type: "text", text: "existing" }], details: {} };
+        execute() {
+          return Promise.resolve({ content: [{ type: "text", text: "existing" }], details: {} });
         },
       }),
     );
@@ -1426,9 +1440,8 @@ describe("Pi domain plugins", () => {
             {} as never,
           ),
         ).resolves.toMatchObject({ details: { status: "navigated" } });
-        await expect(readTool!.execute("call-3", { targetId: tab!.targetId }, undefined, undefined, {} as never)).resolves.toMatchObject({
-          details: { text: expect.stringContaining("Browser session fixture") },
-        });
+        const readResult = await readTool!.execute("call-3", { targetId: tab!.targetId }, undefined, undefined, {} as never);
+        expect((readResult.details as { text?: unknown }).text).toEqual(expect.stringContaining("Browser session fixture"));
         await expect(clickTool!.execute("call-4", { targetId: tab!.targetId, selector: "#toggle" }, undefined, undefined, {} as never)).resolves.toMatchObject({
           details: { clicked: true },
         });

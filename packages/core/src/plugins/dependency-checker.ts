@@ -27,14 +27,14 @@ async function inspectManifest(workspace: string, requested = "package.json"): P
   try {
     parsed = JSON.parse(source) as unknown;
   } catch (error) {
-    throw new Error(`Invalid JSON manifest: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Invalid JSON manifest: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Manifest root must be an object");
   const record = parsed as Record<string, unknown>;
   const sections = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
   const names = sections.flatMap((section) => {
     const value = record[section];
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? Object.keys(value as Record<string, unknown>) : [];
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : [];
   });
   const unique = [...new Set(names)];
   const missing: string[] = [];

@@ -91,9 +91,10 @@ async function cdp(tab: BrowserTab, method: string, params?: JsonObject): Promis
       cleanup();
       socket.close();
       const payload = message as JsonObject;
-      if (typeof payload.error === "object" && payload.error !== null)
-        reject(new Error(String((payload.error as JsonObject).message ?? "Chrome DevTools request failed")));
-      else if (typeof payload.result === "object" && payload.result !== null) resolve(payload.result as JsonObject);
+      if (typeof payload.error === "object" && payload.error !== null) {
+        const errorMessage = (payload.error as JsonObject).message;
+        reject(new Error(typeof errorMessage === "string" ? errorMessage : "Chrome DevTools request failed"));
+      } else if (typeof payload.result === "object" && payload.result !== null) resolve(payload.result as JsonObject);
       else reject(new Error("Chrome DevTools returned an invalid response"));
     };
     const onError = (): void => {
@@ -113,10 +114,10 @@ async function cdp(tab: BrowserTab, method: string, params?: JsonObject): Promis
 
 function resultValue(result: JsonObject): unknown {
   const exception = result.exceptionDetails;
-  if (exception !== undefined)
-    throw new Error(
-      typeof exception === "object" && exception !== null ? String((exception as JsonObject).text ?? "Page evaluation failed") : "Page evaluation failed",
-    );
+  if (exception !== undefined) {
+    const exceptionText = typeof exception === "object" && exception !== null ? (exception as JsonObject).text : undefined;
+    throw new Error(typeof exceptionText === "string" ? exceptionText : "Page evaluation failed");
+  }
   const value = result.result;
   if (typeof value !== "object" || value === null) throw new Error("Page evaluation returned no value");
   return (value as JsonObject).value;
@@ -151,7 +152,7 @@ export default {
   name: "pi-browser-session",
   inject: ["piPluginUi", "piTools"],
   Config,
-  async apply(context: Context, config: BrowserSessionPluginConfig) {
+  apply(context: Context, config: BrowserSessionPluginConfig) {
     const endpoint = endpointUrl(config.endpoint ?? "http://127.0.0.1:9222");
     let latest: BrowserSessionResult | undefined;
     const listTabs = async (): Promise<BrowserTab[]> => tabs(endpoint);
@@ -163,7 +164,7 @@ export default {
         description: "List pages in an already-running local Chrome DevTools session.",
         promptSnippet: "list tabs in the connected local browser",
         parameters: Type.Object({}),
-        async execute(_toolCallId): Promise<AgentToolResult<{ tabs: BrowserTab[] }>> {
+        async execute(): Promise<AgentToolResult<{ tabs: BrowserTab[] }>> {
           const items = (await listTabs()).filter((tab) => tab.type === "page");
           return {
             content: [{ type: "text", text: items.map((tab) => `${tab.targetId} ${tab.title} ${tab.url}`).join("\n") || "No browser pages are open." }],
@@ -201,7 +202,7 @@ export default {
         async execute(_toolCallId, params): Promise<AgentToolResult<BrowserSessionResult>> {
           const tab = await getTab(params.targetId);
           const value = await evaluate(tab, "document.body?.innerText ?? ''");
-          const text = String(value ?? "");
+          const text = typeof value === "string" ? value : "";
           const bytes = Buffer.byteLength(text, "utf8");
           const bounded = Buffer.from(text, "utf8").subarray(0, maxTextBytes).toString("utf8");
           latest = { targetId: tab.targetId, url: tab.url, title: tab.title, text: bounded };

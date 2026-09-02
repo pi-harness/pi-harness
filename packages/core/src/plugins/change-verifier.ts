@@ -41,7 +41,7 @@ export default {
           const reviewTool = requiredTool(context, "review_changes");
           const testTool = requiredTool(context, "run_project_tests");
           const reviewResult = await reviewTool.execute(`${toolCallId}:review`, {}, signal, undefined, toolContext);
-          const testResult = await testTool.execute(`${toolCallId}:tests`, { script } as never, signal, undefined, toolContext);
+          const testResult = await testTool.execute(`${toolCallId}:tests`, { script }, signal, undefined, toolContext);
           const review = detailsOf(reviewResult);
           const tests = detailsOf(testResult);
           const exitCode = typeof tests.exitCode === "number" ? tests.exitCode : 1;

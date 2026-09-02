@@ -115,7 +115,7 @@ export interface PiPluginPanel {
   readonly description?: string;
   readonly icon?: string;
   readonly visible?: () => boolean | Promise<boolean>;
-  readonly read: () => unknown | Promise<unknown>;
+  readonly read: () => unknown;
 }
 
 export interface PiPluginPanelSnapshot {
