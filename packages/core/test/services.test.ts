@@ -46,6 +46,7 @@ import autoModePlugin from "../src/plugins/auto-mode.js";
 import planExecutePlugin from "../src/plugins/plan-execute.js";
 import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
 import memoryPlugin from "../src/plugins/memory.js";
+import graphMemoryPlugin from "../src/plugins/graph-memory.js";
 import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
 import imageCompressorPlugin from "../src/plugins/image-compressor.js";
 import workspaceSearchPlugin from "../src/plugins/workspace-search.js";
@@ -832,6 +833,106 @@ describe("Pi domain plugins", () => {
       details: { removed: true },
     });
     await expect(secondPanels.snapshot()).resolves.toMatchObject([{ id: "memory-panel", data: { count: 0 } }]);
+  });
+
+  test("persists typed graph memory nodes and relations across plugin lifecycles", async () => {
+    const first = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    first.context.provide("piTools", tools);
+    first.context.provide("piPluginUi", panels);
+    await first.context.plugin(graphMemoryPlugin);
+    const record = tools.snapshot().customTools.find((candidate) => candidate.name === "graph_memory_record");
+    const link = tools.snapshot().customTools.find((candidate) => candidate.name === "graph_memory_link");
+    const search = tools.snapshot().customTools.find((candidate) => candidate.name === "graph_memory_search");
+    expect(record).toBeDefined();
+    expect(link).toBeDefined();
+    expect(search).toBeDefined();
+    const task = await record!.execute(
+      "call-1",
+      { kind: "task", label: "Deploy Pi Harness", summary: "Ship only after the verification gate passes.", source: "release workflow" },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    const skill = await record!.execute(
+      "call-2",
+      { kind: "skill", label: "Run verification gate", summary: "Run build, tests, lint, and diff checks." },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    const taskId = (task.details as { id: string }).id;
+    const skillId = (skill.details as { id: string }).id;
+    await expect(link!.execute("call-3", { from: taskId, to: skillId, relation: "USED_SKILL" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { relation: "USED_SKILL", from: taskId, to: skillId },
+    });
+    await expect(search!.execute("call-4", { query: "build, tests" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 1, nodes: [{ id: skillId, kind: "skill" }], relations: [{ from: taskId, to: skillId, relation: "USED_SKILL" }] },
+    });
+    await expect(search!.execute("call-4a", { query: "USED_SKILL" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 2, relations: [{ from: taskId, to: skillId, relation: "USED_SKILL" }] },
+    });
+    const limitedSearch = await search!.execute("call-4b", { query: "verification", limit: 1 }, undefined, undefined, {} as never);
+    expect(limitedSearch.details as { total: number; nodes: unknown[] }).toMatchObject({ total: 2 });
+    expect((limitedSearch.details as { total: number; nodes: unknown[] }).nodes).toHaveLength(1);
+    await first.context.fiber.dispose();
+
+    const second = new Context();
+    contexts.push(second);
+    provideLaunchContext(second, { cwd: first.cwd, agentDir: first.agentDir, args: [], requestExit() {} });
+    const secondPanels = new PiPluginUiRegistry();
+    const secondTools = new PiToolRegistry();
+    second.provide("piTools", secondTools);
+    second.provide("piPluginUi", secondPanels);
+    await second.plugin(graphMemoryPlugin);
+    const loadedSearch = secondTools.snapshot().customTools.find((candidate) => candidate.name === "graph_memory_search");
+    const forget = secondTools.snapshot().customTools.find((candidate) => candidate.name === "graph_memory_forget");
+    await expect(loadedSearch!.execute("call-5", { query: "deploy" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 2 } });
+    await expect(forget!.execute("call-6", { id: skillId, confirm: false }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/iu);
+    await expect(forget!.execute("call-7", { id: skillId, confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { id: skillId, removed: true, removedRelations: 1 },
+    });
+    await expect(secondPanels.snapshot()).resolves.toMatchObject([
+      { id: "graph-memory-panel", data: { nodes: 1, relations: 0, kinds: { task: 1, skill: 0, event: 0 } } },
+    ]);
+  });
+
+  test("rejects malformed graph memory without silently discarding records", async () => {
+    const { context, agentDir } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await writeFile(join(agentDir, "graph-memory.json"), JSON.stringify({ version: 1, nodes: [{ id: "broken" }], relations: [] }), "utf8");
+    await context.plugin(graphMemoryPlugin);
+    const [panel] = await panels.snapshot();
+    expect(panel).toMatchObject({ id: "graph-memory-panel" });
+    expect(panel?.error).toMatch(/invalid nodes/iu);
+  });
+
+  test("serializes concurrent contexts writing the same graph memory file", async () => {
+    const first = await createContext();
+    const second = new Context();
+    contexts.push(second);
+    provideLaunchContext(second, { cwd: first.cwd, agentDir: first.agentDir, args: [], requestExit() {} });
+    const firstTools = new PiToolRegistry();
+    const secondTools = new PiToolRegistry();
+    first.context.provide("piTools", firstTools);
+    first.context.provide("piPluginUi", new PiPluginUiRegistry());
+    second.provide("piTools", secondTools);
+    second.provide("piPluginUi", new PiPluginUiRegistry());
+    await Promise.all([first.context.plugin(graphMemoryPlugin), second.plugin(graphMemoryPlugin)]);
+    const firstRecord = firstTools.snapshot().customTools.find((candidate) => candidate.name === "graph_memory_record");
+    const secondRecord = secondTools.snapshot().customTools.find((candidate) => candidate.name === "graph_memory_record");
+    expect(firstRecord).toBeDefined();
+    expect(secondRecord).toBeDefined();
+    await Promise.all([
+      firstRecord!.execute("call-a", { kind: "task", label: "Concurrent A", summary: "First writer" }, undefined, undefined, {} as never),
+      secondRecord!.execute("call-b", { kind: "task", label: "Concurrent B", summary: "Second writer" }, undefined, undefined, {} as never),
+    ]);
+    const persisted = JSON.parse(await readFile(join(first.agentDir, "graph-memory.json"), "utf8")) as { nodes: Array<{ label: string }> };
+    expect(persisted.nodes.map((node) => node.label).sort()).toEqual(["Concurrent A", "Concurrent B"]);
   });
 
   test("generates validated Mermaid diagrams through the canvas draw plugin", async () => {

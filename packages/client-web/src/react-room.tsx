@@ -85,6 +85,7 @@ const capability = (name: string): string => {
     ["auto-mode", "安全执行"],
     ["plan-execute", "计划执行"],
     ["plugin-finder", "插件发现"],
+    ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
     ["image-compressor", "图片压缩"],
@@ -137,6 +138,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plan-execute", "Plan Execute"],
     ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
     ["@pi-harness/core/plugins/memory", "Memory"],
+    ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
     ["@pi-harness/core/plugins/image-compressor", "Image Compressor"],
     ["@pi-harness/core/plugins/workspace-search", "Workspace Search"],
@@ -1190,6 +1192,91 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           )}
         </div>
+      ) : panel.id === "graph-memory-panel" ? (
+        (() => {
+          const kinds = data?.kinds !== null && typeof data?.kinds === "object" ? (data.kinds as Record<string, unknown>) : {};
+          const recent = Array.isArray(data?.recent) ? data.recent : [];
+          const recentRelations = Array.isArray(data?.recentRelations) ? data.recentRelations : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["任务", kinds.task ?? 0, "bg-[#4176e6]"],
+                  ["技能", kinds.skill ?? 0, "bg-[#22a06b]"],
+                  ["事件", kinds.event ?? 0, "bg-[#d97706]"],
+                ].map(([label, count, color]) => (
+                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
+                    <div className="flex items-center gap-1.5 text-[10px] text-[#8a949f]">
+                      <span className={`h-1.5 w-1.5 rounded-full ${value(color)}`}></span>
+                      {value(label)}
+                    </div>
+                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                <span className="text-[#65707b]">本地关系图</span>
+                <span className="font-mono text-[#4176e6]">
+                  {value(data?.nodes ?? 0)} 节点 · {value(data?.relations ?? 0)} 关系
+                </span>
+              </div>
+              {recent.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                    最近节点 {Math.min(recent.length, 5)} / {value(data?.nodes ?? recent.length)}
+                  </li>
+                  {recent.slice(0, 5).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const kind = item.kind === "task" || item.kind === "skill" || item.kind === "event" ? item.kind : "unknown";
+                    const kindLabel = kind === "task" ? "任务" : kind === "skill" ? "技能" : kind === "event" ? "事件" : "未知";
+                    const kindClass =
+                      kind === "task"
+                        ? "bg-[#edf3fe] text-[#315fb8]"
+                        : kind === "skill"
+                          ? "bg-[#eaf8f0] text-[#198754]"
+                          : kind === "event"
+                            ? "bg-[#fff4e5] text-[#a15c00]"
+                            : "bg-[#f2f3f5] text-[#65707b]";
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? "node")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${kindClass}`}>{kindLabel}</span>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.label ?? "未命名节点")}</strong>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(item.summary, "")}</p>
+                        {item.source ? <p className="mt-1 truncate font-mono text-[9px] text-[#9aa3ad]">来源：{value(item.source)}</p> : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未记录图记忆。Agent 可调用 graph_memory_record 创建任务、技能或事件节点。
+                </div>
+              )}
+              {recentRelations.length > 0 ? (
+                <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-2">
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                    最近关系 {Math.min(recentRelations.length, 3)} / {value(data?.relations ?? recentRelations.length)}
+                  </span>
+                  {recentRelations.slice(0, 3).map((entry, index) => {
+                    const relation = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <div
+                        className="flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-[#65707b]"
+                        key={`${value(relation.id ?? "relation")}-${index}`}
+                      >
+                        <span className="truncate">{value(relation.fromLabel ?? relation.from ?? "节点")}</span>
+                        <span className="shrink-0 text-[#4176e6]">—{value(relation.relation ?? "RELATED_TO")}→</span>
+                        <span className="truncate">{value(relation.toLabel ?? relation.to ?? "节点")}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })()
       ) : panel.id === "canvas-draw-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">

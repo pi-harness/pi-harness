@@ -107,6 +107,9 @@
     - id: memory
       name: "@pi-harness/core/plugins/memory"
       config: {}
+    - id: graph-memory
+      name: "@pi-harness/core/plugins/graph-memory"
+      config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}
