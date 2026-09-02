@@ -73,6 +73,7 @@ const capability = (name: string): string => {
     ["docker-sandbox", "沙箱"],
     ["mcp-client", "工具协议"],
     ["browser-fetch", "网页抓取"],
+    ["web-research", "联网研究"],
     ["browser-session", "浏览器会话"],
     ["yaml-validator", "配置校验"],
     ["mock-server", "接口模拟"],
@@ -123,6 +124,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox"],
     ["@pi-harness/core/plugins/mcp-client", "MCP Client"],
     ["@pi-harness/core/plugins/browser-fetch", "Browser Fetch"],
+    ["@pi-harness/core/plugins/web-research", "Web Research"],
     ["@pi-harness/core/plugins/browser-session", "Browser Session"],
     ["@pi-harness/core/plugins/yaml-validator", "YAML Validator"],
     ["@pi-harness/core/plugins/mock-server", "Mock Server"],
@@ -1716,6 +1718,54 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有同步笔记。</div>
           )}
+        </div>
+      ) : panel.id === "web-research-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3 text-[11px]">
+            <span className="text-[#315fb8]">{data?.keyless === true ? "Firecrawl 匿名模式" : "Firecrawl 已认证"}</span>
+            <strong className="font-mono text-[#315fb8]">最多 {String(data?.maxResults ?? 8)} 条</strong>
+          </div>
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const items = Array.isArray(report.items) ? report.items : [];
+              return (
+                <>
+                  <div className="flex items-center justify-between gap-3 text-[11px]">
+                    <strong className="truncate text-[#30343b]">{String(report.query ?? "网页搜索")}</strong>
+                    <span className="shrink-0 font-mono text-[#8a949f]">
+                      前 {Math.min(8, items.length)} / 共 {items.length}
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    {items.slice(0, 8).map((entry, index) => {
+                      const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                      return (
+                        <a
+                          className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 transition-colors hover:border-[#bdd0f5] hover:bg-[#fbfdff]"
+                          href={String(item.url ?? "")}
+                          key={`${String(item.url ?? "source")}-${index}`}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          <strong className="block truncate text-[11px] text-[#30343b]">{String(item.title ?? item.url ?? "来源")}</strong>
+                          <span className="mt-1 block truncate font-mono text-[10px] text-[#4176e6]">{String(item.source ?? item.url ?? "")}</span>
+                          {item.snippet ? <span className="mt-1 line-clamp-2 block text-[10px] leading-4 text-[#65707b]">{String(item.snippet)}</span> : null}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有联网搜索。可让 Agent 调用 web_search；单页读取使用 read_page。
+            </div>
+          )}
+          <p className="text-[10px] text-[#8a949f]">
+            搜索词会发送到 Firecrawl；页面读取{data?.readPageAvailable === true ? "已复用本地 Browser Fetch" : "需要启用 Browser Fetch"}。
+          </p>
         </div>
       ) : panel.id === "browser-fetch-panel" ? (
         <div className="mt-3 grid gap-3">

@@ -31,6 +31,7 @@ import sqlLensPlugin from "../src/plugins/sql-lens.js";
 import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
 import mcpClientPlugin from "../src/plugins/mcp-client.js";
 import browserFetchPlugin from "../src/plugins/browser-fetch.js";
+import webResearchPlugin from "../src/plugins/web-research.js";
 import browserSessionPlugin from "../src/plugins/browser-session.js";
 import yamlValidatorPlugin from "../src/plugins/yaml-validator.js";
 import readmeGenPlugin from "../src/plugins/readme-gen.js";
@@ -1165,6 +1166,179 @@ describe("Pi domain plugins", () => {
     await expect(blockedTools.snapshot().customTools[0].execute("call-2", { url: "http://127.0.0.1:1/" }, undefined, undefined, {} as never)).rejects.toThrow(
       /private|local/iu,
     );
+  });
+
+  test("searches the web with structured evidence and reuses browser fetch for page reads", async () => {
+    const requests: Array<{ authorization: string | null; body: unknown }> = [];
+    const server = createServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { query?: unknown };
+      requests.push({
+        authorization: request.headers.authorization ?? null,
+        body,
+      });
+      if (body.query === "fail auth") {
+        response.statusCode = 401;
+        response.end("rejected Bearer test-key");
+        return;
+      }
+      if (body.query === "null data") {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ success: false, data: null }));
+        return;
+      }
+      if (body.query === "oversized response") {
+        response.setHeader("content-type", "application/json");
+        response.setHeader("content-length", String(1024 * 1024 + 1));
+        response.end("{}");
+        return;
+      }
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          success: true,
+          data: { web: [{ title: "Pi Harness", url: "https://pi-harness.dev/docs", description: "Plugin-first agent harness" }] },
+        }),
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Test server did not bind to a port");
+    try {
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      tools.register(
+        defineTool({
+          name: "browser_fetch",
+          label: "Browser fetch fixture",
+          description: "Browser fetch fixture",
+          parameters: Type.Object({ url: Type.String() }),
+          async execute(_toolCallId, params) {
+            return { content: [{ type: "text", text: `page:${params.url}` }], details: { status: 200, finalUrl: params.url } };
+          },
+        }),
+      );
+      await context.plugin(webResearchPlugin, {
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        apiKey: "test-key",
+        maxResults: 4,
+        timeoutMs: 2_000,
+      });
+      const searchTool = tools.snapshot().customTools.find((tool) => tool.name === "web_search");
+      const readTool = tools.snapshot().customTools.find((tool) => tool.name === "read_page");
+      expect(searchTool).toBeDefined();
+      expect(readTool).toBeDefined();
+      await expect(searchTool!.execute("call-1", { query: "pi harness plugins" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: {
+          query: "pi harness plugins",
+          source: "firecrawl",
+          items: [{ title: "Pi Harness", url: "https://pi-harness.dev/docs", source: "pi-harness.dev" }],
+        },
+      });
+      expect(requests).toEqual([
+        {
+          authorization: "Bearer test-key",
+          body: { query: "pi harness plugins", limit: 4, sources: ["web"], timeout: 2_000 },
+        },
+      ]);
+      const rejected = await searchTool!.execute("call-error", { query: "fail auth" }, undefined, undefined, {} as never).catch((error: unknown) => error);
+      expect(String(rejected)).toContain("HTTP 401");
+      expect(String(rejected)).not.toContain("test-key");
+      await expect(searchTool!.execute("call-null", { query: "null data" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { status: "degraded", items: [], uncertainty: [expect.any(String)] },
+      });
+      await expect(searchTool!.execute("call-large", { query: "oversized response" }, undefined, undefined, {} as never)).rejects.toThrow(/1 MiB limit/iu);
+      await expect(
+        readTool!.execute("call-2", { url: "https://pi-harness.dev/docs", focus: "plugins" }, undefined, undefined, {} as never),
+      ).resolves.toMatchObject({
+        content: [{ type: "text", text: "page:https://pi-harness.dev/docs" }],
+        details: { status: 200, finalUrl: "https://pi-harness.dev/docs", focus: "plugins" },
+      });
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        {
+          id: "web-research-panel",
+          data: { source: "firecrawl", keyless: false, readPageAvailable: true, latest: { query: "null data", status: "degraded" } },
+        },
+      ]);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
+  test("cancels web searches while reading response bodies and cleans partial activation", async () => {
+    const starts: Array<() => void> = [];
+    const waitForBodyStart = (): Promise<void> => new Promise((resolve) => starts.push(resolve));
+    const server = createServer((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.write('{"success":true,"data":{"web":[');
+      starts.shift()?.();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Test server did not bind to a port");
+    try {
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(webResearchPlugin, { baseUrl: `http://127.0.0.1:${address.port}`, timeoutMs: 1_000 });
+      const searchTool = tools.snapshot().customTools.find((tool) => tool.name === "web_search");
+      expect(searchTool).toBeDefined();
+
+      const caller = new AbortController();
+      const cancelledBodyStarted = waitForBodyStart();
+      const cancelled = searchTool!.execute("call-cancel", { query: "cancel search" }, caller.signal, undefined, {} as never);
+      await cancelledBodyStarted;
+      caller.abort();
+      await expect(cancelled).rejects.toThrow(/cancel/iu);
+
+      // The configured one-second deadline is the behavior under test, so this wait must be driven by the tool timeout rather than a test sleep.
+      const timedOutBodyStarted = waitForBodyStart();
+      const timedOut = searchTool!.execute("call-timeout", { query: "timeout search" }, undefined, undefined, {} as never);
+      await timedOutBodyStarted;
+      await expect(timedOut).rejects.toThrow(/timed out after 1000 ms/iu);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+
+    const partial = await createContext();
+    const partialPanels = new PiPluginUiRegistry();
+    const partialTools = new PiToolRegistry();
+    partial.context.provide("piTools", partialTools);
+    partial.context.provide("piPluginUi", partialPanels);
+    partialTools.register(
+      defineTool({
+        name: "read_page",
+        label: "Existing read page",
+        description: "Existing read page",
+        parameters: Type.Object({ url: Type.String() }),
+        async execute() {
+          return { content: [{ type: "text", text: "existing" }], details: {} };
+        },
+      }),
+    );
+    await expect(partial.context.plugin(webResearchPlugin)).rejects.toThrow(/already registered: read_page/iu);
+    expect(partialTools.snapshot().customTools.map((tool) => tool.name)).toEqual(["read_page"]);
+
+    const insecure = await createContext();
+    const insecurePanels = new PiPluginUiRegistry();
+    const insecureTools = new PiToolRegistry();
+    insecure.context.provide("piTools", insecureTools);
+    insecure.context.provide("piPluginUi", insecurePanels);
+    await expect(insecure.context.plugin(webResearchPlugin, { baseUrl: "http://search.example.com", apiKey: "secret" })).rejects.toThrow(/requires HTTPS/iu);
+    expect(insecureTools.snapshot().customTools).toEqual([]);
+    await expect(insecurePanels.snapshot()).resolves.toEqual([]);
   });
 
   test("connects to a real Chrome DevTools session for tabs, text, and clicks", async () => {

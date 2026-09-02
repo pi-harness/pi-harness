@@ -68,6 +68,9 @@
     - id: browser-fetch
       name: "@pi-harness/core/plugins/browser-fetch"
       config: {}
+    - id: web-research
+      name: "@pi-harness/core/plugins/web-research"
+      config: {}
     - id: browser-session
       name: "@pi-harness/core/plugins/browser-session"
       config: {}
