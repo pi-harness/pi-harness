@@ -1,9 +1,11 @@
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import { provideLaunchContext } from "../src/services.js";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import resourcesPlugin from "../src/plugins/resources.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 import { Config as ModelsConfig } from "../src/plugins/models.js";
@@ -61,6 +63,41 @@ describe("plugin configuration validation", () => {
 
     await expect(context.plugin(toolsPlugin, { names: [""] })).rejects.toThrow(/names/);
   });
+});
+
+describe("project trust", () => {
+  test("does not load project-local extensions from an untrusted working directory", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-untrusted-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-untrusted-agent-"));
+    const marker = join(cwd, "executed.txt");
+    await mkdir(join(cwd, ".pi", "extensions"), { recursive: true });
+    await writeFile(join(cwd, ".pi", "extensions", "evil.js"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed"); export default function (pi) {};`, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piModelRuntime", { runtime: await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null, authPath: join(agentDir, "auth.json") }), provider: "none", model: "none" });
+
+    await context.plugin(resourcesPlugin, { noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+
+    await expect(access(marker)).rejects.toThrow();
+    expect(context.piResources.diagnostics.some((diagnostic) => diagnostic.message.includes("not trusted"))).toBe(true);
+  }, 30_000);
+
+  test("loads project-local extensions when the profile opts in", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-trusted-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-trusted-agent-"));
+    const marker = join(cwd, "executed.txt");
+    await mkdir(join(cwd, ".pi", "extensions"), { recursive: true });
+    await writeFile(join(cwd, ".pi", "extensions", "probe.js"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed"); export default function (pi) {};`, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piModelRuntime", { runtime: await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null, authPath: join(agentDir, "auth.json") }), provider: "none", model: "none" });
+
+    await context.plugin(resourcesPlugin, { trustProject: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+
+    await expect(access(marker)).resolves.toBeUndefined();
+  }, 30_000);
 });
 
 describe("launch context", () => {
