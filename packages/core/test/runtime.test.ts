@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Context } from "@deepseek-ai/cordis";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { afterEach, describe, expect, test } from "vitest";
+import { Context } from "@deepseek-ai/cordis";
+import runtimePlugin from "../src/plugins/runtime.js";
 import { createTestRuntimeContext } from "./runtime-fixture.js";
 
 const contexts: Context[] = [];
@@ -85,6 +86,31 @@ describe("Pi runtime plugin", () => {
 
     await expect(readFile(marker, "utf8")).resolves.toBe("shutdown");
   }, 30_000);
+
+  test("does not build a second session over a SessionManager while the first is tearing down", async () => {
+    const { context } = await createRuntimeContext();
+    const order: string[] = [];
+    const sessionRuntime = context.piRuntime.sessionRuntime as unknown as { dispose: () => Promise<void> };
+    const realDispose = sessionRuntime.dispose.bind(sessionRuntime);
+    sessionRuntime.dispose = async () => {
+      order.push("teardown:start");
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await realDispose();
+      order.push("teardown:end");
+    };
+    // A replacement fiber sharing the same SessionManager, which is what an HMR reload produces.
+    const replacementContext = new Context();
+    contexts.push(replacementContext);
+    for (const service of ["piHarnessLaunch", "piModelRuntime", "piModels", "piResources", "piSession", "piTools"] as const) {
+      replacementContext.provide(service, context.get(service) as never);
+    }
+
+    const teardown = context.fiber.dispose();
+    const replacement = replacementContext.plugin(runtimePlugin, { thinkingLevel: "off" }).then(() => { order.push("second-session:created"); });
+    await Promise.all([teardown, replacement]);
+
+    expect(order).toEqual(["teardown:start", "teardown:end", "second-session:created"]);
+  }, 20_000);
 
   test("disposes the Pi session even when the in-flight abort rejects", async () => {
     const { context } = await createRuntimeContext();
