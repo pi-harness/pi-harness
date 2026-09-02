@@ -51,6 +51,7 @@ import promptGuardPlugin from "../src/plugins/prompt-guard.js";
 import code2SkillPlugin from "../src/plugins/code2skill.js";
 import tabManagerPlugin from "../src/plugins/tab-manager.js";
 import genUiPlugin from "../src/plugins/genui.js";
+import anchoredStandardPlugin from "../src/plugins/anchored-standard.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -979,6 +980,25 @@ describe("Pi domain plugins", () => {
       details: { title: "Deploy status", blocks: [{ type: "badge" }, { type: "progress", value: 87 }, { type: "text", value: "<script>alert(1)</script>" }] },
     });
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "genui-panel", data: { rendered: 1, latest: { title: "Deploy status" } } }]);
+  });
+
+  test("audits agent trajectory and flags tool calls outside an anchored run", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(anchoredStandardPlugin, { maxToolCalls: 2 });
+    const check = tools.snapshot().customTools.find((candidate) => candidate.name === "trajectory_anchor_check");
+    expect(check).toBeDefined();
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "orphan", toolName: "bash" } as never);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "one", toolName: "read" } as never);
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "two", toolName: "read" } as never);
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "three", toolName: "read" } as never);
+    context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false } as never);
+    await expect(check!.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { status: "violated", toolCalls: 3 } });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "anchored-standard-panel", data: { status: "violated", events: 6, toolCalls: 3 } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

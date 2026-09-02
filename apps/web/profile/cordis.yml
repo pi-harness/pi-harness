@@ -125,6 +125,9 @@
     - id: genui
       name: "@pi-harness/core/plugins/genui"
       config: {}
+    - id: anchored-standard
+      name: "@pi-harness/core/plugins/anchored-standard"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

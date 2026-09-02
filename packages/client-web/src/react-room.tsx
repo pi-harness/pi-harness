@@ -92,6 +92,7 @@ const capability = (name: string): string => {
     ["code2skill", "技能打包"],
     ["tab-manager", "会话标签"],
     ["genui", "结构化界面"],
+    ["anchored-standard", "轨迹锚定"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -139,6 +140,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/code2skill", "Code2Skill"],
     ["@pi-harness/core/plugins/tab-manager", "Session Tabs"],
     ["@pi-harness/core/plugins/genui", "GenUI"],
+    ["@pi-harness/core/plugins/anchored-standard", "Anchored Standard"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1359,6 +1361,41 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           )}
           <p className="text-[10px] text-[#8a949f]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本处理。</p>
+        </div>
+      ) : panel.id === "anchored-standard-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {(() => {
+            const violations = Array.isArray(data?.violations) ? data.violations : [];
+            const violated = data?.status === "violated";
+            return (
+              <>
+                <div
+                  className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${violated ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                >
+                  <span>{violated ? "轨迹存在违规" : data?.status === "anchored" ? "运行已锚定" : "等待 Agent 运行"}</span>
+                  <strong className="font-mono">{String(data?.events ?? 0)} 事件</strong>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                    工具调用 <strong className="ml-1 text-[#30343b]">{String(data?.toolCalls ?? 0)}</strong>
+                  </div>
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                    违规项 <strong className="ml-1 text-[#30343b]">{String(violations.length)}</strong>
+                  </div>
+                </div>
+                {violations.length > 0 ? (
+                  <ul className="grid gap-1 rounded-lg border border-[#f4caca] bg-[#fffafa] px-3 py-2 text-[10px] text-[#b42318]">
+                    {violations.slice(0, 4).map((item, index) => (
+                      <li key={`${String(item)}-${index}`}>
+                        {String(item && typeof item === "object" ? ((item as Record<string, unknown>).message ?? "违规") : item)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            );
+          })()}
+          <p className="text-[10px] text-[#8a949f]">可让 Agent 调用 trajectory_anchor_check 审计当前执行轨迹。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">
