@@ -10,11 +10,14 @@ export class NodeStdio implements PiHarnessStdio {
   readonly #error: Writable;
   readonly #abort = new AbortController();
   #readline: Interface | undefined;
+  readonly #broken = new WeakSet<Writable>();
 
   constructor(input: Readable, output: Writable, error: Writable) {
     this.#input = input;
     this.#output = output;
     this.#error = error;
+    output.on("error", () => this.#broken.add(output));
+    error.on("error", () => this.#broken.add(error));
   }
 
   async readPrompt(): Promise<string> {
@@ -60,11 +63,22 @@ export class NodeStdio implements PiHarnessStdio {
   }
 
   writeOutput(text: string): void {
-    this.#output.write(text);
+    this.#write(this.#output, text);
   }
 
   writeError(text: string): void {
-    this.#error.write(text);
+    this.#write(this.#error, text);
+  }
+
+  #write(stream: Writable, text: string): void {
+    if (this.#broken.has(stream) || stream.destroyed || stream.writableEnded) return;
+    try {
+      stream.write(text, (error) => {
+        if (error !== null && error !== undefined) this.#broken.add(stream);
+      });
+    } catch {
+      this.#broken.add(stream);
+    }
   }
 
   close(): void {

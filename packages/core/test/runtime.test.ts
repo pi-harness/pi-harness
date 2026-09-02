@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { afterEach, describe, expect, test } from "vitest";
@@ -40,5 +43,26 @@ describe("Pi runtime plugin", () => {
 
   test("fails activation when configured core tools are unknown to Pi", async () => {
     await expect(createTestRuntimeContext([], ["not-a-pi-tool"])).rejects.toThrow(/not-a-pi-tool/);
+  });
+
+  test("fails activation when a Pi extension cannot be loaded instead of running without it", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-broken-extension-"));
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    await writeFile(join(agentDir, "extensions", "broken.ts"), `throw new Error("deliberate extension load failure");`, "utf8");
+
+    await expect(createTestRuntimeContext([], [], { noExtensions: false, agentDir })).rejects.toThrow(/deliberate extension load failure/);
+  });
+
+  test("keeps the agent run alive when a pi/session-event listener throws", async () => {
+    const { context, responseText, callCount } = await createRuntimeContext();
+    const extensionErrors: string[] = [];
+    context.on("pi/extension-error", (error) => { extensionErrors.push(error.error); });
+    context.on("pi/session-event", () => { throw new Error("listener boom"); });
+
+    await context.piRuntime.prompt("respond once");
+
+    expect(responseText.join("")).toBe("deterministic response");
+    expect(callCount()).toBe(1);
+    expect(extensionErrors).toContain("listener boom");
   });
 });

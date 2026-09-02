@@ -50,6 +50,18 @@ function promptFromArgs(args: readonly string[]): string | undefined {
 }
 
 const PROMPT_CANCELLED_EXIT_CODE = 130;
+const TOOL_ARGUMENT_SUMMARY_LIMIT = 120;
+
+function summarizeToolArguments(args: unknown): string {
+  let text: string;
+  try {
+    text = typeof args === "string" ? args : JSON.stringify(args) ?? "";
+  } catch {
+    return "";
+  }
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > TOOL_ARGUMENT_SUMMARY_LIMIT ? `${line.slice(0, TOOL_ARGUMENT_SUMMARY_LIMIT)}...` : line;
+}
 
 export class StdioApplication implements PiHarnessApplication {
   readonly #runtime: PiRuntimeService;
@@ -65,7 +77,20 @@ export class StdioApplication implements PiHarnessApplication {
 
   writeSessionEvent(event: AgentSessionEvent): void {
     if (!this.#running) return;
-    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") this.#stdio.writeOutput(event.assistantMessageEvent.delta);
+    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+      this.#stdio.writeOutput(event.assistantMessageEvent.delta);
+      return;
+    }
+    if (event.type === "tool_execution_start") {
+      this.#stdio.writeError(`> ${event.toolName} ${summarizeToolArguments(event.args)}\n`);
+      return;
+    }
+    if (event.type === "tool_execution_end") {
+      const result = event.result as { isError?: boolean } | undefined;
+      if (result?.isError === true) this.#stdio.writeError(`! ${event.toolName} failed\n`);
+      return;
+    }
+    if (event.type === "auto_retry_start") this.#stdio.writeError(`Retrying after ${event.errorMessage} (attempt ${event.attempt}/${event.maxAttempts})\n`);
   }
 
   async run(): Promise<number> {

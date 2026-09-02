@@ -60,7 +60,7 @@ export class PiToolRegistry {
     if (this.#names.includes(tool.name) || this.#customTools.has(tool.name)) throw new Error(`Pi tool is already registered: ${tool.name}`);
     this.#customTools.set(tool.name, tool);
     return () => {
-      this.#customTools.delete(tool.name);
+      if (this.#customTools.get(tool.name) === tool) this.#customTools.delete(tool.name);
     };
   }
 

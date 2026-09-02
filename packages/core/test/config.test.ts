@@ -64,7 +64,7 @@ describe("plugin configuration validation", () => {
 });
 
 describe("launch context", () => {
-  test("rejects a relative agent directory so credentials cannot land in the working directory", async () => {
+  test("rejects a relative agent directory so credentials cannot land in the working directory", () => {
     const context = new Context();
     contexts.push(context);
 
@@ -72,7 +72,7 @@ describe("launch context", () => {
     expect(() => provideLaunchContext(context, { cwd: "relative", agentDir: "/tmp", args: [], requestExit() {} })).toThrow(/cwd must be an absolute path/);
   });
 
-  test("exposes the launch directory as a URL that survives percent, hash and question marks", async () => {
+  test("exposes the launch directory as a URL that survives percent, hash and question marks", () => {
     const context = new Context();
     contexts.push(context);
     provideLaunchContext(context, { cwd: "/tmp/a%20b#c?d", agentDir: "/tmp", args: [], requestExit() {} });
