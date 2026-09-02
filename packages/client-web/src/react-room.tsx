@@ -118,6 +118,7 @@ const capability = (name: string): string => {
     ["session-bridge", "会话交接"],
     ["skill-guard", "Skill 安全"],
     ["recall-unread", "会话召回"],
+    ["turn-rewind", "会话回退"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -187,6 +188,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/session-bridge", "Session Bridge"],
     ["@pi-harness/core/plugins/skill-guard", "Skill Guard"],
     ["@pi-harness/core/plugins/recall-unread", "Recall Unread"],
+    ["@pi-harness/core/plugins/turn-rewind", "Turn Rewind"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -2048,6 +2050,53 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有以未回答用户消息结束的会话。</div>
           )}
+        </div>
+      ) : panel.id === "turn-rewind-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const target = latest.target !== null && typeof latest.target === "object" ? (latest.target as Record<string, unknown>) : {};
+              const cancelled = latest.cancelled === true;
+              return (
+                <div className={`rounded-lg border px-3 py-3 ${cancelled ? "border-[#f4dfb0] bg-[#fffaf0]" : "border-[#dce5f5] bg-[#f6f8ff]"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">最近操作</span>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-semibold ${cancelled ? "bg-[#fff0c7] text-[#9a6700]" : "bg-[#e8f8ee] text-[#198754]"}`}
+                    >
+                      {cancelled ? "已取消" : "已回退"}
+                    </span>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#30343b]">{value(target.text ?? "未命名轮次")}</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有执行回退操作。</div>
+          )}
+          <div className="grid gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">可回退轮次</span>
+            {(() => {
+              const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+              return candidates.length > 0 ? (
+                candidates.slice(-8).map((item, index) => {
+                  const candidate = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                  return (
+                    <div
+                      className="flex items-start gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2"
+                      key={`${value(candidate.entryId ?? "turn")}-${index}`}
+                    >
+                      <span className="mt-0.5 font-mono text-[10px] text-[#4176e6]">{candidates.length - index}</span>
+                      <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-[#65707b]">{value(candidate.text ?? "未命名轮次")}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3 text-[11px] text-[#8a949f]">当前会话还没有可回退的用户轮次。</div>
+              );
+            })()}
+          </div>
         </div>
       ) : panel.id === "skill-guard-panel" ? (
         <div className="mt-3 grid gap-3">

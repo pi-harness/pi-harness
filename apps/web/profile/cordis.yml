@@ -196,6 +196,9 @@
     - id: recall-unread
       name: "@pi-harness/core/plugins/recall-unread"
       config: {}
+    - id: turn-rewind
+      name: "@pi-harness/core/plugins/turn-rewind"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:

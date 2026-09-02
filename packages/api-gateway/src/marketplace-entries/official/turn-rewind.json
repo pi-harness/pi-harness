@@ -1,0 +1,22 @@
+{
+  "id": "turn-rewind",
+  "packageName": "@pi-harness/core/plugins/turn-rewind",
+  "version": "0.1.2",
+  "name": "Turn Rewind",
+  "description": "Navigate the native Pi session tree back to a prior user turn while preserving the abandoned branch.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
+  "capabilities": ["session rewind", "branching", "recovery"],
+  "hooks": ["session tree", "plugin UI"],
+  "profile": {
+    "name": "@pi-harness/core/plugins/turn-rewind",
+    "config": {}
+  }
+}

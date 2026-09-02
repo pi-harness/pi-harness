@@ -95,6 +95,9 @@
     - id: recall-unread
       name: "@pi-harness/core/plugins/recall-unread"
       config: {}
+    - id: turn-rewind
+      name: "@pi-harness/core/plugins/turn-rewind"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
