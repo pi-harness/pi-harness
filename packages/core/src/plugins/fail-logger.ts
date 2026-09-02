@@ -3,7 +3,13 @@ import type { Context } from "@deepseek-ai/cordis";
 type Failure = { time: string; source: string; message: string };
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "error" in error) {
+    const { error: message, extensionPath } = error as { error: unknown; extensionPath?: unknown };
+    const text = typeof message === "string" ? message : String(message);
+    return typeof extensionPath === "string" ? `${extensionPath}: ${text}` : text;
+  }
+  return typeof error === "string" ? error : (JSON.stringify(error) ?? String(error));
 }
 
 export default {
