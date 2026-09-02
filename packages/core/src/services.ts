@@ -49,6 +49,17 @@ export interface PiRuntimeService {
   dispose(): Promise<void>;
 }
 
+export interface PiTelemetryEvent {
+  readonly name: string;
+  readonly properties?: Readonly<Record<string, unknown>>;
+}
+
+export interface PiTelemetryService {
+  readonly enabled: false;
+  send(event: PiTelemetryEvent): { blocked: true; name: string };
+  snapshot(): { blocked: number; names: readonly string[] };
+}
+
 export interface PiToolsSnapshot {
   readonly names: string[];
   readonly customTools: ToolDefinition[];
@@ -171,11 +182,13 @@ declare module "@deepseek-ai/cordis" {
     piTools: PiToolRegistry;
     piPluginUi: PiPluginUiRegistry;
     piRuntime: PiRuntimeService;
+    piTelemetry: PiTelemetryService;
   }
 
   interface Events {
     "pi/session-event"(event: AgentSessionEvent): void;
     "pi/extension-error"(error: ExtensionError): void;
+    "pi/telemetry"(event: PiTelemetryEvent): void;
   }
 }
 

@@ -93,6 +93,7 @@ const capability = (name: string): string => {
     ["tab-manager", "会话标签"],
     ["genui", "结构化界面"],
     ["anchored-standard", "轨迹锚定"],
+    ["telemetry-blocker", "遥测拦截"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -141,6 +142,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/tab-manager", "Session Tabs"],
     ["@pi-harness/core/plugins/genui", "GenUI"],
     ["@pi-harness/core/plugins/anchored-standard", "Anchored Standard"],
+    ["@pi-harness/core/plugins/telemetry-blocker", "Telemetry Blocker"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1396,6 +1398,17 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             );
           })()}
           <p className="text-[10px] text-[#8a949f]">可让 Agent 调用 trajectory_anchor_check 审计当前执行轨迹。</p>
+        </div>
+      ) : panel.id === "telemetry-blocker-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+            <span>遥测已关闭</span>
+            <strong className="font-mono">拦截 {String(data?.blocked ?? 0)} 次</strong>
+          </div>
+          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[10px] text-[#65707b]">
+            {Array.isArray(data?.names) && data.names.length > 0 ? `事件名：${data.names.slice(0, 8).map(String).join("、")}` : "尚未收到遥测事件。"}
+          </div>
+          <p className="text-[10px] text-[#8a949f]">只记录事件名和计数，不保留事件属性，也不会发起网络请求。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">

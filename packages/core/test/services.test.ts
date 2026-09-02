@@ -52,6 +52,7 @@ import code2SkillPlugin from "../src/plugins/code2skill.js";
 import tabManagerPlugin from "../src/plugins/tab-manager.js";
 import genUiPlugin from "../src/plugins/genui.js";
 import anchoredStandardPlugin from "../src/plugins/anchored-standard.js";
+import telemetryBlockerPlugin from "../src/plugins/telemetry-blocker.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -999,6 +1000,28 @@ describe("Pi domain plugins", () => {
     context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false } as never);
     await expect(check!.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { status: "violated", toolCalls: 3 } });
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "anchored-standard-panel", data: { status: "violated", events: 6, toolCalls: 3 } }]);
+  });
+
+  test("blocks telemetry by default and never stores event properties", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(telemetryBlockerPlugin);
+    const telemetry = context.get("piTelemetry");
+    expect(telemetry).toBeDefined();
+    expect(telemetry!.send({ name: "prompt_completed", properties: { prompt: "secret text", tokens: 20 } })).toMatchObject({
+      blocked: true,
+      name: "prompt_completed",
+    });
+    context.emit("pi/telemetry", { name: "session_started", properties: { cwd: "/private/project" } });
+    const status = tools.snapshot().customTools.find((candidate) => candidate.name === "telemetry_status");
+    await expect(status!.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { blocked: 2, names: ["prompt_completed", "session_started"] },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "telemetry-blocker-panel", data: { blocked: 2, enabled: false } }]);
+    expect(JSON.stringify(await panels.snapshot())).not.toContain("secret text");
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

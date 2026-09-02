@@ -128,6 +128,9 @@
     - id: anchored-standard
       name: "@pi-harness/core/plugins/anchored-standard"
       config: {}
+    - id: telemetry-blocker
+      name: "@pi-harness/core/plugins/telemetry-blocker"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
