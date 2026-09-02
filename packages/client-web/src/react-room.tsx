@@ -990,6 +990,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
                 {value((data.latest as Record<string, unknown>).name ?? "snapshot")} · {value((data.latest as Record<string, unknown>).files ?? 0)} 个文件
+                {(data.latest as Record<string, unknown>).restored === true ? " · 已恢复" : ""}
               </p>
             ) : (
               <p className="mt-2 text-[11px] text-[#8a949f]">还没有快照。修改代码前让 Agent 调用 git_snapshot。</p>
@@ -999,6 +1000,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <span>保留快照</span>
             <strong className="font-mono text-[#4176e6]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
           </div>
+          <p className="text-[10px] leading-4 text-[#8a949f]">恢复会反向应用选中的 patch，必须显式传入 confirm=true。</p>
         </div>
       ) : panel.id === "dependency-checker-panel" ? (
         <div className="mt-3 grid gap-3">

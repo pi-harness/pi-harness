@@ -11,6 +11,6 @@
   "status": "verified",
   "category": { "id": "workflow", "label": "工作流" },
   "capabilities": ["git savepoint", "change recovery", "rollback"],
-  "hooks": ["Git repository", "plugin UI"],
+  "hooks": ["Git repository", "explicit restore", "plugin UI"],
   "profile": { "name": "@pi-harness/core/plugins/git-time-capsule", "config": {} }
 }

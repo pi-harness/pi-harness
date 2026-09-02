@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -12,6 +12,15 @@ const capsuleDirectory = "capsules";
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const result = await execFileAsync("git", [...args], { cwd, maxBuffer: 8 * 1024 * 1024 });
   return result.stdout;
+}
+
+export async function applyCapsule(cwd: string, capsulePath: string): Promise<void> {
+  try {
+    await git(cwd, ["apply", "--reverse", "--check", "--binary", capsulePath]);
+  } catch (cause) {
+    throw new Error("Git capsule does not apply cleanly", { cause });
+  }
+  await git(cwd, ["apply", "--reverse", "--binary", capsulePath]);
 }
 
 async function listCapsules(directory: string): Promise<{ name: string; bytes: number }[]> {
@@ -28,7 +37,7 @@ export default {
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   apply(context: Context) {
     const directory = join(context.piHarnessLaunch.agentDir, capsuleDirectory);
-    let latest: { name: string; bytes: number; files: number } | undefined;
+    let latest: { name: string; bytes: number; files: number; restored?: boolean } | undefined;
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "git_snapshot",
@@ -53,6 +62,26 @@ export default {
         },
       }),
     );
+    const unregisterRestore = context.piTools.register(
+      defineTool({
+        name: "git_restore",
+        label: "Restore Git snapshot",
+        description: "Apply a saved Git time capsule after an explicit confirmation; the patch is checked before it changes the workspace.",
+        promptSnippet: "restore a previously saved Git snapshot",
+        parameters: Type.Object({ name: Type.String({ description: "Capsule filename from the recent snapshots list" }), confirm: Type.Boolean() }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<{ name: string; restored: true }>> {
+          if (!params.confirm) throw new Error("Git capsule restore writes the workspace and requires confirm=true");
+          const name = params.name.trim();
+          if (name.length === 0 || name.length > 255 || basename(name) !== name || !name.endsWith(".patch"))
+            throw new Error("Capsule name must be a .patch filename");
+          const path = join(directory, name);
+          await applyCapsule(context.piHarnessLaunch.cwd, path);
+          const bytes = (await stat(path)).size;
+          latest = { name, bytes, files: 0, restored: true };
+          return { content: [{ type: "text", text: `Git snapshot restored: ${name}` }], details: { name, restored: true } };
+        },
+      }),
+    );
     const disposePanel = context.piPluginUi.register({
       id: "git-time-capsule-panel",
       pluginId: "@pi-harness/core/plugins/git-time-capsule",
@@ -63,6 +92,7 @@ export default {
     });
     context.effect(() => () => {
       unregisterTool();
+      unregisterRestore();
       disposePanel();
     });
   },
