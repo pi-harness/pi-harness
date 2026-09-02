@@ -52,6 +52,30 @@ describe("NodeStdio interactive prompt", () => {
     await expect(stdio.readPrompt()).rejects.toBeInstanceOf(PiHarnessStdioCancelledError);
   });
 
+  test("flush resolves only once buffered output has drained", async () => {
+    const input: FakeTty = new PassThrough();
+    const output: FakeTty = new PassThrough({ highWaterMark: 16 });
+    const stdio = new NodeStdio(input, output, output);
+    stdio.writeOutput("x".repeat(4_096));
+    let drained = false;
+
+    const flushed = stdio.flush().then(() => { drained = true; });
+    expect(drained).toBe(false);
+    output.resume();
+    await flushed;
+
+    expect(drained).toBe(true);
+  });
+
+  test("flush resolves immediately when nothing is buffered", async () => {
+    const input: FakeTty = new PassThrough();
+    const output: FakeTty = new PassThrough();
+    output.resume();
+    const stdio = new NodeStdio(input, output, output);
+
+    await expect(Promise.race([stdio.flush().then(() => "flushed"), new Promise((resolve) => setTimeout(() => resolve("pending"), 500))])).resolves.toBe("flushed");
+  });
+
   test("reads a piped prompt to end of stream", async () => {
     const input: FakeTty = new PassThrough();
     const output: FakeTty = new PassThrough();

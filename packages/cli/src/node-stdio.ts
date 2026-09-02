@@ -84,6 +84,25 @@ export class NodeStdio implements PiHarnessStdio {
     }
   }
 
+  async flush(): Promise<void> {
+    await Promise.all([this.#drain(this.#output), this.#drain(this.#error)]);
+  }
+
+  async #drain(stream: Writable): Promise<void> {
+    if (this.#broken.has(stream) || stream.destroyed || stream.writableEnded || stream.writableLength === 0) return;
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        stream.off("drain", done);
+        stream.off("error", done);
+        stream.off("close", done);
+        resolve();
+      };
+      stream.once("drain", done);
+      stream.once("error", done);
+      stream.once("close", done);
+    });
+  }
+
   close(): void {
     if (this.#abort.signal.aborted) return;
     this.#abort.abort(new PiHarnessStdioCancelledError());

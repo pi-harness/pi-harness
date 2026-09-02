@@ -57,6 +57,8 @@ web launcher / CLI launcher
             └── stdio      -> piApplication
 ```
 
+An application plugin implements `run(signal?: AbortSignal): Promise<number>`. The signal is aborted when a signal or an exit request ends the run, and a surface that can block must unwind on it; the launcher force-exits one that does not.
+
 Cordis owns module loading, configuration validation, dependency injection, activation ordering, lifecycle effects, rollback, grouping, and development HMR. Pi owns model discovery, project resources, session persistence, tool execution, provider calls, and agent events. There is no parallel plugin registry or lifecycle abstraction.
 
 ## CLI
@@ -142,6 +144,9 @@ This uses Cordis injection for deterministic ordering. A late contribution fails
 - The runtime does not fall back to a different model or storage backend. A Pi extension that fails to load aborts startup instead of leaving the agent with a silently reduced tool set.
 - The bundled stdio application writes the assistant's answer to stdout and everything else to stderr: one line per tool execution, one per failed tool, and one per provider retry. A run that produces no assistant text, or whose response is truncated by the model's output limit, exits non-zero.
 - A closed stdout (`pih ... | head`) stops output without killing the process, so the Cordis tree is still disposed.
+- Provider traffic goes through the proxy `HTTP_PROXY`, `HTTPS_PROXY` or the `httpProxy` setting names, using Pi's own dispatcher so the harness and `pi` behave identically on a proxied network.
+- An application surface receives an `AbortSignal` and shares the shutdown deadline: one that ignores the signal is force-exited rather than keeping the process alive. Buffered output is flushed before a forced exit, except on a repeated signal, which leaves immediately.
+- Tools an extension registers but the profile does not list are reported on stderr instead of disappearing from the model's tool table.
 - Signals cancel startup or abort the active Pi run before the Cordis tree is disposed. Runtime abort and root disposal have a five-second deadline, after which the executable forces the signal-compatible exit code. A repeated signal during that window forces the exit immediately. A pending prompt read is cancelled too, so a signal never leaves the process alive holding an open stdin pipe, and cancelling the interactive prompt with Ctrl-C exits 130 rather than the usage code 2.
 - The production profile excludes HMR. Development HMR grants access to Node internal ESM loader APIs only in the relaunched development process.
 - Existing Pi resources and extensions under `PI_AGENT_DIR` participate in startup and shutdown. Use an isolated agent directory for deterministic tests.
@@ -174,3 +179,7 @@ Before the first release, add the npm automation token as the GitHub Actions sec
 - `apps/web`: Vite entrypoint and production web launcher
 - `examples/plugin-hello`: lifecycle-safe external Pi tool plugin
 - `docs/plans`: accepted architecture and implementation plan
+
+## License
+
+MIT. See [LICENSE](./LICENSE).

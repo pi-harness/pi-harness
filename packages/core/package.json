@@ -2,6 +2,16 @@
   "name": "@pi-harness/core",
   "version": "0.1.2",
   "description": "Cordis boot and Pi runtime plugins for Pi Harness",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-harness/pi-harness.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

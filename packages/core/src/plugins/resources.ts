@@ -2,6 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { ProjectTrustStore, SettingsManager, createAgentSessionServices, hasTrustRequiringProjectResources, type AgentSessionServices } from "@earendil-works/pi-coding-agent";
 import { assertKnownConfigKeys } from "../config.js";
+import { configureHttpProxy } from "../http.js";
 
 export interface ResourcesPluginConfig {
   trustProject?: boolean;
@@ -56,6 +57,8 @@ export default {
       return services;
     };
     const services = await createServices(context.piHarnessLaunch.cwd);
+    const proxyFailure = await configureHttpProxy(services);
+    if (proxyFailure !== undefined) services.diagnostics.push({ type: "warning", message: proxyFailure });
     context.provide("piResources", { ...services, createForCwd: createServices });
   },
 };
