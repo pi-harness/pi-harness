@@ -18,6 +18,7 @@ import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind
 import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
+import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -459,6 +460,18 @@ function PromptError({ message }: { message: string }) {
         <summary>查看原始错误</summary>
         <code>{message}</code>
       </details>
+    </div>
+  );
+}
+
+function UserMessageBubble({ text }: { text: string }) {
+  const parsed = parseAnnotationPrompt(text);
+  return (
+    <div className="user-bubble">
+      <span>{parsed.question}</span>
+      {parsed.count > 0 ? (
+        <span className="ml-2 inline-flex rounded-md bg-[#edf3fe] px-1.5 py-0.5 text-[10px] text-[#315fb8]">批注 ×{parsed.count}</span>
+      ) : null}
     </div>
   );
 }
@@ -3793,6 +3806,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const initialSessionPathRef = useRef(initialQueryState.sessionPath);
   const sessionRestoreAttemptedRef = useRef(false);
   const [draft, setDraft] = useState("");
+  const [annotations, setAnnotations] = useState<ClientAnnotation[]>([]);
+  const [annotationSelection, setAnnotationSelection] = useState("");
+  const [annotationNote, setAnnotationNote] = useState("");
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
@@ -4066,7 +4082,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   );
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const prompt = draft.trim();
+    const question = draft.trim();
+    const prompt = annotations.length > 0 ? formatAnnotationPrompt(annotations, question) : question;
     if (!prompt || promptBusy) return;
     setDraft("");
     setPromptError("");
@@ -4076,10 +4093,29 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     setPromptBusy(true);
     void api
       .prompt(prompt)
-      .then(() => refresh())
+      .then(async () => {
+        setAnnotations([]);
+        await refresh();
+      })
       .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setPendingPrompt(""))
       .finally(() => setPromptBusy(false));
+  };
+  const captureAnnotationSelection = () => {
+    window.requestAnimationFrame(() => {
+      const selected = window.getSelection()?.toString().trim() ?? "";
+      if (selected.length > 0) setAnnotationSelection(selected.slice(0, 4_000));
+    });
+  };
+  const addAnnotation = () => {
+    const quote = annotationSelection.trim();
+    if (!quote) return;
+    setAnnotations((current) => [
+      ...current,
+      { id: current.length === 0 ? 1 : Math.max(...current.map((item) => item.id)) + 1, quote, note: annotationNote.trim() },
+    ]);
+    setAnnotationSelection("");
+    setAnnotationNote("");
   };
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
@@ -4204,7 +4240,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             return (
               <article className={`turn ${turn.role === "user" ? "user" : "text"}`} key={index}>
                 {turn.role === "user" ? (
-                  <div className="user-bubble">{turn.text}</div>
+                  <UserMessageBubble text={turn.text} />
                 ) : (
                   <>
                     {turn.thinking && (
@@ -4215,7 +4251,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                         </div>
                       </details>
                     )}
-                    {turn.text && <MarkdownMessage text={turn.text} />}
+                    {turn.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={turn.text} />}
                   </>
                 )}
               </article>
@@ -4241,12 +4277,12 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               </details>
             )}
             {!streamingAssistant.thinking && !streamingAssistant.text && <div className="streaming-placeholder">正在生成…</div>}
-            {streamingAssistant.text && <MarkdownMessage text={streamingAssistant.text} />}
+            {streamingAssistant.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={streamingAssistant.text} />}
           </article>
         )}
         {pendingPrompt && !data.session?.messages.some((message) => message.role === "user" && messageText(message) === pendingPrompt) && (
           <article className="turn user pending-turn">
-            <div className="user-bubble">{pendingPrompt}</div>
+            <UserMessageBubble text={pendingPrompt} />
           </article>
         )}
       </div>
@@ -4283,6 +4319,48 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         )}
         <div className="composer-stack">
           {promptError && <PromptError message={promptError} />}
+          {annotationSelection ? (
+            <div aria-label="添加批注" className="rounded-lg border border-[#cdddf8] bg-[#f6f8ff] px-3 py-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 shrink-0 rounded bg-[#dce9ff] px-1.5 py-0.5 text-[10px] text-[#315fb8]">选中片段</span>
+                <p className="max-h-16 flex-1 overflow-auto whitespace-pre-wrap text-[11px] text-[#30343b]">{annotationSelection}</p>
+                <button aria-label="取消批注" className="text-[12px] text-[#8a949f]" onClick={() => setAnnotationSelection("")} type="button">
+                  ×
+                </button>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  aria-label="批注备注"
+                  className="min-w-0 flex-1 rounded-md border border-[#dce5f5] bg-white px-2 py-1.5 text-[11px] outline-none"
+                  onChange={(event) => setAnnotationNote(event.target.value)}
+                  placeholder="备注（可选）"
+                  value={annotationNote}
+                />
+                <button className="rounded-md bg-[#4176e6] px-3 py-1.5 text-[11px] font-medium text-white" onClick={addAnnotation} type="button">
+                  加入批注
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {annotations.length > 0 ? (
+            <div className="flex items-center gap-2 overflow-x-auto text-[10px]">
+              <span className="shrink-0 rounded-md bg-[#edf3fe] px-2 py-1 font-medium text-[#315fb8]">批注 ×{annotations.length}</span>
+              {annotations.map((annotation) => (
+                <button
+                  className="max-w-48 shrink-0 truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-left text-[#65707b]"
+                  key={annotation.id}
+                  onClick={() => setAnnotations((current) => current.filter((item) => item.id !== annotation.id))}
+                  title="点击移除批注"
+                  type="button"
+                >
+                  #{annotation.id} {annotation.quote}
+                </button>
+              ))}
+              <button className="shrink-0 text-[#8a949f]" onClick={() => setAnnotations([])} type="button">
+                清空
+              </button>
+            </div>
+          ) : null}
           <form className="composer" onSubmit={submit}>
             <textarea
               aria-label="Prompt"

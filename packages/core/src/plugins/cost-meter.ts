@@ -85,6 +85,7 @@ export default {
     let loaded = false;
     let loading: Promise<void> | undefined;
     let writeQueue = Promise.resolve();
+    let pendingRecord: Promise<void> | undefined;
     const runtime = () => {
       const service = context.get("piRuntime");
       if (service === undefined) throw new Error("Pi runtime is not ready");
@@ -142,10 +143,11 @@ export default {
     };
     const readReport = async (): Promise<CostMeterReport> => {
       await load();
+      await pendingRecord;
       return reportFor(entries, runtime().session.getSessionStats(), budgetValue);
     };
     const unsubscribe = context.on("pi/session-event", (event) => {
-      if (event.type === "agent_end") void record();
+      if (event.type === "agent_end") pendingRecord = record();
     });
     const unregister = context.piTools.register(
       defineTool({
