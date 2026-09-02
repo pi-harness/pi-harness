@@ -68,6 +68,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("llm-verifier")?.category.id).toBe("testing");
     expect(official.get("module-search")?.category.id).toBe("discovery");
     expect(official.get("workspace-navigator")?.category.id).toBe("developer");
+    expect(official.get("reverse-skill")?.category.id).toBe("security");
     expect(official.get("cleaner")?.category.id).toBe("developer");
     expect(official.get("cli-notifier")?.category.id).toBe("workflow");
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");

@@ -217,6 +217,9 @@
     - id: workspace-navigator
       name: "@pi-harness/core/plugins/workspace-navigator"
       config: {}
+    - id: reverse-skill
+      name: "@pi-harness/core/plugins/reverse-skill"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:

@@ -125,6 +125,7 @@ const capability = (name: string): string => {
     ["llm-verifier", "模型校验"],
     ["module-search", "模块检索"],
     ["workspace-navigator", "工作区导航"],
+    ["reverse-skill", "技能隔离"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -201,6 +202,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/llm-verifier", "LLM Verifier"],
     ["@pi-harness/core/plugins/module-search", "Module Search"],
     ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
+    ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1344,6 +1346,44 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 workspace_tree 后显示工作区结构。</div>
           )}
+        </div>
+      ) : panel.id === "reverse-skill-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <span className="text-[11px] text-[#65707b]">复核风险内容</span>
+            <strong className="font-mono text-[11px] text-[#4176e6]">{data?.allowReviewByDefault === true ? "已允许" : "默认阻断"}</strong>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const risk = value(latest.risk ?? "safe");
+              const findings = Array.isArray(latest.findings) ? latest.findings : [];
+              return (
+                <div
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <strong className="uppercase">{risk}</strong>
+                    <span className="font-mono text-[10px]">{latest.contentIncluded === true ? "可注入" : "已隔离"}</span>
+                  </div>
+                  <p className="mt-2">
+                    {value(latest.name ?? "未命名 Skill")} · {value(findings.length)} 个风险项
+                  </p>
+                  {findings.length > 0 ? (
+                    <p className="mt-1 text-[10px] opacity-80">
+                      {findings
+                        .slice(0, 2)
+                        .map((item) => value(item))
+                        .join("；")}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 skill_inject 后显示隔离结果。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">安全内容会被包裹为不可信数据；review 风险默认不注入，blocked 内容永不返回原文。</p>
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
