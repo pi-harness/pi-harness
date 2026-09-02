@@ -1,8 +1,7 @@
 {
-  "name": "@pi-harness/plugin-hello",
+  "name": "@pi-harness/client-web",
   "version": "0.1.2",
-  "description": "Example Cordis plugin that contributes a Pi tool",
-  "private": true,
+  "description": "Browser-side Cordis client plugins for the Pi Harness web surface",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,13 +19,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
-    "@pi-harness/core": "0.1.2"
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   }
 }

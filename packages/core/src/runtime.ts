@@ -1,4 +1,4 @@
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import type { PiRuntimeService } from "./services.js";
 
 export class PiRuntimeDisposedError extends Error {
@@ -10,12 +10,16 @@ export class PiRuntimeDisposedError extends Error {
 }
 
 export class PiRuntime implements PiRuntimeService {
-  readonly session: AgentSession;
+  readonly sessionRuntime: AgentSessionRuntime;
   #disposed = false;
   #sessionDisposed = false;
 
-  constructor(session: AgentSession) {
-    this.session = session;
+  constructor(sessionRuntime: AgentSessionRuntime) {
+    this.sessionRuntime = sessionRuntime;
+  }
+
+  get session(): AgentSession {
+    return this.sessionRuntime.session;
   }
 
   async prompt(text: string): Promise<void> {
@@ -32,12 +36,11 @@ export class PiRuntime implements PiRuntimeService {
     if (this.#disposed) return;
     this.#disposed = true;
     try {
+      // Settle an in-flight turn first so its tool results are persisted before session_shutdown runs.
       if (!this.session.isIdle) await this.session.abort();
-      const runner = this.session.extensionRunner;
-      if (runner.hasHandlers("session_shutdown")) await runner.emit({ type: "session_shutdown", reason: "quit" });
     } finally {
       this.#sessionDisposed = true;
-      this.session.dispose();
+      await this.sessionRuntime.dispose();
     }
   }
 }

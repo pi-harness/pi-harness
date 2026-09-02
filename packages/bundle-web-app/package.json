@@ -1,8 +1,7 @@
 {
-  "name": "@pi-harness/plugin-hello",
+  "name": "@pi-harness/web-app",
   "version": "0.1.2",
-  "description": "Example Cordis plugin that contributes a Pi tool",
-  "private": true,
+  "description": "Patchable Web application bundle for Pi Harness",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,23 +9,22 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml"
   },
   "files": [
-    "dist"
+    "dist",
+    "cordis.patch.yml"
   ],
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
-    "@pi-harness/core": "0.1.2"
+    "@pi-harness/host-webserver": "0.1.2"
   }
 }

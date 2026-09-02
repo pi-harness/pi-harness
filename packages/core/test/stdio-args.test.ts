@@ -1,13 +1,15 @@
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
 import { PiHarnessStdioCancelledError, StdioApplication, type PiHarnessStdio } from "../src/stdio.js";
 import type { PiHarnessLaunch, PiRuntimeService } from "../src/services.js";
 
 function createRuntime(onPrompt?: () => void): PiRuntimeService & { prompts: string[] } {
   const prompts: string[] = [];
+  const session = { messages: [{ role: "assistant", stopReason: "stop" }] } as unknown as AgentSession;
   return {
     prompts,
-    session: { messages: [{ role: "assistant", stopReason: "stop" }] } as unknown as AgentSession,
+    session,
+    sessionRuntime: { session } as unknown as AgentSessionRuntime,
     prompt(text) {
       prompts.push(text);
       onPrompt?.();

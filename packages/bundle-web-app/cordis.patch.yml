@@ -1,0 +1,12 @@
+- id: webserver
+  name: "@pi-harness/host-webserver"
+  config:
+    host: 127.0.0.1
+    port: 3080
+- id: api
+  name: "@pi-harness/api-gateway"
+  config: {}
+- id: web-app
+  name: "@pi-harness/web-app"
+  config:
+    staticDir: !!js process.env.PI_HARNESS_WEB_DIST

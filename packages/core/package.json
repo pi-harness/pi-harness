@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/core",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Cordis boot and Pi runtime plugins for Pi Harness",
   "type": "module",
   "main": "./dist/index.js",
