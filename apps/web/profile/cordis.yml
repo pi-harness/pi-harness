@@ -178,6 +178,9 @@
       name: "@pi-harness/core/plugins/runtime"
       config:
         thinkingLevel: medium
+    - id: plugin-dev
+      name: "@pi-harness/core/plugins/plugin-dev"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:
@@ -197,3 +200,13 @@
   name: "@pi-harness/web-app"
   config:
     staticDir: !!js process.env.PI_HARNESS_WEB_DIST
+- id: marketplace-cordis-logger-console
+  name: "@deepseek-ai/cordis-plugin-logger-console"
+  config: {}
+- id: marketplace-cordis-group
+  name: "@deepseek-ai/cordis-plugin-group"
+  group: true
+  config: []
+- id: marketplace-cordis-timer
+  name: "@deepseek-ai/cordis-plugin-timer"
+  config: {}
