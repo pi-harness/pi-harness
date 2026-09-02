@@ -63,6 +63,7 @@ import synapsePlugin from "../src/plugins/synapse.js";
 import { inspectGuardInput } from "../src/plugins/hol-guard.js";
 import holGuardPlugin from "../src/plugins/hol-guard.js";
 import pluginRadarPlugin from "../src/plugins/plugin-radar.js";
+import pluginCheckPlugin, { type PluginCheckScanReport } from "../src/plugins/plugin-check.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1781,5 +1782,40 @@ describe("Pi domain plugins", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("checks plugin manifests and patches without modifying repositories", async () => {
+    const { context, cwd } = await createContext();
+    const good = join(cwd, "dsh-good");
+    const bad = join(cwd, "dsh-bad");
+    await mkdir(join(good, "src"), { recursive: true });
+    await mkdir(bad, { recursive: true });
+    await writeFile(join(good, "package.json"), JSON.stringify({ name: "dsh-good", main: "dist/index.js", scripts: { build: "tsc" } }), "utf8");
+    await writeFile(join(good, "src", "index.ts"), "export {}\n", "utf8");
+    await writeFile(join(good, "cordis.patch.yml"), "- id: dsh-good\n  name: dsh-good\n", "utf8");
+    await writeFile(join(good, "README.md"), "dsh plugin --profile web add github:example/dsh-good\n", "utf8");
+    await writeFile(join(bad, "package.json"), JSON.stringify({ name: "Bad Plugin", main: "dist/index.js" }), "utf8");
+    await writeFile(join(bad, "cordis.patch.yml"), "not: a list\n", "utf8");
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(pluginCheckPlugin, { scanLimit: 5 });
+    const tool = tools.snapshot().customTools.find((entry) => entry.name === "plugin_check");
+    if (tool === undefined) throw new Error("plugin_check was not registered");
+    const goodResult = await tool.execute("call-good", { action: "check", path: good }, undefined, undefined, {} as never);
+    expect(goodResult.details).toMatchObject({ repo: "dsh-good", verdict: "pass", errors: [] });
+    const badResult = await tool.execute("call-bad", { action: "check", path: bad, strict: true }, undefined, undefined, {} as never);
+    expect(badResult.details).toMatchObject({ repo: "dsh-bad", verdict: "fail" });
+    expect((badResult.details as { errors: Array<{ code: string }> }).errors.map((item) => item.code)).toEqual(
+      expect.arrayContaining(["invalid-name-format", "malformed-patch"]),
+    );
+    const scanResult = await tool.execute("call-scan", { action: "scan", path: cwd }, undefined, undefined, {} as never);
+    expect((scanResult.details as PluginCheckScanReport).scanned).toBe(2);
+    expect((scanResult.details as PluginCheckScanReport).reports).toHaveLength(2);
+    const schemaResult = await tool.execute("call-schema", { action: "schema" }, undefined, undefined, {} as never);
+    const schemaChecks = (schemaResult.details as { checks: Array<{ code: string }> }).checks;
+    expect(schemaChecks.some((check) => check.code === "missing-main-or-types")).toBe(true);
+    expect(await readFile(join(good, "cordis.patch.yml"), "utf8")).toBe("- id: dsh-good\n  name: dsh-good\n");
   });
 });

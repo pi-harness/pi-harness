@@ -122,6 +122,9 @@
     - id: plugin-radar
       name: "@pi-harness/core/plugins/plugin-radar"
       config: {}
+    - id: plugin-check
+      name: "@pi-harness/core/plugins/plugin-check"
+      config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}

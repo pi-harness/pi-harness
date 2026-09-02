@@ -89,6 +89,7 @@ const capability = (name: string): string => {
     ["synapse", "会话地图"],
     ["hol-guard", "安全防护"],
     ["plugin-radar", "生态雷达"],
+    ["plugin-check", "插件体检"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -145,6 +146,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/synapse", "Synapse"],
     ["@pi-harness/core/plugins/hol-guard", "HOL Guard"],
     ["@pi-harness/core/plugins/plugin-radar", "Plugin Radar"],
+    ["@pi-harness/core/plugins/plugin-check", "Plugin Check"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1364,6 +1366,87 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
+            </div>
+          );
+        })()
+      ) : panel.id === "plugin-check-panel" ? (
+        (() => {
+          const latest = data?.latest !== null && typeof data?.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
+          const checks = latest?.checks !== null && typeof latest?.checks === "object" ? (latest.checks as Record<string, unknown>) : undefined;
+          const errors: unknown[] = Array.isArray(latest?.errors) ? latest.errors : [];
+          const warnings: unknown[] = Array.isArray(latest?.warnings) ? latest.warnings : [];
+          const reports: unknown[] = Array.isArray(latest?.reports) ? latest.reports : [];
+          const schema: unknown[] = Array.isArray(latest?.checks) ? latest.checks : [];
+          const verdict = value(latest?.verdict ?? "—");
+          const verdictClass =
+            verdict === "pass" ? "bg-[#eaf8f0] text-[#198754]" : verdict === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
+          return (
+            <div className="mt-3 grid gap-3">
+              {latest?.scanned !== undefined ? (
+                <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                  <span className="text-[#65707b]">目录扫描</span>
+                  <strong className="font-mono text-[#4176e6]">{value(latest.scanned)} 个仓库</strong>
+                </div>
+              ) : latest?.verdict !== undefined ? (
+                <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-2 text-[10px]">
+                  <span className="truncate text-[#65707b]">{value(latest.repo ?? "当前插件")}</span>
+                  <span className={`rounded px-1.5 py-0.5 font-mono ${verdictClass}`}>{verdict}</span>
+                </div>
+              ) : schema.length > 0 ? (
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px] text-[#65707b]">检查清单：{schema.length} 项</div>
+              ) : null}
+              {checks ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ["通过", checks.passed ?? 0],
+                    ["失败", checks.failed ?? 0],
+                    ["警告", checks.warned ?? 0],
+                  ].map(([label, count]) => (
+                    <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
+                      <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                      <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {reports.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {reports.slice(0, 6).map((entry, index) => {
+                    const report = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const state = value(report.verdict ?? "—");
+                    return (
+                      <li
+                        className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                        key={`${value(report.repo ?? "repo")}-${index}`}
+                      >
+                        <span className="truncate font-mono text-[#65707b]">{value(report.repo ?? "未知仓库")}</span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 ${state === "pass" ? "bg-[#eaf8f0] text-[#198754]" : state === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                        >
+                          {state}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : errors.length > 0 || warnings.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {[...errors, ...warnings].slice(0, 5).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]" key={`${value(item.code ?? "issue")}-${index}`}>
+                        <strong className="font-mono text-[#b42318]">{value(item.code ?? "issue")}</strong>
+                        <p className="mt-1 text-[#65707b]">{value(item.message, "")}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未检查插件。Agent 可调用 plugin_check 执行 check、scan 或 schema。
+                </div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">只读检查，不修改、不构建被检仓库。</div>
             </div>
           );
         })()
