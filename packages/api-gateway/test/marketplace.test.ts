@@ -76,6 +76,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");
     expect(official.get("tab-manager")?.category.id).toBe("workflow");
     expect(official.get("telemetry-blocker")?.category.id).toBe("security");
+    expect(official.get("runtime-doctor")?.category.id).toBe("developer");
   });
 
   test("recognizes bundled core plugin subpaths without requiring an npm install", () => {

@@ -236,6 +236,9 @@
     - id: vision-toolkit
       name: "@pi-harness/core/plugins/vision-toolkit"
       config: {}
+    - id: runtime-doctor
+      name: "@pi-harness/core/plugins/runtime-doctor"
+      config: {}
     - id: webserver
       name: "@pi-harness/host-webserver"
       config:

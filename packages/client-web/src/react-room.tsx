@@ -207,6 +207,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
     ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
     ["@pi-harness/core/plugins/prompt-library", "Prompt Library"],
+    ["@pi-harness/core/plugins/runtime-doctor", "Runtime Doctor"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -2031,6 +2032,57 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 </details>
               ) : null}
               <div className="text-[10px] text-[#9aa3ad]">批注按编号累积；生成上下文不会改写原会话消息。</div>
+            </div>
+          );
+        })()
+      ) : panel.id === "runtime-doctor-panel" ? (
+        (() => {
+          const status = value(data?.status ?? "unknown");
+          const checks = Array.isArray(data?.checks) ? data.checks : [];
+          const recommendations = Array.isArray(data?.recommendations) ? data.recommendations : [];
+          const statusClass =
+            status === "ok" ? "bg-[#eaf8f0] text-[#198754]" : status === "warning" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                <span className="text-[11px] text-[#65707b]">运行时边界检查</span>
+                <span className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase ${statusClass}`}>{status}</span>
+              </div>
+              <div className="grid gap-1.5">
+                {checks.map((entry, index) => {
+                  const check = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                  const checkStatus = value(check.status ?? "unknown");
+                  const checkClass =
+                    checkStatus === "ok"
+                      ? "bg-[#eaf8f0] text-[#198754]"
+                      : checkStatus === "warning"
+                        ? "bg-[#fff7e8] text-[#a15c00]"
+                        : "bg-[#fff0f0] text-[#b42318]";
+                  return (
+                    <div
+                      className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                      key={`${value(check.id ?? "check")}-${index}`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${checkStatus === "ok" ? "bg-[#22c55e]" : checkStatus === "warning" ? "bg-[#e6a21a]" : "bg-[#d64545]"}`}
+                      ></span>
+                      <code className="w-20 shrink-0 text-[#65707b]">{value(check.id ?? "check")}</code>
+                      <span className="min-w-0 flex-1 truncate text-[#30343b]">{value(check.detail ?? "—")}</span>
+                      <span className={`rounded px-1.5 py-0.5 font-mono ${checkClass}`}>{checkStatus}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {recommendations.length > 0 ? (
+                <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a6200]">
+                  <strong>建议</strong>
+                  <ul className="mt-1 grid gap-1 pl-4">
+                    {recommendations.slice(0, 5).map((item, index) => (
+                      <li key={`${value(item)}-${index}`}>{value(item)}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           );
         })()
