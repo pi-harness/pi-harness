@@ -45,6 +45,7 @@ import autoModePlugin from "../src/plugins/auto-mode.js";
 import planExecutePlugin from "../src/plugins/plan-execute.js";
 import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
 import memoryPlugin from "../src/plugins/memory.js";
+import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -751,6 +752,37 @@ describe("Pi domain plugins", () => {
       details: { removed: true },
     });
     await expect(secondPanels.snapshot()).resolves.toMatchObject([{ id: "memory-panel", data: { count: 0 } }]);
+  });
+
+  test("generates validated Mermaid diagrams through the canvas draw plugin", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(canvasDrawPlugin);
+    const draw = tools.snapshot().customTools.find((candidate) => candidate.name === "canvas_draw");
+    expect(draw).toBeDefined();
+    await expect(
+      draw!.execute(
+        "call-1",
+        {
+          direction: "LR",
+          nodes: [
+            { id: "start", label: "Start" },
+            { id: "ship", label: "Ship" },
+          ],
+          edges: [{ from: "start", to: "ship", label: "ready" }],
+        },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).resolves.toMatchObject({ details: { nodeCount: 2, edgeCount: 1, mermaid: expect.stringContaining("start -->|ready| ship") } });
+    await expect(
+      draw!.execute("call-2", { nodes: [{ id: "start", label: "Start" }], edges: [{ from: "start", to: "missing" }] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/unknown node/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "canvas-draw-panel", data: { nodeCount: 2, edgeCount: 1 } }]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

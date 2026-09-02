@@ -85,6 +85,7 @@ const capability = (name: string): string => {
     ["plan-execute", "计划执行"],
     ["plugin-finder", "插件发现"],
     ["memory", "跨会话记忆"],
+    ["canvas-draw", "流程图"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -125,6 +126,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plan-execute", "Plan Execute"],
     ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
     ["@pi-harness/core/plugins/memory", "Memory"],
+    ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1163,6 +1165,24 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               尚未保存记忆。Agent 可调用 memory_set 明确写入。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "canvas-draw-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">Mermaid 流程图</span>
+            <span className="font-mono text-[#4176e6]">
+              {String(data?.nodeCount ?? 0)} 节点 · {String(data?.edgeCount ?? 0)} 连线
+            </span>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+              {String((data.latest as Record<string, unknown>).mermaid ?? "")}
+            </pre>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 canvas_draw 生成流程图源码。
             </div>
           )}
         </div>
