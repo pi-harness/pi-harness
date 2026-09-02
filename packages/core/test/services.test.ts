@@ -49,6 +49,7 @@ import imageCompressorPlugin from "../src/plugins/image-compressor.js";
 import workspaceSearchPlugin from "../src/plugins/workspace-search.js";
 import promptGuardPlugin from "../src/plugins/prompt-guard.js";
 import code2SkillPlugin from "../src/plugins/code2skill.js";
+import tabManagerPlugin from "../src/plugins/tab-manager.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -922,6 +923,29 @@ describe("Pi domain plugins", () => {
     await expect(readFile(join(cwd, ".pi", "skills", "parser-guide", "SKILL.md"), "utf8")).resolves.toContain("Explain parser conventions");
     await expect(readFile(join(cwd, ".pi", "skills", "parser-guide", "references", "src", "parser.ts"), "utf8")).resolves.toContain("parse");
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "code2skill-panel", data: { generated: 1, latest: { slug: "parser-guide" } } }]);
+  });
+
+  test("persists named session tabs without deleting session files", async () => {
+    const { context, agentDir } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const sessionPath = join(agentDir, "session-a.jsonl");
+    context.provide("piRuntime", { session: { sessionId: "session-a", sessionFile: sessionPath } } as never);
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(tabManagerPlugin);
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_tab_manage");
+    expect(tool).toBeDefined();
+    await expect(tool!.execute("call-1", { action: "pin", label: "API 调试" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { id: "session-a", label: "API 调试", pinned: true },
+    });
+    await expect(tool!.execute("call-2", { action: "rename", label: "API 回归" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { tabs: [{ label: "API 回归", pinned: true }] },
+    });
+    await expect(readFile(join(agentDir, "session-tabs.json"), "utf8")).resolves.toContain("API 回归");
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { id: "tab-manager-panel", data: { activeId: "session-a", tabs: [{ label: "API 回归" }], writes: 2 } },
+    ]);
   });
 
   test("discovers and calls tools through an MCP stdio server", async () => {

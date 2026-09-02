@@ -119,6 +119,9 @@
     - id: code2skill
       name: "@pi-harness/core/plugins/code2skill"
       config: {}
+    - id: tab-manager
+      name: "@pi-harness/core/plugins/tab-manager"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

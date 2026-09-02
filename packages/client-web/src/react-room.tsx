@@ -90,6 +90,7 @@ const capability = (name: string): string => {
     ["workspace-search", "工作区检索"],
     ["prompt-guard", "提示词防护"],
     ["code2skill", "技能打包"],
+    ["tab-manager", "会话标签"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -135,6 +136,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/workspace-search", "Workspace Search"],
     ["@pi-harness/core/plugins/prompt-guard", "Prompt Guard"],
     ["@pi-harness/core/plugins/code2skill", "Code2Skill"],
+    ["@pi-harness/core/plugins/tab-manager", "Session Tabs"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
