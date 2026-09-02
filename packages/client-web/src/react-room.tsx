@@ -122,6 +122,7 @@ const capability = (name: string): string => {
     ["session-export", "会话导出"],
     ["session-search", "会话搜索"],
     ["session-bookmarks", "会话书签"],
+    ["llm-verifier", "模型校验"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -195,6 +196,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/session-export", "Session Export"],
     ["@pi-harness/core/plugins/session-search", "Session Search"],
     ["@pi-harness/core/plugins/session-bookmarks", "Session Bookmarks"],
+    ["@pi-harness/core/plugins/llm-verifier", "LLM Verifier"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1224,6 +1226,36 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有标记重要节点。</div>
           )}
           <p className="text-[10px] leading-4 text-[#8a949f]">书签独立保存在 agent 目录，不会改写 Pi 原生会话记录。</p>
+        </div>
+      ) : panel.id === "llm-verifier-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <span className="text-[11px] text-[#65707b]">校验模型</span>
+            <code className="max-w-[65%] truncate text-[11px] text-[#315fb8]">
+              {value(data?.provider ?? "—")}/{value(data?.model ?? "—")}
+            </code>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const verdict = value(latest.verdict ?? "unknown");
+              return (
+                <div
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${verdict === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : verdict === "fail" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <strong className="uppercase">{verdict}</strong>
+                    <span className="font-mono text-[10px]">{value(latest.evidenceChars ?? 0)} chars</span>
+                  </div>
+                  <p className="mt-2 leading-4">{value(latest.rationale ?? "没有返回校验理由。")}</p>
+                  <p className="mt-2 truncate text-[10px] opacity-70">声明：{value(latest.claim ?? "—")}</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有执行模型校验。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">证据按不可信数据处理，输入有长度上限；模型返回非结构化结果时显示 unknown。</p>
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">

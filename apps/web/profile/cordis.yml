@@ -208,6 +208,9 @@
     - id: session-bookmarks
       name: "@pi-harness/core/plugins/session-bookmarks"
       config: {}
+    - id: llm-verifier
+      name: "@pi-harness/core/plugins/llm-verifier"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:
