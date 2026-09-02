@@ -29,7 +29,7 @@ function byteLength(value: unknown): number {
   }
 }
 
-function inspectMessages(
+export function inspectMessages(
   messages: readonly unknown[],
   usage: { percent?: number | null; tokens?: number | null; contextWindow?: number | null } | undefined,
   warnPercent: number,

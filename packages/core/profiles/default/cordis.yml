@@ -98,6 +98,9 @@
     - id: turn-rewind
       name: "@pi-harness/core/plugins/turn-rewind"
       config: {}
+    - id: context-doctor
+      name: "@pi-harness/core/plugins/context-doctor"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

@@ -1,0 +1,22 @@
+{
+  "id": "context-doctor",
+  "packageName": "@pi-harness/core/plugins/context-doctor",
+  "version": "0.1.2",
+  "name": "Context Doctor",
+  "description": "Audit context pressure, oversized messages, and tool errors before a long task runs out of context.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "observability",
+    "label": "可观测性"
+  },
+  "capabilities": ["context audit", "compaction guidance", "tool error detection"],
+  "hooks": ["session messages", "context usage", "plugin UI"],
+  "profile": {
+    "name": "@pi-harness/core/plugins/context-doctor",
+    "config": {}
+  }
+}

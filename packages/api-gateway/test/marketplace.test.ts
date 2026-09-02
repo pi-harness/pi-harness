@@ -35,6 +35,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("token-guard")?.category.id).toBe("observability");
     expect(official.get("recall-unread")?.category.id).toBe("workflow");
     expect(official.get("turn-rewind")?.category.id).toBe("workflow");
+    expect(official.get("context-doctor")?.category.id).toBe("observability");
   });
 
   test("recognizes bundled core plugin subpaths without requiring an npm install", () => {
