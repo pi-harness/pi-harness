@@ -2955,12 +2955,22 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.generated === true ? (
-            <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
-              已生成 {value(data.name ?? "项目")} 的 README 概览：{value(data.scripts ?? 0)} 个脚本，{value(data.plugins ?? 0)} 个运行时插件。
-            </div>
+            <>
+              <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+                已生成 {value(data.name ?? "项目")} 的 README 概览：{value(data.scripts ?? 0)} 个脚本，{value(data.plugins ?? 0)} 个运行时插件。
+              </div>
+              {data.lastWrite && typeof data.lastWrite === "object" ? (
+                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[11px] text-[#315fb8]">
+                  已写入 {value((data.lastWrite as Record<string, unknown>).path ?? "README.generated.md")} ·{" "}
+                  {value((data.lastWrite as Record<string, unknown>).bytes ?? 0)} bytes
+                  {(data.lastWrite as Record<string, unknown>).overwritten === true ? " · 已覆盖" : " · 新文件"}
+                </div>
+              ) : null}
+              <p className="text-[10px] leading-4 text-[#8a949f]">需要落盘时调用 readme_write，并显式传入 confirm=true；默认写入 README.generated.md。</p>
+            </>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
-              还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿。
+              还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿，或调用 readme_write 写入确认后的文件。
             </div>
           )}
         </div>

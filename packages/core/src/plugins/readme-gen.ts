@@ -1,10 +1,33 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 
-type ReadmeReport = { name: string; version: string; description: string; scripts: string[]; plugins: string[]; markdown: string };
+export type ReadmeMetadata = { name: string; version: string; description: string; scripts: string[]; plugins: string[] };
+export type ReadmeReport = ReadmeMetadata & { markdown: string };
+export type ReadmeWriteReport = { path: string; bytes: number; overwritten: boolean };
+
+export function renderReadme(metadata: ReadmeMetadata): string {
+  const { name, version, description, scripts, plugins } = metadata;
+  return [
+    `# ${name}`,
+    "",
+    description,
+    "",
+    `Version: ${version}`,
+    "",
+    "## Scripts",
+    "",
+    ...(scripts.length ? scripts.map((script) => `- \`npm run ${script}\``) : ["- No npm scripts declared."]),
+    "",
+    "## Runtime plugins",
+    "",
+    ...(plugins.length ? plugins.map((plugin) => `- \`${plugin}\``) : ["- No runtime plugins reported."]),
+    "",
+  ].join("\n");
+}
 
 async function generate(context: Context): Promise<ReadmeReport> {
   const path = join(context.piHarnessLaunch.cwd, "package.json");
@@ -33,23 +56,42 @@ async function generate(context: Context): Promise<ReadmeReport> {
           .map((entry) => entry.options.name)
           .filter((plugin) => !plugin.startsWith("cordis:"))
           .sort();
-  const markdown = [
-    `# ${name}`,
-    "",
-    description,
-    "",
-    `Version: ${version}`,
-    "",
-    "## Scripts",
-    "",
-    ...(scripts.length ? scripts.map((script) => `- \`npm run ${script}\``) : ["- No npm scripts declared."]),
-    "",
-    "## Runtime plugins",
-    "",
-    ...(plugins.length ? plugins.map((plugin) => `- \`${plugin}\``) : ["- No runtime plugins reported."]),
-    "",
-  ].join("\n");
-  return { name, version, description, scripts, plugins, markdown };
+  const metadata = { name, version, description, scripts, plugins };
+  return { ...metadata, markdown: renderReadme(metadata) };
+}
+
+function outputPath(root: string, requested: string): string {
+  const value = requested.trim() || "README.generated.md";
+  if (value.length > 512 || value.includes("\\")) throw new Error("README output path must be a relative POSIX path of at most 512 characters");
+  const resolvedRoot = resolve(root);
+  const target = resolve(resolvedRoot, value);
+  const remainder = relative(resolvedRoot, target);
+  if (remainder === ".." || remainder.startsWith(`..${"/"}`) || remainder.startsWith("/")) throw new Error("README output path must stay inside the workspace");
+  return target;
+}
+
+export async function writeReadmeFile(root: string, markdown: string, requestedPath: string, confirm: boolean): Promise<ReadmeWriteReport> {
+  if (!confirm) throw new Error("Writing a README requires confirm=true");
+  const workspace = await realpath(resolve(root));
+  const target = outputPath(workspace, requestedPath);
+  const parent = dirname(target);
+  await mkdir(parent, { recursive: true });
+  const realParent = await realpath(parent);
+  const parentRemainder = relative(workspace, realParent);
+  if (parentRemainder === ".." || parentRemainder.startsWith(`..${"/"}`) || parentRemainder.startsWith("/"))
+    throw new Error("README output path must stay inside the workspace");
+  let overwritten = false;
+  try {
+    const metadata = await lstat(target);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) throw new Error("README output path must be a regular file and cannot be a symbolic link");
+    overwritten = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temporary = join(parent, `.${basename(target)}.${randomUUID()}.tmp`);
+  await writeFile(temporary, markdown, { encoding: "utf8", mode: 0o600 });
+  await rename(temporary, target);
+  return { path: relative(workspace, target), bytes: Buffer.byteLength(markdown, "utf8"), overwritten };
 }
 
 export default {
@@ -57,6 +99,7 @@ export default {
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   apply(context: Context) {
     let latest: ReadmeReport | undefined;
+    let lastWrite: ReadmeWriteReport | undefined;
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "readme_report",
@@ -70,17 +113,34 @@ export default {
         },
       }),
     );
+    const unregisterWrite = context.piTools.register(
+      defineTool({
+        name: "readme_write",
+        label: "Write README",
+        description: "Write the generated Markdown to a workspace file only after explicit confirmation; defaults to README.generated.md.",
+        promptSnippet: "write the generated README to a confirmed workspace path",
+        parameters: Type.Object({ outputPath: Type.Optional(Type.String()), confirm: Type.Boolean() }),
+        async execute(_toolCallId, params): Promise<AgentToolResult<ReadmeWriteReport>> {
+          const report = latest ?? (latest = await generate(context));
+          lastWrite = await writeReadmeFile(context.piHarnessLaunch.cwd, report.markdown, params.outputPath ?? "README.generated.md", params.confirm);
+          return { content: [{ type: "text", text: `README written: ${lastWrite.path} (${lastWrite.bytes} bytes)` }], details: lastWrite };
+        },
+      }),
+    );
     const disposePanel = context.piPluginUi.register({
       id: "readme-gen-panel",
       pluginId: "@pi-harness/core/plugins/readme-gen",
       title: "README Generator",
-      description: "从当前项目清单生成可复制的 Markdown 概览，不会自动覆盖 README 文件。",
+      description: "从当前项目清单生成 Markdown 概览；写入文件需要显式确认，默认不会覆盖 README。",
       icon: "▰",
       read: () =>
-        latest === undefined ? { generated: false } : { generated: true, name: latest.name, scripts: latest.scripts.length, plugins: latest.plugins.length },
+        latest === undefined
+          ? { generated: false, lastWrite: lastWrite ?? null }
+          : { generated: true, name: latest.name, scripts: latest.scripts.length, plugins: latest.plugins.length, lastWrite: lastWrite ?? null },
     });
     context.effect(() => () => {
       unregisterTool();
+      unregisterWrite();
       disposePanel();
     });
   },
