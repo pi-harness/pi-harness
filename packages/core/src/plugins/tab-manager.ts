@@ -42,14 +42,14 @@ async function persist(path: string, state: TabState): Promise<void> {
 
 export default {
   name: "pi-tab-manager",
-  inject: ["piHarnessLaunch", "piRuntime", "piPluginUi", "piTools"],
+  inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
   async apply(context: Context) {
     const path = join(context.piHarnessLaunch.agentDir, storageFile);
     let state = await readState(path);
     let writes = 0;
     const activeSession = (): { id: string; sessionPath: string } => ({
-      id: context.piRuntime.session.sessionId,
-      sessionPath: context.piRuntime.session.sessionFile ?? join(context.piHarnessLaunch.agentDir, `${context.piRuntime.session.sessionId}.jsonl`),
+      id: context.piSession.manager.getSessionId(),
+      sessionPath: context.piSession.manager.getSessionFile() ?? join(context.piHarnessLaunch.agentDir, `${context.piSession.manager.getSessionId()}.jsonl`),
     });
     const upsert = (id: string, sessionPath: string, label: string | undefined, pinned: boolean): Tab => {
       const now = new Date().toISOString();

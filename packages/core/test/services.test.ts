@@ -930,7 +930,7 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     const sessionPath = join(agentDir, "session-a.jsonl");
-    context.provide("piRuntime", { session: { sessionId: "session-a", sessionFile: sessionPath } } as never);
+    context.provide("piSession", { manager: { getSessionId: () => "session-a", getSessionFile: () => sessionPath } } as never);
     context.provide("piPluginUi", panels);
     context.provide("piTools", tools);
     await context.plugin(tabManagerPlugin);
