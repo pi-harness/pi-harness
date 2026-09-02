@@ -91,6 +91,7 @@ const capability = (name: string): string => {
     ["prompt-guard", "提示词防护"],
     ["code2skill", "技能打包"],
     ["tab-manager", "会话标签"],
+    ["genui", "结构化界面"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -137,6 +138,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/prompt-guard", "Prompt Guard"],
     ["@pi-harness/core/plugins/code2skill", "Code2Skill"],
     ["@pi-harness/core/plugins/tab-manager", "Session Tabs"],
+    ["@pi-harness/core/plugins/genui", "GenUI"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -1304,6 +1306,59 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             )}
           </div>
           <p className="text-[10px] text-[#8a949f]">输出目录：项目 .pi/skills/&lt;name&gt;，包含 SKILL.md 和原始参考文件。</p>
+        </div>
+      ) : panel.id === "genui-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const blocks = Array.isArray(report.blocks) ? report.blocks : [];
+              const toneClass: Record<string, string> = {
+                neutral: "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]",
+                info: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]",
+                success: "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]",
+                warning: "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]",
+                danger: "border-[#f4caca] bg-[#fff5f5] text-[#b42318]",
+              };
+              return (
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <strong className="text-[#30343b]">{String(report.title ?? "结构化卡片")}</strong>
+                    <span className="font-mono text-[#8a949f]">{String(data.rendered ?? 0)} 次</span>
+                  </div>
+                  {blocks.map((block, index) => {
+                    const item = block && typeof block === "object" ? (block as Record<string, unknown>) : {};
+                    const tone = String(item.tone ?? "neutral");
+                    const value = item.value;
+                    return item.type === "progress" ? (
+                      <div className={`rounded-lg border px-3 py-2 ${toneClass[tone] ?? toneClass.neutral}`} key={`${String(item.label)}-${index}`}>
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span>{String(item.label ?? "进度")}</span>
+                          <strong>{String(value ?? 0)}%</strong>
+                        </div>
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/70">
+                          <div className="h-full rounded-full bg-current" style={{ width: `${Math.max(0, Math.min(100, Number(value) || 0))}%` }} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`flex items-center justify-between rounded-lg border px-3 py-2 text-[11px] ${toneClass[tone] ?? toneClass.neutral}`}
+                        key={`${String(item.label)}-${index}`}
+                      >
+                        <span className="text-[#65707b]">{String(item.label ?? "")}</span>
+                        <strong>{String(value ?? "")}</strong>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有结构化卡片。可让 Agent 调用 genui_render。
+            </div>
+          )}
+          <p className="text-[10px] text-[#8a949f]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本处理。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">

@@ -122,6 +122,9 @@
     - id: tab-manager
       name: "@pi-harness/core/plugins/tab-manager"
       config: {}
+    - id: genui
+      name: "@pi-harness/core/plugins/genui"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

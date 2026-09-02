@@ -50,6 +50,7 @@ import workspaceSearchPlugin from "../src/plugins/workspace-search.js";
 import promptGuardPlugin from "../src/plugins/prompt-guard.js";
 import code2SkillPlugin from "../src/plugins/code2skill.js";
 import tabManagerPlugin from "../src/plugins/tab-manager.js";
+import genUiPlugin from "../src/plugins/genui.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -63,6 +64,7 @@ function waitForChromeEndpoint(chrome: ChildProcess): Promise<string> {
     }, 15_000);
     const cleanup = (): void => {
       clearTimeout(timer);
+      chrome.stdout?.off("data", onData);
       chrome.stderr?.off("data", onData);
       chrome.off("error", onError);
       chrome.off("exit", onExit);
@@ -82,6 +84,7 @@ function waitForChromeEndpoint(chrome: ChildProcess): Promise<string> {
       cleanup();
       reject(new Error(`Chrome exited before exposing DevTools (code ${code ?? "unknown"})`));
     };
+    chrome.stdout?.on("data", onData);
     chrome.stderr?.on("data", onData);
     chrome.on("error", onError);
     chrome.on("exit", onExit);
@@ -948,6 +951,36 @@ describe("Pi domain plugins", () => {
     ]);
   });
 
+  test("renders structured GenUI blocks without accepting executable markup", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(genUiPlugin);
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "genui_render");
+    expect(tool).toBeDefined();
+    await expect(
+      tool!.execute(
+        "call-1",
+        {
+          title: "Deploy status",
+          blocks: [
+            { type: "badge", label: "状态", value: "通过", tone: "success" },
+            { type: "progress", label: "覆盖率", value: "87", tone: "info" },
+            { type: "text", label: "说明", value: "<script>alert(1)</script>" },
+          ],
+        },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).resolves.toMatchObject({
+      details: { title: "Deploy status", blocks: [{ type: "badge" }, { type: "progress", value: 87 }, { type: "text", value: "<script>alert(1)</script>" }] },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "genui-panel", data: { rendered: 1, latest: { title: "Deploy status" } } }]);
+  });
+
   test("discovers and calls tools through an MCP stdio server", async () => {
     const { context, cwd } = await createContext();
     const server = join(cwd, "mcp-fixture.mjs");
@@ -1069,7 +1102,7 @@ describe("Pi domain plugins", () => {
     const chrome = execFile(
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       [
-        "--headless",
+        "--headless=new",
         "--disable-gpu",
         "--disable-software-rasterizer",
         "--disable-dev-shm-usage",
@@ -1117,7 +1150,7 @@ describe("Pi domain plugins", () => {
         details: { clicked: true },
       });
     } finally {
-      chrome.kill();
+      chrome.kill("SIGKILL");
       await new Promise<void>((resolve) => {
         if (chrome.exitCode !== null) resolve();
         else chrome.once("exit", () => resolve());
