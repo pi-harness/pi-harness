@@ -116,6 +116,7 @@ const capability = (name: string): string => {
     ["openpets", "桌面伙伴"],
     ["vision-toolkit", "视觉素材"],
     ["session-bridge", "会话交接"],
+    ["skill-guard", "Skill 安全"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -183,6 +184,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/vision-toolkit", "Vision Toolkit"],
     ["@pi-harness/core/plugins/plugin-stars", "Plugin Stars"],
     ["@pi-harness/core/plugins/session-bridge", "Session Bridge"],
+    ["@pi-harness/core/plugins/skill-guard", "Skill Guard"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -2022,6 +2024,54 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               Agent 可调用 workspace_search 检索当前工作区。
             </div>
           )}
+        </div>
+      ) : panel.id === "skill-guard-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ["已扫描", data?.total ?? 0],
+              ["高风险", data?.blocked ?? 0],
+              ["待复核", data?.review ?? 0],
+            ].map(([label, item]) => (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-2">
+            {Array.isArray(data?.reports) && data.reports.length > 0 ? (
+              data.reports.slice(0, 8).map((item, index) => {
+                const report = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const risk = report.risk;
+                const findings = Array.isArray(report.findings) ? report.findings : [];
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(report.name ?? "skill")}-${index}`}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-2 w-2 rounded-full ${risk === "blocked" ? "bg-[#d64545]" : risk === "review" ? "bg-[#e0a11a]" : "bg-[#22a06b]"}`}
+                      ></span>
+                      <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(report.name ?? "unknown")}</strong>
+                      <span className="text-[10px] text-[#8a949f]">{risk === "blocked" ? "阻断" : risk === "review" ? "复核" : "安全"}</span>
+                    </div>
+                    {findings.length > 0 ? (
+                      <p className="mt-1 truncate text-[10px] text-[#65707b]">
+                        {findings
+                          .map((finding) =>
+                            finding !== null && typeof finding === "object" ? value((finding as Record<string, unknown>).code ?? "finding") : value(finding),
+                          )
+                          .join(" · ")}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                暂无 Skill 扫描结果，可让 Agent 调用 skill_guard_scan。
+              </div>
+            )}
+          </div>
         </div>
       ) : panel.id === "prompt-guard-panel" ? (
         <div className="mt-3 grid gap-3">

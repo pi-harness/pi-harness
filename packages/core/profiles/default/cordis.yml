@@ -89,6 +89,9 @@
     - id: session-bridge
       name: "@pi-harness/core/plugins/session-bridge"
       config: {}
+    - id: skill-guard
+      name: "@pi-harness/core/plugins/skill-guard"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:

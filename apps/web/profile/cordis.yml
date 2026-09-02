@@ -190,6 +190,9 @@
     - id: session-bridge
       name: "@pi-harness/core/plugins/session-bridge"
       config: {}
+    - id: skill-guard
+      name: "@pi-harness/core/plugins/skill-guard"
+      config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
       config:
