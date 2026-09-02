@@ -132,6 +132,9 @@
       name: "@pi-harness/core/plugins/cost-meter"
       config:
         dailyBudget: 0
+    - id: undo-savepoint
+      name: "@pi-harness/core/plugins/undo-savepoint"
+      config: {}
     - id: skill-catalog
       name: "@pi-harness/core/plugins/skill-catalog"
       config: {}

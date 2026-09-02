@@ -93,6 +93,7 @@ const capability = (name: string): string => {
     ["plugin-check", "插件体检"],
     ["annotation", "批注上下文"],
     ["cost-meter", "成本账本"],
+    ["undo-savepoint", "恢复保存点"],
     ["skill-catalog", "技能目录"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
@@ -153,6 +154,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-check", "Plugin Check"],
     ["@pi-harness/core/plugins/annotation", "Annotations"],
     ["@pi-harness/core/plugins/cost-meter", "Cost Meter"],
+    ["@pi-harness/core/plugins/undo-savepoint", "Undo Savepoints"],
     ["@pi-harness/core/plugins/skill-catalog", "Skills Catalog"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
@@ -1514,6 +1516,47 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 </div>
               )}
               <div className="text-[10px] text-[#9aa3ad]">仅记录运行时报告的实际成本，不内置或猜测模型价格。</div>
+            </div>
+          );
+        })()
+      ) : panel.id === "undo-savepoint-panel" ? (
+        (() => {
+          const savepoints = Array.isArray(data?.savepoints) ? data.savepoints : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">保存点</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.count ?? savepoints.length)}</strong>
+                </div>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">跟踪路径</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">
+                    {value(Array.isArray(data?.trackedPaths) ? data.trackedPaths.length : 0)}
+                  </strong>
+                </div>
+              </div>
+              {savepoints.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {savepoints.slice(0, 6).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? "savepoint")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <code className="font-mono text-[10px] text-[#4176e6]">{value(item.id, "unknown")}</code>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.reason, "manual savepoint")}</strong>
+                          <span className="text-[9px] text-[#8a949f]">{value(item.fileCount, "0")} 文件</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未创建保存点。修改配置或插件代码前，让 Agent 调用 undo_savepoint 的 save 操作。
+                </div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">恢复操作要求 confirm=true；敏感文件、二进制文件和依赖目录不会进入保存点。</div>
             </div>
           );
         })()

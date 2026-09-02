@@ -67,6 +67,7 @@ import pluginCheckPlugin, { type PluginCheckScanReport } from "../src/plugins/pl
 import annotationPlugin from "../src/plugins/annotation.js";
 import costMeterPlugin from "../src/plugins/cost-meter.js";
 import skillCatalogPlugin from "../src/plugins/skill-catalog.js";
+import undoSavepointPlugin from "../src/plugins/undo-savepoint.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -1880,6 +1881,39 @@ describe("Pi domain plugins", () => {
     if (panel === undefined) throw new Error("cost-meter-panel was not registered");
     expect((panel.data as { entries: unknown[] }).entries).toHaveLength(1);
     expect(await readFile(join(agentDir, "cost-meter.json"), "utf8")).toContain("session-1");
+  });
+
+  test("creates, diffs, lists, and safely restores a workspace savepoint", async () => {
+    const { context, cwd, agentDir } = await createContext();
+    await mkdir(join(cwd, "src"), { recursive: true });
+    const target = join(cwd, "src", "note.txt");
+    await writeFile(target, "before\n", "utf8");
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(undoSavepointPlugin, { trackedPaths: ["src"], maxFiles: 20 });
+    const tool = tools.snapshot().customTools.find((entry) => entry.name === "undo_savepoint");
+    if (tool === undefined) throw new Error("undo_savepoint was not registered");
+
+    const saved = await tool.execute("save", { action: "save", reason: "before edit" }, undefined, undefined, {} as never);
+    expect(saved.details).toMatchObject({ action: "save", fileCount: 1 });
+    await writeFile(target, "after\n", "utf8");
+    const diff = await tool.execute("diff", { action: "diff", id: (saved.details as { id: string }).id }, undefined, undefined, {} as never);
+    expect(diff.details).toMatchObject({ changed: ["src/note.txt"] });
+    const denied = tool.execute("restore-denied", { action: "restore", id: (saved.details as { id: string }).id }, undefined, undefined, {} as never);
+    await expect(denied).rejects.toThrow(/confirm=true/);
+    const restored = await tool.execute(
+      "restore",
+      { action: "restore", id: (saved.details as { id: string }).id, confirm: true },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(restored.details).toMatchObject({ action: "restore", restored: ["src/note.txt"] });
+    expect(await readFile(target, "utf8")).toBe("before\n");
+    expect((await tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).details).toMatchObject({ count: 1 });
+    expect(await readFile(join(agentDir, "undo-savepoints", `${(saved.details as { id: string }).id}.json`), "utf8")).toContain("before edit");
   });
 
   test("lists loaded skills and MCP servers without exposing write operations", async () => {
