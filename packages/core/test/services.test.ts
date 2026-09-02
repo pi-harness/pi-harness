@@ -58,6 +58,8 @@ import genUiPlugin from "../src/plugins/genui.js";
 import anchoredStandardPlugin from "../src/plugins/anchored-standard.js";
 import telemetryBlockerPlugin from "../src/plugins/telemetry-blocker.js";
 import changeVerifierPlugin from "../src/plugins/change-verifier.js";
+import { buildSynapseGraph } from "../src/plugins/synapse.js";
+import synapsePlugin from "../src/plugins/synapse.js";
 
 const contexts: Context[] = [];
 const execFileAsync = promisify(execFile);
@@ -140,6 +142,75 @@ const modelConfig = { provider: "deepseek", model: "deepseek-v4-flash", refreshO
 const isolatedResources = { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } as const;
 
 describe("Pi domain plugins", () => {
+  test("projects session lineage into an active graph without duplicating session history", () => {
+    const sessions = [
+      {
+        path: "/sessions/root.jsonl",
+        id: "root",
+        cwd: "/workspace",
+        firstMessage: "Root task",
+        allMessagesText: "Root task",
+        messageCount: 2,
+        created: new Date("2026-09-01T00:00:00Z"),
+        modified: new Date("2026-09-01T01:00:00Z"),
+      },
+      {
+        path: "/sessions/child.jsonl",
+        id: "child",
+        cwd: "/workspace",
+        parentSessionPath: "/sessions/root.jsonl",
+        firstMessage: "Try branch",
+        allMessagesText: "Try branch",
+        messageCount: 1,
+        created: new Date("2026-09-01T02:00:00Z"),
+        modified: new Date("2026-09-01T03:00:00Z"),
+      },
+    ];
+
+    expect(buildSynapseGraph(sessions, "/sessions/child.jsonl")).toEqual({
+      nodes: [
+        {
+          id: "root",
+          sessionId: "root",
+          label: "Root task",
+          cwd: "/workspace",
+          messageCount: 2,
+          modified: "2026-09-01T01:00:00.000Z",
+          active: false,
+          branchCount: 1,
+        },
+        {
+          id: "child",
+          sessionId: "child",
+          label: "Try branch",
+          cwd: "/workspace",
+          parentSessionId: "root",
+          messageCount: 1,
+          modified: "2026-09-01T03:00:00.000Z",
+          active: true,
+          branchCount: 0,
+        },
+      ],
+      edges: [{ from: "root", to: "child", kind: "fork" }],
+      activeSessionId: "child",
+      orphanCount: 0,
+    });
+  });
+
+  test("registers a native-session map tool and panel", async () => {
+    const { context } = await createContext();
+    await context.plugin(sessionPlugin, { storage: "jsonl" });
+    await context.plugin(toolsPlugin, { names: [] });
+    await context.plugin(synapsePlugin, {});
+
+    expect(context.piTools.snapshot().customTools.map((tool) => tool.name)).toContain("synapse_session_map");
+    const panels = await context.piPluginUi.snapshot();
+    expect(panels).toHaveLength(1);
+    expect(panels[0]?.id).toBe("synapse-panel");
+    expect(panels[0]?.pluginId).toBe("@pi-harness/core/plugins/synapse");
+    expect(panels[0]?.data).toEqual({ nodes: [], edges: [], orphanCount: 0, refreshes: 1 });
+  });
+
   test("fails activation when the selected model does not exist", async () => {
     const { context } = await createContext();
 

@@ -113,6 +113,9 @@
     - id: taskboard
       name: "@pi-harness/core/plugins/taskboard"
       config: {}
+    - id: synapse
+      name: "@pi-harness/core/plugins/synapse"
+      config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
       config: {}

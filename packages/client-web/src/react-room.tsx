@@ -86,6 +86,7 @@ const capability = (name: string): string => {
     ["plan-execute", "计划执行"],
     ["plugin-finder", "插件发现"],
     ["taskboard", "任务看板"],
+    ["synapse", "会话地图"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -139,6 +140,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plan-execute", "Plan Execute"],
     ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
     ["@pi-harness/core/plugins/taskboard", "Taskboard"],
+    ["@pi-harness/core/plugins/synapse", "Synapse"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1358,6 +1360,84 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
+            </div>
+          );
+        })()
+      ) : panel.id === "synapse-panel" ? (
+        (() => {
+          const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+          const edges = Array.isArray(data?.edges) ? data.edges : [];
+          const nodeById = new Map(
+            nodes.filter((entry): entry is Record<string, unknown> => entry !== null && typeof entry === "object").map((entry) => [value(entry.id), entry]),
+          );
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["会话", data?.nodes ?? 0],
+                  ["分支", data?.edges ?? 0],
+                  ["孤儿", data?.orphanCount ?? 0],
+                ].map(([label, count]) => (
+                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                  </div>
+                ))}
+              </div>
+              {data?.activeSessionId ? (
+                <div className="rounded-lg border border-[#b9d0ff] bg-[#f1f6ff] px-3 py-2 text-[10px] text-[#315fb8]">
+                  当前会话：<code className="font-mono">{value(data.activeSessionId)}</code>
+                </div>
+              ) : null}
+              {nodes.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                    最近会话 {Math.min(nodes.length, 8)} / {nodes.length}
+                  </li>
+                  {nodes.slice(0, 8).map((entry, index) => {
+                    const node = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li
+                        className={`rounded-lg border px-3 py-2 ${node.active === true ? "border-[#b9d0ff] bg-[#f7faff]" : "border-[#edf0f3] bg-white"}`}
+                        key={`${value(node.id ?? "session")}-${index}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${node.active === true ? "bg-[#4176e6]" : "bg-[#c4ccd6]"}`}></span>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(node.label ?? node.sessionId ?? "未命名会话")}</strong>
+                          <span className="font-mono text-[9px] text-[#8a949f]">{value(node.messageCount ?? 0)} 条消息</span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#9aa3ad]">
+                          <span className="min-w-0 flex-1 truncate font-mono">{value(node.cwd ?? "未知工作区")}</span>
+                          <span>{value(node.branchCount ?? 0)} 个分支</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前工作区还没有可投影的持久化会话。</div>
+              )}
+              {edges.length > 0 ? (
+                <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-2">
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">Fork 关系</span>
+                  {edges.slice(0, 5).map((entry, index) => {
+                    const edge = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const from = nodeById.get(value(edge.from));
+                    const to = nodeById.get(value(edge.to));
+                    return (
+                      <div
+                        className="flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-[#65707b]"
+                        key={`${value(edge.from)}-${value(edge.to)}-${index}`}
+                      >
+                        <span className="truncate">{value(from?.label ?? edge.from)}</span>
+                        <span className="shrink-0 text-[#4176e6]">→ fork →</span>
+                        <span className="truncate">{value(to?.label ?? edge.to)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <div className="text-[10px] text-[#9aa3ad]">数据来源：Pi 原生 JSONL 会话；Agent 可调用 synapse_session_map 刷新。</div>
             </div>
           );
         })()
