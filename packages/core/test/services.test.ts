@@ -980,13 +980,18 @@ describe("Pi domain plugins", () => {
 
   test("searches a configured npm registry through the plugin-finder plugin", async () => {
     const server = createServer((request, response) => {
-      expect(request.url).toContain("/-/v1/search?text=keywords%3Acordis-plugin+logger&size=5");
+      expect(request.url).toContain("/-/v1/search?text=keywords%3Api-harness+logger&size=5");
       response.setHeader("content-type", "application/json");
       response.end(
         JSON.stringify({
           objects: [
             {
-              package: { name: "@example/cordis-plugin-logger", version: "1.2.3", description: "Logger plugin", links: { npm: "https://npm.example/plugin" } },
+              package: {
+                name: "@example/pi-harness-plugin-logger",
+                version: "1.2.3",
+                description: "Logger plugin",
+                links: { npm: "https://npm.example/plugin" },
+              },
               score: { final: 0.91 },
             },
           ],
@@ -1010,10 +1015,10 @@ describe("Pi domain plugins", () => {
       const search = tools.snapshot().customTools.find((candidate) => candidate.name === "plugin_search");
       expect(search).toBeDefined();
       await expect(search!.execute("call-1", { query: "logger" }, undefined, undefined, {} as never)).resolves.toMatchObject({
-        details: { query: "logger", total: 1, results: [{ name: "@example/cordis-plugin-logger", version: "1.2.3", score: 0.91 }] },
+        details: { query: "logger", total: 1, results: [{ name: "@example/pi-harness-plugin-logger", version: "1.2.3", score: 0.91 }] },
       });
       await expect(panels.snapshot()).resolves.toMatchObject([
-        { id: "plugin-finder-panel", data: { query: "logger", total: 1, results: [{ name: "@example/cordis-plugin-logger" }] } },
+        { id: "plugin-finder-panel", data: { query: "logger", total: 1, results: [{ name: "@example/pi-harness-plugin-logger" }] } },
       ]);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));

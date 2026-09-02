@@ -10,7 +10,7 @@
   "source": "official",
   "status": "verified",
   "category": { "id": "discovery", "label": "发现与生态" },
-  "capabilities": ["plugin search", "registry lookup", "install handoff"],
+  "capabilities": ["plugin search", "Pi registry keyword", "registry lookup", "install handoff"],
   "hooks": ["npm registry", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/plugin-finder", "config": {} }
+  "profile": { "name": "@pi-harness/core/plugins/plugin-finder", "config": { "keyword": "pi-harness" } }
 }

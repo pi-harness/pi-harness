@@ -1765,7 +1765,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">只读 Registry 搜索</span>
-            <span className="font-mono text-[#65707b]">上限 {value(data?.limit ?? "—")}</span>
+            <span className="font-mono text-[#65707b]">
+              关键词 {value(data?.keyword ?? "pi-harness")} · 上限 {value(data?.limit ?? "—")}
+            </span>
           </div>
           {data?.query ? (
             <>
