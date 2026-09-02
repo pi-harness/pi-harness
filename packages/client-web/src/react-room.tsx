@@ -85,6 +85,7 @@ const capability = (name: string): string => {
     ["auto-mode", "安全执行"],
     ["plan-execute", "计划执行"],
     ["plugin-finder", "插件发现"],
+    ["taskboard", "任务看板"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -137,6 +138,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/auto-mode", "Auto Mode"],
     ["@pi-harness/core/plugins/plan-execute", "Plan Execute"],
     ["@pi-harness/core/plugins/plugin-finder", "Plugin Finder"],
+    ["@pi-harness/core/plugins/taskboard", "Taskboard"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -1274,6 +1276,88 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </div>
               ) : null}
+            </div>
+          );
+        })()
+      ) : panel.id === "taskboard-panel" ? (
+        (() => {
+          const counts = data?.counts !== null && typeof data?.counts === "object" ? (data.counts as Record<string, unknown>) : {};
+          const recent = Array.isArray(data?.recent) ? data.recent : [];
+          const lanes = [
+            ["待办", "todo", "bg-[#edf3fe] text-[#315fb8]"],
+            ["进行中", "in_progress", "bg-[#fff4e5] text-[#a15c00]"],
+            ["待验收", "in_review", "bg-[#f0edff] text-[#6b4fc3]"],
+            ["已完成", "done", "bg-[#eaf8f0] text-[#198754]"],
+          ] as const;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                <span className="text-[#65707b]">当前工作区任务</span>
+                <strong className="font-mono text-[#4176e6]">{value(data?.total ?? 0)} 个</strong>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {lanes.map(([label, key, color]) => (
+                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={key}>
+                    <div className="flex items-center justify-between text-[10px] text-[#8a949f]">
+                      <span>{label}</span>
+                      <span className={`rounded px-1.5 py-0.5 ${color}`}>{value(counts[key] ?? 0)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {recent.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                    最近任务 {Math.min(recent.length, 5)} / {value(data?.total ?? recent.length)}
+                  </li>
+                  {recent.slice(0, 5).map((entry, index) => {
+                    const task = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const status = typeof task.status === "string" ? task.status : "unknown";
+                    const priority = typeof task.priority === "string" ? task.priority : "medium";
+                    const statusLabel =
+                      status === "backlog"
+                        ? "待规划"
+                        : status === "todo"
+                          ? "待办"
+                          : status === "in_progress"
+                            ? "进行中"
+                            : status === "in_review"
+                              ? "待验收"
+                              : status === "blocked"
+                                ? "阻塞"
+                                : status === "canceled"
+                                  ? "已取消"
+                                  : status === "done"
+                                    ? "已完成"
+                                    : "未知";
+                    const statusClass =
+                      status === "done"
+                        ? "bg-[#eaf8f0] text-[#198754]"
+                        : status === "blocked" || status === "canceled"
+                          ? "bg-[#fff5f5] text-[#b42318]"
+                          : status === "unknown"
+                            ? "bg-[#f2f3f5] text-[#65707b]"
+                            : "bg-[#edf3fe] text-[#315fb8]";
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(task.id ?? "task")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <code className="font-mono text-[10px] text-[#4176e6]">{value(task.key ?? "PIH-?")}</code>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</strong>
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] ${statusClass}`}>{statusLabel}</span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#9aa3ad]">
+                          <span>优先级 {priority}</span>
+                          {task.dueDate ? <span>截止 {value(task.dueDate)}</span> : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
+                </div>
+              )}
             </div>
           );
         })()

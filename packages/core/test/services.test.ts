@@ -47,6 +47,7 @@ import planExecutePlugin from "../src/plugins/plan-execute.js";
 import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
 import memoryPlugin from "../src/plugins/memory.js";
 import graphMemoryPlugin from "../src/plugins/graph-memory.js";
+import taskboardPlugin from "../src/plugins/taskboard.js";
 import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
 import imageCompressorPlugin from "../src/plugins/image-compressor.js";
 import workspaceSearchPlugin from "../src/plugins/workspace-search.js";
@@ -933,6 +934,46 @@ describe("Pi domain plugins", () => {
     ]);
     const persisted = JSON.parse(await readFile(join(first.agentDir, "graph-memory.json"), "utf8")) as { nodes: Array<{ label: string }> };
     expect(persisted.nodes.map((node) => node.label).sort()).toEqual(["Concurrent A", "Concurrent B"]);
+  });
+
+  test("persists taskboard workflow with stable keys and guarded completion", async () => {
+    const first = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    first.context.provide("piTools", tools);
+    first.context.provide("piPluginUi", panels);
+    await first.context.plugin(taskboardPlugin);
+    const create = tools.snapshot().customTools.find((candidate) => candidate.name === "taskboard_create");
+    const list = tools.snapshot().customTools.find((candidate) => candidate.name === "taskboard_list");
+    const update = tools.snapshot().customTools.find((candidate) => candidate.name === "taskboard_update");
+    const accept = tools.snapshot().customTools.find((candidate) => candidate.name === "taskboard_accept");
+    expect(create).toBeDefined();
+    expect(list).toBeDefined();
+    expect(update).toBeDefined();
+    expect(accept).toBeDefined();
+    const created = await create!.execute("call-1", { title: "Ship Graph Memory", priority: "high" }, undefined, undefined, {} as never);
+    expect(created.details).toMatchObject({ key: "PIH-1", status: "backlog", priority: "high" });
+    await expect(update!.execute("call-2", { key: "PIH-1", status: "done" }, undefined, undefined, {} as never)).rejects.toThrow(/in_review/iu);
+    await expect(update!.execute("call-3", { key: "PIH-1", status: "in_review" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { key: "PIH-1", status: "in_review" },
+    });
+    await expect(accept!.execute("call-4", { key: "PIH-1", confirm: false }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/iu);
+    await expect(accept!.execute("call-5", { key: "PIH-1", confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { key: "PIH-1", status: "done" },
+    });
+    await expect(list!.execute("call-6", { status: "done" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 1, tasks: [{ key: "PIH-1" }] },
+    });
+    await first.context.fiber.dispose();
+
+    const second = new Context();
+    contexts.push(second);
+    provideLaunchContext(second, { cwd: first.cwd, agentDir: first.agentDir, args: [], requestExit() {} });
+    const secondPanels = new PiPluginUiRegistry();
+    second.provide("piTools", new PiToolRegistry());
+    second.provide("piPluginUi", secondPanels);
+    await second.plugin(taskboardPlugin);
+    await expect(secondPanels.snapshot()).resolves.toMatchObject([{ id: "taskboard-panel", data: { total: 1, counts: { done: 1 } } }]);
   });
 
   test("generates validated Mermaid diagrams through the canvas draw plugin", async () => {
