@@ -452,31 +452,110 @@ function SessionDialog({
       : kind === "archive"
         ? "归档后会从默认列表隐藏，之后仍可在会话工具中恢复。"
         : `将永久删除${count && count > 1 ? ` ${count} 个会话` : "这个会话"}及其本地记录，此操作不可撤销。`;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!busy) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [busy, onClose]);
   return (
-    <div className="session-dialog-backdrop" onClick={onClose}>
+    <div
+      className="session-dialog-backdrop"
+      onClick={() => {
+        if (!busy) onClose();
+      }}
+    >
       <div aria-label={title} aria-modal="true" className="session-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
         <header className="session-dialog-header">
           <div>
             <strong>{title}</strong>
             <small>{description}</small>
           </div>
-          <button aria-label="关闭" onClick={onClose} type="button">
+          <button aria-label="关闭" disabled={busy} onClick={onClose} type="button">
             ×
           </button>
         </header>
         {kind === "rename" && (
           <label className="session-dialog-field">
             <span>名称</span>
-            <input autoFocus onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onConfirm()} value={draft} />
+            <input
+              autoFocus
+              disabled={busy}
+              onChange={(event) => onChange(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && !busy && onConfirm()}
+              value={draft}
+            />
           </label>
         )}
         {name && kind !== "rename" && <div className="session-dialog-target">{name}</div>}
         <footer className="session-dialog-actions">
-          <button autoFocus={kind !== "rename"} onClick={onClose} type="button">
+          <button autoFocus={kind !== "rename"} disabled={busy} onClick={onClose} type="button">
             取消
           </button>
           <button className={destructive ? "danger" : "primary"} disabled={busy || (kind === "rename" && !draft.trim())} onClick={onConfirm} type="button">
             {busy ? "处理中…" : kind === "rename" ? "保存名称" : kind === "archive" ? "归档" : "永久删除"}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  description,
+  target,
+  confirmLabel,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  title: string;
+  description: string;
+  target?: string;
+  confirmLabel: string;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!busy) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [busy, onClose]);
+  return (
+    <div
+      className="session-dialog-backdrop"
+      onClick={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <div aria-label={title} aria-modal="true" className="session-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+        <header className="session-dialog-header">
+          <div>
+            <strong>{title}</strong>
+            <small>{description}</small>
+          </div>
+          <button aria-label="关闭" disabled={busy} onClick={onClose} type="button">
+            ×
+          </button>
+        </header>
+        {target && <div className="session-dialog-target">{target}</div>}
+        <footer className="session-dialog-actions">
+          <button autoFocus disabled={busy} onClick={onClose} type="button">
+            取消
+          </button>
+          <button className="danger" disabled={busy} onClick={onConfirm} type="button">
+            {busy ? "处理中…" : confirmLabel}
           </button>
         </footer>
       </div>
@@ -686,6 +765,7 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const commit = () => {
     const text = message.trim();
     if (!text || busy) return;
@@ -704,7 +784,8 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
       .finally(() => setBusy(false));
   };
   const revert = () => {
-    if (!files.length || busy || !window.confirm("撤销这些未提交改动？此操作不可恢复。")) return;
+    if (!files.length || busy) return;
+    setRevertConfirmOpen(false);
     setBusy(true);
     setError("");
     void api
@@ -720,9 +801,7 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
           <strong>本次会话改动</strong>
           <span>由 /api/files 提供</span>
         </div>
-        <div className="file-summary">
-          {files.length} 个文件 · {additions} 个新增 · {deletions} 个删除
-        </div>
+        <div className="file-summary">{`${files.length} 个文件 · ${additions} 个新增 · ${deletions} 个删除`}</div>
         <div className="file-list">
           {files.length ? (
             files.map((file) => (
@@ -745,13 +824,24 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
             <button className="primary" disabled={busy || !message.trim()} onClick={commit} type="button">
               {busy ? "处理中…" : "提交这些改动"}
             </button>
-            <button disabled={busy} onClick={revert} type="button">
+            <button disabled={busy} onClick={() => setRevertConfirmOpen(true)} type="button">
               全部撤销
             </button>
           </div>
         )}
-        {error && <p className="action-error">{error}</p>}
+        {error && <p className="files-error">{error}</p>}
       </div>
+      {revertConfirmOpen && (
+        <ConfirmDialog
+          busy={busy}
+          confirmLabel="确认撤销"
+          description="这会丢弃当前工作区的全部未提交改动，此操作不可恢复。"
+          onClose={() => setRevertConfirmOpen(false)}
+          onConfirm={revert}
+          target={`${files.length} 个文件`}
+          title="撤销全部改动"
+        />
+      )}
     </section>
   );
 }
@@ -772,7 +862,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
   const pluginEntries = data && Array.isArray(data.entries) ? data.entries : [];
   const capabilities = data && Array.isArray(data.capabilities) ? data.capabilities : [];
   return (
-    <div className={inline ? "pt-1" : "rounded-[14px] border border-[#e3e7ee] bg-white p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]"}>
+    <div className={`plugin-panel-card ${inline ? "pt-1" : "rounded-[10px] border border-[#e3e7ee] bg-white p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]"}`}>
       <header className="flex items-start gap-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#edf3fe] font-mono text-[15px] text-[#4176e6]">
           {panel.icon ?? "◈"}
@@ -3855,10 +3945,10 @@ function PluginUninstallDialog({
 }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy) return;
+      if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      onCancel();
+      if (!busy) onCancel();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -3977,9 +4067,7 @@ function Plugins({
             type="search"
             value={query}
           />
-          <span aria-live="polite">
-            {query.trim() ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}`} 个插件
-          </span>
+          <span aria-live="polite">{query.trim() ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}`} 个插件</span>
         </div>
         <div className="plugins-scroll" ref={scrollRef}>
           <div className="plugins-list">
@@ -4010,12 +4098,14 @@ function Plugins({
                         <>
                           <button
                             aria-label={`${plugin.enabled ? "停用" : "启用"} ${pluginTitle}`}
-                            className={`switch ${plugin.enabled ? "on" : ""}`}
+                            className="plugin-switch-button"
                             disabled={busyPlugin !== undefined}
                             onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
                             type="button"
                           >
-                            <i></i>
+                            <span aria-hidden="true" className={`switch ${plugin.enabled ? "on" : ""}`}>
+                              <i></i>
+                            </span>
                           </button>
                           <button
                             className="plugin-uninstall"
@@ -4496,25 +4586,15 @@ function Marketplace({
           {installNotice && <p className="mt-2 text-[11px] text-[#4176e6]">{installNotice}</p>}
           {installError && <p className="mt-2 text-[11px] text-[#ec1313]">安装失败：{installError}</p>}
           <div className="marketplace-pagination">
-            <button
-              className="marketplace-pagination-button"
-              disabled={page === 0}
-              onClick={() => onPageChange(page - 1)}
-              type="button"
-            >
+            <button className="marketplace-pagination-button" disabled={page === 0} onClick={() => onPageChange(page - 1)} type="button">
               上一页
             </button>
             <span>第 {page + 1} 页</span>
-            <button
-              className="marketplace-pagination-button"
-              disabled={!hasNext}
-              onClick={() => onPageChange(page + 1)}
-              type="button"
-            >
+            <button className="marketplace-pagination-button" disabled={!hasNext} onClick={() => onPageChange(page + 1)} type="button">
               下一页
             </button>
           </div>
-          <div className="mt-3 flex items-center gap-2.5 rounded-[10px] border border-dashed border-[#b8ccf5] bg-[#f8f9ff] p-2.5 text-[11.5px] text-[#81858c]">
+          <div className="marketplace-contribute mt-3 flex items-center gap-2.5 rounded-[10px] border border-dashed border-[#b8ccf5] bg-[#f8f9ff] p-2.5 text-[11.5px] text-[#81858c]">
             <strong className="text-[12px] text-[#0f1115]">你有一个 Pi Harness 插件？</strong>
             <span>在 entries 目录新增一个元数据文件，附测试和 README 后提交 PR；审核通过后会出现在这里。</span>
             <a
@@ -4600,12 +4680,7 @@ function MarketplaceDetail({
                 </code>
               </div>
               <div className="plugin-detail-actions">
-                <button
-                  className="plugin-detail-action primary"
-                  disabled={installed || busy}
-                  onClick={() => void install()}
-                  type="button"
-                >
+                <button className="plugin-detail-action primary" disabled={installed || busy} onClick={() => void install()} type="button">
                   {installed ? "已安装" : busy ? "安装中…" : "安装插件"}
                 </button>
               </div>
@@ -4813,9 +4888,7 @@ function Settings({
                     <strong>任务结束提醒插件</strong>
                     <small>由 CLI Notifier 提供，具体目标在插件配置中管理</small>
                   </div>
-                  <span className={`setting-status ${notifierActive ? "on" : ""}`}>
-                    {notifierActive ? "已加载" : "未加载"}
-                  </span>
+                  <span className={`setting-status ${notifierActive ? "on" : ""}`}>{notifierActive ? "已加载" : "未加载"}</span>
                 </div>
                 <div className="general-row">
                   <div>
@@ -4847,21 +4920,30 @@ function Settings({
                 {providerAddOpen && (
                   <div
                     className="provider-add-overlay"
-                    onClick={() => setProviderAddOpen(false)}
+                    onClick={() => {
+                      if (!providerBusy.__add) setProviderAddOpen(false);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Escape") {
                         event.stopPropagation();
-                        setProviderAddOpen(false);
+                        if (!providerBusy.__add) setProviderAddOpen(false);
                       }
                     }}
                   >
-                    <div aria-label="添加提供商" aria-modal="true" className="provider-add-modal" onClick={(event) => event.stopPropagation()} role="dialog">
+                    <div
+                      aria-busy={providerBusy.__add}
+                      aria-label="添加提供商"
+                      aria-modal="true"
+                      className="provider-add-modal"
+                      onClick={(event) => event.stopPropagation()}
+                      role="dialog"
+                    >
                       <header>
                         <div>
                           <strong>添加自定义提供商</strong>
                           <small>注册 OpenAI 兼容接口，凭据只提交到本机 Pi runtime。</small>
                         </div>
-                        <button aria-label="关闭添加提供商" onClick={() => setProviderAddOpen(false)} type="button">
+                        <button aria-label="关闭添加提供商" disabled={providerBusy.__add} onClick={() => setProviderAddOpen(false)} type="button">
                           ×
                         </button>
                       </header>
@@ -5668,8 +5750,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
   const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
   const workspaceReady =
-    !workspaceChooserOpen &&
-    Boolean(selectedWorkspacePath || data.status?.cwd || data.workspaces.find((workspace) => workspace.current)?.path || data.session);
+    !workspaceChooserOpen && Boolean(selectedWorkspacePath || data.status?.cwd || data.workspaces.find((workspace) => workspace.current)?.path || data.session);
   const installedPluginCount = useMemo(() => {
     const panelPluginIds = new Set(data.pluginPanels.map((panel) => panel.pluginId));
     return data.plugins.filter((plugin) => plugin.removable || panelPluginIds.has(plugin.name)).length;
@@ -5700,10 +5781,25 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     else params.delete("marketplacePage");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [installedPluginId, marketplaceCapability, marketplaceCategory, marketplacePage, marketplacePluginId, marketplaceQuery, page, selectedSessionPath, settings, view]);
+  }, [
+    installedPluginId,
+    marketplaceCapability,
+    marketplaceCategory,
+    marketplacePage,
+    marketplacePluginId,
+    marketplaceQuery,
+    page,
+    selectedSessionPath,
+    settings,
+    view,
+  ]);
   useEffect(() => {
     const onPopState = () => {
       const next = readQueryState();
+      setCommandOpen(false);
+      setGlobalSearchOpen(false);
+      setSessionMenuOpen(false);
+      setDetails(undefined);
       setPage(next.page);
       setView(next.view);
       setSettings(next.settings);
@@ -5854,6 +5950,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         setSettings(undefined);
         setCommandOpen(false);
         setGlobalSearchOpen(false);
+        setDetails(undefined);
         setWorkspaceChooserOpen(false);
         setSelectedWorkspacePath(workspace?.path);
         setCommandQuery("");
@@ -5940,6 +6037,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           setCommandQuery("");
           return;
         }
+        if (details !== undefined) {
+          setDetails(undefined);
+          return;
+        }
         setCommandOpen(false);
         setSessionMenuOpen(false);
         setSessionToolsOpen(false);
@@ -5953,12 +6054,15 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
+        setCommandOpen(false);
+        setGlobalSearchOpen(false);
+        setDetails(undefined);
         setSettings("general");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commandOpen, globalSearchOpen, sessionDialog]);
+  }, [commandOpen, details, globalSearchOpen, sessionDialog]);
   const events = data.session?.events ?? [];
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
   useEffect(() => {
@@ -6021,6 +6125,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     setGlobalSearchOpen(false);
     setPage("session");
     setView("chat");
+    setDetails(undefined);
     setSelectedSessionPath(path);
     void api
       .openSession(path)
@@ -6074,6 +6179,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     const query = params.toString();
     window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
     setSettings(undefined);
+    setDetails(undefined);
+    setCommandOpen(false);
+    setGlobalSearchOpen(false);
+    setSessionMenuOpen(false);
+    setSessionMenuPath(undefined);
     setPage("plugins");
     setInstalledPluginId(pluginId);
     setMarketplacePluginId(undefined);
@@ -6087,6 +6197,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     const query = params.toString();
     window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
     setSettings(undefined);
+    setDetails(undefined);
+    setCommandOpen(false);
+    setGlobalSearchOpen(false);
+    setSessionMenuOpen(false);
+    setSessionMenuPath(undefined);
     setPage("marketplace");
     setInstalledPluginId(undefined);
     setMarketplacePluginId(pluginId);
@@ -6104,6 +6219,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         setSettings(undefined);
         setPage("session");
         setView("chat");
+        setDetails(undefined);
       }}
     />
   ) : page === "plugins" && installedPluginId && installedPlugin ? (
@@ -6146,7 +6262,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       marketplace={data.marketplace}
       onMarketplace={() => pushMarketplacePluginRoute(undefined)}
       onOpenDetail={(plugin) => pushInstalledPluginRoute(plugin.name)}
-      onToml={() => setSettings("toml")}
+      onToml={() => {
+        setDetails(undefined);
+        setSettings("toml");
+      }}
       onToggle={async (plugin) => {
         await api.togglePlugin(plugin.id, !plugin.enabled);
         await refresh();
@@ -6184,9 +6303,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </a>
             <span>插件详情</span>
           </div>
-          <div className="empty-state">
-            {marketplaceDetailPending ? "正在读取插件详情…" : marketplaceDetailError || "没有找到这个市场插件，它可能已下架。"}
-          </div>
+          <div className="empty-state">{marketplaceDetailPending ? "正在读取插件详情…" : marketplaceDetailError || "没有找到这个市场插件，它可能已下架。"}</div>
         </div>
       </section>
     ) : (
@@ -6215,7 +6332,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         onOpenDetail={(plugin) => pushMarketplacePluginRoute(plugin.id)}
         onPageChange={setMarketplacePage}
         onBack={() => pushInstalledPluginRoute(undefined)}
-        onToml={() => setSettings("toml")}
+        onToml={() => {
+          setDetails(undefined);
+          setSettings("toml");
+        }}
         installedPackages={installedPackages}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
@@ -6262,7 +6382,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             workspaces={data.workspaces}
             onCreate={(workspace) => void createNewSession(workspace)}
             onStarter={setDraft}
-            onToml={() => setSettings("toml")}
+            onToml={() => {
+              setDetails(undefined);
+              setSettings("toml");
+            }}
           />
         )}
         {streamingAssistant && data.status?.status === "running" && (
@@ -6708,7 +6831,20 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                     type="checkbox"
                   />
                 )}
-                <button className="session-row active" onClick={() => void refresh()} type="button">
+                <button
+                  className="session-row active"
+                  onClick={() => {
+                    setSettings(undefined);
+                    setCommandOpen(false);
+                    setGlobalSearchOpen(false);
+                    setPage("session");
+                    setView("chat");
+                    setDetails(undefined);
+                    setSessionMenuOpen(false);
+                    void refresh();
+                  }}
+                  type="button"
+                >
                   <span className="session-dot ok"></span>
                   <span className="session-copy">
                     <strong>{data.session.messages.length ? data.session.sessionId.slice(0, 12) : "新会话"}</strong>
@@ -6884,17 +7020,24 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           </div>
           <button
             className={`sidebar-link ${page === "plugins" || page === "marketplace" ? "active" : ""}`}
-            onClick={() => {
-              setPage("plugins");
-              setInstalledPluginId(undefined);
-              setSettings(undefined);
-            }}
+            onClick={() => pushInstalledPluginRoute(undefined)}
             type="button"
           >
             ◈ <span>插件</span>
             <b>{installedPluginCount}</b>
           </button>
-          <button className={`sidebar-link ${settings ? "active" : ""}`} onClick={() => setSettings("general")} type="button">
+          <button
+            className={`sidebar-link ${settings ? "active" : ""}`}
+            onClick={() => {
+              setCommandOpen(false);
+              setGlobalSearchOpen(false);
+              setSessionMenuOpen(false);
+              setSessionMenuPath(undefined);
+              setDetails(undefined);
+              setSettings("general");
+            }}
+            type="button"
+          >
             ⚙ <span>设置</span>
           </button>
         </footer>
@@ -6944,7 +7087,15 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           {!settings && page === "session" && (
             <div className="view-tabs">
               {(["chat", "trajectory", "files"] as const).map((item) => (
-                <button className={`view-tab ${view === item ? "active" : ""}`} key={item} onClick={() => setView(item)} type="button">
+                <button
+                  className={`view-tab ${view === item ? "active" : ""}`}
+                  key={item}
+                  onClick={() => {
+                    setView(item);
+                    setDetails(undefined);
+                  }}
+                  type="button"
+                >
                   {item === "chat" ? "对话" : item === "trajectory" ? "轨迹" : "产出"}
                 </button>
               ))}
@@ -7030,7 +7181,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         </header>
         <div className="view-host">{content}</div>
       </section>
-      {details !== undefined && (
+      {!settings && page === "session" && details !== undefined && (
         <Details
           event={Object.keys(details).length ? details : undefined}
           onClose={() => setDetails(undefined)}
