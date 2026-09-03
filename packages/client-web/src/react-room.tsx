@@ -20,7 +20,7 @@ import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
-import { marketplaceCategoryTabs, readMarketplaceDetailId } from "./marketplace-navigation.js";
+import { marketplaceCategoryTabs, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
 import { pluginStarsRows } from "./plugin-stars-view.js";
 import { browserSessionTabs } from "./browser-session-view.js";
 
@@ -4067,7 +4067,7 @@ function Marketplace({
           <div>
             <small>COMMUNITY MARKETPLACE</small>
             <h2>发现社区插件</h2>
-            <p>可审查的社区目录。每个条目都包含 npm 包、版本、许可证和配置入口。</p>
+            <p>可审查的社区目录。推荐顺序综合验证状态、npm 质量分、近 30 天下载量和 npm 更新时间。</p>
           </div>
           <div className="marketplace-hero-actions">
             <button onClick={onBack} type="button">
@@ -4094,7 +4094,7 @@ function Marketplace({
               </option>
             ))}
           </select>
-          <span className="marketplace-count">{total} 个已审核条目</span>
+          <span className="marketplace-count">{total} 个已审核条目 · 推荐排序</span>
         </div>
         <nav aria-label="插件分类" className="flex min-w-0 gap-1 overflow-x-auto border-b border-black/[0.08] bg-white px-5 py-2.5">
           {categoryTabs.map((category) => {
@@ -4162,6 +4162,16 @@ function Marketplace({
                         </span>
                       ))}
                     </div>
+                    {plugin.statistics && (
+                      <div className="mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
+                        {marketplaceStatisticItems(plugin.statistics).map((item) => (
+                          <span className="min-w-0 px-2 py-1.5" key={item.label} title={`${item.label} ${item.value}`}>
+                            <small className="block truncate text-[9px] text-[#8a949f]">{item.label}</small>
+                            <strong className="mt-0.5 block truncate font-mono text-[10px] font-medium text-[#3b424b]">{item.value}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <footer className="marketplace-card-footer">
@@ -4349,6 +4359,12 @@ function MarketplaceDetail({
                   <dt className="text-[#8a949f]">版本</dt>
                   <dd className="font-mono text-[#3b424b]">{plugin.version}</dd>
                 </div>
+                {marketplaceStatisticItems(plugin.statistics).map((item) => (
+                  <div className="flex justify-between gap-4 py-3" key={item.label}>
+                    <dt className="text-[#8a949f]">{item.label}</dt>
+                    <dd className="font-mono text-[#3b424b]">{item.value}</dd>
+                  </div>
+                ))}
               </dl>
               <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#4176e6]" href={plugin.repository} target="_blank" rel="noreferrer">
                 查看源码 ↗

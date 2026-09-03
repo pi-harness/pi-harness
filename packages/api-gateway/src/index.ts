@@ -12,9 +12,12 @@ import {
   MARKETPLACE_CAPABILITIES,
   MARKETPLACE_CATEGORIES,
   MARKETPLACE_PLUGINS,
+  attachMarketplaceStatistics,
+  createMarketplaceStatisticsLoader,
   paginateMarketplace,
   searchMarketplace,
   needsMarketplacePackageInstall,
+  sortMarketplaceByRecommendation,
   type MarketplacePlugin,
 } from "./marketplace.js";
 import { parseGitWorktrees, type WorkspaceSummary } from "./workspaces.js";
@@ -27,6 +30,8 @@ interface ApiServices {
   readonly loader: Loader | undefined;
   readonly pluginUi: PiPluginUiRegistry | undefined;
 }
+
+const loadMarketplaceStatistics = createMarketplaceStatisticsLoader();
 
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload);
@@ -785,7 +790,7 @@ export default {
     });
     const disposeMarketplace = services.webServer.register({
       path: "/api/marketplace",
-      handler(request, response) {
+      async handler(request, response) {
         if (request.method !== "GET") {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
@@ -796,6 +801,7 @@ export default {
         const category = url.searchParams.get("category") ?? "";
         const page = Number(url.searchParams.get("page") ?? "0");
         const pageSize = Number(url.searchParams.get("pageSize") ?? "24");
+        const sort = url.searchParams.get("sort") ?? "";
         if (
           query.length > 120 ||
           capability.length > 80 ||
@@ -804,13 +810,19 @@ export default {
           page < 0 ||
           !Number.isInteger(pageSize) ||
           pageSize < 1 ||
-          pageSize > 100
+          pageSize > 100 ||
+          (sort !== "" && sort !== "recommended")
         ) {
           sendJson(response, 400, { error: "Invalid marketplace query" });
           return;
         }
+        const filtered = searchMarketplace(query, capability, category);
+        const items =
+          sort === "recommended"
+            ? sortMarketplaceByRecommendation(attachMarketplaceStatistics(filtered, await loadMarketplaceStatistics(MARKETPLACE_PLUGINS)))
+            : filtered;
         sendJson(response, 200, {
-          ...paginateMarketplace(searchMarketplace(query, capability, category), page, pageSize),
+          ...paginateMarketplace(items, page, pageSize),
           capabilities: MARKETPLACE_CAPABILITIES,
           categories: MARKETPLACE_CATEGORIES,
         });

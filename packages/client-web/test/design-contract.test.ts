@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DESIGN_EVENTS, DESIGN_PLUGINS, DESIGN_SESSIONS, DESIGN_WORKSPACES, DESIGN_TURNS, DESIGN_PROVIDERS, DESIGN_TOML } from "../src/design-contract.js";
-import { marketplaceCategoryTabs, marketplaceDetailPath, readMarketplaceDetailId } from "../src/marketplace-navigation.js";
+import { marketplaceCategoryTabs, marketplaceDetailPath, marketplaceStatisticItems, readMarketplaceDetailId } from "../src/marketplace-navigation.js";
 
 describe("Pi Harness design contract", () => {
   it("keeps the workspace and session surfaces represented", () => {
@@ -42,5 +42,14 @@ describe("Pi Harness design contract", () => {
       { id: "workflow", label: "工作流", count: 3 },
       { id: "security", label: "安全", count: 2 },
     ]);
+  });
+
+  it("labels npm statistics without presenting them as user ratings", () => {
+    expect(marketplaceStatisticItems({ downloads30d: 1_014_632, quality: 0.923, updatedAt: "2026-08-30T13:14:00.557Z" })).toEqual([
+      { label: "近 30 天下载量", value: "101.5 万" },
+      { label: "npm 质量分", value: "92" },
+      { label: "npm 更新时间", value: "2026-08-30" },
+    ]);
+    expect(marketplaceStatisticItems(undefined)).toEqual([]);
   });
 });

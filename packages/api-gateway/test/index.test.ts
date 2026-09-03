@@ -473,6 +473,8 @@ describe("API gateway plugin", () => {
     expect(tooLong.status).toBe(400);
     const invalidPage = await fetch(context.webServer.url + "/api/marketplace?page=-1");
     expect(invalidPage.status).toBe(400);
+    const invalidSort = await fetch(context.webServer.url + "/api/marketplace?sort=popular");
+    expect(invalidSort.status).toBe(400);
   });
 
   test("writes bundled official plugin entries without invoking npm", async () => {

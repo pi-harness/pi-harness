@@ -70,6 +70,7 @@ export interface ClientMarketplacePlugin {
   readonly capabilities: readonly string[];
   readonly hooks: readonly string[];
   readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
+  readonly statistics?: { readonly downloads30d?: number; readonly quality?: number; readonly updatedAt?: string };
 }
 export interface ClientMarketplaceCategory {
   readonly id: string;
@@ -307,7 +308,7 @@ export function createClientApi(): ClientApi {
       }),
     listMarketplace: (query = "", capability = "", page = 0, pageSize = 24, category = "") =>
       requestJson<ClientMarketplacePage>(
-        `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&category=${encodeURIComponent(category)}&page=${page}&pageSize=${pageSize}`,
+        `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&category=${encodeURIComponent(category)}&page=${page}&pageSize=${pageSize}&sort=recommended`,
       ),
     installMarketplace: (id) =>
       requestJson<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean }>("/api/marketplace/install", {
