@@ -225,6 +225,7 @@ function marketplacePluginForEntry(entry: LoaderEntrySummary): MarketplacePlugin
 
 function pluginSummary(entry: LoaderEntrySummary) {
   const states = ["pending", "loading", "active", "failed", "disposed", "unloading"];
+  const marketplacePlugin = marketplacePluginForEntry(entry);
   const rawState = entry.fiber?.state;
   const state =
     typeof rawState === "number"
@@ -239,7 +240,8 @@ function pluginSummary(entry: LoaderEntrySummary) {
     name: entry.options.name,
     enabled: !entry.options.disabled,
     state,
-    removable: entry.options.id.startsWith("marketplace-") || marketplacePluginForEntry(entry) !== undefined,
+    removable: entry.options.id.startsWith("marketplace-") || marketplacePlugin !== undefined,
+    category: marketplacePlugin?.category,
   };
 }
 

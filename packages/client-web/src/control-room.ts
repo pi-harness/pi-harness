@@ -30,6 +30,7 @@ export interface ClientPlugin {
   readonly enabled: boolean;
   readonly state: string;
   readonly removable: boolean;
+  readonly category?: { readonly id: string; readonly label: string };
 }
 export interface ClientPluginPanel {
   readonly id: string;

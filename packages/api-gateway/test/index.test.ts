@@ -514,13 +514,16 @@ describe("API gateway plugin", () => {
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const session = { sessionId: "legacy-plugin-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
-    const loaderEntry = { options: { id: "769990d2", name: "@deepseek-ai/cordis-plugin-logger-console" } };
+    const loaderEntries = [
+      { options: { id: "769990d2", name: "@deepseek-ai/cordis-plugin-logger-console" } },
+      { options: { id: "marketplace-session-bridge", name: "@pi-harness/core/plugins/session-bridge" } },
+    ];
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     context.reflect.provide("loader", {
       *entries() {
-        yield loaderEntry;
+        yield* loaderEntries;
       },
     });
     await context.plugin(apiPlugin);
@@ -528,7 +531,24 @@ describe("API gateway plugin", () => {
     const response = await fetch(context.webServer.url + "/api/plugins");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      items: [{ id: "769990d2", name: "@deepseek-ai/cordis-plugin-logger-console", enabled: true, state: "unloaded", removable: true }],
+      items: [
+        {
+          id: "769990d2",
+          name: "@deepseek-ai/cordis-plugin-logger-console",
+          enabled: true,
+          state: "unloaded",
+          removable: true,
+          category: { id: "observability", label: "可观测性" },
+        },
+        {
+          id: "marketplace-session-bridge",
+          name: "@pi-harness/core/plugins/session-bridge",
+          enabled: true,
+          state: "unloaded",
+          removable: true,
+          category: { id: "workflow", label: "工作流" },
+        },
+      ],
     });
   });
 

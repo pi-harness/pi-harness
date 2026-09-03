@@ -3896,6 +3896,8 @@ function Plugins({
           <div className="plugins-list">
             {installedPlugins.map((plugin) => {
               const panel = panelByPlugin.get(plugin.name);
+              const categoryLabel = plugin.category?.label;
+              const capabilityLabel = capability(plugin.name);
               return (
                 <div className="flex min-w-0 flex-col gap-3" key={plugin.id}>
                   <article className="plugin-card">
@@ -3905,7 +3907,8 @@ function Plugins({
                         <div className="plugin-title">
                           <code>{marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name)}</code>
                           <small>{plugin.state}</small>
-                          <span className="capability">{capability(plugin.name)}</span>
+                          {categoryLabel && <span className="capability">{categoryLabel}</span>}
+                          {categoryLabel !== capabilityLabel && <span className="capability">{capabilityLabel}</span>}
                         </div>
                         <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
                         <div className="hook-list">
