@@ -72,6 +72,7 @@ const capability = (name: string): string => {
     ["at-file", "文件上下文"],
     ["test-harness", "测试"],
     ["session-insights", "会话统计"],
+    ["session-compare", "会话对比"],
     ["readme-gen", "文档生成"],
     ["i18n-pair", "国际化"],
     ["cleaner", "清理"],
@@ -155,6 +156,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/fail-logger", "Failure Logger"],
     ["@pi-harness/core/plugins/test-harness", "Test Harness"],
     ["@pi-harness/core/plugins/session-insights", "Session Insights"],
+    ["@pi-harness/core/plugins/session-compare", "Session Compare"],
     ["@pi-harness/core/plugins/readme-gen", "README Generator"],
     ["@pi-harness/core/plugins/i18n-pair", "I18n Pair"],
     ["@pi-harness/core/plugins/cleaner", "Harness Cleaner"],
@@ -1173,6 +1175,71 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </>
             );
           })()}
+        </div>
+      ) : panel.id === "session-compare-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.left && typeof data.left === "object" && data?.right && typeof data.right === "object" ? (
+            (() => {
+              const left = data.left as Record<string, unknown>;
+              const right = data.right as Record<string, unknown>;
+              return (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {[
+                      ["左侧会话", left],
+                      ["右侧会话", right],
+                    ].map(([label, session]) => {
+                      const item = session as Record<string, unknown>;
+                      return (
+                        <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
+                          <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{value(label)}</span>
+                          <strong className="mt-2 block truncate text-[12px] text-[#30343b]">{value(item.name ?? item.id)}</strong>
+                          <code className="mt-1 block truncate text-[10px] text-[#315fb8]">{value(item.id)}</code>
+                          <span className="mt-1 block text-[10px] text-[#65707b]">{value(item.messageCount, "0")} 条消息</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      ["共享", data.shared ?? 0],
+                      ["右侧新增", Array.isArray(data.added) ? data.added.length : 0],
+                      ["左侧删除", Array.isArray(data.removed) ? data.removed.length : 0],
+                    ].map(([label, item]) => (
+                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                        <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                        <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <div
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${data.changed === true ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  >
+                    {data.changed === true ? "两个会话存在消息差异。" : "两个会话内容一致。"}
+                  </div>
+                  {Array.isArray(data.added) && data.added.length > 0 ? (
+                    <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">右侧新增消息</span>
+                      <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
+                        {data.added.slice(0, 4).map((item, index) => {
+                          const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                          return (
+                            <li key={`${value(message.role)}-${index}`}>
+                              [{value(message.role)}] {value(message.text)}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              执行 session_compare 后显示两个会话的差异。
+            </div>
+          )}
         </div>
       ) : panel.id === "context-doctor-panel" ? (
         <div className="mt-3 grid gap-3">

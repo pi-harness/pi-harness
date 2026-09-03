@@ -205,6 +205,9 @@
     - id: session-search
       name: "@pi-harness/core/plugins/session-search"
       config: {}
+    - id: session-compare
+      name: "@pi-harness/core/plugins/session-compare"
+      config: {}
     - id: session-bookmarks
       name: "@pi-harness/core/plugins/session-bookmarks"
       config: {}
