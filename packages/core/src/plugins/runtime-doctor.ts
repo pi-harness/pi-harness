@@ -84,14 +84,13 @@ export default {
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   apply(context: Context) {
     let extensionErrors = 0;
-    let latest: RuntimeDoctorReport | undefined;
     const inspect = async (): Promise<RuntimeDoctorReport> => {
       const [cwdExists, agentDirExists] = await Promise.all([pathExists(context.piHarnessLaunch.cwd), pathExists(context.piHarnessLaunch.agentDir)]);
       const models = context.get("piModels");
       const runtime = context.get("piRuntime");
       const mcp = context.get("piMcp");
       const model = models?.model;
-      latest = diagnoseRuntime({
+      return diagnoseRuntime({
         cwd: context.piHarnessLaunch.cwd,
         agentDir: context.piHarnessLaunch.agentDir,
         cwdExists,
@@ -101,7 +100,6 @@ export default {
         mcpServers: mcp?.snapshot().servers.length ?? 0,
         extensionErrors,
       });
-      return latest;
     };
     const unsubscribe = context.on("pi/extension-error", () => {
       extensionErrors += 1;
@@ -128,7 +126,7 @@ export default {
       title: "Runtime Doctor",
       description: "一次检查工作区、模型、运行时、MCP 和扩展错误。",
       icon: "⊙",
-      read: () => latest ?? inspect(),
+      read: inspect,
     });
     context.effect(() => () => {
       unsubscribe();

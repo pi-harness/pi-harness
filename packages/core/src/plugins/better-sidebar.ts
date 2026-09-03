@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { listWorkspaceNodes, readWorkspaceGitStatus } from "./workspace-navigator.js";
+import { listWorkspaceNodes, readWorkspaceGitStatus, type WorkspaceGitStatus, type WorkspaceNodeReport } from "./workspace-navigator.js";
 
 export interface SidebarOverviewInput {
   readonly cwd: string;
@@ -28,6 +28,50 @@ export function summarizeSidebar(input: SidebarOverviewInput): SidebarOverview {
   return { ...input, changedFiles: input.changedFiles.slice(0, 12), changedCount, summary };
 }
 
+export function createSidebarInspector(input: {
+  readonly cwd: string;
+  readonly getSessionId: () => string;
+  readonly listNodes?: (root: string, options: { maxDepth: number; maxNodes: number }) => Promise<WorkspaceNodeReport>;
+  readonly readGitStatus?: (root: string) => Promise<WorkspaceGitStatus>;
+}): () => Promise<SidebarOverview> {
+  const readNodes = input.listNodes ?? listWorkspaceNodes;
+  const readGit = input.readGitStatus ?? readWorkspaceGitStatus;
+  let tree: WorkspaceNodeReport | undefined;
+  let inFlight: Promise<SidebarOverview> | undefined;
+
+  const inspect = async (): Promise<SidebarOverview> => {
+    const [currentTree, git] = await Promise.all([
+      tree === undefined
+        ? readNodes(input.cwd, { maxDepth: 2, maxNodes: 80 }).then((result) => {
+            tree = result;
+            return result;
+          })
+        : Promise.resolve(tree),
+      readGit(input.cwd),
+    ]);
+    return summarizeSidebar({
+      cwd: input.cwd,
+      gitAvailable: git.available,
+      branch: git.available ? git.branch : null,
+      clean: git.available && git.clean,
+      changedFiles: git.entries,
+      directoryCount: currentTree.directoryCount,
+      fileCount: currentTree.fileCount,
+      truncated: currentTree.truncated,
+      sessionId: input.getSessionId(),
+    });
+  };
+
+  return () => {
+    if (inFlight !== undefined) return inFlight;
+    const current = inspect().finally(() => {
+      if (inFlight === current) inFlight = undefined;
+    });
+    inFlight = current;
+    return current;
+  };
+}
+
 function textSummary(report: SidebarOverview): string {
   const files = report.changedFiles
     .slice(0, 8)
@@ -40,23 +84,10 @@ export default {
   name: "pi-better-sidebar",
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
   apply(context: Context) {
-    let latest: SidebarOverview | undefined;
-    const inspect = async (): Promise<SidebarOverview> => {
-      const cwd = context.piHarnessLaunch.cwd;
-      const [tree, git] = await Promise.all([listWorkspaceNodes(cwd, { maxDepth: 2, maxNodes: 80 }), readWorkspaceGitStatus(cwd)]);
-      latest = summarizeSidebar({
-        cwd,
-        gitAvailable: git.available,
-        branch: git.available ? git.branch : null,
-        clean: git.available && git.clean,
-        changedFiles: git.entries,
-        directoryCount: tree.directoryCount,
-        fileCount: tree.fileCount,
-        truncated: tree.truncated,
-        sessionId: context.piSession.manager.getSessionId(),
-      });
-      return latest;
-    };
+    const inspect = createSidebarInspector({
+      cwd: context.piHarnessLaunch.cwd,
+      getSessionId: () => context.piSession.manager.getSessionId(),
+    });
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "sidebar_overview",
@@ -76,7 +107,7 @@ export default {
       title: "Better Sidebar",
       description: "在会话旁显示当前工作区、Git 变更和文件概览。",
       icon: "▤",
-      read: () => latest ?? inspect(),
+      read: inspect,
     });
     context.effect(() => () => {
       unregisterTool();

@@ -61,8 +61,12 @@ const value = (input: unknown, fallback = "—"): string => {
 };
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
-const eventLabel = (event: Record<string, unknown>): string =>
-  value(event.summary ?? event.message ?? event.toolName ?? event.type ?? event.event, "未命名事件");
+const eventLabel = (event: Record<string, unknown>): string => {
+  const type = value(event.type, "");
+  if (type === "file_diff") return "文件差异";
+  if (type === "file") return "文件详情";
+  return value(event.summary ?? event.message ?? event.toolName ?? event.type ?? event.event, "未命名事件");
+};
 const capability = (name: string): string => {
   const entries: readonly [string, string][] = [
     ["context", "上下文"],
@@ -645,12 +649,18 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
       </aside>
     );
   const output = event.output ?? event.result ?? event.message;
-  const stats: readonly [string, string][] = [
-    ["来源", value(event.type ?? event.source, "event")],
-    ["产生者", value(event.by ?? event.source)],
-    ["耗时", value(event.duration ?? event.dur)],
-    ["时间", value(event.timestamp ?? event.ts ?? event.time)],
-  ];
+  const fileDetail = event.type === "file" || event.type === "file_diff";
+  const stats: readonly [string, string][] = fileDetail
+    ? [
+        ["来源", "/api/files"],
+        ["文件", value(event.path)],
+      ]
+    : [
+        ["来源", value(event.type ?? event.source, "event")],
+        ["产生者", value(event.by ?? event.source)],
+        ["耗时", value(event.duration ?? event.dur)],
+        ["时间", value(event.timestamp ?? event.ts ?? event.time)],
+      ];
   return (
     <aside className="details-panel">
       <header>
@@ -675,8 +685,8 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
           </div>
         )}
         <div className="detail-section">
-          <small>经过的插件</small>
-          <div className="detail-plugin">Runtime loader · event</div>
+          <small>{fileDetail ? "数据来源" : "经过的插件"}</small>
+          <div className="detail-plugin">{fileDetail ? "Git workspace · /api/files" : "Runtime loader · event"}</div>
         </div>
         <div className="detail-actions">
           <button onClick={onCopy} type="button">
@@ -4056,7 +4066,7 @@ function Plugins({
               onToml();
             }}
           >
-            在 pi.toml 里看这份清单
+            查看运行配置
           </a>
         </div>
         <div className="plugins-toolbar">
@@ -4449,7 +4459,7 @@ function Marketplace({
               onToml();
             }}
           >
-            在 pi.toml 里看运行配置
+            查看运行配置
           </a>
         </div>
         <div className="marketplace-hero">
@@ -4713,7 +4723,7 @@ function MarketplaceDetail({
               </section>
               <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                 <h2 className="text-[13px] font-semibold text-[#20252b]">运行配置</h2>
-                <p className="mt-1 text-[12px] text-[#8a949f]">安装后会以这个 profile 写入 pi.toml。</p>
+                <p className="mt-1 text-[12px] text-[#8a949f]">安装后会写入当前运行 profile。</p>
                 <pre className="mt-4 overflow-auto rounded-lg bg-[#f7f8fa] p-4 text-[11px] leading-6 text-[#3b424b]">
                   <code>{JSON.stringify(plugin.profile, null, 2)}</code>
                 </pre>
@@ -4852,7 +4862,7 @@ function Settings({
         <nav aria-label="设置分类" className="settings-top-tabs">
           {(["general", "providers", "toml"] as const).map((item) => (
             <button className={`settings-tab ${tab === item ? "active" : ""}`} key={item} onClick={() => onTab(item)} type="button">
-              {item === "general" ? "通用" : item === "providers" ? `提供商 ${data.providers.length}` : "pi.toml"}
+              {item === "general" ? "通用" : item === "providers" ? `提供商 ${data.providers.length}` : "运行配置"}
             </button>
           ))}
         </nav>
@@ -4862,7 +4872,7 @@ function Settings({
               ← 返回会话
             </button>
             <div className="settings-header-copy">
-              <strong>{tab === "general" ? "通用" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
+              <strong>{tab === "general" ? "通用" : tab === "providers" ? "提供商" : "运行配置"}</strong>
               <small>{tab === "toml" ? "配置即代码，改完重载" : "运行时状态与快捷键"}</small>
             </div>
           </header>
@@ -4893,7 +4903,7 @@ function Settings({
                 <div className="general-row">
                   <div>
                     <strong>自动压缩上下文</strong>
-                    <small>接近上下文上限时自动整理历史消息，可在 pi.toml 中修改</small>
+                    <small>接近上下文上限时自动整理历史消息，可在运行配置中修改</small>
                     {!config && configState && configState !== "读取中…" ? (
                       <small className="setting-error" role="alert">
                         配置读取失败：{configState}
