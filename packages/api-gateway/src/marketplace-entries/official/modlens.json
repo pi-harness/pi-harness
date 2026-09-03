@@ -1,0 +1,16 @@
+{
+  "id": "modlens",
+  "packageName": "@pi-harness/core/plugins/modlens",
+  "version": "0.1.2",
+  "name": "ModLens Vision Bridge",
+  "description": "Attach workspace images to the active model context with bounded metadata and preview support.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "multimodal", "label": "视觉与多模态" },
+  "capabilities": ["vision", "image context"],
+  "hooks": ["tool execution", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/modlens", "config": {} }
+}

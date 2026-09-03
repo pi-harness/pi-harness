@@ -1,0 +1,16 @@
+{
+  "id": "mcp-client",
+  "packageName": "@pi-harness/core/plugins/mcp-client",
+  "version": "0.1.2",
+  "name": "MCP Client",
+  "description": "Manage explicitly configured MCP servers and expose bounded connection status to the agent and UI.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "tools", "label": "工具集成" },
+  "capabilities": ["MCP", "tools", "server lifecycle"],
+  "hooks": ["session lifecycle", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/mcp-client", "config": {} }
+}

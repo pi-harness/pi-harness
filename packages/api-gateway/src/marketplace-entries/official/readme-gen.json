@@ -1,0 +1,16 @@
+{
+  "id": "readme-gen",
+  "packageName": "@pi-harness/core/plugins/readme-gen",
+  "version": "0.1.2",
+  "name": "README Gen",
+  "description": "Generate a bounded README report and write it to an explicitly confirmed workspace path.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "developer", "label": "开发工具" },
+  "capabilities": ["README report", "project metadata", "confirmed file write", "atomic output"],
+  "hooks": ["workspace files", "atomic workspace write", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/readme-gen", "config": {} }
+}

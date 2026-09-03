@@ -1,0 +1,16 @@
+{
+  "id": "annotation",
+  "packageName": "@pi-harness/core/plugins/annotation",
+  "version": "0.1.2",
+  "name": "Annotations",
+  "description": "Capture bounded selections and notes from the conversation for later agent context.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "context", "label": "上下文管理" },
+  "capabilities": ["annotations", "context"],
+  "hooks": ["session event", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/annotation", "config": {} }
+}

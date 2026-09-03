@@ -1,0 +1,16 @@
+{
+  "id": "session-bookmarks",
+  "packageName": "@pi-harness/core/plugins/session-bookmarks",
+  "version": "0.1.2",
+  "name": "Session Bookmarks",
+  "description": "Persist labels for important native Pi session entries without changing the underlying transcript.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "workflow", "label": "工作流" },
+  "capabilities": ["session bookmarks", "session navigation", "durable labels"],
+  "hooks": ["session manager", "native label entries", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/session-bookmarks", "config": {} }
+}

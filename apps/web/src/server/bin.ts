@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bootHarness, provideLaunchContext } from "@pi-harness/core";
 import "@pi-harness/host-webserver";
+import type { WebServer } from "@pi-harness/host-webserver";
+
+// Keep the host service declaration in the server entrypoint's type graph.
+type HarnessWebServer = WebServer;
 
 const host = process.env.PI_HARNESS_HOST ?? "127.0.0.1";
 const port = Number(process.env.PI_HARNESS_PORT ?? "3080");
@@ -61,7 +65,8 @@ try {
       provideLaunchContext(context, { cwd, agentDir, configPath: profilePath, args: [], requestExit() {} });
     },
   });
-  process.stdout.write("Pi Harness web console: " + harness.context.webServer.url + "\n");
+  const webServer = (harness.context as typeof harness.context & { webServer: HarnessWebServer }).webServer;
+  process.stdout.write("Pi Harness web console: " + webServer.url + "\n");
   await processExit;
 } catch (error) {
   if (!shuttingDown) {

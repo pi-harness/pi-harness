@@ -43,7 +43,14 @@ describe("packaged profiles", () => {
     expect(harness.context.get("piApplication")).toBeDefined();
     expect(harness.context.get("hmr")).toBeUndefined();
     expect(names).not.toContain("@deepseek-ai/cordis-plugin-hmr");
-  });
+    expect(names).toContain("@pi-harness/core/plugins/vision-toolkit");
+    expect(names).toContain("@pi-harness/core/plugins/plugin-stars");
+    expect(names).toContain("@pi-harness/core/plugins/session-bridge");
+    expect(names).toContain("@pi-harness/core/plugins/skill-guard");
+    expect(names).toContain("@pi-harness/core/plugins/recall-unread");
+    expect(names).toContain("@pi-harness/core/plugins/turn-rewind");
+    expect(names).toContain("@pi-harness/core/plugins/context-doctor");
+  }, 15_000);
 
   test("boots the development profile with logger, timer, and HMR plugins", async () => {
     const { harness, cwd } = await bootProfile("development");

@@ -41,6 +41,17 @@ export interface PiSessionService {
   readonly manager: SessionManager;
 }
 
+export interface PiMcpServerSnapshot {
+  readonly id: string;
+  readonly command: readonly string[];
+  readonly status: string;
+  readonly startedAt: number;
+}
+
+export interface PiMcpService {
+  snapshot(): { readonly servers: readonly PiMcpServerSnapshot[] };
+}
+
 export interface PiRuntimeService {
   readonly session: AgentSession;
   readonly sessionRuntime: AgentSessionRuntime;
@@ -179,6 +190,7 @@ declare module "@deepseek-ai/cordis" {
     piModels: PiModelsService;
     piResources: PiResourcesService;
     piSession: PiSessionService;
+    piMcp: PiMcpService;
     piTools: PiToolRegistry;
     piPluginUi: PiPluginUiRegistry;
     piRuntime: PiRuntimeService;

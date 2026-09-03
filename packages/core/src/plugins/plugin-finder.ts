@@ -1,10 +1,13 @@
 import type { Context } from "@deepseek-ai/cordis";
+import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 
 const defaultRegistryUrl = "https://registry.npmjs.org";
+const defaultSearchKeyword = "pi-harness";
 const defaultLimit = 10;
 const maxQueryLength = 120;
+const maxKeywordLength = 64;
 
 type PluginSearchResult = { name: string; version: string; description: string; score: number; npm: string };
 type PluginSearchReport = { query: string; total: number; results: PluginSearchResult[] };
@@ -18,26 +21,42 @@ function normalizeRegistryUrl(url: string | undefined): string {
 export interface PluginFinderConfig {
   registryUrl?: string;
   limit?: number;
+  keyword?: string;
+}
+
+export const Config: z<PluginFinderConfig> = z.object({
+  registryUrl: z.string().default(defaultRegistryUrl),
+  limit: z.number().default(defaultLimit),
+  keyword: z.string().default(defaultSearchKeyword),
+});
+
+function normalizeSearchKeyword(keyword: string | undefined): string {
+  const value = (keyword ?? defaultSearchKeyword).trim();
+  if (value.length > maxKeywordLength || /\s/iu.test(value) || !/^[a-z0-9][a-z0-9._-]*$/iu.test(value))
+    throw new Error(`Plugin registry keyword must be 1-${maxKeywordLength} ASCII characters without whitespace`);
+  return value;
 }
 
 export default {
   name: "pi-plugin-finder",
   inject: ["piPluginUi", "piTools"],
+  Config,
   apply(context: Context, config: PluginFinderConfig) {
     const registryUrl = normalizeRegistryUrl(config.registryUrl);
     const limit = Math.max(1, Math.min(25, Math.trunc(config.limit ?? defaultLimit)));
+    const keyword = normalizeSearchKeyword(config.keyword);
     let latest: PluginSearchReport | undefined;
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "plugin_search",
         label: "Search plugins",
-        description: "Search the configured npm registry for Cordis and Pi Harness plugins. This is read-only and never installs packages.",
+        description: "Search the configured npm registry for Pi Harness plugins. This is read-only and never installs packages.",
         promptSnippet: "search the plugin registry for an extension",
         parameters: Type.Object({ query: Type.String({ description: "Plugin name or capability keywords" }) }),
         async execute(_toolCallId, params): Promise<AgentToolResult<PluginSearchReport>> {
           const query = params.query.trim();
           if (query.length < 2 || query.length > maxQueryLength) throw new Error(`Plugin search query must contain 2-${maxQueryLength} characters`);
-          const search = new URLSearchParams({ text: `keywords:cordis-plugin ${query}`, size: String(limit) });
+          const search = new URLSearchParams({ text: `keywords:${keyword} ${query}`, size: String(limit) });
           const response = await fetch(`${registryUrl}/-/v1/search?${search.toString()}`, { headers: { accept: "application/json" } });
           if (!response.ok) throw new Error(`Plugin registry returned HTTP ${response.status}`);
           const payload = (await response.json()) as { total?: unknown; objects?: unknown };
@@ -77,9 +96,9 @@ export default {
       id: "plugin-finder-panel",
       pluginId: "@pi-harness/core/plugins/plugin-finder",
       title: "Plugin Finder",
-      description: "只读搜索 npm Registry 中的 Cordis 插件，不会自动安装或执行未审核代码。",
+      description: "只读搜索 npm Registry 中的 Pi Harness 插件，不会自动安装或执行未审核代码。",
       icon: "⌕",
-      read: () => ({ registryUrl, limit, query: latest?.query ?? null, total: latest?.total ?? 0, results: latest?.results ?? [] }),
+      read: () => ({ registryUrl, keyword, limit, query: latest?.query ?? null, total: latest?.total ?? 0, results: latest?.results ?? [] }),
     });
     context.effect(() => () => {
       unregisterTool();

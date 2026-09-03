@@ -65,6 +65,9 @@
     - id: mcp-client
       name: "@pi-harness/core/plugins/mcp-client"
       config: {}
+    - id: mcp-panel
+      name: "@pi-harness/core/plugins/mcp-panel"
+      config: {}
     - id: browser-fetch
       name: "@pi-harness/core/plugins/browser-fetch"
       config: {}
@@ -122,11 +125,24 @@
     - id: plugin-radar
       name: "@pi-harness/core/plugins/plugin-radar"
       config: {}
+    - id: plugin-stars
+      name: "@pi-harness/core/plugins/plugin-stars"
+      config: {}
     - id: plugin-check
       name: "@pi-harness/core/plugins/plugin-check"
       config: {}
     - id: annotation
       name: "@pi-harness/core/plugins/annotation"
+      config: {}
+    - id: cost-meter
+      name: "@pi-harness/core/plugins/cost-meter"
+      config:
+        dailyBudget: 0
+    - id: undo-savepoint
+      name: "@pi-harness/core/plugins/undo-savepoint"
+      config: {}
+    - id: skill-catalog
+      name: "@pi-harness/core/plugins/skill-catalog"
       config: {}
     - id: canvas-draw
       name: "@pi-harness/core/plugins/canvas-draw"
@@ -158,12 +174,69 @@
     - id: change-verifier
       name: "@pi-harness/core/plugins/change-verifier"
       config: {}
+    - id: context
+      name: "@pi-harness/core/plugins/context"
+      config: {}
     - id: runtime
       name: "@pi-harness/core/plugins/runtime"
       config:
         thinkingLevel: medium
-    - id: context
-      name: "@pi-harness/core/plugins/context"
+    - id: plugin-dev
+      name: "@pi-harness/core/plugins/plugin-dev"
+      config: {}
+    - id: openpets
+      name: "@pi-harness/core/plugins/openpets"
+      config: {}
+    - id: session-bridge
+      name: "@pi-harness/core/plugins/session-bridge"
+      config: {}
+    - id: skill-guard
+      name: "@pi-harness/core/plugins/skill-guard"
+      config: {}
+    - id: recall-unread
+      name: "@pi-harness/core/plugins/recall-unread"
+      config: {}
+    - id: turn-rewind
+      name: "@pi-harness/core/plugins/turn-rewind"
+      config: {}
+    - id: session-export
+      name: "@pi-harness/core/plugins/session-export"
+      config: {}
+    - id: session-search
+      name: "@pi-harness/core/plugins/session-search"
+      config: {}
+    - id: session-compare
+      name: "@pi-harness/core/plugins/session-compare"
+      config: {}
+    - id: secure-audit
+      name: "@pi-harness/core/plugins/secure-audit"
+      config: {}
+    - id: session-bookmarks
+      name: "@pi-harness/core/plugins/session-bookmarks"
+      config: {}
+    - id: llm-verifier
+      name: "@pi-harness/core/plugins/llm-verifier"
+      config: {}
+    - id: module-search
+      name: "@pi-harness/core/plugins/module-search"
+      config: {}
+    - id: workspace-navigator
+      name: "@pi-harness/core/plugins/workspace-navigator"
+      config: {}
+    - id: better-sidebar
+      name: "@pi-harness/core/plugins/better-sidebar"
+      config: {}
+    - id: archify
+      name: "@pi-harness/core/plugins/archify"
+      config: {}
+    - id: reverse-skill
+      name: "@pi-harness/core/plugins/reverse-skill"
+      config: {}
+    - id: colleague-skill
+      name: "@pi-harness/core/plugins/colleague-skill"
+      config: {}
+    - id: prompt-library
+      name: "@pi-harness/core/plugins/prompt-library"
       config: {}
     - id: token-guard
       name: "@pi-harness/core/plugins/token-guard"
@@ -171,6 +244,12 @@
         maxPercent: 90
     - id: fail-logger
       name: "@pi-harness/core/plugins/fail-logger"
+      config: {}
+    - id: vision-toolkit
+      name: "@pi-harness/core/plugins/vision-toolkit"
+      config: {}
+    - id: runtime-doctor
+      name: "@pi-harness/core/plugins/runtime-doctor"
       config: {}
     - id: webserver
       name: "@pi-harness/host-webserver"

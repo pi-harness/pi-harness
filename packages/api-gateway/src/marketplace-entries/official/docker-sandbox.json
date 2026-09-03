@@ -1,0 +1,16 @@
+{
+  "id": "docker-sandbox",
+  "packageName": "@pi-harness/core/plugins/docker-sandbox",
+  "version": "0.1.2",
+  "name": "Docker Sandbox",
+  "description": "Run approved commands inside an isolated Docker container with bounded resources and explicit image settings.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "security", "label": "安全" },
+  "capabilities": ["container isolation", "resource limits", "safe execution"],
+  "hooks": ["Docker CLI", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/docker-sandbox", "config": {} }
+}

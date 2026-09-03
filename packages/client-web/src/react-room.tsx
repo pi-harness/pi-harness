@@ -4,6 +4,7 @@ import {
   type ClientApi,
   type ClientCommand,
   type ClientFile,
+  type ClientMarketplaceCategory,
   type ClientMarketplacePlugin,
   type ClientModel,
   type ClientPiConfig,
@@ -18,6 +19,10 @@ import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind
 import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
+import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
+import { marketplaceCategoryTabs, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
+import { pluginStarsRows } from "./plugin-stars-view.js";
+import { browserSessionTabs } from "./browser-session-view.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -35,6 +40,7 @@ interface RoomData {
   pluginPanels: readonly ClientPluginPanel[];
   marketplace: readonly ClientMarketplacePlugin[];
   marketplaceCapabilities: readonly string[];
+  marketplaceCategories: readonly ClientMarketplaceCategory[];
   marketplaceTotal: number;
   marketplacePage: number;
   marketplaceHasNext: boolean;
@@ -66,12 +72,15 @@ const capability = (name: string): string => {
     ["at-file", "文件上下文"],
     ["test-harness", "测试"],
     ["session-insights", "会话统计"],
+    ["session-compare", "会话对比"],
+    ["secure-audit", "安全审计"],
     ["readme-gen", "文档生成"],
     ["i18n-pair", "国际化"],
     ["cleaner", "清理"],
     ["sql-lens", "数据库"],
     ["docker-sandbox", "沙箱"],
     ["mcp-client", "工具协议"],
+    ["mcp-panel", "MCP 控制台"],
     ["browser-fetch", "网页抓取"],
     ["web-research", "联网研究"],
     ["browser-session", "浏览器会话"],
@@ -89,8 +98,12 @@ const capability = (name: string): string => {
     ["synapse", "会话地图"],
     ["hol-guard", "安全防护"],
     ["plugin-radar", "生态雷达"],
+    ["plugin-stars", "排行榜"],
     ["plugin-check", "插件体检"],
     ["annotation", "批注上下文"],
+    ["cost-meter", "成本账本"],
+    ["undo-savepoint", "恢复保存点"],
+    ["skill-catalog", "技能目录"],
     ["graph-memory", "知识图谱"],
     ["memory", "跨会话记忆"],
     ["canvas-draw", "流程图"],
@@ -103,6 +116,26 @@ const capability = (name: string): string => {
     ["anchored-standard", "轨迹锚定"],
     ["telemetry-blocker", "遥测拦截"],
     ["change-verifier", "变更门禁"],
+    ["plugin-dev", "插件开发"],
+    ["openpets", "桌面伙伴"],
+    ["vision-toolkit", "视觉素材"],
+    ["session-bridge", "会话交接"],
+    ["skill-guard", "Skill 安全"],
+    ["recall-unread", "会话召回"],
+    ["turn-rewind", "会话回退"],
+    ["session-export", "会话导出"],
+    ["session-search", "会话搜索"],
+    ["session-bookmarks", "会话书签"],
+    ["llm-verifier", "模型校验"],
+    ["module-search", "模块检索"],
+    ["workspace-navigator", "工作区导航"],
+    ["better-sidebar", "侧栏概览"],
+    ["archify", "架构地图"],
+    ["mirage-bridge", "Mirage 虚拟终端"],
+    ["theme-studio", "主题"],
+    ["reverse-skill", "技能隔离"],
+    ["colleague-skill", "角色交接"],
+    ["prompt-library", "提示词库"],
     ["model", "模型"],
     ["tool", "工具"],
     ["session", "会话"],
@@ -124,12 +157,15 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/fail-logger", "Failure Logger"],
     ["@pi-harness/core/plugins/test-harness", "Test Harness"],
     ["@pi-harness/core/plugins/session-insights", "Session Insights"],
+    ["@pi-harness/core/plugins/session-compare", "Session Compare"],
+    ["@pi-harness/core/plugins/secure-audit", "Secure Audit"],
     ["@pi-harness/core/plugins/readme-gen", "README Generator"],
     ["@pi-harness/core/plugins/i18n-pair", "I18n Pair"],
     ["@pi-harness/core/plugins/cleaner", "Harness Cleaner"],
     ["@pi-harness/core/plugins/sql-lens", "SQL Lens"],
     ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox"],
     ["@pi-harness/core/plugins/mcp-client", "MCP Client"],
+    ["@pi-harness/core/plugins/mcp-panel", "MCP Console"],
     ["@pi-harness/core/plugins/browser-fetch", "Browser Fetch"],
     ["@pi-harness/core/plugins/web-research", "Web Research"],
     ["@pi-harness/core/plugins/browser-session", "Browser Session"],
@@ -149,6 +185,9 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/plugin-radar", "Plugin Radar"],
     ["@pi-harness/core/plugins/plugin-check", "Plugin Check"],
     ["@pi-harness/core/plugins/annotation", "Annotations"],
+    ["@pi-harness/core/plugins/cost-meter", "Cost Meter"],
+    ["@pi-harness/core/plugins/undo-savepoint", "Undo Savepoints"],
+    ["@pi-harness/core/plugins/skill-catalog", "Skills Catalog"],
     ["@pi-harness/core/plugins/memory", "Memory"],
     ["@pi-harness/core/plugins/graph-memory", "Graph Memory"],
     ["@pi-harness/core/plugins/canvas-draw", "Canvas Draw"],
@@ -161,6 +200,28 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/anchored-standard", "Anchored Standard"],
     ["@pi-harness/core/plugins/telemetry-blocker", "Telemetry Blocker"],
     ["@pi-harness/core/plugins/change-verifier", "Change Verifier"],
+    ["@pi-harness/core/plugins/plugin-dev", "Plugin Dev"],
+    ["@pi-harness/core/plugins/openpets", "OpenPets"],
+    ["@pi-harness/core/plugins/vision-toolkit", "Vision Toolkit"],
+    ["@pi-harness/core/plugins/plugin-stars", "Plugin Stars"],
+    ["@pi-harness/core/plugins/session-bridge", "Session Bridge"],
+    ["@pi-harness/core/plugins/skill-guard", "Skill Guard"],
+    ["@pi-harness/core/plugins/recall-unread", "Recall Unread"],
+    ["@pi-harness/core/plugins/turn-rewind", "Turn Rewind"],
+    ["@pi-harness/core/plugins/session-export", "Session Export"],
+    ["@pi-harness/core/plugins/session-search", "Session Search"],
+    ["@pi-harness/core/plugins/session-bookmarks", "Session Bookmarks"],
+    ["@pi-harness/core/plugins/llm-verifier", "LLM Verifier"],
+    ["@pi-harness/core/plugins/module-search", "Module Search"],
+    ["@pi-harness/core/plugins/workspace-navigator", "Workspace Navigator"],
+    ["@pi-harness/core/plugins/better-sidebar", "Better Sidebar"],
+    ["@pi-harness/core/plugins/archify", "Architecture Map"],
+    ["@pi-harness/core/plugins/mirage-bridge", "Mirage Bridge"],
+    ["@pi-harness/core/plugins/theme-studio", "Theme Studio"],
+    ["@pi-harness/core/plugins/reverse-skill", "Reverse Skill Firewall"],
+    ["@pi-harness/core/plugins/colleague-skill", "Colleague Skill"],
+    ["@pi-harness/core/plugins/prompt-library", "Prompt Library"],
+    ["@pi-harness/core/plugins/runtime-doctor", "Runtime Doctor"],
   ]).get(name);
   if (officialName !== undefined) return officialName;
   const packageMatch = name.match(/^@[^/]+\/cordis-plugin-(.+)$/i);
@@ -175,9 +236,20 @@ const readQueryState = (): {
   sessionPath?: string;
   marketplaceQuery: string;
   marketplaceCapability: string;
+  marketplaceCategory: string;
+  marketplacePlugin: string | undefined;
   marketplacePage: number;
 } => {
-  if (typeof window === "undefined") return { page: "session", view: "chat", marketplaceQuery: "", marketplaceCapability: "", marketplacePage: 0 };
+  if (typeof window === "undefined")
+    return {
+      page: "session",
+      view: "chat",
+      marketplaceQuery: "",
+      marketplaceCapability: "",
+      marketplaceCategory: "",
+      marketplacePlugin: undefined,
+      marketplacePage: 0,
+    };
   const params = new URLSearchParams(window.location.search);
   const page = params.get("page");
   const view = params.get("view");
@@ -193,6 +265,8 @@ const readQueryState = (): {
     sessionPath: params.get("session") ?? undefined,
     marketplaceQuery: params.get("marketplaceQuery") ?? "",
     marketplaceCapability: params.get("capability") ?? "",
+    marketplaceCategory: params.get("category") ?? "",
+    marketplacePlugin: readMarketplaceDetailId(params),
     marketplacePage: Number.isFinite(pageNumber) && pageNumber >= 0 ? pageNumber : 0,
   };
 };
@@ -455,6 +529,18 @@ function PromptError({ message }: { message: string }) {
         <summary>查看原始错误</summary>
         <code>{message}</code>
       </details>
+    </div>
+  );
+}
+
+function UserMessageBubble({ text }: { text: string }) {
+  const parsed = parseAnnotationPrompt(text);
+  return (
+    <div className="user-bubble">
+      <span>{parsed.question}</span>
+      {parsed.count > 0 ? (
+        <span className="ml-2 inline-flex rounded-md bg-[#edf3fe] px-1.5 py-0.5 text-[10px] text-[#315fb8]">批注 ×{parsed.count}</span>
+      ) : null}
     </div>
   );
 }
@@ -780,7 +866,29 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               <span className="block text-[10px] text-[#8a949f]">任务</span>
               <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.tasks) ? data.tasks.length : 0)}</strong>
             </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">未读消息</span>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
+                {value(
+                  Array.isArray(data?.messages)
+                    ? data.messages.filter((message) => message !== null && typeof message === "object" && (message as Record<string, unknown>).read !== true)
+                        .length
+                    : 0,
+                )}
+              </strong>
+            </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              <span className="block text-[10px] text-[#8a949f]">可执行任务</span>
+              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
+                {value(Array.isArray(data?.readyTasks) ? data.readyTasks.length : 0)}
+              </strong>
+            </div>
           </div>
+          {Array.isArray(data?.dependencyCycle) && data.dependencyCycle.length > 1 ? (
+            <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[11px] text-[#b42318]">
+              依赖循环：{data.dependencyCycle.map((item) => value(item)).join(" → ")}
+            </div>
+          ) : null}
           <div className="grid gap-2">
             {Array.isArray(data?.members) && data.members.length > 0 ? (
               data.members.map((item, index) => {
@@ -804,14 +912,53 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 const task = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 return (
                   <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${value(task.id ?? "task")}-${index}`}>
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</span>
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</span>
+                      {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
+                        <span className="mt-0.5 block truncate font-mono text-[9px] text-[#9aa3ad]">依赖：{task.dependsOn.join(", ")}</span>
+                      ) : null}
+                    </div>
                     <span className="text-[10px] text-[#8a949f]">{value(task.assignee ?? "unassigned")}</span>
-                    <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{value(task.status ?? "todo")}</span>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[#fff4e5] text-[#b26a00]" : task.status === "done" ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#edf3fe] text-[#4176e6]"}`}
+                    >
+                      {value(task.status ?? "todo")}
+                    </span>
                   </div>
                 );
               })
             ) : (
               <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">还没有任务。可让 Agent 使用 team_task 创建。</div>
+            )}
+          </div>
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-[#30343b]">团队消息</span>
+              <span className="font-mono text-[10px] text-[#8a949f]">durable mailbox</span>
+            </div>
+            {Array.isArray(data?.messages) && data.messages.length > 0 ? (
+              Array.from(data.messages as readonly unknown[])
+                .reverse()
+                .slice(0, 5)
+                .map((item, index) => {
+                  const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                  return (
+                    <div
+                      className={`rounded-lg border px-3 py-2 ${message.read === true ? "border-[#edf0f3] bg-white" : "border-[#cfe0ff] bg-[#f4f8ff]"}`}
+                      key={`${value(message.id ?? "message")}-${index}`}
+                    >
+                      <div className="flex items-center gap-2 text-[10px] text-[#8a949f]">
+                        <span className="font-mono text-[#4176e6]">
+                          {value(message.from ?? "unknown")} → {value(message.to ?? "unknown")}
+                        </span>
+                        <span className="ml-auto">{message.read === true ? "已读" : "未读"}</span>
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-[#30343b]">{value(message.body ?? "")}</p>
+                    </div>
+                  );
+                })
+            ) : (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">暂无团队消息。</div>
             )}
           </div>
         </div>
@@ -871,6 +1018,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
                 {value((data.latest as Record<string, unknown>).name ?? "snapshot")} · {value((data.latest as Record<string, unknown>).files ?? 0)} 个文件
+                {(data.latest as Record<string, unknown>).restored === true ? " · 已恢复" : ""}
               </p>
             ) : (
               <p className="mt-2 text-[11px] text-[#8a949f]">还没有快照。修改代码前让 Agent 调用 git_snapshot。</p>
@@ -880,6 +1028,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <span>保留快照</span>
             <strong className="font-mono text-[#4176e6]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
           </div>
+          <p className="text-[10px] leading-4 text-[#8a949f]">恢复会反向应用选中的 patch，必须显式传入 confirm=true。</p>
         </div>
       ) : panel.id === "dependency-checker-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -887,8 +1036,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             const report = data?.report !== null && typeof data?.report === "object" ? (data.report as Record<string, unknown>) : {};
             const missing: unknown[] = Array.isArray(report.missing) ? report.missing : [];
             const invalid: unknown[] = Array.isArray(report.invalid) ? report.invalid : [];
+            const conflicts: unknown[] = Array.isArray(report.conflicts) ? report.conflicts : [];
             return (
               <>
+                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                  <span className="text-[#65707b]">清单类型</span>
+                  <strong className="font-mono uppercase text-[#315fb8]">{value(report.ecosystem ?? "npm")}</strong>
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     ["声明", report.declared ?? 0],
@@ -902,34 +1056,61 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   ))}
                 </div>
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length || conflicts.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
                 >
                   {missing.length || invalid.length
                     ? `缺失或无效：${[...missing, ...invalid].map((item) => value(item)).join(", ")}`
                     : "依赖声明与本地安装一致。"}
                 </div>
+                {conflicts.length > 0 ? (
+                  <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-3 text-[11px] text-[#8a6200]">
+                    <strong>版本冲突</strong>
+                    <ul className="mt-1 grid gap-1 pl-4">
+                      {conflicts.slice(0, 6).map((item, index) => {
+                        const conflict = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                        const constraints = Array.isArray(conflict.constraints) ? conflict.constraints.map((constraint) => value(constraint)).join(" · ") : "—";
+                        return (
+                          <li key={`${value(conflict.name ?? "dependency")}-${index}`}>
+                            <code>{value(conflict.name ?? "dependency")}</code>：{constraints}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
               </>
             );
           })()}
         </div>
       ) : panel.id === "token-guard-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className={`rounded-lg border px-3 py-3 ${data?.exceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
-              <strong className="font-mono text-[12px] text-[#315fb8]">
-                {value(data?.percent ?? "—")}% / {value(data?.maxPercent ?? "—")}%
-              </strong>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className={`rounded-lg border px-3 py-3 ${data?.exceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
+                <strong className="font-mono text-[12px] text-[#315fb8]">
+                  {value(data?.percent ?? "—")}% / {value(data?.maxPercent ?? "—")}%
+                </strong>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+                <div
+                  className={`h-full rounded-full ${data?.exceeded === true ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
+                  style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-[#71809a]">
+                {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${value(data?.aborts ?? 0)}`}
+              </p>
             </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
-              <div
-                className={`h-full rounded-full ${data?.exceeded === true ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
-                style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
-              />
+            <div className={`rounded-lg border px-3 py-3 ${data?.runExceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold text-[#30343b]">单次任务</span>
+                <strong className="font-mono text-[12px] text-[#315fb8]">
+                  {value(data?.runTokens ?? "—")} / {value(data?.maxRunTokens || "—")}
+                </strong>
+              </div>
+              <p className="mt-2 text-[11px] text-[#71809a]">{data?.maxRunTokens ? "按 agent_start 后累计 token 熔断。" : "未启用绝对 Token 上限。"}</p>
             </div>
-            <p className="mt-2 text-[11px] text-[#71809a]">
-              {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${value(data?.aborts ?? 0)}`}
-            </p>
           </div>
         </div>
       ) : panel.id === "test-harness-panel" ? (
@@ -997,6 +1178,162 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             );
           })()}
         </div>
+      ) : panel.id === "session-bridge-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {(() => {
+            const latestPreview =
+              data?.latestPreview !== null && typeof data?.latestPreview === "object"
+                ? ((data.latestPreview as Record<string, unknown>).preview as Record<string, unknown> | undefined)
+                : undefined;
+            const preview =
+              latestPreview ??
+              (data?.currentPreview !== null && typeof data?.currentPreview === "object" ? (data.currentPreview as Record<string, unknown>) : {});
+            const sections: readonly [string, unknown][] = [
+              ["目标", preview.goal],
+              ["当前状态", preview.currentState],
+              ["下一步", preview.nextStep],
+            ];
+            return (
+              <>
+                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px] leading-5 text-[#315fb8]">
+                  预览不会创建目标会话，也不会修改源会话。
+                </div>
+                {sections.map(([label, item]) => (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={label}>
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{label}</span>
+                    <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-[#30343b]">{value(item)}</p>
+                  </div>
+                ))}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    ["关键决策", preview.decisions],
+                    ["关键文件", preview.keyFiles],
+                  ].map(([label, items]) => (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{value(label)}</span>
+                      {Array.isArray(items) && items.length > 0 ? (
+                        <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
+                          {items.slice(0, 8).map((item, index) => (
+                            <li key={`${value(item)}-${index}`}>{value(item)}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-[10px] text-[#8a949f]">暂无</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      ) : panel.id === "session-compare-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.left && typeof data.left === "object" && data?.right && typeof data.right === "object" ? (
+            (() => {
+              const left = data.left as Record<string, unknown>;
+              const right = data.right as Record<string, unknown>;
+              return (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {[
+                      ["左侧会话", left],
+                      ["右侧会话", right],
+                    ].map(([label, session]) => {
+                      const item = session as Record<string, unknown>;
+                      return (
+                        <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
+                          <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{value(label)}</span>
+                          <strong className="mt-2 block truncate text-[12px] text-[#30343b]">{value(item.name ?? item.id)}</strong>
+                          <code className="mt-1 block truncate text-[10px] text-[#315fb8]">{value(item.id)}</code>
+                          <span className="mt-1 block text-[10px] text-[#65707b]">{value(item.messageCount, "0")} 条消息</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      ["共享", data.shared ?? 0],
+                      ["右侧新增", Array.isArray(data.added) ? data.added.length : 0],
+                      ["左侧删除", Array.isArray(data.removed) ? data.removed.length : 0],
+                    ].map(([label, item]) => (
+                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                        <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                        <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <div
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${data.changed === true ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  >
+                    {data.changed === true ? "两个会话存在消息差异。" : "两个会话内容一致。"}
+                  </div>
+                  {Array.isArray(data.added) && data.added.length > 0 ? (
+                    <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">右侧新增消息</span>
+                      <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
+                        {data.added.slice(0, 4).map((item, index) => {
+                          const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                          return (
+                            <li key={`${value(message.role)}-${index}`}>
+                              [{value(message.role)}] {value(message.text)}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              执行 session_compare 后显示两个会话的差异。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "secure-audit-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              ["扫描文件", data?.scanned ?? 0],
+              ["严重", data?.critical ?? 0],
+              ["高风险", data?.high ?? 0],
+              ["总发现", data?.total ?? 0],
+            ].map(([label, item]) => (
+              <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center" key={value(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <strong className="mt-1 block text-[16px] font-semibold text-[#30343b]">{value(item)}</strong>
+              </div>
+            ))}
+          </div>
+          <div
+            className={`rounded-lg border px-3 py-3 text-[11px] ${Number(data?.total ?? 0) > 0 ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+          >
+            {Number(data?.total ?? 0) > 0 ? "发现需要人工确认的安全风险。" : "未发现凭据泄露或危险命令。"}
+          </div>
+          {Array.isArray(data?.findings) && data.findings.length > 0 ? (
+            <div className="grid gap-2">
+              {data.findings.slice(0, 6).map((item, index) => {
+                const finding = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const severity = value(finding.severity, "medium");
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(finding.path)}-${value(finding.line)}-${index}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <code className="min-w-0 truncate text-[10px] text-[#315fb8]">{value(finding.path)}</code>
+                      <span className={`shrink-0 text-[10px] font-semibold ${severity === "critical" ? "text-[#b42318]" : "text-[#9a6700]"}`}>{severity}</span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-4 text-[#65707b]">
+                      第 {value(finding.line)} 行 · {value(finding.message)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">运行 security_audit 后显示脱敏结果。</div>
+          )}
+        </div>
       ) : panel.id === "context-doctor-panel" ? (
         <div className="mt-3 grid gap-3">
           <div
@@ -1041,6 +1378,398 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           </div>
           {data?.lastError ? <p className="text-[11px] text-[#b42318]">最近错误：{value(data.lastError)}</p> : null}
+        </div>
+      ) : panel.id === "session-export-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              return (
+                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">最近导出</span>
+                  <code className="mt-2 block truncate text-[11px] text-[#315fb8]">{value(latest.path ?? "pi-session.md")}</code>
+                  <p className="mt-1 text-[10px] text-[#65707b]">
+                    {value(latest.messages ?? 0)} 条消息 · {value(latest.bytes ?? 0)} bytes
+                  </p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有导出当前会话。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">导出文件只允许写入当前工作区内的 .md 路径，覆盖已有文件需要显式确认。</p>
+        </div>
+      ) : panel.id === "session-search-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.query ? (
+            <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+              <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data.query)}</code>
+              <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(data.total ?? 0)} 个会话</strong>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入查询后显示匹配的历史会话。</div>
+          )}
+          {Array.isArray(data?.items) && data.items.length > 0 ? (
+            <div className="grid gap-2">
+              {data.items.slice(0, 8).map((item, index) => {
+                const session = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const hits = Array.isArray(session.hits) ? session.hits : [];
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(session.id ?? "session")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
+                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">
+                      {hits
+                        .map((hit) => (hit !== null && typeof hit === "object" ? value((hit as Record<string, unknown>).text ?? "") : value(hit)))
+                        .join(" | ")}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : data?.query ? (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的历史会话。</div>
+          ) : null}
+        </div>
+      ) : panel.id === "session-bookmarks-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <span className="text-[11px] text-[#65707b]">当前会话的持久化书签</span>
+            <strong className="font-mono text-[11px] text-[#4176e6]">{value(data?.total ?? 0)} 个书签</strong>
+          </div>
+          {Array.isArray(data?.bookmarks) && data.bookmarks.length > 0 ? (
+            <div className="grid gap-2">
+              {data.bookmarks.slice(0, 12).map((item, index) => {
+                const bookmark = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(bookmark.id ?? "bookmark")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{value(bookmark.label ?? "未命名书签")}</strong>
+                    <code className="mt-1 block truncate text-[10px] text-[#8a949f]">entry: {value(bookmark.entryId ?? "—")}</code>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有标记重要节点。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">书签独立保存在 agent 目录，不会改写 Pi 原生会话记录。</p>
+        </div>
+      ) : panel.id === "llm-verifier-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <span className="text-[11px] text-[#65707b]">校验模型</span>
+            <code className="max-w-[65%] truncate text-[11px] text-[#315fb8]">
+              {value(data?.provider ?? "—")}/{value(data?.model ?? "—")}
+            </code>
+          </div>
+          {data?.history && typeof data.history === "object"
+            ? (() => {
+                const history = data.history as Record<string, unknown>;
+                const counts = history.counts && typeof history.counts === "object" ? (history.counts as Record<string, unknown>) : {};
+                return (
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#8a949f]">累计</span>
+                      <strong className="mt-1 block text-[15px] text-[#30343b]">{value(history.total ?? 0)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#f0fbf4] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#198754]">通过</span>
+                      <strong className="mt-1 block text-[15px] text-[#198754]">{value(counts.pass ?? 0)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#fff5f5] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#b42318]">失败</span>
+                      <strong className="mt-1 block text-[15px] text-[#b42318]">{value(counts.fail ?? 0)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#fffaf0] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[#9a6700]">未知</span>
+                      <strong className="mt-1 block text-[15px] text-[#9a6700]">{value(counts.unknown ?? 0)}</strong>
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const verdict = value(latest.verdict ?? "unknown");
+              return (
+                <div
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${verdict === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : verdict === "fail" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <strong className="uppercase">{verdict}</strong>
+                    <span className="font-mono text-[10px]">{value(latest.evidenceChars ?? 0)} chars</span>
+                  </div>
+                  <p className="mt-2 leading-4">{value(latest.rationale ?? "没有返回校验理由。")}</p>
+                  <p className="mt-2 truncate text-[10px] opacity-70">声明：{value(latest.claim ?? "—")}</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有执行模型校验。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">证据按不可信数据处理，输入有长度上限；模型返回非结构化结果时显示 unknown。</p>
+        </div>
+      ) : panel.id === "module-search-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const matches = Array.isArray(latest.matches) ? latest.matches : [];
+              return (
+                <>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                    <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.query ?? "")}</code>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(matches.length)} 个结果</strong>
+                  </div>
+                  {matches.length > 0 ? (
+                    <div className="grid gap-2">
+                      {matches.slice(0, 10).map((item, index) => {
+                        const match = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                        return (
+                          <div
+                            className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2"
+                            key={`${value(match.path ?? "module")}:${value(match.line ?? index)}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <code className="min-w-0 truncate text-[10px] text-[#315fb8]">
+                                {value(match.path ?? "—")}:{value(match.line ?? "—")}
+                              </code>
+                              <span className="shrink-0 text-[10px] uppercase text-[#8a949f]">{value(match.kind ?? "symbol")}</span>
+                            </div>
+                            <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(match.name ?? "未命名符号")}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的模块符号。</div>
+                  )}
+                  <p className="text-[10px] leading-4 text-[#8a949f]">扫描 {value(latest.scannedFiles ?? 0)} 个源码文件，跳过依赖和构建目录。</p>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入符号名后显示模块检索结果。</div>
+          )}
+        </div>
+      ) : panel.id === "better-sidebar-panel" ? (
+        (() => {
+          const changedFiles = Array.isArray(data?.changedFiles) ? data.changedFiles : [];
+          const clean = data?.clean === true;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data?.cwd ?? "当前工作区")}</code>
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${clean ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                  >
+                    {clean ? "clean" : `${value(data?.changedCount ?? changedFiles.length)} 个变更`}
+                  </span>
+                </div>
+                <p className="mt-2 font-mono text-[10px] text-[#65707b]">{value(data?.summary ?? "等待工作区扫描")}</p>
+                <p className="mt-1 text-[10px] text-[#8a949f]">
+                  会话 {value(data?.sessionId ?? "—")} · 目录 {value(data?.directoryCount ?? 0)} · 文件 {value(data?.fileCount ?? 0)}
+                </p>
+              </div>
+              {changedFiles.length > 0 ? (
+                <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                  {changedFiles.slice(0, 8).map((item, index) => {
+                    const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                    return (
+                      <code className="truncate py-0.5 text-[10px] text-[#65707b]" key={`${value(entry.path ?? "file")}-${index}`}>
+                        {value(entry.status ?? "??")} {value(entry.path ?? "未命名")}
+                      </code>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {data?.truncated === true ? <p className="text-[10px] text-[#8a949f]">目录摘要已截断，执行 sidebar_overview 获取最新概览。</p> : null}
+            </div>
+          );
+        })()
+      ) : panel.id === "workspace-navigator-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const nodes = Array.isArray(latest.nodes) ? latest.nodes : [];
+              return (
+                <>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                    <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.path ?? ".")}</code>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(nodes.length)} 个节点</strong>
+                  </div>
+                  {nodes.length > 0 ? (
+                    <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                      {nodes.slice(0, 36).map((item, index) => {
+                        const node = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                        const depth = typeof node.depth === "number" ? Math.min(6, Math.max(1, node.depth)) : 1;
+                        return (
+                          <div className="flex items-center gap-2 truncate py-1 text-[10px] text-[#65707b]" key={`${value(node.path ?? "node")}-${index}`}>
+                            <span className="shrink-0 text-[#9aa3ad]">
+                              {"· ".repeat(depth - 1)}
+                              {node.kind === "directory" ? "▾" : "·"}
+                            </span>
+                            <code className="truncate">{value(node.name ?? node.path ?? "未命名")}</code>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前目录为空。</div>
+                  )}
+                  <p className="text-[10px] leading-4 text-[#8a949f]">
+                    目录 {value(latest.directoryCount ?? 0)} 个，文件 {value(latest.fileCount ?? 0)} 个；跳过依赖和构建目录。
+                  </p>
+                  {data?.git && typeof data.git === "object"
+                    ? (() => {
+                        const git = data.git as Record<string, unknown>;
+                        const entries = Array.isArray(git.entries) ? git.entries : [];
+                        const available = git.available === true;
+                        return (
+                          <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-medium text-[#253044]">Git 状态</span>
+                              <span className={`text-[10px] ${!available ? "text-[#8a949f]" : git.clean === true ? "text-[#198754]" : "text-[#b42318]"}`}>
+                                {!available ? "不可用" : git.clean === true ? "clean" : `${entries.length} 个变更`}
+                              </span>
+                            </div>
+                            {available ? <p className="mt-1 font-mono text-[10px] text-[#65707b]">{value(git.branch ?? "detached HEAD")}</p> : null}
+                            {entries.length > 0 ? (
+                              <div className="mt-2 grid gap-1">
+                                {entries.slice(0, 12).map((item, index) => {
+                                  const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                                  return (
+                                    <code className="truncate text-[10px] text-[#65707b]" key={`${value(entry.path ?? "file")}-${index}`}>
+                                      {value(entry.status ?? "??")} {value(entry.path ?? "未命名")}
+                                    </code>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()
+                    : null}
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 workspace_tree 后显示工作区结构。</div>
+          )}
+        </div>
+      ) : panel.id === "prompt-library-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {Array.isArray(data?.templates) && data.templates.length > 0 ? (
+            <div className="grid gap-2">
+              {data.templates.slice(0, 12).map((item, index) => {
+                const template = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const tags = Array.isArray(template.tags) ? template.tags.filter((tag): tag is string => typeof tag === "string") : [];
+                return (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={`${value(template.id ?? "prompt")}-${index}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="truncate text-[11px] text-[#253044]">{value(template.title ?? "未命名提示词")}</strong>
+                      <code className="shrink-0 text-[10px] text-[#8a949f]">{value(template.id ?? "—")}</code>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(template.prompt ?? "")}</p>
+                    {tags.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {tags.slice(0, 6).map((tag) => (
+                          <span className="rounded bg-[#f6f8ff] px-1.5 py-0.5 text-[9px] text-[#315fb8]" key={tag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              还没有保存的提示词。可让 Agent 调用 prompt_library 保存模板。
+            </div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">共 {value(data?.total ?? 0)} 个模板，数据跟随当前会话。</p>
+        </div>
+      ) : panel.id === "colleague-skill-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const handoff = data.latest as Record<string, unknown>;
+              const list = (key: string): string[] =>
+                Array.isArray(handoff[key]) ? handoff[key].filter((item): item is string => typeof item === "string") : [];
+              const constraints = list("constraints");
+              const files = list("files");
+              const acceptance = list("acceptance");
+              return (
+                <>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+                    <span className="text-[11px] text-[#65707b]">交接给</span>
+                    <strong className="text-[11px] text-[#315fb8]">{value(handoff.toRole)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3 text-[11px] text-[#253044]">{value(handoff.objective)}</div>
+                  {handoff.context ? <p className="rounded-lg bg-[#f6f8fa] px-3 py-2 text-[10px] leading-4 text-[#65707b]">{value(handoff.context)}</p> : null}
+                  {files.length > 0 ? (
+                    <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                      {files.slice(0, 8).map((file) => (
+                        <code className="truncate text-[10px] text-[#65707b]" key={file}>
+                          {file}
+                        </code>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+                    <span>约束 {constraints.length} 条</span>
+                    <span>验收 {acceptance.length} 条</span>
+                  </div>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              执行 colleague_handoff 后显示角色交接包。
+            </div>
+          )}
+        </div>
+      ) : panel.id === "reverse-skill-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <span className="text-[11px] text-[#65707b]">复核风险内容</span>
+            <strong className="font-mono text-[11px] text-[#4176e6]">{data?.allowReviewByDefault === true ? "已允许" : "默认阻断"}</strong>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const risk = value(latest.risk ?? "safe");
+              const findings = Array.isArray(latest.findings) ? latest.findings : [];
+              return (
+                <div
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <strong className="uppercase">{risk}</strong>
+                    <span className="font-mono text-[10px]">{latest.contentIncluded === true ? "可注入" : "已隔离"}</span>
+                  </div>
+                  <p className="mt-2">
+                    {value(latest.name ?? "未命名 Skill")} · {value(findings.length)} 个风险项
+                  </p>
+                  {findings.length > 0 ? (
+                    <p className="mt-1 text-[10px] opacity-80">
+                      {findings
+                        .slice(0, 2)
+                        .map((item) => value(item))
+                        .join("；")}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 skill_inject 后显示隔离结果。</div>
+          )}
+          <p className="text-[10px] leading-4 text-[#8a949f]">安全内容会被包裹为不可信数据；review 风险默认不注入，blocked 内容永不返回原文。</p>
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -1143,11 +1872,77 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">Agent 可调用 plan_create 创建执行计划。</div>
           )}
         </div>
+      ) : panel.id === "plugin-stars-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">社区排行榜</span>
+            <span className="font-mono text-[#65707b]">上限 {value(data?.limit ?? "—")}</span>
+          </div>
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const entries = Array.isArray(latest.results)
+                ? latest.results.flatMap((entry): Array<{ fullName: string; name: string; stars: number; htmlUrl: string; updatedAt: string }> => {
+                    if (entry === null || typeof entry !== "object") return [];
+                    const item = entry as Record<string, unknown>;
+                    if (
+                      typeof item.fullName !== "string" ||
+                      typeof item.name !== "string" ||
+                      typeof item.stars !== "number" ||
+                      typeof item.htmlUrl !== "string" ||
+                      typeof item.updatedAt !== "string"
+                    )
+                      return [];
+                    return [{ fullName: item.fullName, name: item.name, stars: item.stars, htmlUrl: item.htmlUrl, updatedAt: item.updatedAt }];
+                  })
+                : [];
+              const rows = pluginStarsRows(entries, 8);
+              return (
+                <>
+                  <div className="flex items-center justify-between text-[11px] text-[#65707b]">
+                    <span>查询：{value(latest.query, "全部")}</span>
+                    <strong className="font-mono text-[#4176e6]">{value(latest.total ?? rows.length)} 个结果</strong>
+                  </div>
+                  {rows.length > 0 ? (
+                    <ol className="grid gap-1.5">
+                      {rows.map((row) => (
+                        <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={row.fullName}>
+                          <span className="w-5 shrink-0 text-center font-mono text-[10px] text-[#9a6700]">#{row.rank}</span>
+                          <div className="min-w-0 flex-1">
+                            <a
+                              className="block truncate font-mono text-[11px] text-[#315fb8] hover:underline"
+                              href={row.htmlUrl}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              {row.fullName}
+                            </a>
+                            <span className="block truncate text-[10px] text-[#9aa3ad]">更新于 {row.updatedAt || "未知"}</span>
+                          </div>
+                          <span className="shrink-0 font-mono text-[10px] text-[#b26a00]">★ {row.stars.toLocaleString()}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的社区插件。</div>
+                  )}
+                  <p className="text-[10px] leading-4 text-[#8a949f]">来源：{value(latest.source, "dsh-plugin-stars")} · 仅展示公开仓库信息，不会自动安装。</p>
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。
+            </div>
+          )}
+        </div>
       ) : panel.id === "plugin-finder-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">只读 Registry 搜索</span>
-            <span className="font-mono text-[#65707b]">上限 {value(data?.limit ?? "—")}</span>
+            <span className="font-mono text-[#65707b]">
+              关键词 {value(data?.keyword ?? "pi-harness")} · 上限 {value(data?.limit ?? "—")}
+            </span>
           </div>
           {data?.query ? (
             <>
@@ -1371,6 +2166,176 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           );
         })()
+      ) : panel.id === "skill-catalog-panel" ? (
+        (() => {
+          const skills = Array.isArray(data?.skills) ? data.skills : [];
+          const servers = Array.isArray(data?.mcpServers) ? data.mcpServers : [];
+          const diagnostics = Array.isArray(data?.diagnostics) ? data.diagnostics : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">Skills</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.skillCount ?? 0)}</strong>
+                </div>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">MCP 服务器</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.mcpCount ?? 0)}</strong>
+                </div>
+              </div>
+              {skills.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {skills.slice(0, 8).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.name ?? "skill")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.name, "未命名技能")}</strong>
+                          <span className="rounded bg-[#f2f3f5] px-1.5 py-0.5 text-[9px] text-[#65707b]">{value(item.scope, "unknown")}</span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[10px] text-[#8a949f]">{value(item.description, "无描述")}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前运行时没有加载 Skill。</div>
+              )}
+              {servers.length > 0 ? (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-[#65707b]">MCP 状态</div>
+                  <ul className="grid gap-1.5">
+                    {servers.slice(0, 6).map((entry, index) => {
+                      const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                      const running = item.status === "running";
+                      return (
+                        <li
+                          className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                          key={`${value(item.id ?? "server")}-${index}`}
+                        >
+                          <span className="truncate font-mono text-[#65707b]">{value(item.id, "未命名服务器")}</span>
+                          <span className={`rounded px-1.5 py-0.5 ${running ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#f2f3f5] text-[#65707b]"}`}>
+                            {value(item.status, "unknown")}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+              {diagnostics.length > 0 ? (
+                <div className="rounded-lg border border-[#fff0c2] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a5a00]">
+                  资源诊断：{diagnostics.length} 条警告
+                </div>
+              ) : null}
+              <div className="text-[10px] text-[#9aa3ad]">只读查看 runtime 已加载的 Skill 与 MCP 状态；配置写入仍由各自插件负责。</div>
+            </div>
+          );
+        })()
+      ) : panel.id === "cost-meter-panel" ? (
+        (() => {
+          const budget = typeof data?.budget === "number" ? data.budget : null;
+          const budgetPercent = typeof data?.budgetPercent === "number" ? data.budgetPercent : null;
+          const entries = Array.isArray(data?.entries) ? data.entries : [];
+          const budgetClass =
+            budgetPercent !== null && budgetPercent >= 100
+              ? "text-[#b42318]"
+              : budgetPercent !== null && budgetPercent >= 80
+                ? "text-[#a15c00]"
+                : "text-[#198754]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["今日", `$${Number(data?.todayCost ?? 0).toFixed(4)}`],
+                  ["当前会话", `$${Number(data?.sessionCost ?? 0).toFixed(4)}`],
+                  ["累计", `$${Number(data?.lifetimeCost ?? 0).toFixed(4)}`],
+                ].map(([label, item]) => (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[15px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#65707b]">每日预算</span>
+                  <strong className={budgetClass}>{budget === null ? "未设置" : `$${budget.toFixed(4)} · ${budgetPercent?.toFixed(2) ?? "0.00"}%`}</strong>
+                </div>
+                {budget !== null ? (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#dfe8f7]">
+                    <div
+                      className={`h-full ${budgetPercent !== null && budgetPercent >= 100 ? "bg-[#d64545]" : "bg-[#4c83e8]"}`}
+                      style={{ width: `${Math.min(100, budgetPercent ?? 0)}%` }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+              {entries.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {entries.slice(0, 5).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li
+                        className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                        key={`${value(item.sessionId ?? "session")}-${index}`}
+                      >
+                        <span className="truncate font-mono text-[#65707b]">{value(item.sessionId ?? "未知会话")}</span>
+                        <strong className="font-mono text-[#30343b]">${Number(item.cost ?? 0).toFixed(4)}</strong>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未记录已完成会话。Agent 可调用 cost_report 的 refresh 操作写入账本。
+                </div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">仅记录运行时报告的实际成本，不内置或猜测模型价格。</div>
+            </div>
+          );
+        })()
+      ) : panel.id === "undo-savepoint-panel" ? (
+        (() => {
+          const savepoints = Array.isArray(data?.savepoints) ? data.savepoints : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">保存点</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.count ?? savepoints.length)}</strong>
+                </div>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                  <span className="block text-[10px] text-[#8a949f]">跟踪路径</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">
+                    {value(Array.isArray(data?.trackedPaths) ? data.trackedPaths.length : 0)}
+                  </strong>
+                </div>
+              </div>
+              {savepoints.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {savepoints.slice(0, 6).map((entry, index) => {
+                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? "savepoint")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <code className="font-mono text-[10px] text-[#4176e6]">{value(item.id, "unknown")}</code>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.reason, "manual savepoint")}</strong>
+                          <span className="text-[9px] text-[#8a949f]">{value(item.fileCount, "0")} 文件</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                  尚未创建保存点。修改配置或插件代码前，让 Agent 调用 undo_savepoint 的 save 操作。
+                </div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">恢复操作要求 confirm=true；敏感文件、二进制文件和依赖目录不会进入保存点。</div>
+            </div>
+          );
+        })()
       ) : panel.id === "annotation-panel" ? (
         (() => {
           const annotations = Array.isArray(data?.annotations) ? data.annotations : [];
@@ -1408,6 +2373,57 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 </details>
               ) : null}
               <div className="text-[10px] text-[#9aa3ad]">批注按编号累积；生成上下文不会改写原会话消息。</div>
+            </div>
+          );
+        })()
+      ) : panel.id === "runtime-doctor-panel" ? (
+        (() => {
+          const status = value(data?.status ?? "unknown");
+          const checks = Array.isArray(data?.checks) ? data.checks : [];
+          const recommendations = Array.isArray(data?.recommendations) ? data.recommendations : [];
+          const statusClass =
+            status === "ok" ? "bg-[#eaf8f0] text-[#198754]" : status === "warning" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
+                <span className="text-[11px] text-[#65707b]">运行时边界检查</span>
+                <span className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase ${statusClass}`}>{status}</span>
+              </div>
+              <div className="grid gap-1.5">
+                {checks.map((entry, index) => {
+                  const check = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                  const checkStatus = value(check.status ?? "unknown");
+                  const checkClass =
+                    checkStatus === "ok"
+                      ? "bg-[#eaf8f0] text-[#198754]"
+                      : checkStatus === "warning"
+                        ? "bg-[#fff7e8] text-[#a15c00]"
+                        : "bg-[#fff0f0] text-[#b42318]";
+                  return (
+                    <div
+                      className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                      key={`${value(check.id ?? "check")}-${index}`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${checkStatus === "ok" ? "bg-[#22c55e]" : checkStatus === "warning" ? "bg-[#e6a21a]" : "bg-[#d64545]"}`}
+                      ></span>
+                      <code className="w-20 shrink-0 text-[#65707b]">{value(check.id ?? "check")}</code>
+                      <span className="min-w-0 flex-1 truncate text-[#30343b]">{value(check.detail ?? "—")}</span>
+                      <span className={`rounded px-1.5 py-0.5 font-mono ${checkClass}`}>{checkStatus}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {recommendations.length > 0 ? (
+                <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a6200]">
+                  <strong>建议</strong>
+                  <ul className="mt-1 grid gap-1 pl-4">
+                    {recommendations.slice(0, 5).map((item, index) => (
+                      <li key={`${value(item)}-${index}`}>{value(item)}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           );
         })()
@@ -1683,6 +2699,65 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           );
         })()
+      ) : panel.id === "archify-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const report = data.latest as Record<string, unknown>;
+              const components = Array.isArray(report.components) ? report.components : [];
+              const dependencies = Array.isArray(report.dependencies) ? report.dependencies : [];
+              return (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      <span className="block text-[10px] text-[#8a949f]">组件</span>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(components.length)}</strong>
+                    </div>
+                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                      <span className="block text-[10px] text-[#8a949f]">外部依赖</span>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(dependencies.length)}</strong>
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    {components.slice(0, 8).map((entry, index) => {
+                      const component = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                      return (
+                        <div
+                          className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]"
+                          key={`${value(component.path ?? "component")}-${index}`}
+                        >
+                          <span className="h-2 w-2 rounded-full bg-[#4176e6]"></span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-[#30343b]">{value(component.path ?? "组件")}</span>
+                          <span className="font-mono text-[10px] text-[#8a949f]">{value(component.files ?? 0)} files</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {dependencies.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {dependencies.slice(0, 12).map((dependency, index) => (
+                        <span
+                          className="rounded-md border border-[#dce5f5] bg-[#f6f8ff] px-2 py-1 font-mono text-[10px] text-[#315fb8]"
+                          key={`${value(dependency)}-${index}`}
+                        >
+                          {value(dependency)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                    {value(report.mermaid, "")}
+                  </pre>
+                  {report.truncated === true ? <p className="text-[10px] text-[#b26a00]">扫描达到节点上限，架构图可能不完整。</p> : null}
+                </>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              Agent 可调用 architecture_map 生成当前工作区架构图。
+            </div>
+          )}
+        </div>
       ) : panel.id === "canvas-draw-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
@@ -1755,6 +2830,123 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               Agent 可调用 workspace_search 检索当前工作区。
             </div>
           )}
+        </div>
+      ) : panel.id === "recall-unread-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[#30343b]">未回答会话</span>
+            <strong className="font-mono text-[#4176e6]">{value(data?.total ?? 0)} 个</strong>
+          </div>
+          {Array.isArray(data?.items) && data.items.length > 0 ? (
+            <div className="grid gap-2">
+              {data.items.slice(0, 8).map((item, index) => {
+                const session = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(session.id ?? "session")}-${index}`}>
+                    <strong className="block truncate text-[11px] text-[#30343b]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
+                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(session.message ?? "")}</p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有以未回答用户消息结束的会话。</div>
+          )}
+        </div>
+      ) : panel.id === "turn-rewind-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {data?.latest && typeof data.latest === "object" ? (
+            (() => {
+              const latest = data.latest as Record<string, unknown>;
+              const target = latest.target !== null && typeof latest.target === "object" ? (latest.target as Record<string, unknown>) : {};
+              const cancelled = latest.cancelled === true;
+              return (
+                <div className={`rounded-lg border px-3 py-3 ${cancelled ? "border-[#f4dfb0] bg-[#fffaf0]" : "border-[#dce5f5] bg-[#f6f8ff]"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">最近操作</span>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-semibold ${cancelled ? "bg-[#fff0c7] text-[#9a6700]" : "bg-[#e8f8ee] text-[#198754]"}`}
+                    >
+                      {cancelled ? "已取消" : "已回退"}
+                    </span>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#30343b]">{value(target.text ?? "未命名轮次")}</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有执行回退操作。</div>
+          )}
+          <div className="grid gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">可回退轮次</span>
+            {(() => {
+              const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+              return candidates.length > 0 ? (
+                candidates.slice(-8).map((item, index) => {
+                  const candidate = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                  return (
+                    <div
+                      className="flex items-start gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2"
+                      key={`${value(candidate.entryId ?? "turn")}-${index}`}
+                    >
+                      <span className="mt-0.5 font-mono text-[10px] text-[#4176e6]">{candidates.length - index}</span>
+                      <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-[#65707b]">{value(candidate.text ?? "未命名轮次")}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3 text-[11px] text-[#8a949f]">当前会话还没有可回退的用户轮次。</div>
+              );
+            })()}
+          </div>
+        </div>
+      ) : panel.id === "skill-guard-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ["已扫描", data?.total ?? 0],
+              ["高风险", data?.blocked ?? 0],
+              ["待复核", data?.review ?? 0],
+            ].map(([label, item]) => (
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-2">
+            {Array.isArray(data?.reports) && data.reports.length > 0 ? (
+              data.reports.slice(0, 8).map((item, index) => {
+                const report = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const risk = report.risk;
+                const findings = Array.isArray(report.findings) ? report.findings : [];
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(report.name ?? "skill")}-${index}`}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-2 w-2 rounded-full ${risk === "blocked" ? "bg-[#d64545]" : risk === "review" ? "bg-[#e0a11a]" : "bg-[#22a06b]"}`}
+                      ></span>
+                      <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(report.name ?? "unknown")}</strong>
+                      <span className="text-[10px] text-[#8a949f]">{risk === "blocked" ? "阻断" : risk === "review" ? "复核" : "安全"}</span>
+                    </div>
+                    {findings.length > 0 ? (
+                      <p className="mt-1 truncate text-[10px] text-[#65707b]">
+                        {findings
+                          .map((finding) =>
+                            finding !== null && typeof finding === "object" ? value((finding as Record<string, unknown>).code ?? "finding") : value(finding),
+                          )
+                          .join(" · ")}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                暂无 Skill 扫描结果，可让 Agent 调用 skill_guard_scan。
+              </div>
+            )}
+          </div>
         </div>
       ) : panel.id === "prompt-guard-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -1909,6 +3101,37 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
           <p className="text-[10px] text-[#8a949f]">只记录事件名和计数，不保留事件属性，也不会发起网络请求。</p>
         </div>
+      ) : panel.id === "plugin-dev-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div
+            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.status === "reloaded" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : data?.status === "failed" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]"}`}
+          >
+            <span>{data?.status === "reloaded" ? "插件已重载" : data?.status === "failed" ? "插件重载失败" : "等待重载"}</span>
+            <strong className="font-mono">{value(data?.status ?? "idle")}</strong>
+          </div>
+          <p className="text-[10px] text-[#8a949f]">{value(data?.reason ?? "修改本地扩展后调用 plugin_dev_reload")}</p>
+          {data?.error ? <p className="rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{value(data.error)}</p> : null}
+        </div>
+      ) : panel.id === "openpets-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center gap-3 rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#dceaff] text-[20px] text-[#4176e6]">◉</span>
+            <div className="min-w-0 flex-1">
+              <strong className="block truncate text-[13px] text-[#30343b]">{value(data?.name ?? "Pi")}</strong>
+              <span className="text-[10px] text-[#8a949f]">{value(data?.lastEvent ?? "session_start")}</span>
+            </div>
+            <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{value(data?.mood ?? "idle")}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              能量 <strong className="ml-1 text-[#30343b]">{value(data?.energy ?? 0)}%</strong>
+            </div>
+            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+              互动 <strong className="ml-1 text-[#30343b]">{value(data?.interactions ?? 0)}</strong>
+            </div>
+          </div>
+          <p className="text-[10px] text-[#8a949f]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
+        </div>
       ) : panel.id === "change-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
@@ -1946,12 +3169,22 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.generated === true ? (
-            <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
-              已生成 {value(data.name ?? "项目")} 的 README 概览：{value(data.scripts ?? 0)} 个脚本，{value(data.plugins ?? 0)} 个运行时插件。
-            </div>
+            <>
+              <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+                已生成 {value(data.name ?? "项目")} 的 README 概览：{value(data.scripts ?? 0)} 个脚本，{value(data.plugins ?? 0)} 个运行时插件。
+              </div>
+              {data.lastWrite && typeof data.lastWrite === "object" ? (
+                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[11px] text-[#315fb8]">
+                  已写入 {value((data.lastWrite as Record<string, unknown>).path ?? "README.generated.md")} ·{" "}
+                  {value((data.lastWrite as Record<string, unknown>).bytes ?? 0)} bytes
+                  {(data.lastWrite as Record<string, unknown>).overwritten === true ? " · 已覆盖" : " · 新文件"}
+                </div>
+              ) : null}
+              <p className="text-[10px] leading-4 text-[#8a949f]">需要落盘时调用 readme_write，并显式传入 confirm=true；默认写入 README.generated.md。</p>
+            </>
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
-              还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿。
+              还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿，或调用 readme_write 写入确认后的文件。
             </div>
           )}
         </div>
@@ -1978,6 +3211,72 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               还没有查询数据库。可让 Agent 调用 sql_readonly。
             </div>
           )}
+        </div>
+      ) : panel.id === "theme-studio-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <div className="min-w-0">
+              <strong className="block text-[12px] text-[#30343b]">{value(data?.label ?? "Light")}</strong>
+              <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(data?.description ?? "")}</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-[#edf3fe] px-2 py-1 font-mono text-[10px] text-[#4176e6]">{value(data?.theme ?? "light")}</span>
+          </div>
+          {Array.isArray(data?.presets) ? (
+            <div className="grid grid-cols-2 gap-2">
+              {data.presets.map((preset, index) => {
+                const item = preset !== null && typeof preset === "object" ? (preset as Record<string, unknown>) : {};
+                const selected = item.id === data.theme;
+                return (
+                  <div
+                    className={`rounded-lg border px-3 py-2 ${selected ? "border-[#9bbcff] bg-[#f6f8ff]" : "border-[#edf0f3] bg-white"}`}
+                    key={`${value(item.id ?? "theme")}-${index}`}
+                  >
+                    <strong className="block text-[11px] text-[#30343b]">{value(item.label ?? item.id ?? "主题")}</strong>
+                    <span className="mt-1 block truncate text-[10px] text-[#8a949f]">{value(item.description ?? "")}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          <p className="text-[10px] leading-4 text-[#8a949f]">可让 Agent 调用 theme_set 切换预设；选择会保存到当前 session，并由 React 根节点应用 token。</p>
+        </div>
+      ) : panel.id === "mirage-bridge-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div
+            className={`rounded-lg border px-3 py-3 ${data?.available === true ? "border-[#b9e6c9] bg-[#f0fbf4]" : data?.available === false ? "border-[#f3dfab] bg-[#fffaf0]" : "border-[#e3e7ee] bg-[#f6f8fa]"}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-[#30343b]">官方 Mirage CLI</span>
+              <strong
+                className={`text-[11px] ${data?.available === true ? "text-[#198754]" : data?.available === false ? "text-[#9a6700]" : "text-[#8a949f]"}`}
+              >
+                {data?.available === true ? "已连接" : data?.available === false ? "未检测到" : "未检查"}
+              </strong>
+            </div>
+            <p className="mt-2 truncate font-mono text-[10px] text-[#65707b]">{value(data?.version ?? data?.executable ?? "mirage")}</p>
+            <p className="mt-1 text-[11px] text-[#65707b]">虚拟工作区：{value(data?.workspaceId ?? "未配置")}</p>
+          </div>
+          {data?.lastRun && typeof data.lastRun === "object" ? (
+            (() => {
+              const run = data.lastRun as Record<string, unknown>;
+              return (
+                <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate font-mono text-[10px] text-[#30343b]">{value(run.command ?? "")}</span>
+                    <strong className={`shrink-0 text-[11px] ${run.exitCode === 0 ? "text-[#198754]" : "text-[#b42318]"}`}>
+                      exit {value(run.exitCode ?? "—")}
+                    </strong>
+                  </div>
+                  <p className="mt-1 text-[10px] text-[#65707b]">耗时 {value(run.durationMs ?? 0)} ms</p>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              先调用 mirage_doctor 检查 CLI，再调用 mirage_execute。
+            </div>
+          )}
+          {data?.lastError ? <p className="text-[10px] leading-4 text-[#9a6700]">{value(data.lastError)}</p> : null}
         </div>
       ) : panel.id === "docker-sandbox-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -2058,35 +3357,73 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">max:512KiB · read-only</span>
         </div>
       ) : panel.id === "browser-session-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.endpoint ?? "本地浏览器未连接")}</span>
-              <strong className="font-mono text-[12px] text-[#4176e6]">{value(Array.isArray(data?.tabs) ? data.tabs.length : 0)} tabs</strong>
+        (() => {
+          const tabs = Array.isArray(data?.tabs)
+            ? browserSessionTabs(
+                data.tabs.flatMap((tab): Array<{ targetId: string; title: string; url: string }> => {
+                  if (tab === null || typeof tab !== "object") return [];
+                  const item = tab as Record<string, unknown>;
+                  return typeof item.targetId === "string" && typeof item.url === "string"
+                    ? [{ targetId: item.targetId, title: typeof item.title === "string" ? item.title : "", url: item.url }]
+                    : [];
+                }),
+                8,
+              )
+            : [];
+          const latest =
+            data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
+          const latestAction = latest?.screenshot
+            ? "已截图"
+            : latest?.clicked === true
+              ? "已点击"
+              : latest?.text
+                ? "已读取"
+                : latest?.status === "navigated"
+                  ? "已导航"
+                  : undefined;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.endpoint ?? "本地浏览器未连接")}</span>
+                  <span
+                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.connected === true ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#fff4e5] text-[#b26a00]"}`}
+                  >
+                    {data?.connected === true ? "已连接" : "未连接"}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-[#8a949f]">Chrome DevTools Protocol · {tabs.length} 个可调试页面</p>
+                {data?.connected === false ? (
+                  <p className="mt-2 text-[11px] text-[#b42318]">请使用 remote-debugging-port 启动 Chrome。{value(data.error, "")}</p>
+                ) : null}
+              </div>
+              {latestAction ? (
+                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[11px]">
+                  <span className="text-[#65707b]">最近动作</span>
+                  <strong className="font-mono text-[#315fb8]">{latestAction}</strong>
+                </div>
+              ) : null}
+              {tabs.length > 0 ? (
+                <div className="grid gap-2">
+                  {tabs.map((tab) => (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={tab.targetId}>
+                      <strong className="block truncate text-[11px] text-[#30343b]">{tab.title}</strong>
+                      <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{tab.url}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有可调试的浏览器页面。</div>
+              )}
+              <div className="flex flex-wrap gap-2 text-[10px] text-[#8a949f]">
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">tabs</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">read</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">click</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">screenshot</span>
+              </div>
             </div>
-            <p className="mt-2 text-[11px] text-[#8a949f]">通过 Chrome DevTools Protocol 操作已启动浏览器，不执行页面外部脚本。</p>
-            {data?.connected === false ? (
-              <p className="mt-2 text-[11px] text-[#b42318]">未连接：请使用 remote-debugging-port 启动 Chrome。{value(data.error, "")}</p>
-            ) : null}
-          </div>
-          {Array.isArray(data?.tabs) && data.tabs.length > 0 ? (
-            <div className="grid gap-2">
-              {data.tabs.slice(0, 8).map((tab, index) => {
-                const item = typeof tab === "object" && tab !== null ? (tab as Record<string, unknown>) : {};
-                return (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${value(item.targetId ?? "tab")}-${index}`}>
-                    <strong className="block truncate text-[11px] text-[#30343b]">{value(item.title ?? "未命名页面")}</strong>
-                    <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{value(item.url, "")}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
-              没有可调试的浏览器页面。请使用 remote-debugging-port 启动 Chrome。
-            </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "mcp-client-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
@@ -2172,6 +3509,43 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             </div>
           ) : null}
         </div>
+      ) : panel.id === "mcp-panel" ? (
+        (() => {
+          const servers = Array.isArray(data?.servers) ? data.servers : [];
+          return (
+            <div className="mt-3 grid gap-3">
+              {servers.length > 0 ? (
+                <ul className="grid gap-2">
+                  {servers.map((entry, index) => {
+                    const server = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    const healthy = server.status === "running";
+                    return (
+                      <li className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${value(server.id ?? "server")}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{value(server.id, "未命名服务器")}</strong>
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] ${healthy ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff5f5] text-[#b42318]"}`}>
+                            {value(server.status, "unknown")}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#8a949f]">
+                          <span>{value(server.toolCount, "0")} 个桥接工具</span>
+                          <span>·</span>
+                          <span>{value(server.statusSource, "runtime")}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前没有 MCP 服务器快照。</div>
+              )}
+              <div className="text-[10px] text-[#9aa3ad]">
+                只读读取官方 MCP bridge 状态；健康建议通过 mcp_panel 的 health 操作查看。
+                {data?.writesEnabled === true ? ` 已启用 profile patch 写入：${value(data.patchPath)}` : " profile patch 写入未配置，apply 会被拒绝。"}
+              </div>
+            </div>
+          );
+        })()
       ) : panel.id === "mock-server-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
@@ -2399,6 +3773,53 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </div>
             ))}
           </div>
+          <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-[#30343b]">消息组成</span>
+              <span className="text-[10px] text-[#8a949f]">按角色统计</span>
+            </div>
+            <div className="mt-2 grid grid-cols-5 gap-1.5">
+              {[
+                ["用户", (data?.composition as Record<string, unknown> | undefined)?.user ?? 0],
+                ["助手", (data?.composition as Record<string, unknown> | undefined)?.assistant ?? 0],
+                ["工具", (data?.composition as Record<string, unknown> | undefined)?.toolResult ?? 0],
+                ["系统", (data?.composition as Record<string, unknown> | undefined)?.system ?? 0],
+                ["其他", (data?.composition as Record<string, unknown> | undefined)?.other ?? 0],
+              ].map(([label, item]) => (
+                <div className="rounded bg-[#f6f8fa] px-2 py-1.5 text-center" key={value(label)}>
+                  <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                  <strong className="mt-0.5 block font-mono text-[13px] text-[#30343b]">{value(item)}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-[#30343b]">最近上下文事件</span>
+              <span className="text-[10px] text-[#8a949f]">最多保留 50 条</span>
+            </div>
+            <div className="mt-2 max-h-28 overflow-auto">
+              {Array.isArray(data?.recentEvents) && data.recentEvents.length > 0 ? (
+                data.recentEvents
+                  .slice(-6)
+                  .reverse()
+                  .map((item, index) => {
+                    const event = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                    return (
+                      <div
+                        className="flex items-center justify-between border-b border-[#f0f2f5] py-1.5 last:border-b-0"
+                        key={`${value(event.type)}-${value(event.at)}-${index}`}
+                      >
+                        <span className="font-mono text-[10px] text-[#5d6d82]">{value(event.type, "unknown")}</span>
+                        <span className="text-[10px] text-[#9aa3ad]">{typeof event.at === "number" ? new Date(event.at).toLocaleTimeString() : "—"}</span>
+                      </div>
+                    );
+                  })
+              ) : (
+                <div className="py-2 text-[11px] text-[#8a949f]">暂无上下文事件。</div>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="mt-3 grid gap-2">
@@ -2475,6 +3896,8 @@ function Plugins({
           <div className="plugins-list">
             {installedPlugins.map((plugin) => {
               const panel = panelByPlugin.get(plugin.name);
+              const categoryLabel = plugin.category?.label;
+              const capabilityLabel = capability(plugin.name);
               return (
                 <div className="flex min-w-0 flex-col gap-3" key={plugin.id}>
                   <article className="plugin-card">
@@ -2484,7 +3907,8 @@ function Plugins({
                         <div className="plugin-title">
                           <code>{marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name)}</code>
                           <small>{plugin.state}</small>
-                          <span className="capability">{capability(plugin.name)}</span>
+                          {categoryLabel && <span className="capability">{categoryLabel}</span>}
+                          {categoryLabel !== capabilityLabel && <span className="capability">{capabilityLabel}</span>}
                         </div>
                         <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
                         <div className="hook-list">
@@ -2563,14 +3987,18 @@ function Plugins({
 function Marketplace({
   plugins,
   capabilities,
+  categories,
   total,
   page,
   hasNext,
   query,
   capabilityFilter,
+  categoryFilter,
   onQueryChange,
   onCapabilityChange,
+  onCategoryChange,
   onPageChange,
+  onOpenDetail,
   onBack,
   onToml,
   installedPackages,
@@ -2578,26 +4006,34 @@ function Marketplace({
 }: {
   plugins: readonly ClientMarketplacePlugin[];
   capabilities: readonly string[];
+  categories: readonly ClientMarketplaceCategory[];
   total: number;
   page: number;
   hasNext: boolean;
   query: string;
   capabilityFilter: string;
+  categoryFilter: string;
   onQueryChange: (value: string) => void;
   onCapabilityChange: (value: string) => void;
+  onCategoryChange: (value: string) => void;
   onPageChange: (value: number) => void;
+  onOpenDetail: (plugin: ClientMarketplacePlugin) => void;
   onBack: () => void;
   onToml: () => void;
   installedPackages: ReadonlySet<string>;
-  onInstall: (plugin: ClientMarketplacePlugin) => Promise<void>;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
 }) {
   const [installing, setInstalling] = useState<string>();
   const [installError, setInstallError] = useState("");
+  const [installNotice, setInstallNotice] = useState("");
+  const categoryTabs = marketplaceCategoryTabs(categories);
   const install = async (plugin: ClientMarketplacePlugin) => {
     setInstallError("");
+    setInstallNotice("");
     setInstalling(plugin.id);
     try {
-      await onInstall(plugin);
+      const result = await onInstall(plugin);
+      if (result.restartRequired === true) setInstallNotice("已写入 profile，重启 Pi Harness 后生效。");
     } catch (error) {
       setInstallError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -2631,7 +4067,7 @@ function Marketplace({
           <div>
             <small>COMMUNITY MARKETPLACE</small>
             <h2>发现社区插件</h2>
-            <p>可审查的社区目录。每个条目都包含 npm 包、版本、许可证和配置入口。</p>
+            <p>可审查的社区目录。推荐顺序综合验证状态、npm 质量分、近 30 天下载量和 npm 更新时间。</p>
           </div>
           <div className="marketplace-hero-actions">
             <button onClick={onBack} type="button">
@@ -2658,8 +4094,29 @@ function Marketplace({
               </option>
             ))}
           </select>
-          <span className="marketplace-count">{total} 个已审核条目</span>
+          <span className="marketplace-count">{total} 个已审核条目 · 推荐排序</span>
         </div>
+        <nav aria-label="插件分类" className="flex min-w-0 gap-1 overflow-x-auto border-b border-black/[0.08] bg-white px-5 py-2.5">
+          {categoryTabs.map((category) => {
+            const active = categoryFilter === category.id;
+            return (
+              <button
+                aria-pressed={active}
+                className={
+                  active
+                    ? "flex flex-none items-center gap-1.5 rounded-full bg-[#e4edfd] px-3 py-1.5 text-[11px] font-medium text-[#4176e6]"
+                    : "flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] text-[#61666b] hover:bg-[#f1f4f9]"
+                }
+                key={category.id || "all"}
+                onClick={() => onCategoryChange(category.id)}
+                type="button"
+              >
+                <span>{category.label}</span>
+                <span className={active ? "font-mono text-[10px] text-[#4176e6]/75" : "font-mono text-[10px] text-[#9aa1aa]"}>{category.count}</span>
+              </button>
+            );
+          })}
+        </nav>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
@@ -2687,6 +4144,7 @@ function Marketplace({
                       >
                         {plugin.source === "official" ? "官方" : "社区"}
                       </span>
+                      <span className="rounded bg-[#f2edff] px-1.5 py-px text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
                     </div>
                     <code className="marketplace-package">
                       {displayPluginName(plugin.packageName)} · v{plugin.version}
@@ -2704,12 +4162,25 @@ function Marketplace({
                         </span>
                       ))}
                     </div>
+                    {plugin.statistics && (
+                      <div className="mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
+                        {marketplaceStatisticItems(plugin.statistics).map((item) => (
+                          <span className="min-w-0 px-2 py-1.5" key={item.label} title={`${item.label} ${item.value}`}>
+                            <small className="block truncate text-[9px] text-[#8a949f]">{item.label}</small>
+                            <strong className="mt-0.5 block truncate font-mono text-[10px] font-medium text-[#3b424b]">{item.value}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <footer className="marketplace-card-footer">
                   <span>
                     {plugin.author} · {plugin.license}
                   </span>
+                  <button onClick={() => onOpenDetail(plugin)} type="button">
+                    查看详情
+                  </button>
                   <a href={plugin.repository} target="_blank" rel="noreferrer">
                     查看源码 ↗
                   </a>
@@ -2721,6 +4192,7 @@ function Marketplace({
             ))}
             {!plugins.length && <div className="p-7 text-center text-[12px] text-[#81858c]">没有匹配的插件。</div>}
           </div>
+          {installNotice && <p className="mt-2 text-[11px] text-[#4176e6]">{installNotice}</p>}
           {installError && <p className="mt-2 text-[11px] text-[#ec1313]">安装失败：{installError}</p>}
           <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[11px] text-[#81858c]">
             <button
@@ -2752,6 +4224,152 @@ function Marketplace({
             >
               查看贡献规范 ↗
             </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MarketplaceDetail({
+  plugin,
+  installed,
+  onInstall,
+  onBack,
+}: {
+  plugin: ClientMarketplacePlugin;
+  installed: boolean;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
+  onBack: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const install = async () => {
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      const result = await onInstall(plugin);
+      if (result.restartRequired === true) setNotice("已写入 profile，重启 Pi Harness 后生效。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="marketplace-page flex min-w-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="subnav">
+          <button onClick={onBack} type="button">
+            ← 插件市场
+          </button>
+          <span>插件详情</span>
+        </div>
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <header className="border-b border-[#e3e7ee] pb-7">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#4176e6]">
+                {plugin.source === "official" ? "官方插件" : "社区插件"}
+              </span>
+              <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
+              <span
+                className={
+                  plugin.status === "verified"
+                    ? "rounded bg-[#e6faed] px-2 py-1 font-mono text-[10px] text-[#16a34a]"
+                    : "rounded bg-[#fff5e7] px-2 py-1 font-mono text-[10px] text-[#dd8629]"
+                }
+              >
+                {plugin.status === "verified" ? "已验证" : "实验性"}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-end justify-between gap-5">
+              <div className="min-w-0">
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#8a949f]">PLUGIN DETAIL</p>
+                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#20252b]">{plugin.name}</h1>
+                <code className="mt-3 block break-all text-[12px] text-[#6f7883]">
+                  {plugin.packageName} · v{plugin.version}
+                </code>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="rounded-md border border-black/10 bg-white px-3 py-2 text-[12px] text-[#20252b]" onClick={onBack} type="button">
+                  返回市场
+                </button>
+                <button
+                  className="rounded-md bg-[#20252b] px-3 py-2 text-[12px] text-white disabled:cursor-default disabled:opacity-50"
+                  disabled={installed || busy}
+                  onClick={() => void install()}
+                  type="button"
+                >
+                  {installed ? "已安装" : busy ? "安装中…" : "安装插件"}
+                </button>
+              </div>
+            </div>
+            <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">{plugin.description}</p>
+            {notice && <p className="mt-3 text-[12px] text-[#4176e6]">{notice}</p>}
+            {error && <p className="mt-3 text-[12px] text-[#ec1313]">安装失败：{error}</p>}
+          </header>
+          <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="space-y-4">
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <h2 className="text-[13px] font-semibold text-[#20252b]">插件能力</h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {plugin.capabilities.map((item) => (
+                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 font-mono text-[11px] text-[#61666b]" key={item}>
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </section>
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <h2 className="text-[13px] font-semibold text-[#20252b]">扩展点</h2>
+                <div className="mt-4 space-y-2">
+                  {plugin.hooks.map((item) => (
+                    <div className="rounded-md bg-[#f8f9fb] px-3 py-2 font-mono text-[11px] text-[#61666b]" key={item}>
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <h2 className="text-[13px] font-semibold text-[#20252b]">运行配置</h2>
+                <p className="mt-1 text-[12px] text-[#8a949f]">安装后会以这个 profile 写入 pi.toml。</p>
+                <pre className="mt-4 overflow-auto rounded-lg bg-[#f7f8fa] p-4 text-[11px] leading-6 text-[#3b424b]">
+                  <code>{JSON.stringify(plugin.profile, null, 2)}</code>
+                </pre>
+              </section>
+            </div>
+            <aside className="h-fit rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
+              <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">作者</dt>
+                  <dd className="text-right text-[#3b424b]">{plugin.author}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">许可证</dt>
+                  <dd className="font-mono text-[#3b424b]">{plugin.license}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">分类</dt>
+                  <dd className="text-right text-[#3b424b]">{plugin.category.label}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">版本</dt>
+                  <dd className="font-mono text-[#3b424b]">{plugin.version}</dd>
+                </div>
+                {marketplaceStatisticItems(plugin.statistics).map((item) => (
+                  <div className="flex justify-between gap-4 py-3" key={item.label}>
+                    <dt className="text-[#8a949f]">{item.label}</dt>
+                    <dd className="font-mono text-[#3b424b]">{item.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#4176e6]" href={plugin.repository} target="_blank" rel="noreferrer">
+                查看源码 ↗
+              </a>
+            </aside>
           </div>
         </div>
       </div>
@@ -3633,6 +5251,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     pluginPanels: [],
     marketplace: [],
     marketplaceCapabilities: [],
+    marketplaceCategories: [],
     marketplaceTotal: 0,
     marketplacePage: 0,
     marketplaceHasNext: false,
@@ -3660,10 +5279,16 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const initialSessionPathRef = useRef(initialQueryState.sessionPath);
   const sessionRestoreAttemptedRef = useRef(false);
   const [draft, setDraft] = useState("");
+  const [annotations, setAnnotations] = useState<ClientAnnotation[]>([]);
+  const [annotationSelection, setAnnotationSelection] = useState("");
+  const [annotationNote, setAnnotationNote] = useState("");
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
   const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
+  const [marketplaceCategory, setMarketplaceCategory] = useState(initialQueryState.marketplaceCategory);
+  const [marketplacePluginId, setMarketplacePluginId] = useState<string | undefined>(initialQueryState.marketplacePlugin);
+  const [marketplaceDetail, setMarketplaceDetail] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [permission, setPermission] = useState(true);
   const [contextExpanded, setContextExpanded] = useState(false);
@@ -3724,11 +5349,36 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     else params.delete("marketplaceQuery");
     if (marketplaceCapability) params.set("capability", marketplaceCapability);
     else params.delete("capability");
+    if (marketplaceCategory) params.set("category", marketplaceCategory);
+    else params.delete("category");
+    if (page === "marketplace" && marketplacePluginId) params.set("plugin", marketplacePluginId);
+    else params.delete("plugin");
     if (marketplacePage > 0) params.set("marketplacePage", String(marketplacePage));
     else params.delete("marketplacePage");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [marketplaceCapability, marketplacePage, marketplaceQuery, page, selectedSessionPath, settings, view]);
+  }, [marketplaceCapability, marketplaceCategory, marketplacePage, marketplacePluginId, marketplaceQuery, page, selectedSessionPath, settings, view]);
+  useEffect(() => {
+    if (marketplacePluginId === undefined) {
+      setMarketplaceDetail(undefined);
+      return;
+    }
+    const visible = data.marketplace.find((plugin) => plugin.id === marketplacePluginId);
+    if (visible !== undefined) {
+      setMarketplaceDetail(visible);
+      return;
+    }
+    let cancelled = false;
+    void api.listMarketplace("", "", 0, 100).then((result) => {
+      if (cancelled) return;
+      const plugin = result.items.find((item) => item.id === marketplacePluginId);
+      if (plugin === undefined) setMarketplacePluginId(undefined);
+      else setMarketplaceDetail(plugin);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, data.marketplace, marketplacePluginId]);
   const refresh = useCallback(async () => {
     const [status, session, sessions, files, models, providers, plugins, pluginPanels, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
@@ -3739,7 +5389,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       api.listProviders(),
       api.listPlugins(),
       api.listPluginPanels(),
-      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage),
+      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory),
       api.listCommands(),
       api.listWorkspaces(),
     ]);
@@ -3754,6 +5404,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       pluginPanels: pluginPanels.status === "fulfilled" ? pluginPanels.value : current.pluginPanels,
       marketplace: marketplace.status === "fulfilled" ? marketplace.value.items : current.marketplace,
       marketplaceCapabilities: marketplace.status === "fulfilled" ? marketplace.value.capabilities : current.marketplaceCapabilities,
+      marketplaceCategories: marketplace.status === "fulfilled" ? marketplace.value.categories : current.marketplaceCategories,
       marketplaceTotal: marketplace.status === "fulfilled" ? marketplace.value.total : current.marketplaceTotal,
       marketplacePage: marketplace.status === "fulfilled" ? marketplace.value.page : current.marketplacePage,
       marketplaceHasNext: marketplace.status === "fulfilled" ? marketplace.value.hasNext : current.marketplaceHasNext,
@@ -3764,7 +5415,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
-  }, [api, includeArchivedSessions, marketplaceCapability, marketplacePage, marketplaceQuery, sessionPage]);
+  }, [api, includeArchivedSessions, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -3933,7 +5584,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   );
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const prompt = draft.trim();
+    const question = draft.trim();
+    const prompt = annotations.length > 0 ? formatAnnotationPrompt(annotations, question) : question;
     if (!prompt || promptBusy) return;
     setDraft("");
     setPromptError("");
@@ -3943,10 +5595,29 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     setPromptBusy(true);
     void api
       .prompt(prompt)
-      .then(() => refresh())
+      .then(async () => {
+        setAnnotations([]);
+        await refresh();
+      })
       .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setPendingPrompt(""))
       .finally(() => setPromptBusy(false));
+  };
+  const captureAnnotationSelection = () => {
+    window.requestAnimationFrame(() => {
+      const selected = window.getSelection()?.toString().trim() ?? "";
+      if (selected.length > 0) setAnnotationSelection(selected.slice(0, 4_000));
+    });
+  };
+  const addAnnotation = () => {
+    const quote = annotationSelection.trim();
+    if (!quote) return;
+    setAnnotations((current) => [
+      ...current,
+      { id: current.length === 0 ? 1 : Math.max(...current.map((item) => item.id)) + 1, quote, note: annotationNote.trim() },
+    ]);
+    setAnnotationSelection("");
+    setAnnotationNote("");
   };
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
@@ -4031,31 +5702,52 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
     />
   ) : page === "marketplace" ? (
-    <Marketplace
-      plugins={data.marketplace}
-      capabilities={data.marketplaceCapabilities}
-      total={data.marketplaceTotal}
-      page={data.marketplacePage}
-      hasNext={data.marketplaceHasNext}
-      query={marketplaceQuery}
-      capabilityFilter={marketplaceCapability}
-      onQueryChange={(value) => {
-        setMarketplaceQuery(value);
-        setMarketplacePage(0);
-      }}
-      onCapabilityChange={(value) => {
-        setMarketplaceCapability(value);
-        setMarketplacePage(0);
-      }}
-      onPageChange={setMarketplacePage}
-      onBack={() => setPage("plugins")}
-      onToml={() => setSettings("toml")}
-      installedPackages={installedPackages}
-      onInstall={async (plugin) => {
-        await api.installMarketplace(plugin.id);
-        await refresh();
-      }}
-    />
+    marketplaceDetail ? (
+      <MarketplaceDetail
+        plugin={marketplaceDetail}
+        installed={installedPackages.has(marketplaceDetail.packageName)}
+        onBack={() => setMarketplacePluginId(undefined)}
+        onInstall={async (plugin) => {
+          const result = await api.installMarketplace(plugin.id);
+          await refresh();
+          return result;
+        }}
+      />
+    ) : (
+      <Marketplace
+        plugins={data.marketplace}
+        capabilities={data.marketplaceCapabilities}
+        categories={data.marketplaceCategories}
+        total={data.marketplaceTotal}
+        page={data.marketplacePage}
+        hasNext={data.marketplaceHasNext}
+        query={marketplaceQuery}
+        capabilityFilter={marketplaceCapability}
+        categoryFilter={marketplaceCategory}
+        onQueryChange={(value) => {
+          setMarketplaceQuery(value);
+          setMarketplacePage(0);
+        }}
+        onCapabilityChange={(value) => {
+          setMarketplaceCapability(value);
+          setMarketplacePage(0);
+        }}
+        onCategoryChange={(value) => {
+          setMarketplaceCategory(value);
+          setMarketplacePage(0);
+        }}
+        onOpenDetail={(plugin) => setMarketplacePluginId(plugin.id)}
+        onPageChange={setMarketplacePage}
+        onBack={() => setPage("plugins")}
+        onToml={() => setSettings("toml")}
+        installedPackages={installedPackages}
+        onInstall={async (plugin) => {
+          const result = await api.installMarketplace(plugin.id);
+          await refresh();
+          return result;
+        }}
+      />
+    )
   ) : view === "chat" ? (
     <section className="view-panel chat-view">
       <div
@@ -4071,7 +5763,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             return (
               <article className={`turn ${turn.role === "user" ? "user" : "text"}`} key={index}>
                 {turn.role === "user" ? (
-                  <div className="user-bubble">{turn.text}</div>
+                  <UserMessageBubble text={turn.text} />
                 ) : (
                   <>
                     {turn.thinking && (
@@ -4082,7 +5774,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                         </div>
                       </details>
                     )}
-                    {turn.text && <MarkdownMessage text={turn.text} />}
+                    {turn.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={turn.text} />}
                   </>
                 )}
               </article>
@@ -4108,12 +5800,12 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               </details>
             )}
             {!streamingAssistant.thinking && !streamingAssistant.text && <div className="streaming-placeholder">正在生成…</div>}
-            {streamingAssistant.text && <MarkdownMessage text={streamingAssistant.text} />}
+            {streamingAssistant.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={streamingAssistant.text} />}
           </article>
         )}
         {pendingPrompt && !data.session?.messages.some((message) => message.role === "user" && messageText(message) === pendingPrompt) && (
           <article className="turn user pending-turn">
-            <div className="user-bubble">{pendingPrompt}</div>
+            <UserMessageBubble text={pendingPrompt} />
           </article>
         )}
       </div>
@@ -4150,6 +5842,48 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         )}
         <div className="composer-stack">
           {promptError && <PromptError message={promptError} />}
+          {annotationSelection ? (
+            <div aria-label="添加批注" className="rounded-lg border border-[#cdddf8] bg-[#f6f8ff] px-3 py-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 shrink-0 rounded bg-[#dce9ff] px-1.5 py-0.5 text-[10px] text-[#315fb8]">选中片段</span>
+                <p className="max-h-16 flex-1 overflow-auto whitespace-pre-wrap text-[11px] text-[#30343b]">{annotationSelection}</p>
+                <button aria-label="取消批注" className="text-[12px] text-[#8a949f]" onClick={() => setAnnotationSelection("")} type="button">
+                  ×
+                </button>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  aria-label="批注备注"
+                  className="min-w-0 flex-1 rounded-md border border-[#dce5f5] bg-white px-2 py-1.5 text-[11px] outline-none"
+                  onChange={(event) => setAnnotationNote(event.target.value)}
+                  placeholder="备注（可选）"
+                  value={annotationNote}
+                />
+                <button className="rounded-md bg-[#4176e6] px-3 py-1.5 text-[11px] font-medium text-white" onClick={addAnnotation} type="button">
+                  加入批注
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {annotations.length > 0 ? (
+            <div className="flex items-center gap-2 overflow-x-auto text-[10px]">
+              <span className="shrink-0 rounded-md bg-[#edf3fe] px-2 py-1 font-medium text-[#315fb8]">批注 ×{annotations.length}</span>
+              {annotations.map((annotation) => (
+                <button
+                  className="max-w-48 shrink-0 truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-left text-[#65707b]"
+                  key={annotation.id}
+                  onClick={() => setAnnotations((current) => current.filter((item) => item.id !== annotation.id))}
+                  title="点击移除批注"
+                  type="button"
+                >
+                  #{annotation.id} {annotation.quote}
+                </button>
+              ))}
+              <button className="shrink-0 text-[#8a949f]" onClick={() => setAnnotations([])} type="button">
+                清空
+              </button>
+            </div>
+          ) : null}
           <form className="composer" onSubmit={submit}>
             <textarea
               aria-label="Prompt"
@@ -4293,13 +6027,31 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const groups = sessionGroups(filteredSessions);
   const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
   const visibleCommands = filterCommands(data.commands, commandQuery);
+  const betterSidebarPanel = data.pluginPanels.find((panel) => panel.id === "better-sidebar-panel");
+  const betterSidebarData =
+    betterSidebarPanel?.data !== null && typeof betterSidebarPanel?.data === "object" && !Array.isArray(betterSidebarPanel?.data)
+      ? (betterSidebarPanel.data as Record<string, unknown>)
+      : undefined;
+  const themeStudioPanel = data.pluginPanels.find((panel) => panel.id === "theme-studio-panel");
+  const themeStudioData =
+    themeStudioPanel?.data !== null && typeof themeStudioPanel?.data === "object" && !Array.isArray(themeStudioPanel?.data)
+      ? (themeStudioPanel.data as Record<string, unknown>)
+      : undefined;
+  const themeStyle = useMemo(() => {
+    if (!themeStudioData?.tokens || typeof themeStudioData.tokens !== "object" || Array.isArray(themeStudioData.tokens)) return undefined;
+    const tokens = Object.entries(themeStudioData.tokens as Record<string, unknown>).filter(
+      ([key, token]) => key.startsWith("--") && typeof token === "string",
+    );
+    return tokens.length ? Object.fromEntries(tokens) : undefined;
+  }, [themeStudioData]);
+  const activeTheme = typeof themeStudioData?.theme === "string" ? themeStudioData.theme : undefined;
   const useCommand = (value: string) => {
     setDraft(value);
     setCommandOpen(false);
     setCommandQuery("");
   };
   return (
-    <div className="app-frame">
+    <div className="app-frame" data-theme={activeTheme} style={themeStyle}>
       <aside className="sidebar">
         <header className="brand-row">
           <span className="pi-mark" aria-hidden="true">
@@ -4614,6 +6366,32 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 下一页
               </button>
             </div>
+          )}
+          {betterSidebarData && (
+            <section aria-label="工作区概览" className="mx-3 mt-3 rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <strong className="text-[11px] font-semibold text-[#253044]">工作区概览</strong>
+                <span
+                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean === true ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                >
+                  {betterSidebarData.clean === true ? "clean" : `${value(betterSidebarData.changedCount ?? 0)} 变更`}
+                </span>
+              </div>
+              <code className="mt-2 block truncate text-[10px] text-[#315fb8]">{value(betterSidebarData.cwd ?? "当前工作区")}</code>
+              <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{value(betterSidebarData.branch ?? "非 Git 工作区")}</p>
+              {Array.isArray(betterSidebarData.changedFiles) && betterSidebarData.changedFiles.length > 0 ? (
+                <div className="mt-2 grid gap-1 border-t border-[#dce5f5] pt-2">
+                  {betterSidebarData.changedFiles.slice(0, 3).map((item, index) => {
+                    const file = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                    return (
+                      <code className="truncate text-[9px] text-[#65707b]" key={`${value(file.path ?? "file")}-${index}`}>
+                        {value(file.status ?? "??")} {value(file.path ?? "未命名")}
+                      </code>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
           )}
         </div>
         <footer className="sidebar-footer">

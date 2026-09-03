@@ -17,6 +17,6 @@ function renderMarkdown(source: string): string {
   );
 }
 
-export function MarkdownMessage({ text }: { text: string }) {
-  return <div className="turn-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />;
+export function MarkdownMessage({ text, onMouseUp }: { text: string; onMouseUp?: () => void }) {
+  return <div className="turn-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} onMouseUp={onMouseUp} />;
 }

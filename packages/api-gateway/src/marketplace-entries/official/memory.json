@@ -1,0 +1,16 @@
+{
+  "id": "memory",
+  "packageName": "@pi-harness/core/plugins/memory",
+  "version": "0.1.2",
+  "name": "Memory",
+  "description": "Persist bounded cross-session notes with explicit recall and update operations.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "memory", "label": "记忆与上下文" },
+  "capabilities": ["memory", "notes"],
+  "hooks": ["session lifecycle", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/memory", "config": {} }
+}

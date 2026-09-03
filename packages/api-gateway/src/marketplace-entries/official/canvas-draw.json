@@ -1,0 +1,16 @@
+{
+  "id": "canvas-draw",
+  "packageName": "@pi-harness/core/plugins/canvas-draw",
+  "version": "0.1.2",
+  "name": "Canvas Draw",
+  "description": "Build structured nodes and edges for architecture, flow, and dependency diagrams in the workspace UI.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": { "id": "multimodal", "label": "多模态" },
+  "capabilities": ["diagram", "nodes and edges", "visual planning"],
+  "hooks": ["canvas state", "plugin UI"],
+  "profile": { "name": "@pi-harness/core/plugins/canvas-draw", "config": {} }
+}

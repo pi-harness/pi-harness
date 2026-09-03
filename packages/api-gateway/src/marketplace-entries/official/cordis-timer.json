@@ -9,6 +9,7 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
+  "category": { "id": "runtime", "label": "运行时" },
   "capabilities": ["runtime", "scheduling"],
   "hooks": ["context lifecycle"],
   "profile": { "name": "@deepseek-ai/cordis-plugin-timer", "config": {} }
