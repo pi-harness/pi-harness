@@ -947,12 +947,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
   return (
     <div className={`plugin-panel-card ${inline ? "pt-1" : "rounded-[10px] border border-[#e3e7ee] bg-white p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]"}`}>
       <header className="flex items-start gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#edf3fe] font-mono text-[15px] text-[#4176e6]">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#edf3fe] font-mono text-[15px] text-[#3565c5]">
           {panel.icon ?? "◈"}
         </span>
         <div className="min-w-0 flex-1">
           <strong className="block text-[13px] font-semibold text-[#20252b]">{panel.title}</strong>
-          <p className="mt-1 text-[11px] leading-4 text-[#8a949f]">{panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime")}</p>
+          <p className="mt-1 text-[11px] leading-4 text-[#687381]">{panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime")}</p>
         </div>
       </header>
       {panel.error ? (
@@ -960,7 +960,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
       ) : panel.id === "console-logger-panel" ? (
         <div className="mt-3 grid gap-2">
           <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-            <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#8a949f]">最近日志</span>
+            <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">最近日志</span>
             <strong className="mt-1 block text-[20px] font-semibold text-[#20252b]">{value(data?.total ?? 0)}</strong>
           </div>
           <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3]">
@@ -972,7 +972,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     className="grid grid-cols-[auto_1fr] gap-2 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
                     key={`${value(message.time ?? "log")}-${index}`}
                   >
-                    <span className="font-mono text-[10px] text-[#8a949f]">{value(message.level ?? "log")}</span>
+                    <span className="font-mono text-[10px] text-[#687381]">{value(message.level ?? "log")}</span>
                     <div className="min-w-0">
                       <strong className="block truncate text-[11px] text-[#30343b]">{value(message.source ?? "runtime")}</strong>
                       <span className="block whitespace-pre-wrap break-words text-[11px] leading-4 text-[#65707b]">{pluginPanelValue(message.args ?? "")}</span>
@@ -981,7 +981,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 );
               })
             ) : (
-              <div className="px-3 py-4 text-[12px] text-[#8a949f]">暂无日志输出。</div>
+              <div className="px-3 py-4 text-[12px] text-[#687381]">暂无日志输出。</div>
             )}
           </div>
         </div>
@@ -994,20 +994,20 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <div className="flex items-center gap-3 border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${value(entry.id ?? "plugin")}-${index}`}>
                   <span className={`h-2 w-2 shrink-0 rounded-full ${entry.enabled === false ? "bg-[#a0a8b2]" : "bg-[#22c55e]"}`}></span>
                   <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{value(entry.name ?? "plugin")}</span>
-                  <span className="text-[10px] text-[#8a949f]">{value(entry.state ?? "unknown")}</span>
+                  <span className="text-[10px] text-[#687381]">{value(entry.state ?? "unknown")}</span>
                 </div>
               );
             })
           ) : (
-            <div className="px-3 py-4 text-[12px] text-[#8a949f]">暂无插件条目。</div>
+            <div className="px-3 py-4 text-[12px] text-[#687381]">暂无插件条目。</div>
           )}
         </div>
       ) : panel.id === "timer-service-panel" ? (
         <div className="mt-3 grid gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#8a949f]">服务状态</span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">服务状态</span>
             <span
-              className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.registered === true ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#fff4e5] text-[#b26a00]"}`}
+              className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.registered === true ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#fff4e5] text-[#8a5a00]"}`}
             >
               {data?.registered === true ? "已注册" : "未注册"}
             </span>
@@ -1015,7 +1015,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="flex flex-wrap gap-2">
             {capabilities.map((capability, index) => (
               <span
-                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
                 key={`${value(capability)}-${index}`}
               >
                 {value(capability)}
@@ -1029,7 +1029,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             {capabilities.length > 0
               ? capabilities.map((capability, index) => (
                   <span
-                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-center text-[10px] text-[#4176e6]"
+                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-center text-[10px] text-[#3565c5]"
                     key={`${value(capability)}-${index}`}
                   >
                     {value(capability)}
@@ -1037,15 +1037,15 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 ))
               : null}
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">成员</span>
+              <span className="block text-[10px] text-[#687381]">成员</span>
               <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.members) ? data.members.length : 0)}</strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">任务</span>
+              <span className="block text-[10px] text-[#687381]">任务</span>
               <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.tasks) ? data.tasks.length : 0)}</strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">未读消息</span>
+              <span className="block text-[10px] text-[#687381]">未读消息</span>
               <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
                 {value(
                   Array.isArray(data?.messages)
@@ -1056,7 +1056,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">可执行任务</span>
+              <span className="block text-[10px] text-[#687381]">可执行任务</span>
               <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
                 {value(Array.isArray(data?.readyTasks) ? data.readyTasks.length : 0)}
               </strong>
@@ -1075,13 +1075,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${value(member.id ?? "member")}-${index}`}>
                     <span className="h-2 w-2 rounded-full bg-[#22c55e]"></span>
                     <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[#30343b]">{value(member.name ?? "成员")}</span>
-                    <span className="text-[10px] text-[#8a949f]">{value(member.role ?? "协作成员")}</span>
-                    <span className="font-mono text-[10px] text-[#4176e6]">{value(member.status ?? "idle")}</span>
+                    <span className="text-[10px] text-[#687381]">{value(member.role ?? "协作成员")}</span>
+                    <span className="font-mono text-[10px] text-[#3565c5]">{value(member.status ?? "idle")}</span>
                   </div>
                 );
               })
             ) : (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">暂无协作成员。</div>
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无协作成员。</div>
             )}
           </div>
           <div className="grid gap-2">
@@ -1093,12 +1093,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     <div className="min-w-0 flex-1">
                       <span className="block truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</span>
                       {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
-                        <span className="mt-0.5 block truncate font-mono text-[9px] text-[#9aa3ad]">依赖：{task.dependsOn.join(", ")}</span>
+                        <span className="mt-0.5 block truncate font-mono text-[9px] text-[#687381]">依赖：{task.dependsOn.join(", ")}</span>
                       ) : null}
                     </div>
-                    <span className="text-[10px] text-[#8a949f]">{value(task.assignee ?? "unassigned")}</span>
+                    <span className="text-[10px] text-[#687381]">{value(task.assignee ?? "unassigned")}</span>
                     <span
-                      className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[#fff4e5] text-[#b26a00]" : task.status === "done" ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#edf3fe] text-[#4176e6]"}`}
+                      className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[#fff4e5] text-[#8a5a00]" : task.status === "done" ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#edf3fe] text-[#3565c5]"}`}
                     >
                       {value(task.status ?? "todo")}
                     </span>
@@ -1106,13 +1106,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 );
               })
             ) : (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">还没有任务。可让 Agent 使用 team_task 创建。</div>
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">还没有任务。可让 Agent 使用 team_task 创建。</div>
             )}
           </div>
           <div className="grid gap-2">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold text-[#30343b]">团队消息</span>
-              <span className="font-mono text-[10px] text-[#8a949f]">durable mailbox</span>
+              <span className="font-mono text-[10px] text-[#687381]">durable mailbox</span>
             </div>
             {Array.isArray(data?.messages) && data.messages.length > 0 ? (
               Array.from(data.messages as readonly unknown[])
@@ -1125,8 +1125,8 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       className={`rounded-lg border px-3 py-2 ${message.read === true ? "border-[#edf0f3] bg-white" : "border-[#cfe0ff] bg-[#f4f8ff]"}`}
                       key={`${value(message.id ?? "message")}-${index}`}
                     >
-                      <div className="flex items-center gap-2 text-[10px] text-[#8a949f]">
-                        <span className="font-mono text-[#4176e6]">
+                      <div className="flex items-center gap-2 text-[10px] text-[#687381]">
+                        <span className="font-mono text-[#3565c5]">
                           {value(message.from ?? "unknown")} → {value(message.to ?? "unknown")}
                         </span>
                         <span className="ml-auto">{message.read === true ? "已读" : "未读"}</span>
@@ -1136,7 +1136,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   );
                 })
             ) : (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#8a949f]">暂无团队消息。</div>
+              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无团队消息。</div>
             )}
           </div>
         </div>
@@ -1145,20 +1145,20 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className={`rounded-lg border px-3 py-3 ${data?.attached === true ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#e3e7ee] bg-[#f6f8fa]"}`}>
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">{data?.attached === true ? "图片已附加" : "等待图片"}</span>
-              <span className="font-mono text-[10px] text-[#8a949f]">vision_inspect</span>
+              <span className="font-mono text-[10px] text-[#687381]">vision_inspect</span>
             </div>
             {data?.image !== null && data?.image !== undefined && typeof data.image === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
                 {value((data.image as Record<string, unknown>).path ?? "图片")} · {value((data.image as Record<string, unknown>).bytes ?? 0)} bytes
               </p>
             ) : (
-              <p className="mt-2 text-[11px] text-[#8a949f]">调用 vision_inspect 并提供工作区内图片路径。</p>
+              <p className="mt-2 text-[11px] text-[#687381]">调用 vision_inspect 并提供工作区内图片路径。</p>
             )}
           </div>
           <div className="flex flex-wrap gap-2">
             {capabilities.map((capability, index) => (
               <span
-                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
                 key={`${value(capability)}-${index}`}
               >
                 {value(capability)}
@@ -1171,19 +1171,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">最近附加</span>
-              <span className="font-mono text-[10px] text-[#8a949f]">file_context</span>
+              <span className="font-mono text-[10px] text-[#687381]">file_context</span>
             </div>
             {data?.lastFile !== null && data?.lastFile !== undefined && typeof data.lastFile === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
                 {value((data.lastFile as Record<string, unknown>).path ?? "文件")} · {value((data.lastFile as Record<string, unknown>).bytes ?? 0)} bytes
               </p>
             ) : (
-              <p className="mt-2 text-[11px] text-[#8a949f]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
+              <p className="mt-2 text-[11px] text-[#687381]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
             )}
           </div>
-          <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
+          <div className="flex items-center justify-between text-[11px] text-[#687381]">
             <span>单文件上限</span>
-            <strong className="font-mono text-[#4176e6]">{value(data?.maxBytes ?? 0)} bytes</strong>
+            <strong className="font-mono text-[#3565c5]">{value(data?.maxBytes ?? 0)} bytes</strong>
           </div>
         </div>
       ) : panel.id === "git-time-capsule-panel" ? (
@@ -1191,7 +1191,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">最近快照</span>
-              <span className="font-mono text-[10px] text-[#8a949f]">git_snapshot</span>
+              <span className="font-mono text-[10px] text-[#687381]">git_snapshot</span>
             </div>
             {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
               <p className="mt-2 truncate text-[11px] text-[#65707b]">
@@ -1199,14 +1199,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 {(data.latest as Record<string, unknown>).restored === true ? " · 已恢复" : ""}
               </p>
             ) : (
-              <p className="mt-2 text-[11px] text-[#8a949f]">还没有快照。修改代码前让 Agent 调用 git_snapshot。</p>
+              <p className="mt-2 text-[11px] text-[#687381]">还没有快照。修改代码前让 Agent 调用 git_snapshot。</p>
             )}
           </div>
-          <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
+          <div className="flex items-center justify-between text-[11px] text-[#687381]">
             <span>保留快照</span>
-            <strong className="font-mono text-[#4176e6]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
+            <strong className="font-mono text-[#3565c5]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
           </div>
-          <p className="text-[10px] leading-4 text-[#8a949f]">恢复会反向应用选中的 patch，必须显式传入 confirm=true。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">恢复会反向应用选中的 patch，必须显式传入 confirm=true。</p>
         </div>
       ) : panel.id === "dependency-checker-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -1228,13 +1228,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     ["缺失", missing.length + invalid.length],
                   ].map(([label, item]) => (
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                      <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                       <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
                     </div>
                   ))}
                 </div>
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length || conflicts.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length || conflicts.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                 >
                   {missing.length || invalid.length
                     ? `缺失或无效：${[...missing, ...invalid].map((item) => value(item)).join(", ")}`
@@ -1276,7 +1276,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
                 />
               </div>
-              <p className="mt-2 text-[11px] text-[#71809a]">
+              <p className="mt-2 text-[11px] text-[#5d6d82]">
                 {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${value(data?.aborts ?? 0)}`}
               </p>
             </div>
@@ -1287,7 +1287,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   {value(data?.runTokens ?? "—")} / {value(data?.maxRunTokens || "—")}
                 </strong>
               </div>
-              <p className="mt-2 text-[11px] text-[#71809a]">{data?.maxRunTokens ? "按 agent_start 后累计 token 熔断。" : "未启用绝对 Token 上限。"}</p>
+              <p className="mt-2 text-[11px] text-[#5d6d82]">{data?.maxRunTokens ? "按 agent_start 后累计 token 熔断。" : "未启用绝对 Token 上限。"}</p>
             </div>
           </div>
         </div>
@@ -1300,14 +1300,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-mono text-[11px] font-semibold text-[#30343b]">{value(run.command ?? "npm run test")}</span>
-                    <strong className={`text-[12px] ${run.exitCode === 0 ? "text-[#198754]" : "text-[#b42318]"}`}>exit {value(run.exitCode ?? "—")}</strong>
+                    <strong className={`text-[12px] ${run.exitCode === 0 ? "text-[#14733f]" : "text-[#b42318]"}`}>exit {value(run.exitCode ?? "—")}</strong>
                   </div>
                   <p className="mt-2 text-[11px] text-[#65707b]">耗时 {value(run.durationMs ?? 0)} ms</p>
                 </div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有执行验证脚本。可让 Agent 调用 run_project_tests。
             </div>
           )}
@@ -1315,7 +1315,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             {Array.isArray(data?.allowedScripts)
               ? data.allowedScripts.map((script, index) => (
                   <span
-                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
                     key={`${value(script)}-${index}`}
                   >
                     {value(script)}
@@ -1338,7 +1338,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     ["成本", `$${Number(data?.cost ?? 0).toFixed(4)}`],
                   ].map(([label, item]) => (
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                      <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                       <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
                     </div>
                   ))}
@@ -1348,7 +1348,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     <span className="text-[11px] font-semibold text-[#30343b]">上下文</span>
                     <strong className="font-mono text-[12px] text-[#315fb8]">{value(usage.percent ?? "—")}%</strong>
                   </div>
-                  <p className="mt-2 text-[11px] text-[#71809a]">
+                  <p className="mt-2 text-[11px] text-[#5d6d82]">
                     {value(tokens.total ?? 0)} tracked tokens · 输入 {value(tokens.input ?? 0)} · 输出 {value(tokens.output ?? 0)}
                   </p>
                 </div>
@@ -1378,7 +1378,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 </div>
                 {sections.map(([label, item]) => (
                   <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={label}>
-                    <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{label}</span>
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{label}</span>
                     <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-[#30343b]">{value(item)}</p>
                   </div>
                 ))}
@@ -1388,7 +1388,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     ["关键文件", preview.keyFiles],
                   ].map(([label, items]) => (
                     <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{value(label)}</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{value(label)}</span>
                       {Array.isArray(items) && items.length > 0 ? (
                         <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
                           {items.slice(0, 8).map((item, index) => (
@@ -1396,7 +1396,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           ))}
                         </ul>
                       ) : (
-                        <p className="mt-2 text-[10px] text-[#8a949f]">暂无</p>
+                        <p className="mt-2 text-[10px] text-[#687381]">暂无</p>
                       )}
                     </div>
                   ))}
@@ -1421,7 +1421,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       const item = session as Record<string, unknown>;
                       return (
                         <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
-                          <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{value(label)}</span>
+                          <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{value(label)}</span>
                           <strong className="mt-2 block truncate text-[12px] text-[#30343b]">{value(item.name ?? item.id)}</strong>
                           <code className="mt-1 block truncate text-[10px] text-[#315fb8]">{value(item.id)}</code>
                           <span className="mt-1 block text-[10px] text-[#65707b]">{value(item.messageCount, "0")} 条消息</span>
@@ -1436,19 +1436,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       ["左侧删除", Array.isArray(data.removed) ? data.removed.length : 0],
                     ].map(([label, item]) => (
                       <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                        <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                        <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                         <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
                       </div>
                     ))}
                   </div>
                   <div
-                    className={`rounded-lg border px-3 py-3 text-[11px] ${data.changed === true ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${data.changed === true ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                   >
                     {data.changed === true ? "两个会话存在消息差异。" : "两个会话内容一致。"}
                   </div>
                   {Array.isArray(data.added) && data.added.length > 0 ? (
                     <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">右侧新增消息</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">右侧新增消息</span>
                       <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
                         {data.added.slice(0, 4).map((item, index) => {
                           const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
@@ -1465,7 +1465,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               执行 session_compare 后显示两个会话的差异。
             </div>
           )}
@@ -1480,13 +1480,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ["总发现", data?.total ?? 0],
             ].map(([label, item]) => (
               <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center" key={value(label)}>
-                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                 <strong className="mt-1 block text-[16px] font-semibold text-[#30343b]">{value(item)}</strong>
               </div>
             ))}
           </div>
           <div
-            className={`rounded-lg border px-3 py-3 text-[11px] ${Number(data?.total ?? 0) > 0 ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+            className={`rounded-lg border px-3 py-3 text-[11px] ${Number(data?.total ?? 0) > 0 ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
           >
             {Number(data?.total ?? 0) > 0 ? "发现需要人工确认的安全风险。" : "未发现凭据泄露或危险命令。"}
           </div>
@@ -1509,13 +1509,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">运行 security_audit 后显示脱敏结果。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">运行 security_audit 后显示脱敏结果。</div>
           )}
         </div>
       ) : panel.id === "context-doctor-panel" ? (
         <div className="mt-3 grid gap-3">
           <div
-            className={`rounded-lg border px-3 py-3 text-[11px] ${data?.status === "warning" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+            className={`rounded-lg border px-3 py-3 text-[11px] ${data?.status === "warning" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
           >
             {data?.status === "warning" ? "需要关注上下文风险。" : "上下文状态正常。"}
           </div>
@@ -1526,7 +1526,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ["工具错误", data?.toolErrors ?? 0],
             ].map(([label, item]) => (
               <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                 <strong className="mt-1 block text-[17px] text-[#30343b]">{value(item)}</strong>
               </div>
             ))}
@@ -1543,15 +1543,15 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "自动压缩已启用" : "自动压缩已停用"}</span>
-            <strong className="font-mono text-[11px] text-[#4176e6]">阈值 {value(data?.thresholdPercent ?? "—")}%</strong>
+            <strong className="font-mono text-[11px] text-[#3565c5]">阈值 {value(data?.thresholdPercent ?? "—")}%</strong>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">已压缩</span>
+              <span className="block text-[10px] text-[#687381]">已压缩</span>
               <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.compactions ?? 0)}</strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">当前占用</span>
+              <span className="block text-[10px] text-[#687381]">当前占用</span>
               <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.lastUsagePercent ?? "—")}%</strong>
             </div>
           </div>
@@ -1564,7 +1564,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               const latest = data.latest as Record<string, unknown>;
               return (
                 <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                  <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">最近导出</span>
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">最近导出</span>
                   <code className="mt-2 block truncate text-[11px] text-[#315fb8]">{value(latest.path ?? "pi-session.md")}</code>
                   <p className="mt-1 text-[10px] text-[#65707b]">
                     {value(latest.messages ?? 0)} 条消息 · {value(latest.bytes ?? 0)} bytes
@@ -1573,19 +1573,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有导出当前会话。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有导出当前会话。</div>
           )}
-          <p className="text-[10px] leading-4 text-[#8a949f]">导出文件只允许写入当前工作区内的 .md 路径，覆盖已有文件需要显式确认。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">导出文件只允许写入当前工作区内的 .md 路径，覆盖已有文件需要显式确认。</p>
         </div>
       ) : panel.id === "session-search-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.query ? (
             <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
               <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data.query)}</code>
-              <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(data.total ?? 0)} 个会话</strong>
+              <strong className="ml-3 shrink-0 text-[11px] text-[#3565c5]">{value(data.total ?? 0)} 个会话</strong>
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入查询后显示匹配的历史会话。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">输入查询后显示匹配的历史会话。</div>
           )}
           {Array.isArray(data?.items) && data.items.length > 0 ? (
             <div className="grid gap-2">
@@ -1605,14 +1605,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })}
             </div>
           ) : data?.query ? (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的历史会话。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的历史会话。</div>
           ) : null}
         </div>
       ) : panel.id === "session-bookmarks-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
             <span className="text-[11px] text-[#65707b]">当前会话的持久化书签</span>
-            <strong className="font-mono text-[11px] text-[#4176e6]">{value(data?.total ?? 0)} 个书签</strong>
+            <strong className="font-mono text-[11px] text-[#3565c5]">{value(data?.total ?? 0)} 个书签</strong>
           </div>
           {Array.isArray(data?.bookmarks) && data.bookmarks.length > 0 ? (
             <div className="grid gap-2">
@@ -1621,15 +1621,15 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(bookmark.id ?? "bookmark")}-${index}`}>
                     <strong className="block truncate text-[11px] text-[#30343b]">{value(bookmark.label ?? "未命名书签")}</strong>
-                    <code className="mt-1 block truncate text-[10px] text-[#8a949f]">entry: {value(bookmark.entryId ?? "—")}</code>
+                    <code className="mt-1 block truncate text-[10px] text-[#687381]">entry: {value(bookmark.entryId ?? "—")}</code>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有标记重要节点。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有标记重要节点。</div>
           )}
-          <p className="text-[10px] leading-4 text-[#8a949f]">书签独立保存在 agent 目录，不会改写 Pi 原生会话记录。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">书签独立保存在 agent 目录，不会改写 Pi 原生会话记录。</p>
         </div>
       ) : panel.id === "llm-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -1646,12 +1646,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <div className="grid grid-cols-4 gap-2">
                     <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center">
-                      <span className="block text-[10px] text-[#8a949f]">累计</span>
+                      <span className="block text-[10px] text-[#687381]">累计</span>
                       <strong className="mt-1 block text-[15px] text-[#30343b]">{value(history.total ?? 0)}</strong>
                     </div>
                     <div className="rounded-lg bg-[#f0fbf4] px-2 py-2 text-center">
-                      <span className="block text-[10px] text-[#198754]">通过</span>
-                      <strong className="mt-1 block text-[15px] text-[#198754]">{value(counts.pass ?? 0)}</strong>
+                      <span className="block text-[10px] text-[#14733f]">通过</span>
+                      <strong className="mt-1 block text-[15px] text-[#14733f]">{value(counts.pass ?? 0)}</strong>
                     </div>
                     <div className="rounded-lg bg-[#fff5f5] px-2 py-2 text-center">
                       <span className="block text-[10px] text-[#b42318]">失败</span>
@@ -1671,7 +1671,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               const verdict = value(latest.verdict ?? "unknown");
               return (
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${verdict === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : verdict === "fail" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]"}`}
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${verdict === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : verdict === "fail" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]"}`}
                 >
                   <div className="flex items-center justify-between">
                     <strong className="uppercase">{verdict}</strong>
@@ -1683,9 +1683,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有执行模型校验。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有执行模型校验。</div>
           )}
-          <p className="text-[10px] leading-4 text-[#8a949f]">证据按不可信数据处理，输入有长度上限；模型返回非结构化结果时显示 unknown。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">证据按不可信数据处理，输入有长度上限；模型返回非结构化结果时显示 unknown。</p>
         </div>
       ) : panel.id === "module-search-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -1697,7 +1697,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <>
                   <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
                     <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.query ?? "")}</code>
-                    <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(matches.length)} 个结果</strong>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[#3565c5]">{value(matches.length)} 个结果</strong>
                   </div>
                   {matches.length > 0 ? (
                     <div className="grid gap-2">
@@ -1712,7 +1712,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                               <code className="min-w-0 truncate text-[10px] text-[#315fb8]">
                                 {value(match.path ?? "—")}:{value(match.line ?? "—")}
                               </code>
-                              <span className="shrink-0 text-[10px] uppercase text-[#8a949f]">{value(match.kind ?? "symbol")}</span>
+                              <span className="shrink-0 text-[10px] uppercase text-[#687381]">{value(match.kind ?? "symbol")}</span>
                             </div>
                             <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(match.name ?? "未命名符号")}</p>
                           </div>
@@ -1720,14 +1720,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       })}
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的模块符号。</div>
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的模块符号。</div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#8a949f]">扫描 {value(latest.scannedFiles ?? 0)} 个源码文件，跳过依赖和构建目录。</p>
+                  <p className="text-[10px] leading-4 text-[#687381]">扫描 {value(latest.scannedFiles ?? 0)} 个源码文件，跳过依赖和构建目录。</p>
                 </>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">输入符号名后显示模块检索结果。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">输入符号名后显示模块检索结果。</div>
           )}
         </div>
       ) : panel.id === "better-sidebar-panel" ? (
@@ -1740,13 +1740,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <div className="flex items-center justify-between gap-2">
                   <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data?.cwd ?? "当前工作区")}</code>
                   <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${clean ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${clean ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#fff0f0] text-[#b42318]"}`}
                   >
                     {clean ? "clean" : `${value(data?.changedCount ?? changedFiles.length)} 个变更`}
                   </span>
                 </div>
                 <p className="mt-2 font-mono text-[10px] text-[#65707b]">{value(data?.summary ?? "等待工作区扫描")}</p>
-                <p className="mt-1 text-[10px] text-[#8a949f]">
+                <p className="mt-1 text-[10px] text-[#687381]">
                   会话 {value(data?.sessionId ?? "—")} · 目录 {value(data?.directoryCount ?? 0)} · 文件 {value(data?.fileCount ?? 0)}
                 </p>
               </div>
@@ -1762,7 +1762,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </div>
               ) : null}
-              {data?.truncated === true ? <p className="text-[10px] text-[#8a949f]">目录摘要已截断，执行 sidebar_overview 获取最新概览。</p> : null}
+              {data?.truncated === true ? <p className="text-[10px] text-[#687381]">目录摘要已截断，执行 sidebar_overview 获取最新概览。</p> : null}
             </div>
           );
         })()
@@ -1776,7 +1776,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <>
                   <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
                     <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.path ?? ".")}</code>
-                    <strong className="ml-3 shrink-0 text-[11px] text-[#4176e6]">{value(nodes.length)} 个节点</strong>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[#3565c5]">{value(nodes.length)} 个节点</strong>
                   </div>
                   {nodes.length > 0 ? (
                     <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
@@ -1785,7 +1785,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                         const depth = typeof node.depth === "number" ? Math.min(6, Math.max(1, node.depth)) : 1;
                         return (
                           <div className="flex items-center gap-2 truncate py-1 text-[10px] text-[#65707b]" key={`${value(node.path ?? "node")}-${index}`}>
-                            <span className="shrink-0 text-[#9aa3ad]">
+                            <span className="shrink-0 text-[#687381]">
                               {"· ".repeat(depth - 1)}
                               {node.kind === "directory" ? "▾" : "·"}
                             </span>
@@ -1795,9 +1795,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       })}
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前目录为空。</div>
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前目录为空。</div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#8a949f]">
+                  <p className="text-[10px] leading-4 text-[#687381]">
                     目录 {value(latest.directoryCount ?? 0)} 个，文件 {value(latest.fileCount ?? 0)} 个；跳过依赖和构建目录。
                   </p>
                   {data?.git && typeof data.git === "object"
@@ -1809,7 +1809,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-medium text-[#253044]">Git 状态</span>
-                              <span className={`text-[10px] ${!available ? "text-[#8a949f]" : git.clean === true ? "text-[#198754]" : "text-[#b42318]"}`}>
+                              <span className={`text-[10px] ${!available ? "text-[#687381]" : git.clean === true ? "text-[#14733f]" : "text-[#b42318]"}`}>
                                 {!available ? "不可用" : git.clean === true ? "clean" : `${entries.length} 个变更`}
                               </span>
                             </div>
@@ -1834,7 +1834,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 workspace_tree 后显示工作区结构。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">执行 workspace_tree 后显示工作区结构。</div>
           )}
         </div>
       ) : panel.id === "prompt-library-panel" ? (
@@ -1848,7 +1848,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={`${value(template.id ?? "prompt")}-${index}`}>
                     <div className="flex items-center justify-between gap-2">
                       <strong className="truncate text-[11px] text-[#253044]">{value(template.title ?? "未命名提示词")}</strong>
-                      <code className="shrink-0 text-[10px] text-[#8a949f]">{value(template.id ?? "—")}</code>
+                      <code className="shrink-0 text-[10px] text-[#687381]">{value(template.id ?? "—")}</code>
                     </div>
                     <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(template.prompt ?? "")}</p>
                     {tags.length > 0 ? (
@@ -1865,11 +1865,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有保存的提示词。可让 Agent 调用 prompt_library 保存模板。
             </div>
           )}
-          <p className="text-[10px] leading-4 text-[#8a949f]">共 {value(data?.total ?? 0)} 个模板，数据跟随当前会话。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">共 {value(data?.total ?? 0)} 个模板，数据跟随当前会话。</p>
         </div>
       ) : panel.id === "colleague-skill-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -1906,7 +1906,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               执行 colleague_handoff 后显示角色交接包。
             </div>
           )}
@@ -1915,7 +1915,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
             <span className="text-[11px] text-[#65707b]">复核风险内容</span>
-            <strong className="font-mono text-[11px] text-[#4176e6]">{data?.allowReviewByDefault === true ? "已允许" : "默认阻断"}</strong>
+            <strong className="font-mono text-[11px] text-[#3565c5]">{data?.allowReviewByDefault === true ? "已允许" : "默认阻断"}</strong>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
@@ -1924,7 +1924,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               const findings = Array.isArray(latest.findings) ? latest.findings : [];
               return (
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                 >
                   <div className="flex items-center justify-between">
                     <strong className="uppercase">{risk}</strong>
@@ -1945,9 +1945,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">执行 skill_inject 后显示隔离结果。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">执行 skill_inject 后显示隔离结果。</div>
           )}
-          <p className="text-[10px] leading-4 text-[#8a949f]">安全内容会被包裹为不可信数据；review 风险默认不注入，blocked 内容永不返回原文。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">安全内容会被包裹为不可信数据；review 风险默认不注入，blocked 内容永不返回原文。</p>
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -1959,7 +1959,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <>
                   <div
-                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                   >
                     <span>{status === "error" ? "发现阻断风险" : status === "warning" ? "需要关注" : "审查通过"}</span>
                     <strong className="font-mono">{value(findings.length)} findings</strong>
@@ -1971,7 +1971,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       ["删除", report.removedLines ?? 0],
                     ].map(([label, item]) => (
                       <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                        <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                        <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                         <strong className="mt-1 block text-[17px] text-[#30343b]">{value(item)}</strong>
                       </div>
                     ))}
@@ -1989,7 +1989,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有审查当前改动。可让 Agent 调用 review_changes。
             </div>
           )}
@@ -2002,11 +2002,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">阻断次数</span>
+              <span className="block text-[10px] text-[#687381]">阻断次数</span>
               <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.blocked ?? 0)} 次</strong>
             </div>
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#8a949f]">最近命令</span>
+              <span className="block text-[10px] text-[#687381]">最近命令</span>
               <strong className="mt-1 block truncate font-mono text-[11px] text-[#30343b]">
                 {data?.last && typeof data.last === "object" ? value((data.last as Record<string, unknown>).command ?? "—") : "—"}
               </strong>
@@ -2017,7 +2017,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               {value((data.last as Record<string, unknown>).stdout, "") || value((data.last as Record<string, unknown>).stderr ?? "无输出")}
             </pre>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               尚未执行命令。Agent 可调用 auto_mode_exec。
             </div>
           )}
@@ -2026,7 +2026,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="truncate text-[11px] font-medium text-[#30343b]">{data?.title ? value(data.title) : "尚未创建计划"}</span>
-            <span className="font-mono text-[11px] text-[#4176e6]">
+            <span className="font-mono text-[11px] text-[#3565c5]">
               {value(data?.completed ?? 0)} / {value(data?.total ?? 0)}
             </span>
           </div>
@@ -2038,16 +2038,16 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]" key={value(item.id ?? index)}>
                     <span
-                      className={`h-2 w-2 rounded-full ${status === "done" ? "bg-[#32a35a]" : status === "in_progress" ? "bg-[#4176e6]" : status === "skipped" ? "bg-[#a0a7b0]" : "bg-[#d7dce2]"}`}
+                      className={`h-2 w-2 rounded-full ${status === "done" ? "bg-[#32a35a]" : status === "in_progress" ? "bg-[#3565c5]" : status === "skipped" ? "bg-[#a0a7b0]" : "bg-[#d7dce2]"}`}
                     />
-                    <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[#198754]" : "text-[#30343b]"}`}>{value(item.title ?? "步骤")}</span>
-                    <span className="font-mono text-[10px] text-[#8a949f]">{status}</span>
+                    <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[#14733f]" : "text-[#30343b]"}`}>{value(item.title ?? "步骤")}</span>
+                    <span className="font-mono text-[10px] text-[#687381]">{status}</span>
                   </li>
                 );
               })}
             </ol>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">Agent 可调用 plan_create 创建执行计划。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">Agent 可调用 plan_create 创建执行计划。</div>
           )}
         </div>
       ) : panel.id === "plugin-stars-panel" ? (
@@ -2079,7 +2079,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <>
                   <div className="flex items-center justify-between text-[11px] text-[#65707b]">
                     <span>查询：{value(latest.query, "全部")}</span>
-                    <strong className="font-mono text-[#4176e6]">{value(latest.total ?? rows.length)} 个结果</strong>
+                    <strong className="font-mono text-[#3565c5]">{value(latest.total ?? rows.length)} 个结果</strong>
                   </div>
                   {rows.length > 0 ? (
                     <ol className="grid gap-1.5">
@@ -2095,21 +2095,21 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                             >
                               {row.fullName}
                             </a>
-                            <span className="block truncate text-[10px] text-[#9aa3ad]">更新于 {row.updatedAt || "未知"}</span>
+                            <span className="block truncate text-[10px] text-[#687381]">更新于 {row.updatedAt || "未知"}</span>
                           </div>
-                          <span className="shrink-0 font-mono text-[10px] text-[#b26a00]">★ {row.stars.toLocaleString()}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-[#8a5a00]">★ {row.stars.toLocaleString()}</span>
                         </li>
                       ))}
                     </ol>
                   ) : (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配的社区插件。</div>
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的社区插件。</div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#8a949f]">来源：{value(latest.source, "dsh-plugin-stars")} · 仅展示公开仓库信息，不会自动安装。</p>
+                  <p className="text-[10px] leading-4 text-[#687381]">来源：{value(latest.source, "dsh-plugin-stars")} · 仅展示公开仓库信息，不会自动安装。</p>
                 </>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。
             </div>
           )}
@@ -2126,7 +2126,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <>
               <div className="flex items-center justify-between text-[11px] text-[#65707b]">
                 <span>查询：{value(data.query)}</span>
-                <strong className="font-mono text-[#4176e6]">{value(data.total ?? 0)} 个结果</strong>
+                <strong className="font-mono text-[#3565c5]">{value(data.total ?? 0)} 个结果</strong>
               </div>
               {Array.isArray(data?.results) && data.results.length > 0 ? (
                 <ul className="grid gap-1.5">
@@ -2136,19 +2136,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.name ?? "plugin")}-${index}`}>
                         <div className="flex items-center justify-between gap-2">
                           <strong className="truncate font-mono text-[11px] text-[#30343b]">{value(item.name ?? "未知插件")}</strong>
-                          <span className="font-mono text-[10px] text-[#8a949f]">v{value(item.version ?? "—")}</span>
+                          <span className="font-mono text-[10px] text-[#687381]">v{value(item.version ?? "—")}</span>
                         </div>
-                        <p className="mt-1 truncate text-[10px] text-[#8a949f]">{value(item.description, "")}</p>
+                        <p className="mt-1 truncate text-[10px] text-[#687381]">{value(item.description, "")}</p>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配插件。</div>
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配插件。</div>
               )}
             </>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               Agent 可调用 plugin_search 搜索 npm Registry。
             </div>
           )}
@@ -2157,7 +2157,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">跨会话记忆</span>
-            <span className="font-mono text-[#4176e6]">{value(data?.count ?? 0)} 条</span>
+            <span className="font-mono text-[#3565c5]">{value(data?.count ?? 0)} 条</span>
           </div>
           {Array.isArray(data?.memories) && data.memories.length > 0 ? (
             <ul className="grid gap-1.5">
@@ -2166,13 +2166,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 return (
                   <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.key ?? "memory")}-${index}`}>
                     <strong className="block truncate font-mono text-[11px] text-[#30343b]">{value(item.key ?? "未知键")}</strong>
-                    <p className="mt-1 truncate text-[10px] text-[#8a949f]">{value(item.value, "")}</p>
+                    <p className="mt-1 truncate text-[10px] text-[#687381]">{value(item.value, "")}</p>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               尚未保存记忆。Agent 可调用 memory_set 明确写入。
             </div>
           )}
@@ -2186,12 +2186,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  ["任务", kinds.task ?? 0, "bg-[#4176e6]"],
+                  ["任务", kinds.task ?? 0, "bg-[#3565c5]"],
                   ["技能", kinds.skill ?? 0, "bg-[#22a06b]"],
                   ["事件", kinds.event ?? 0, "bg-[#d97706]"],
                 ].map(([label, count, color]) => (
                   <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                    <div className="flex items-center gap-1.5 text-[10px] text-[#8a949f]">
+                    <div className="flex items-center gap-1.5 text-[10px] text-[#687381]">
                       <span className={`h-1.5 w-1.5 rounded-full ${value(color)}`}></span>
                       {value(label)}
                     </div>
@@ -2201,13 +2201,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </div>
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
                 <span className="text-[#65707b]">本地关系图</span>
-                <span className="font-mono text-[#4176e6]">
+                <span className="font-mono text-[#3565c5]">
                   {value(data?.nodes ?? 0)} 节点 · {value(data?.relations ?? 0)} 关系
                 </span>
               </div>
               {recent.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
                     最近节点 {Math.min(recent.length, 5)} / {value(data?.nodes ?? recent.length)}
                   </li>
                   {recent.slice(0, 5).map((entry, index) => {
@@ -2218,7 +2218,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       kind === "task"
                         ? "bg-[#edf3fe] text-[#315fb8]"
                         : kind === "skill"
-                          ? "bg-[#eaf8f0] text-[#198754]"
+                          ? "bg-[#eaf8f0] text-[#14733f]"
                           : kind === "event"
                             ? "bg-[#fff4e5] text-[#a15c00]"
                             : "bg-[#f2f3f5] text-[#65707b]";
@@ -2229,19 +2229,19 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.label ?? "未命名节点")}</strong>
                         </div>
                         <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(item.summary, "")}</p>
-                        {item.source ? <p className="mt-1 truncate font-mono text-[9px] text-[#9aa3ad]">来源：{value(item.source)}</p> : null}
+                        {item.source ? <p className="mt-1 truncate font-mono text-[9px] text-[#687381]">来源：{value(item.source)}</p> : null}
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未记录图记忆。Agent 可调用 graph_memory_record 创建任务、技能或事件节点。
                 </div>
               )}
               {recentRelations.length > 0 ? (
                 <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-2">
-                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
                     最近关系 {Math.min(recentRelations.length, 3)} / {value(data?.relations ?? recentRelations.length)}
                   </span>
                   {recentRelations.slice(0, 3).map((entry, index) => {
@@ -2252,7 +2252,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                         key={`${value(relation.id ?? "relation")}-${index}`}
                       >
                         <span className="truncate">{value(relation.fromLabel ?? relation.from ?? "节点")}</span>
-                        <span className="shrink-0 text-[#4176e6]">—{value(relation.relation ?? "RELATED_TO")}→</span>
+                        <span className="shrink-0 text-[#3565c5]">—{value(relation.relation ?? "RELATED_TO")}→</span>
                         <span className="truncate">{value(relation.toLabel ?? relation.to ?? "节点")}</span>
                       </div>
                     );
@@ -2270,18 +2270,18 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             ["待办", "todo", "bg-[#edf3fe] text-[#315fb8]"],
             ["进行中", "in_progress", "bg-[#fff4e5] text-[#a15c00]"],
             ["待验收", "in_review", "bg-[#f0edff] text-[#6b4fc3]"],
-            ["已完成", "done", "bg-[#eaf8f0] text-[#198754]"],
+            ["已完成", "done", "bg-[#eaf8f0] text-[#14733f]"],
           ] as const;
           return (
             <div className="mt-3 grid gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
                 <span className="text-[#65707b]">当前工作区任务</span>
-                <strong className="font-mono text-[#4176e6]">{value(data?.total ?? 0)} 个</strong>
+                <strong className="font-mono text-[#3565c5]">{value(data?.total ?? 0)} 个</strong>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {lanes.map(([label, key, color]) => (
                   <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={key}>
-                    <div className="flex items-center justify-between text-[10px] text-[#8a949f]">
+                    <div className="flex items-center justify-between text-[10px] text-[#687381]">
                       <span>{label}</span>
                       <span className={`rounded px-1.5 py-0.5 ${color}`}>{value(counts[key] ?? 0)}</span>
                     </div>
@@ -2290,7 +2290,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </div>
               {recent.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
                     最近任务 {Math.min(recent.length, 5)} / {value(data?.total ?? recent.length)}
                   </li>
                   {recent.slice(0, 5).map((entry, index) => {
@@ -2315,7 +2315,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                                     : "未知";
                     const statusClass =
                       status === "done"
-                        ? "bg-[#eaf8f0] text-[#198754]"
+                        ? "bg-[#eaf8f0] text-[#14733f]"
                         : status === "blocked" || status === "canceled"
                           ? "bg-[#fff5f5] text-[#b42318]"
                           : status === "unknown"
@@ -2324,11 +2324,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     return (
                       <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(task.id ?? "task")}-${index}`}>
                         <div className="flex items-center gap-2">
-                          <code className="font-mono text-[10px] text-[#4176e6]">{value(task.key ?? "PIH-?")}</code>
+                          <code className="font-mono text-[10px] text-[#3565c5]">{value(task.key ?? "PIH-?")}</code>
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</strong>
                           <span className={`rounded px-1.5 py-0.5 text-[9px] ${statusClass}`}>{statusLabel}</span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#9aa3ad]">
+                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#687381]">
                           <span>优先级 {priority}</span>
                           {task.dueDate ? <span>截止 {value(task.dueDate)}</span> : null}
                         </div>
@@ -2337,7 +2337,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
@@ -2353,11 +2353,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#8a949f]">Skills</span>
+                  <span className="block text-[10px] text-[#687381]">Skills</span>
                   <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.skillCount ?? 0)}</strong>
                 </div>
                 <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#8a949f]">MCP 服务器</span>
+                  <span className="block text-[10px] text-[#687381]">MCP 服务器</span>
                   <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.mcpCount ?? 0)}</strong>
                 </div>
               </div>
@@ -2371,13 +2371,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.name, "未命名技能")}</strong>
                           <span className="rounded bg-[#f2f3f5] px-1.5 py-0.5 text-[9px] text-[#65707b]">{value(item.scope, "unknown")}</span>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-[10px] text-[#8a949f]">{value(item.description, "无描述")}</p>
+                        <p className="mt-1 line-clamp-2 text-[10px] text-[#687381]">{value(item.description, "无描述")}</p>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前运行时没有加载 Skill。</div>
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前运行时没有加载 Skill。</div>
               )}
               {servers.length > 0 ? (
                 <div>
@@ -2392,7 +2392,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           key={`${value(item.id ?? "server")}-${index}`}
                         >
                           <span className="truncate font-mono text-[#65707b]">{value(item.id, "未命名服务器")}</span>
-                          <span className={`rounded px-1.5 py-0.5 ${running ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#f2f3f5] text-[#65707b]"}`}>
+                          <span className={`rounded px-1.5 py-0.5 ${running ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#f2f3f5] text-[#65707b]"}`}>
                             {value(item.status, "unknown")}
                           </span>
                         </li>
@@ -2406,7 +2406,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   资源诊断：{diagnostics.length} 条警告
                 </div>
               ) : null}
-              <div className="text-[10px] text-[#9aa3ad]">只读查看 runtime 已加载的 Skill 与 MCP 状态；配置写入仍由各自插件负责。</div>
+              <div className="text-[10px] text-[#687381]">只读查看 runtime 已加载的 Skill 与 MCP 状态；配置写入仍由各自插件负责。</div>
             </div>
           );
         })()
@@ -2420,7 +2420,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ? "text-[#b42318]"
               : budgetPercent !== null && budgetPercent >= 80
                 ? "text-[#a15c00]"
-                : "text-[#198754]";
+                : "text-[#14733f]";
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
@@ -2430,7 +2430,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   ["累计", `$${Number(data?.lifetimeCost ?? 0).toFixed(4)}`],
                 ].map(([label, item]) => (
                   <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                     <strong className="mt-1 block font-mono text-[15px] font-semibold text-[#30343b]">{value(item)}</strong>
                   </div>
                 ))}
@@ -2465,11 +2465,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未记录已完成会话。Agent 可调用 cost_report 的 refresh 操作写入账本。
                 </div>
               )}
-              <div className="text-[10px] text-[#9aa3ad]">仅记录运行时报告的实际成本，不内置或猜测模型价格。</div>
+              <div className="text-[10px] text-[#687381]">仅记录运行时报告的实际成本，不内置或猜测模型价格。</div>
             </div>
           );
         })()
@@ -2480,11 +2480,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#8a949f]">保存点</span>
+                  <span className="block text-[10px] text-[#687381]">保存点</span>
                   <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.count ?? savepoints.length)}</strong>
                 </div>
                 <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#8a949f]">跟踪路径</span>
+                  <span className="block text-[10px] text-[#687381]">跟踪路径</span>
                   <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">
                     {value(Array.isArray(data?.trackedPaths) ? data.trackedPaths.length : 0)}
                   </strong>
@@ -2497,20 +2497,20 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     return (
                       <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? "savepoint")}-${index}`}>
                         <div className="flex items-center gap-2">
-                          <code className="font-mono text-[10px] text-[#4176e6]">{value(item.id, "unknown")}</code>
+                          <code className="font-mono text-[10px] text-[#3565c5]">{value(item.id, "unknown")}</code>
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.reason, "manual savepoint")}</strong>
-                          <span className="text-[9px] text-[#8a949f]">{value(item.fileCount, "0")} 文件</span>
+                          <span className="text-[9px] text-[#687381]">{value(item.fileCount, "0")} 文件</span>
                         </div>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未创建保存点。修改配置或插件代码前，让 Agent 调用 undo_savepoint 的 save 操作。
                 </div>
               )}
-              <div className="text-[10px] text-[#9aa3ad]">恢复操作要求 confirm=true；敏感文件、二进制文件和依赖目录不会进入保存点。</div>
+              <div className="text-[10px] text-[#687381]">恢复操作要求 confirm=true；敏感文件、二进制文件和依赖目录不会进入保存点。</div>
             </div>
           );
         })()
@@ -2522,7 +2522,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="mt-3 grid gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
                 <span className="text-[#65707b]">待发送批注</span>
-                <strong className="font-mono text-[#4176e6]">{value(data?.count ?? 0)} 条</strong>
+                <strong className="font-mono text-[#3565c5]">{value(data?.count ?? 0)} 条</strong>
               </div>
               {annotations.length > 0 ? (
                 <ol className="grid gap-1.5">
@@ -2534,13 +2534,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           <span className="rounded bg-[#edf3fe] px-1.5 py-0.5 font-mono text-[#315fb8]">#{value(item.id ?? index + 1)}</span>
                           <p className="min-w-0 flex-1 whitespace-pre-wrap text-[#30343b]">{value(item.quote, "")}</p>
                         </div>
-                        {item.note ? <p className="mt-1 pl-8 text-[10px] text-[#8a949f]">{value(item.note)}</p> : null}
+                        {item.note ? <p className="mt-1 pl-8 text-[10px] text-[#687381]">{value(item.note)}</p> : null}
                       </li>
                     );
                   })}
                 </ol>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未收集批注。Agent 可调用 annotation_manage 的 add 操作记录回复片段。
                 </div>
               )}
@@ -2550,7 +2550,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px] text-[#30343b]">{lastPrompt}</pre>
                 </details>
               ) : null}
-              <div className="text-[10px] text-[#9aa3ad]">批注按编号累积；生成上下文不会改写原会话消息。</div>
+              <div className="text-[10px] text-[#687381]">批注按编号累积；生成上下文不会改写原会话消息。</div>
             </div>
           );
         })()
@@ -2560,7 +2560,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           const checks = Array.isArray(data?.checks) ? data.checks : [];
           const recommendations = Array.isArray(data?.recommendations) ? data.recommendations : [];
           const statusClass =
-            status === "ok" ? "bg-[#eaf8f0] text-[#198754]" : status === "warning" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
+            status === "ok" ? "bg-[#eaf8f0] text-[#14733f]" : status === "warning" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
           return (
             <div className="mt-3 grid gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
@@ -2573,7 +2573,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   const checkStatus = value(check.status ?? "unknown");
                   const checkClass =
                     checkStatus === "ok"
-                      ? "bg-[#eaf8f0] text-[#198754]"
+                      ? "bg-[#eaf8f0] text-[#14733f]"
                       : checkStatus === "warning"
                         ? "bg-[#fff7e8] text-[#a15c00]"
                         : "bg-[#fff0f0] text-[#b42318]";
@@ -2615,13 +2615,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           const schema: unknown[] = Array.isArray(latest?.checks) ? latest.checks : [];
           const verdict = value(latest?.verdict ?? "—");
           const verdictClass =
-            verdict === "pass" ? "bg-[#eaf8f0] text-[#198754]" : verdict === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
+            verdict === "pass" ? "bg-[#eaf8f0] text-[#14733f]" : verdict === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
           return (
             <div className="mt-3 grid gap-3">
               {latest?.scanned !== undefined ? (
                 <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
                   <span className="text-[#65707b]">目录扫描</span>
-                  <strong className="font-mono text-[#4176e6]">{value(latest.scanned)} 个仓库</strong>
+                  <strong className="font-mono text-[#3565c5]">{value(latest.scanned)} 个仓库</strong>
                 </div>
               ) : latest?.verdict !== undefined ? (
                 <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-2 text-[10px]">
@@ -2639,7 +2639,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     ["警告", checks.warned ?? 0],
                   ].map(([label, count]) => (
                     <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                      <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                       <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
                     </div>
                   ))}
@@ -2657,7 +2657,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       >
                         <span className="truncate font-mono text-[#65707b]">{value(report.repo ?? "未知仓库")}</span>
                         <span
-                          className={`rounded px-1.5 py-0.5 ${state === "pass" ? "bg-[#eaf8f0] text-[#198754]" : state === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                          className={`rounded px-1.5 py-0.5 ${state === "pass" ? "bg-[#eaf8f0] text-[#14733f]" : state === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]"}`}
                         >
                           {state}
                         </span>
@@ -2678,11 +2678,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未检查插件。Agent 可调用 plugin_check 执行 check、scan 或 schema。
                 </div>
               )}
-              <div className="text-[10px] text-[#9aa3ad]">只读检查，不修改、不构建被检仓库。</div>
+              <div className="text-[10px] text-[#687381]">只读检查，不修改、不构建被检仓库。</div>
             </div>
           );
         })()
@@ -2693,7 +2693,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="mt-3 grid gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
                 <span className="text-[#65707b]">GitHub DSH 生态</span>
-                <span className="font-mono text-[#4176e6]">
+                <span className="font-mono text-[#3565c5]">
                   {value(data?.total ?? 0)} 个仓库 · {Array.isArray(data?.sources) ? data.sources.length : 0} 个来源
                 </span>
               </div>
@@ -2707,7 +2707,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     return (
                       <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.fullName ?? "repo")}-${index}`}>
                         <div className="flex items-center gap-2">
-                          <span className="w-4 shrink-0 text-right font-mono text-[10px] text-[#9aa3ad]">{index + 1}</span>
+                          <span className="w-4 shrink-0 text-right font-mono text-[10px] text-[#687381]">{index + 1}</span>
                           {url ? (
                             <a
                               className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#315fb8] hover:underline"
@@ -2725,7 +2725,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           <span className="shrink-0 font-mono text-[10px] text-[#a15c00]">★ {value(item.stars ?? 0)}</span>
                         </div>
                         <p className="mt-1 truncate pl-6 text-[10px] text-[#65707b]">{value(item.description, "暂无描述")}</p>
-                        <div className="mt-1 flex min-w-0 items-center gap-2 pl-6 text-[9px] text-[#9aa3ad]">
+                        <div className="mt-1 flex min-w-0 items-center gap-2 pl-6 text-[9px] text-[#687381]">
                           {item.language ? <span>{value(item.language)}</span> : null}
                           {item.updatedAt ? <span className="font-mono">更新 {value(item.updatedAt)}</span> : null}
                           {topics.length > 0 ? <span className="truncate">{topics.map((topic) => `#${topic}`).join(" ")}</span> : null}
@@ -2735,11 +2735,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ol>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未搜索插件。Agent 可调用 plugin_radar_search 从 GitHub 发现 DSH 插件。
                 </div>
               )}
-              <div className="text-[10px] text-[#9aa3ad]">只读 GitHub 搜索，按 Star 降序；不会安装、执行或修改第三方仓库。</div>
+              <div className="text-[10px] text-[#687381]">只读 GitHub 搜索，按 Star 降序；不会安装、执行或修改第三方仓库。</div>
             </div>
           );
         })()
@@ -2749,7 +2749,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           const latest = data?.latest !== null && typeof data?.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
           const riskLabel = (risk: unknown): string => (risk === "blocked" ? "已阻断" : risk === "review" ? "需复核" : "安全");
           const riskClass = (risk: unknown): string =>
-            risk === "blocked" ? "bg-[#fff0f0] text-[#b42318]" : risk === "review" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#eaf8f0] text-[#198754]";
+            risk === "blocked" ? "bg-[#fff0f0] text-[#b42318]" : risk === "review" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#eaf8f0] text-[#14733f]";
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
@@ -2759,7 +2759,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   ["安全", data?.safe ?? 0],
                 ].map(([label, count]) => (
                   <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                     <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
                   </div>
                 ))}
@@ -2774,7 +2774,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ) : null}
               {receipts.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">最近风险摘要</li>
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">最近风险摘要</li>
                   {receipts.slice(0, 8).map((entry, index) => {
                     const receipt = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     const findings = Array.isArray(receipt.findings) ? receipt.findings : [];
@@ -2785,17 +2785,17 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       >
                         <span className={`rounded px-1.5 py-0.5 ${riskClass(receipt.risk)}`}>{riskLabel(receipt.risk)}</span>
                         <span className="min-w-0 flex-1 truncate font-mono text-[#65707b]">{value(receipt.source, "unknown")}</span>
-                        <span className="text-[#8a949f]">{findings.length} 项</span>
+                        <span className="text-[#687381]">{findings.length} 项</span>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                   尚未收到工具调用。Agent 可调用 hol_guard_scan 预检命令或文本。
                 </div>
               )}
-              <div className="text-[10px] text-[#9aa3ad]">仅保存风险摘要和计数，不保存命令、路径或凭据原文；当前模式为审计。</div>
+              <div className="text-[10px] text-[#687381]">仅保存风险摘要和计数，不保存命令、路径或凭据原文；当前模式为审计。</div>
             </div>
           );
         })()
@@ -2815,7 +2815,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   ["孤儿", data?.orphanCount ?? 0],
                 ].map(([label, count]) => (
                   <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                     <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
                   </div>
                 ))}
@@ -2827,7 +2827,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ) : null}
               {nodes.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
                     最近会话 {Math.min(nodes.length, 8)} / {nodes.length}
                   </li>
                   {nodes.slice(0, 8).map((entry, index) => {
@@ -2838,11 +2838,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                         key={`${value(node.id ?? "session")}-${index}`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className={`h-2 w-2 shrink-0 rounded-full ${node.active === true ? "bg-[#4176e6]" : "bg-[#c4ccd6]"}`}></span>
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${node.active === true ? "bg-[#3565c5]" : "bg-[#c4ccd6]"}`}></span>
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(node.label ?? node.sessionId ?? "未命名会话")}</strong>
-                          <span className="font-mono text-[9px] text-[#8a949f]">{value(node.messageCount ?? 0)} 条消息</span>
+                          <span className="font-mono text-[9px] text-[#687381]">{value(node.messageCount ?? 0)} 条消息</span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#9aa3ad]">
+                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#687381]">
                           <span className="min-w-0 flex-1 truncate font-mono">{value(node.cwd ?? "未知工作区")}</span>
                           <span>{value(node.branchCount ?? 0)} 个分支</span>
                         </div>
@@ -2851,11 +2851,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前工作区还没有可投影的持久化会话。</div>
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前工作区还没有可投影的持久化会话。</div>
               )}
               {edges.length > 0 ? (
                 <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-2">
-                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#9aa3ad]">Fork 关系</span>
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">Fork 关系</span>
                   {edges.slice(0, 5).map((entry, index) => {
                     const edge = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     const from = nodeById.get(value(edge.from));
@@ -2866,14 +2866,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                         key={`${value(edge.from)}-${value(edge.to)}-${index}`}
                       >
                         <span className="truncate">{value(from?.label ?? edge.from)}</span>
-                        <span className="shrink-0 text-[#4176e6]">→ fork →</span>
+                        <span className="shrink-0 text-[#3565c5]">→ fork →</span>
                         <span className="truncate">{value(to?.label ?? edge.to)}</span>
                       </div>
                     );
                   })}
                 </div>
               ) : null}
-              <div className="text-[10px] text-[#9aa3ad]">数据来源：Pi 原生 JSONL 会话；Agent 可调用 synapse_session_map 刷新。</div>
+              <div className="text-[10px] text-[#687381]">数据来源：Pi 原生 JSONL 会话；Agent 可调用 synapse_session_map 刷新。</div>
             </div>
           );
         })()
@@ -2888,11 +2888,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#8a949f]">组件</span>
+                      <span className="block text-[10px] text-[#687381]">组件</span>
                       <strong className="mt-1 block text-[17px] text-[#30343b]">{value(components.length)}</strong>
                     </div>
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#8a949f]">外部依赖</span>
+                      <span className="block text-[10px] text-[#687381]">外部依赖</span>
                       <strong className="mt-1 block text-[17px] text-[#30343b]">{value(dependencies.length)}</strong>
                     </div>
                   </div>
@@ -2904,9 +2904,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]"
                           key={`${value(component.path ?? "component")}-${index}`}
                         >
-                          <span className="h-2 w-2 rounded-full bg-[#4176e6]"></span>
+                          <span className="h-2 w-2 rounded-full bg-[#3565c5]"></span>
                           <span className="min-w-0 flex-1 truncate font-mono text-[#30343b]">{value(component.path ?? "组件")}</span>
-                          <span className="font-mono text-[10px] text-[#8a949f]">{value(component.files ?? 0)} files</span>
+                          <span className="font-mono text-[10px] text-[#687381]">{value(component.files ?? 0)} files</span>
                         </div>
                       );
                     })}
@@ -2926,12 +2926,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
                     {value(report.mermaid, "")}
                   </pre>
-                  {report.truncated === true ? <p className="text-[10px] text-[#b26a00]">扫描达到节点上限，架构图可能不完整。</p> : null}
+                  {report.truncated === true ? <p className="text-[10px] text-[#8a5a00]">扫描达到节点上限，架构图可能不完整。</p> : null}
                 </>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               Agent 可调用 architecture_map 生成当前工作区架构图。
             </div>
           )}
@@ -2940,7 +2940,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">Mermaid 流程图</span>
-            <span className="font-mono text-[#4176e6]">
+            <span className="font-mono text-[#3565c5]">
               {value(data?.nodeCount ?? 0)} 节点 · {value(data?.edgeCount ?? 0)} 连线
             </span>
           </div>
@@ -2949,7 +2949,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               {value((data.latest as Record<string, unknown>).mermaid, "")}
             </pre>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               Agent 可调用 canvas_draw 生成流程图源码。
             </div>
           )}
@@ -2964,13 +2964,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             (() => {
               const report = data.last as Record<string, unknown>;
               return (
-                <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+                <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#14733f]">
                   {value(report.inputPath ?? "图片")} → {value(report.outputPath ?? "输出")}，节省 {value(report.savedBytes ?? 0)} bytes
                 </div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               Agent 可调用 image_compress，写入前必须 confirm=true。
             </div>
           )}
@@ -2979,7 +2979,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">工作区文本检索</span>
-            <span className="font-mono text-[#4176e6]">{value(data?.matchCount ?? 0)} 个匹配</span>
+            <span className="font-mono text-[#3565c5]">{value(data?.matchCount ?? 0)} 个匹配</span>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
@@ -2991,7 +2991,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     const item = match && typeof match === "object" ? (match as Record<string, unknown>) : {};
                     return (
                       <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.path ?? "match")}-${index}`}>
-                        <strong className="block truncate font-mono text-[10px] text-[#4176e6]">
+                        <strong className="block truncate font-mono text-[10px] text-[#3565c5]">
                           {value(item.path ?? "未知文件")}:{value(item.line ?? "?")}
                         </strong>
                         <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{value(item.text, "")}</p>
@@ -3000,11 +3000,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有找到匹配内容。</div>
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配内容。</div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               Agent 可调用 workspace_search 检索当前工作区。
             </div>
           )}
@@ -3013,7 +3013,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px]">
             <span className="font-medium text-[#30343b]">未回答会话</span>
-            <strong className="font-mono text-[#4176e6]">{value(data?.total ?? 0)} 个</strong>
+            <strong className="font-mono text-[#3565c5]">{value(data?.total ?? 0)} 个</strong>
           </div>
           {Array.isArray(data?.items) && data.items.length > 0 ? (
             <div className="grid gap-2">
@@ -3028,7 +3028,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有以未回答用户消息结束的会话。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有以未回答用户消息结束的会话。</div>
           )}
         </div>
       ) : panel.id === "turn-rewind-panel" ? (
@@ -3041,9 +3041,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <div className={`rounded-lg border px-3 py-3 ${cancelled ? "border-[#f4dfb0] bg-[#fffaf0]" : "border-[#dce5f5] bg-[#f6f8ff]"}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">最近操作</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">最近操作</span>
                     <span
-                      className={`rounded-full px-2 py-1 text-[10px] font-semibold ${cancelled ? "bg-[#fff0c7] text-[#9a6700]" : "bg-[#e8f8ee] text-[#198754]"}`}
+                      className={`rounded-full px-2 py-1 text-[10px] font-semibold ${cancelled ? "bg-[#fff0c7] text-[#9a6700]" : "bg-[#e8f8ee] text-[#14733f]"}`}
                     >
                       {cancelled ? "已取消" : "已回退"}
                     </span>
@@ -3053,10 +3053,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有执行回退操作。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有执行回退操作。</div>
           )}
           <div className="grid gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">可回退轮次</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">可回退轮次</span>
             {(() => {
               const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
               return candidates.length > 0 ? (
@@ -3067,13 +3067,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       className="flex items-start gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2"
                       key={`${value(candidate.entryId ?? "turn")}-${index}`}
                     >
-                      <span className="mt-0.5 font-mono text-[10px] text-[#4176e6]">{candidates.length - index}</span>
+                      <span className="mt-0.5 font-mono text-[10px] text-[#3565c5]">{candidates.length - index}</span>
                       <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-[#65707b]">{value(candidate.text ?? "未命名轮次")}</span>
                     </div>
                   );
                 })
               ) : (
-                <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3 text-[11px] text-[#8a949f]">当前会话还没有可回退的用户轮次。</div>
+                <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3 text-[11px] text-[#687381]">当前会话还没有可回退的用户轮次。</div>
               );
             })()}
           </div>
@@ -3087,7 +3087,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ["待复核", data?.review ?? 0],
             ].map(([label, item]) => (
               <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                 <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
               </div>
             ))}
@@ -3105,7 +3105,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                         className={`h-2 w-2 rounded-full ${risk === "blocked" ? "bg-[#d64545]" : risk === "review" ? "bg-[#e0a11a]" : "bg-[#22a06b]"}`}
                       ></span>
                       <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(report.name ?? "unknown")}</strong>
-                      <span className="text-[10px] text-[#8a949f]">{risk === "blocked" ? "阻断" : risk === "review" ? "复核" : "安全"}</span>
+                      <span className="text-[10px] text-[#687381]">{risk === "blocked" ? "阻断" : risk === "review" ? "复核" : "安全"}</span>
                     </div>
                     {findings.length > 0 ? (
                       <p className="mt-1 truncate text-[10px] text-[#65707b]">
@@ -3120,7 +3120,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 );
               })
             ) : (
-              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
                 暂无 Skill 扫描结果，可让 Agent 调用 skill_guard_scan。
               </div>
             )}
@@ -3129,7 +3129,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
       ) : panel.id === "prompt-guard-panel" ? (
         <div className="mt-3 grid gap-3">
           <div
-            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : data?.risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : data?.risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
           >
             <span>{data?.risk === "blocked" ? "高风险，需阻断" : data?.risk === "review" ? "需要人工复核" : "未发现风险"}</span>
             <strong className="font-mono">{value(data?.scans ?? 0)} 次扫描</strong>
@@ -3150,11 +3150,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">最近一次扫描未发现风险。</div>
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">最近一次扫描未发现风险。</div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               Agent 可调用 prompt_guard_scan 检查不可信文本。
             </div>
           )}
@@ -3175,10 +3175,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 个参考文件
               </p>
             ) : (
-              <p className="mt-2 text-[11px] text-[#8a949f]">还没有生成技能。可让 Agent 调用 skill_pack_create。</p>
+              <p className="mt-2 text-[11px] text-[#687381]">还没有生成技能。可让 Agent 调用 skill_pack_create。</p>
             )}
           </div>
-          <p className="text-[10px] text-[#8a949f]">输出目录：项目 .pi/skills/&lt;name&gt;，包含 SKILL.md 和原始参考文件。</p>
+          <p className="text-[10px] text-[#687381]">输出目录：项目 .pi/skills/&lt;name&gt;，包含 SKILL.md 和原始参考文件。</p>
         </div>
       ) : panel.id === "genui-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -3189,7 +3189,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               const toneClass: Record<string, string> = {
                 neutral: "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]",
                 info: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]",
-                success: "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]",
+                success: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]",
                 warning: "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]",
                 danger: "border-[#f4caca] bg-[#fff5f5] text-[#b42318]",
               };
@@ -3197,7 +3197,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between text-[11px]">
                     <strong className="text-[#30343b]">{value(report.title ?? "结构化卡片")}</strong>
-                    <span className="font-mono text-[#8a949f]">{value(data.rendered ?? 0)} 次</span>
+                    <span className="font-mono text-[#687381]">{value(data.rendered ?? 0)} 次</span>
                   </div>
                   {blocks.map((block, index) => {
                     const item = block && typeof block === "object" ? (block as Record<string, unknown>) : {};
@@ -3227,11 +3227,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有结构化卡片。可让 Agent 调用 genui_render。
             </div>
           )}
-          <p className="text-[10px] text-[#8a949f]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本处理。</p>
+          <p className="text-[10px] text-[#687381]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本处理。</p>
         </div>
       ) : panel.id === "anchored-standard-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -3241,7 +3241,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             return (
               <>
                 <div
-                  className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${violated ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+                  className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${violated ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                 >
                   <span>{violated ? "轨迹存在违规" : data?.status === "anchored" ? "运行已锚定" : "等待 Agent 运行"}</span>
                   <strong className="font-mono">{value(data?.events ?? 0)} 事件</strong>
@@ -3266,39 +3266,39 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </>
             );
           })()}
-          <p className="text-[10px] text-[#8a949f]">可让 Agent 调用 trajectory_anchor_check 审计当前执行轨迹。</p>
+          <p className="text-[10px] text-[#687381]">可让 Agent 调用 trajectory_anchor_check 审计当前执行轨迹。</p>
         </div>
       ) : panel.id === "telemetry-blocker-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+          <div className="flex items-center justify-between rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#14733f]">
             <span>遥测已关闭</span>
             <strong className="font-mono">拦截 {value(data?.blocked ?? 0)} 次</strong>
           </div>
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[10px] text-[#65707b]">
             {Array.isArray(data?.names) && data.names.length > 0 ? `事件名：${data.names.slice(0, 8).map(String).join("、")}` : "尚未收到遥测事件。"}
           </div>
-          <p className="text-[10px] text-[#8a949f]">只记录事件名和计数，不保留事件属性，也不会发起网络请求。</p>
+          <p className="text-[10px] text-[#687381]">只记录事件名和计数，不保留事件属性，也不会发起网络请求。</p>
         </div>
       ) : panel.id === "plugin-dev-panel" ? (
         <div className="mt-3 grid gap-3">
           <div
-            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.status === "reloaded" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : data?.status === "failed" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]"}`}
+            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.status === "reloaded" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : data?.status === "failed" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]"}`}
           >
             <span>{data?.status === "reloaded" ? "插件已重载" : data?.status === "failed" ? "插件重载失败" : "等待重载"}</span>
             <strong className="font-mono">{value(data?.status ?? "idle")}</strong>
           </div>
-          <p className="text-[10px] text-[#8a949f]">{value(data?.reason ?? "修改本地扩展后调用 plugin_dev_reload")}</p>
+          <p className="text-[10px] text-[#687381]">{value(data?.reason ?? "修改本地扩展后调用 plugin_dev_reload")}</p>
           {data?.error ? <p className="rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{value(data.error)}</p> : null}
         </div>
       ) : panel.id === "openpets-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center gap-3 rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#dceaff] text-[20px] text-[#4176e6]">◉</span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#dceaff] text-[20px] text-[#3565c5]">◉</span>
             <div className="min-w-0 flex-1">
               <strong className="block truncate text-[13px] text-[#30343b]">{value(data?.name ?? "Pi")}</strong>
-              <span className="text-[10px] text-[#8a949f]">{value(data?.lastEvent ?? "session_start")}</span>
+              <span className="text-[10px] text-[#687381]">{value(data?.lastEvent ?? "session_start")}</span>
             </div>
-            <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#4176e6]">{value(data?.mood ?? "idle")}</span>
+            <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#3565c5]">{value(data?.mood ?? "idle")}</span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
@@ -3308,7 +3308,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               互动 <strong className="ml-1 text-[#30343b]">{value(data?.interactions ?? 0)}</strong>
             </div>
           </div>
-          <p className="text-[10px] text-[#8a949f]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
+          <p className="text-[10px] text-[#687381]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
         </div>
       ) : panel.id === "change-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -3321,7 +3321,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <>
                   <div
-                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
                   >
                     <span>{status === "pass" ? "门禁通过" : status === "warning" ? "门禁有警告" : "门禁失败"}</span>
                     <strong className="font-mono">{value(data.runs ?? 0)} 次</strong>
@@ -3338,17 +3338,17 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有执行发布门禁。可让 Agent 调用 verify_change_gate。
             </div>
           )}
-          <p className="text-[10px] text-[#8a949f]">复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。</p>
+          <p className="text-[10px] text-[#687381]">复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.generated === true ? (
             <>
-              <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#198754]">
+              <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#14733f]">
                 已生成 {value(data.name ?? "项目")} 的 README 概览：{value(data.scripts ?? 0)} 个脚本，{value(data.plugins ?? 0)} 个运行时插件。
               </div>
               {data.lastWrite && typeof data.lastWrite === "object" ? (
@@ -3358,10 +3358,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   {(data.lastWrite as Record<string, unknown>).overwritten === true ? " · 已覆盖" : " · 新文件"}
                 </div>
               ) : null}
-              <p className="text-[10px] leading-4 text-[#8a949f]">需要落盘时调用 readme_write，并显式传入 confirm=true；默认写入 README.generated.md。</p>
+              <p className="text-[10px] leading-4 text-[#687381]">需要落盘时调用 readme_write，并显式传入 confirm=true；默认写入 README.generated.md。</p>
             </>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿，或调用 readme_write 写入确认后的文件。
             </div>
           )}
@@ -3376,7 +3376,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <>
                   <div className="flex items-center justify-between rounded-lg bg-[#f6f8fa] px-3 py-3">
                     <span className="truncate font-mono text-[11px] text-[#30343b]">{value(report.database ?? "database")}</span>
-                    <strong className="font-mono text-[12px] text-[#4176e6]">{value(rows.length)} rows</strong>
+                    <strong className="font-mono text-[12px] text-[#3565c5]">{value(rows.length)} rows</strong>
                   </div>
                   <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
                     {JSON.stringify(rows, null, 2)}
@@ -3385,7 +3385,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有查询数据库。可让 Agent 调用 sql_readonly。
             </div>
           )}
@@ -3397,7 +3397,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               <strong className="block text-[12px] text-[#30343b]">{value(data?.label ?? "Light")}</strong>
               <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(data?.description ?? "")}</p>
             </div>
-            <span className="shrink-0 rounded-full bg-[#edf3fe] px-2 py-1 font-mono text-[10px] text-[#4176e6]">{value(data?.theme ?? "light")}</span>
+            <span className="shrink-0 rounded-full bg-[#edf3fe] px-2 py-1 font-mono text-[10px] text-[#3565c5]">{value(data?.theme ?? "light")}</span>
           </div>
           {Array.isArray(data?.presets) ? (
             <div className="grid grid-cols-2 gap-2">
@@ -3410,13 +3410,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     key={`${value(item.id ?? "theme")}-${index}`}
                   >
                     <strong className="block text-[11px] text-[#30343b]">{value(item.label ?? item.id ?? "主题")}</strong>
-                    <span className="mt-1 block truncate text-[10px] text-[#8a949f]">{value(item.description ?? "")}</span>
+                    <span className="mt-1 block truncate text-[10px] text-[#687381]">{value(item.description ?? "")}</span>
                   </div>
                 );
               })}
             </div>
           ) : null}
-          <p className="text-[10px] leading-4 text-[#8a949f]">可让 Agent 调用 theme_set 切换预设；选择会保存到当前 session，并由 React 根节点应用 token。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">可让 Agent 调用 theme_set 切换预设；选择会保存到当前 session，并由 React 根节点应用 token。</p>
         </div>
       ) : panel.id === "mirage-bridge-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -3426,7 +3426,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">官方 Mirage CLI</span>
               <strong
-                className={`text-[11px] ${data?.available === true ? "text-[#198754]" : data?.available === false ? "text-[#9a6700]" : "text-[#8a949f]"}`}
+                className={`text-[11px] ${data?.available === true ? "text-[#14733f]" : data?.available === false ? "text-[#9a6700]" : "text-[#687381]"}`}
               >
                 {data?.available === true ? "已连接" : data?.available === false ? "未检测到" : "未检查"}
               </strong>
@@ -3441,7 +3441,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
                   <div className="flex items-center justify-between gap-3">
                     <span className="truncate font-mono text-[10px] text-[#30343b]">{value(run.command ?? "")}</span>
-                    <strong className={`shrink-0 text-[11px] ${run.exitCode === 0 ? "text-[#198754]" : "text-[#b42318]"}`}>
+                    <strong className={`shrink-0 text-[11px] ${run.exitCode === 0 ? "text-[#14733f]" : "text-[#b42318]"}`}>
                       exit {value(run.exitCode ?? "—")}
                     </strong>
                   </div>
@@ -3450,7 +3450,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               先调用 mirage_doctor 检查 CLI，再调用 mirage_execute。
             </div>
           )}
@@ -3465,7 +3465,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <span className="truncate font-mono text-[11px] text-[#30343b]">{value(run.image ?? "image")}</span>
-                    <strong className="font-mono text-[12px] text-[#198754]">exit {value(run.exitCode ?? "—")}</strong>
+                    <strong className="font-mono text-[12px] text-[#14733f]">exit {value(run.exitCode ?? "—")}</strong>
                   </div>
                   <p className="mt-2 text-[11px] text-[#65707b]">
                     {Array.isArray(run.command) ? run.command.map((argument) => value(argument)).join(" ") : "argv"}
@@ -3474,12 +3474,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有沙箱运行。默认无网络、工作区只读。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有沙箱运行。默认无网络、工作区只读。</div>
           )}
           <div className="flex flex-wrap gap-2">
             {data?.defaults !== null && typeof data?.defaults === "object"
               ? Object.entries(data.defaults as Record<string, unknown>).map(([key, entryValue]) => (
-                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]" key={key}>
+                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={key}>
                     {key}:{value(entryValue)}
                   </span>
                 ))
@@ -3497,7 +3497,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <>
                   <div
-                    className={`rounded-lg border px-3 py-3 text-[11px] ${valid ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${valid ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
                   >
                     {valid ? "YAML 语法有效。" : `发现 ${errors.length} 个语法错误。`}
                   </div>
@@ -3508,7 +3508,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       ["警告", warnings.length],
                     ].map(([label, entryValue]) => (
                       <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                        <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                        <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                         <strong className="mt-1 block text-[17px] text-[#30343b]">{value(entryValue)}</strong>
                       </div>
                     ))}
@@ -3528,11 +3528,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有校验 YAML。可让 Agent 调用 yaml_validate。
             </div>
           )}
-          <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">max:512KiB · read-only</span>
+          <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">max:512KiB · read-only</span>
         </div>
       ) : panel.id === "browser-session-panel" ? (
         (() => {
@@ -3565,12 +3565,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.endpoint ?? "本地浏览器未连接")}</span>
                   <span
-                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.connected === true ? "bg-[#e8f8ee] text-[#198754]" : "bg-[#fff4e5] text-[#b26a00]"}`}
+                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.connected === true ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#fff4e5] text-[#8a5a00]"}`}
                   >
                     {data?.connected === true ? "已连接" : "未连接"}
                   </span>
                 </div>
-                <p className="mt-2 text-[11px] text-[#8a949f]">Chrome DevTools Protocol · {tabs.length} 个可调试页面</p>
+                <p className="mt-2 text-[11px] text-[#687381]">Chrome DevTools Protocol · {tabs.length} 个可调试页面</p>
                 {data?.connected === false ? (
                   <p className="mt-2 text-[11px] text-[#b42318]">请使用 remote-debugging-port 启动 Chrome。{value(data.error, "")}</p>
                 ) : null}
@@ -3586,18 +3586,18 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   {tabs.map((tab) => (
                     <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={tab.targetId}>
                       <strong className="block truncate text-[11px] text-[#30343b]">{tab.title}</strong>
-                      <span className="mt-1 block truncate font-mono text-[10px] text-[#8a949f]">{tab.url}</span>
+                      <span className="mt-1 block truncate font-mono text-[10px] text-[#687381]">{tab.url}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">没有可调试的浏览器页面。</div>
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有可调试的浏览器页面。</div>
               )}
-              <div className="flex flex-wrap gap-2 text-[10px] text-[#8a949f]">
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">tabs</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">read</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">click</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#4176e6]">screenshot</span>
+              <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">tabs</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">read</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">click</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">screenshot</span>
               </div>
             </div>
           );
@@ -3607,15 +3607,15 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.server ?? "尚未连接 MCP 服务器")}</span>
-              <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[#4176e6]">
+              <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[#3565c5]">
                 <span>{value(Array.isArray(data?.tools) ? data.tools.length : 0)} 工具</span>
-                <span className="text-[#a2abb5]">·</span>
+                <span className="text-[#687381]">·</span>
                 <span>{value(Array.isArray(data?.resources) ? data.resources.length : 0)} 资源</span>
-                <span className="text-[#a2abb5]">·</span>
+                <span className="text-[#687381]">·</span>
                 <span>{value(Array.isArray(data?.prompts) ? data.prompts.length : 0)} 提示</span>
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-[#8a949f]">
+            <p className="mt-2 text-[11px] text-[#687381]">
               {data?.lastCall === null || data?.lastCall === undefined ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${value(data.lastCall)}`}
             </p>
           </div>
@@ -3625,7 +3625,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 const item = typeof tool === "object" && tool !== null ? (tool as Record<string, unknown>) : {};
                 return (
                   <span
-                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]"
+                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
                     key={`${value(item.name ?? "tool")}-${index}`}
                   >
                     {value(item.name ?? "tool")}
@@ -3636,7 +3636,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : null}
           {Array.isArray(data?.resources) && data.resources.length > 0 ? (
             <div className="grid gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a949f]">资源</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">资源</span>
               <div className="flex flex-wrap gap-2">
                 {data.resources.slice(0, 8).map((resource, index) => {
                   const item = typeof resource === "object" && resource !== null ? (resource as Record<string, unknown>) : {};
@@ -3654,7 +3654,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           ) : null}
           {Array.isArray(data?.prompts) && data.prompts.length > 0 ? (
             <div className="grid gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a949f]">提示模板</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">提示模板</span>
               <div className="flex flex-wrap gap-2">
                 {data.prompts.slice(0, 8).map((prompt, index) => {
                   const item = typeof prompt === "object" && prompt !== null ? (prompt as Record<string, unknown>) : {};
@@ -3680,7 +3680,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                     key={`${value(item.id ?? "server")}-${index}`}
                   >
                     <span className="font-mono text-[#30343b]">{value(item.id ?? "server")}</span>
-                    <span className="text-[#198754]">{value(item.status ?? "unknown")}</span>
+                    <span className="text-[#14733f]">{value(item.status ?? "unknown")}</span>
                   </div>
                 );
               })}
@@ -3701,11 +3701,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       <li className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${value(server.id ?? "server")}-${index}`}>
                         <div className="flex items-center gap-2">
                           <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{value(server.id, "未命名服务器")}</strong>
-                          <span className={`rounded px-1.5 py-0.5 text-[9px] ${healthy ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff5f5] text-[#b42318]"}`}>
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] ${healthy ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#fff5f5] text-[#b42318]"}`}>
                             {value(server.status, "unknown")}
                           </span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#8a949f]">
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#687381]">
                           <span>{value(server.toolCount, "0")} 个桥接工具</span>
                           <span>·</span>
                           <span>{value(server.statusSource, "runtime")}</span>
@@ -3715,9 +3715,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">当前没有 MCP 服务器快照。</div>
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前没有 MCP 服务器快照。</div>
               )}
-              <div className="text-[10px] text-[#9aa3ad]">
+              <div className="text-[10px] text-[#687381]">
                 只读读取官方 MCP bridge 状态；健康建议通过 mcp_panel 的 health 操作查看。
                 {data?.writesEnabled === true ? ` 已启用 profile patch 写入：${value(data.patchPath)}` : " profile patch 写入未配置，apply 会被拒绝。"}
               </div>
@@ -3728,16 +3728,16 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.running === true ? "运行中" : "未启动"}</span>
-            <strong className="font-mono text-[11px] text-[#4176e6]">{value(data?.routes ?? 0)} 路由</strong>
+            <strong className="font-mono text-[11px] text-[#3565c5]">{value(data?.routes ?? 0)} 路由</strong>
           </div>
           {data?.url ? <code className="rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{value(data.url)}</code> : null}
-          {data?.lastRequest ? <p className="text-[11px] text-[#8a949f]">最近请求：{value(data.lastRequest)}</p> : null}
+          {data?.lastRequest ? <p className="text-[11px] text-[#687381]">最近请求：{value(data.lastRequest)}</p> : null}
         </div>
       ) : panel.id === "cli-notifier-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "已启用" : "已停用"}</span>
-            <span className="font-mono text-[10px] text-[#8a949f]">{value(data?.platform ?? "unknown")}</span>
+            <span className="font-mono text-[10px] text-[#687381]">{value(data?.platform ?? "unknown")}</span>
           </div>
           {Array.isArray(data?.notifications) && data.notifications.length > 0 ? (
             <div className="grid gap-2">
@@ -3752,20 +3752,20 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有发送通知。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有发送通知。</div>
           )}
         </div>
       ) : panel.id === "obsidian-sync-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.configured === true ? "已配置" : "未配置 vault"}</span>
-            <span className="font-mono text-[10px] text-[#8a949f]">Markdown</span>
+            <span className="font-mono text-[10px] text-[#687381]">Markdown</span>
           </div>
           {data?.vaultPath ? <code className="truncate rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{value(data.vaultPath)}</code> : null}
           {data?.last !== null && data?.last !== undefined && typeof data.last === "object" ? (
-            <p className="text-[11px] text-[#8a949f]">最近写入：{value((data.last as Record<string, unknown>).relativePath ?? "note.md")}</p>
+            <p className="text-[11px] text-[#687381]">最近写入：{value((data.last as Record<string, unknown>).relativePath ?? "note.md")}</p>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">还没有同步笔记。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有同步笔记。</div>
           )}
         </div>
       ) : panel.id === "web-research-panel" ? (
@@ -3782,7 +3782,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <>
                   <div className="flex items-center justify-between gap-3 text-[11px]">
                     <strong className="truncate text-[#30343b]">{value(report.query ?? "网页搜索")}</strong>
-                    <span className="shrink-0 font-mono text-[#8a949f]">
+                    <span className="shrink-0 font-mono text-[#687381]">
                       前 {Math.min(8, items.length)} / 共 {items.length}
                     </span>
                   </div>
@@ -3798,7 +3798,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                           target="_blank"
                         >
                           <strong className="block truncate text-[11px] text-[#30343b]">{value(item.title ?? item.url ?? "来源")}</strong>
-                          <span className="mt-1 block truncate font-mono text-[10px] text-[#4176e6]">{value(item.source ?? item.url, "")}</span>
+                          <span className="mt-1 block truncate font-mono text-[10px] text-[#3565c5]">{value(item.source ?? item.url, "")}</span>
                           {item.snippet ? <span className="mt-1 line-clamp-2 block text-[10px] leading-4 text-[#65707b]">{value(item.snippet)}</span> : null}
                         </a>
                       );
@@ -3808,11 +3808,11 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有联网搜索。可让 Agent 调用 web_search；单页读取使用 read_page。
             </div>
           )}
-          <p className="text-[10px] text-[#8a949f]">
+          <p className="text-[10px] text-[#687381]">
             搜索词会发送到 Firecrawl；页面读取{data?.readPageAvailable === true ? "已复用本地 Browser Fetch" : "需要启用 Browser Fetch"}。
           </p>
         </div>
@@ -3825,7 +3825,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 <>
                   <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
                     <span className="truncate font-mono text-[11px] text-[#30343b]">{value(result.finalUrl ?? result.url ?? "page")}</span>
-                    <strong className="font-mono text-[12px] text-[#198754]">HTTP {value(result.status ?? "—")}</strong>
+                    <strong className="font-mono text-[12px] text-[#14733f]">HTTP {value(result.status ?? "—")}</strong>
                   </div>
                   <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
                     {value(result.text, "")}
@@ -3834,14 +3834,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有抓取网页。默认阻止本地和私有网络目标。
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">max:512KiB</span>
-            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">scripts:disabled</span>
-            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#4176e6]">
+            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">max:512KiB</span>
+            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">scripts:disabled</span>
+            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
               private:{value(data?.allowPrivate === true ? "allowed" : "blocked")}
             </span>
           </div>
@@ -3857,17 +3857,17 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               return (
                 <>
                   <div
-                    className={`rounded-lg border px-3 py-3 text-[11px] ${healthy ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${healthy ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
                   >
                     {healthy ? "语言包键完全一致。" : `缺失 ${missing.length} 个，额外 ${extra.length} 个。`}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#8a949f]">基准键</span>
+                      <span className="block text-[10px] text-[#687381]">基准键</span>
                       <strong className="mt-1 block text-[17px] text-[#30343b]">{value(report.baseKeys ?? 0)}</strong>
                     </div>
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#8a949f]">目标键</span>
+                      <span className="block text-[10px] text-[#687381]">目标键</span>
                       <strong className="mt-1 block text-[17px] text-[#30343b]">{value(report.targetKeys ?? 0)}</strong>
                     </div>
                   </div>
@@ -3875,7 +3875,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
               还没有检查语言包。可让 Agent 调用 i18n_check。
             </div>
           )}
@@ -3885,13 +3885,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-semibold text-[#30343b]">快照清理</span>
-              <strong className="font-mono text-[12px] text-[#4176e6]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} 个</strong>
+              <strong className="font-mono text-[12px] text-[#3565c5]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} 个</strong>
             </div>
-            <p className="mt-2 text-[11px] text-[#8a949f]">仅清理 agent 数据目录中的 .patch 快照，必须显式 confirm=true。</p>
+            <p className="mt-2 text-[11px] text-[#687381]">仅清理 agent 数据目录中的 .patch 快照，必须显式 confirm=true。</p>
           </div>
-          <div className="flex items-center justify-between text-[11px] text-[#8a949f]">
+          <div className="flex items-center justify-between text-[11px] text-[#687381]">
             <span>上次清理</span>
-            <strong className="font-mono text-[#4176e6]">{value(data?.lastRemoved ?? 0)} 个</strong>
+            <strong className="font-mono text-[#3565c5]">{value(data?.lastRemoved ?? 0)} 个</strong>
           </div>
         </div>
       ) : panel.id === "fail-logger-panel" ? (
@@ -3915,7 +3915,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 );
               })
             ) : (
-              <div className="px-3 py-4 text-[12px] text-[#8a949f]">暂无失败记录。</div>
+              <div className="px-3 py-4 text-[12px] text-[#687381]">暂无失败记录。</div>
             )}
           </div>
         </div>
@@ -3923,7 +3923,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#71809a]">上下文占用</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#5d6d82]">上下文占用</span>
               <strong className="text-[13px] font-semibold text-[#315fb8]">
                 {data?.percent === null || data?.percent === undefined ? "—" : `${value(data.percent)}%`}
               </strong>
@@ -3934,7 +3934,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
               />
             </div>
-            <p className="mt-2 text-[11px] text-[#71809a]">
+            <p className="mt-2 text-[11px] text-[#5d6d82]">
               {data?.tokens === null || data?.tokens === undefined ? "令牌数未知" : `${value(data.tokens)} tokens`}
               {data?.contextWindow === null || data?.contextWindow === undefined ? "" : ` / ${value(data.contextWindow)} 上限`}
             </p>
@@ -3946,7 +3946,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               ["压缩", data?.compactions ?? 0],
             ].map(([label, item]) => (
               <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                 <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
               </div>
             ))}
@@ -3954,7 +3954,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold text-[#30343b]">消息组成</span>
-              <span className="text-[10px] text-[#8a949f]">按角色统计</span>
+              <span className="text-[10px] text-[#687381]">按角色统计</span>
             </div>
             <div className="mt-2 grid grid-cols-5 gap-1.5">
               {[
@@ -3965,7 +3965,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 ["其他", (data?.composition as Record<string, unknown> | undefined)?.other ?? 0],
               ].map(([label, item]) => (
                 <div className="rounded bg-[#f6f8fa] px-2 py-1.5 text-center" key={value(label)}>
-                  <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                  <span className="block text-[10px] text-[#687381]">{value(label)}</span>
                   <strong className="mt-0.5 block font-mono text-[13px] text-[#30343b]">{value(item)}</strong>
                 </div>
               ))}
@@ -3974,7 +3974,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold text-[#30343b]">最近上下文事件</span>
-              <span className="text-[10px] text-[#8a949f]">最多保留 50 条</span>
+              <span className="text-[10px] text-[#687381]">最多保留 50 条</span>
             </div>
             <div className="mt-2 max-h-28 overflow-auto">
               {Array.isArray(data?.recentEvents) && data.recentEvents.length > 0 ? (
@@ -3989,12 +3989,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                         key={`${value(event.type)}-${value(event.at)}-${index}`}
                       >
                         <span className="font-mono text-[10px] text-[#5d6d82]">{value(event.type, "unknown")}</span>
-                        <span className="text-[10px] text-[#9aa3ad]">{typeof event.at === "number" ? new Date(event.at).toLocaleTimeString() : "—"}</span>
+                        <span className="text-[10px] text-[#687381]">{typeof event.at === "number" ? new Date(event.at).toLocaleTimeString() : "—"}</span>
                       </div>
                     );
                   })
               ) : (
-                <div className="py-2 text-[11px] text-[#8a949f]">暂无上下文事件。</div>
+                <div className="py-2 text-[11px] text-[#687381]">暂无上下文事件。</div>
               )}
             </div>
           </div>
@@ -4003,7 +4003,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-2">
           {entries.map(([key, item]) => (
             <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={key}>
-              <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#8a949f]">{key}</span>
+              <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">{key}</span>
               <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[#30343b]">{pluginPanelValue(item)}</pre>
             </div>
           ))}
@@ -4237,9 +4237,9 @@ function Plugins({
               <div className="mb-3 flex items-baseline justify-between gap-3">
                 <div>
                   <strong className="text-[13px] font-semibold text-[#20252b]">其他插件面板</strong>
-                  <p className="mt-1 text-[12px] text-[#8a949f]">由已启用插件提供的实时状态。</p>
+                  <p className="mt-1 text-[12px] text-[#687381]">由已启用插件提供的实时状态。</p>
                 </div>
-                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#a0a8b2]">LIVE</span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">LIVE</span>
               </div>
               <div className="grid gap-3 xl:grid-cols-2">
                 {panels
@@ -4319,17 +4319,17 @@ function InstalledPluginDetail({
         <div className="plugin-detail-content">
           <header className="border-b border-[#e3e7ee] pb-7">
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <span className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[#e6faed] text-[#16834f]" : "bg-[#eef0f3] text-[#6f7883]"}`}>
+              <span className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[#e6faed] text-[#14733f]" : "bg-[#eef0f3] text-[#687381]"}`}>
                 {plugin.enabled ? "运行中" : "已停用"}
               </span>
               <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">{plugin.category?.label ?? "运行时插件"}</span>
-              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#4176e6]">{capability(plugin.name)}</span>
+              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#3565c5]">{capability(plugin.name)}</span>
             </div>
             <div className="flex flex-wrap items-end justify-between gap-5">
               <div className="min-w-0">
-                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#8a949f]">PLUGIN DETAIL</p>
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#687381]">PLUGIN DETAIL</p>
                 <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#20252b]">{title}</h1>
-                <code className="mt-3 block break-all text-[12px] text-[#6f7883]">
+                <code className="mt-3 block break-all text-[12px] text-[#687381]">
                   {plugin.name}
                   {metadata ? ` · v${metadata.version}` : ""}
                 </code>
@@ -4357,7 +4357,7 @@ function InstalledPluginDetail({
                   </button>
                 </div>
               ) : (
-                <span className="rounded-full bg-[#eef0f3] px-3 py-1.5 text-[11px] text-[#6f7883]">内置组件</span>
+                <span className="rounded-full bg-[#eef0f3] px-3 py-1.5 text-[11px] text-[#687381]">内置组件</span>
               )}
             </div>
             <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">
@@ -4397,9 +4397,9 @@ function InstalledPluginDetail({
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="text-[13px] font-semibold text-[#20252b]">实时详情</h2>
-                    <p className="mt-1 text-[12px] text-[#8a949f]">当前本机会话中的插件运行状态。</p>
+                    <p className="mt-1 text-[12px] text-[#687381]">当前本机会话中的插件运行状态。</p>
                   </div>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#a0a8b2]">LIVE</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#687381]">LIVE</span>
                 </div>
                 {panel ? <PluginPanelCard inline panel={panel} /> : <div className="empty-state">这个插件暂未提供实时面板。</div>}
               </section>
@@ -4408,30 +4408,30 @@ function InstalledPluginDetail({
               <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">运行状态</dt>
+                  <dt className="text-[#687381]">运行状态</dt>
                   <dd className="font-mono text-[#3b424b]">{plugin.state}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">配置标识</dt>
+                  <dt className="text-[#687381]">配置标识</dt>
                   <dd className="max-w-[150px] break-all text-right font-mono text-[#3b424b]">{plugin.id}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">分类</dt>
+                  <dt className="text-[#687381]">分类</dt>
                   <dd className="text-right text-[#3b424b]">{plugin.category?.label ?? "运行时插件"}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">管理方式</dt>
+                  <dt className="text-[#687381]">管理方式</dt>
                   <dd className="text-right text-[#3b424b]">{plugin.removable ? "可配置" : "随运行时加载"}</dd>
                 </div>
                 {metadata ? (
                   <div className="flex justify-between gap-4 py-3">
-                    <dt className="text-[#8a949f]">版本</dt>
+                    <dt className="text-[#687381]">版本</dt>
                     <dd className="font-mono text-[#3b424b]">{metadata.version}</dd>
                   </div>
                 ) : null}
               </dl>
               {metadata ? (
-                <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#4176e6]" href={metadata.repository} rel="noreferrer" target="_blank">
+                <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#3565c5]" href={metadata.repository} rel="noreferrer" target="_blank">
                   查看源码 ↗
                 </a>
               ) : null}
@@ -4580,7 +4580,7 @@ function Marketplace({
                 type="button"
               >
                 <span>{category.label}</span>
-                <span className={active ? "font-mono text-[10px] text-[#4176e6]/75" : "font-mono text-[10px] text-[#9aa1aa]"}>{category.count}</span>
+                <span className={active ? "font-mono text-[10px] text-[#3565c5]" : "font-mono text-[10px] text-[#687381]"}>{category.count}</span>
               </button>
             );
           })}
@@ -4597,8 +4597,8 @@ function Marketplace({
                       <span
                         className={
                           plugin.status === "verified"
-                            ? "rounded bg-[#e6faed] px-1.5 py-px font-mono text-[10px] text-[#16a34a]"
-                            : "rounded bg-[#fff5e7] px-1.5 py-px font-mono text-[10px] text-[#dd8629]"
+                            ? "rounded bg-[#e6faed] px-1.5 py-px font-mono text-[10px] text-[#14733f]"
+                            : "rounded bg-[#fff5e7] px-1.5 py-px font-mono text-[10px] text-[#9a6700]"
                         }
                       >
                         {plugin.status === "verified" ? "已验证" : "实验性"}
@@ -4606,8 +4606,8 @@ function Marketplace({
                       <span
                         className={
                           plugin.source === "official"
-                            ? "rounded bg-[#e4edfd] px-1.5 py-px font-mono text-[10px] text-[#4176e6]"
-                            : "rounded bg-[#fef5e7] px-1.5 py-px font-mono text-[10px] text-[#dd8629]"
+                            ? "rounded bg-[#e4edfd] px-1.5 py-px font-mono text-[10px] text-[#3565c5]"
+                            : "rounded bg-[#fef5e7] px-1.5 py-px font-mono text-[10px] text-[#9a6700]"
                         }
                       >
                         {plugin.source === "official" ? "官方" : "社区"}
@@ -4634,7 +4634,7 @@ function Marketplace({
                       <div className="mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
                         {marketplaceStatisticItems(plugin.statistics).map((item) => (
                           <span className="min-w-0 px-2 py-1.5" key={item.label} title={`${item.label} ${item.value}`}>
-                            <small className="block truncate text-[9px] text-[#8a949f]">{item.label}</small>
+                            <small className="block truncate text-[9px] text-[#687381]">{item.label}</small>
                             <strong className="mt-0.5 block truncate font-mono text-[10px] font-medium text-[#3b424b]">{item.value}</strong>
                           </span>
                         ))}
@@ -4664,10 +4664,10 @@ function Marketplace({
                 </footer>
               </article>
             ))}
-            {!plugins.length && <div className="p-7 text-center text-[12px] text-[#81858c]">没有匹配的插件。</div>}
+            {!plugins.length && <div className="p-7 text-center text-[12px] text-[#687381]">没有匹配的插件。</div>}
           </div>
-          {installNotice && <p className="mt-2 text-[11px] text-[#4176e6]">{installNotice}</p>}
-          {installError && <p className="mt-2 text-[11px] text-[#ec1313]">安装失败：{installError}</p>}
+          {installNotice && <p className="mt-2 text-[11px] text-[#3565c5]">{installNotice}</p>}
+          {installError && <p className="mt-2 text-[11px] text-[#b42318]">安装失败：{installError}</p>}
           <div className="marketplace-pagination">
             <button className="marketplace-pagination-button" disabled={page === 0} onClick={() => onPageChange(page - 1)} type="button">
               上一页
@@ -4677,11 +4677,11 @@ function Marketplace({
               下一页
             </button>
           </div>
-          <div className="marketplace-contribute mt-3 flex items-center gap-2.5 rounded-[10px] border border-dashed border-[#b8ccf5] bg-[#f8f9ff] p-2.5 text-[11.5px] text-[#81858c]">
+          <div className="marketplace-contribute mt-3 flex items-center gap-2.5 rounded-[10px] border border-dashed border-[#b8ccf5] bg-[#f8f9ff] p-2.5 text-[11.5px] text-[#687381]">
             <strong className="text-[12px] text-[#0f1115]">你有一个 Pi Harness 插件？</strong>
             <span>在 entries 目录新增一个元数据文件，附测试和 README 后提交 PR；审核通过后会出现在这里。</span>
             <a
-              className="ml-auto flex-none text-[#4176e6]"
+              className="ml-auto flex-none text-[#3565c5]"
               href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md"
               target="_blank"
               rel="noreferrer"
@@ -4740,15 +4740,15 @@ function MarketplaceDetail({
         <div className="plugin-detail-content">
           <header className="border-b border-[#e3e7ee] pb-7">
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#4176e6]">
+              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#3565c5]">
                 {plugin.source === "official" ? "官方插件" : "社区插件"}
               </span>
               <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
               <span
                 className={
                   plugin.status === "verified"
-                    ? "rounded bg-[#e6faed] px-2 py-1 font-mono text-[10px] text-[#16a34a]"
-                    : "rounded bg-[#fff5e7] px-2 py-1 font-mono text-[10px] text-[#dd8629]"
+                    ? "rounded bg-[#e6faed] px-2 py-1 font-mono text-[10px] text-[#14733f]"
+                    : "rounded bg-[#fff5e7] px-2 py-1 font-mono text-[10px] text-[#9a6700]"
                 }
               >
                 {plugin.status === "verified" ? "已验证" : "实验性"}
@@ -4756,9 +4756,9 @@ function MarketplaceDetail({
             </div>
             <div className="flex flex-wrap items-end justify-between gap-5">
               <div className="min-w-0">
-                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#8a949f]">PLUGIN DETAIL</p>
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#687381]">PLUGIN DETAIL</p>
                 <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#20252b]">{plugin.name}</h1>
-                <code className="mt-3 block break-all text-[12px] text-[#6f7883]">
+                <code className="mt-3 block break-all text-[12px] text-[#687381]">
                   {plugin.packageName} · v{plugin.version}
                 </code>
               </div>
@@ -4769,8 +4769,8 @@ function MarketplaceDetail({
               </div>
             </div>
             <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">{plugin.description}</p>
-            {notice && <p className="mt-3 text-[12px] text-[#4176e6]">{notice}</p>}
-            {error && <p className="mt-3 text-[12px] text-[#ec1313]">安装失败：{error}</p>}
+            {notice && <p className="mt-3 text-[12px] text-[#3565c5]">{notice}</p>}
+            {error && <p className="mt-3 text-[12px] text-[#b42318]">安装失败：{error}</p>}
           </header>
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
@@ -4796,7 +4796,7 @@ function MarketplaceDetail({
               </section>
               <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                 <h2 className="text-[13px] font-semibold text-[#20252b]">运行配置</h2>
-                <p className="mt-1 text-[12px] text-[#8a949f]">安装后会写入当前运行 profile。</p>
+                <p className="mt-1 text-[12px] text-[#687381]">安装后会写入当前运行 profile。</p>
                 <pre className="mt-4 overflow-auto rounded-lg bg-[#f7f8fa] p-4 text-[11px] leading-6 text-[#3b424b]">
                   <code>{JSON.stringify(plugin.profile, null, 2)}</code>
                 </pre>
@@ -4806,29 +4806,29 @@ function MarketplaceDetail({
               <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">作者</dt>
+                  <dt className="text-[#687381]">作者</dt>
                   <dd className="text-right text-[#3b424b]">{plugin.author}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">许可证</dt>
+                  <dt className="text-[#687381]">许可证</dt>
                   <dd className="font-mono text-[#3b424b]">{plugin.license}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">分类</dt>
+                  <dt className="text-[#687381]">分类</dt>
                   <dd className="text-right text-[#3b424b]">{plugin.category.label}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#8a949f]">版本</dt>
+                  <dt className="text-[#687381]">版本</dt>
                   <dd className="font-mono text-[#3b424b]">{plugin.version}</dd>
                 </div>
                 {marketplaceStatisticItems(plugin.statistics).map((item) => (
                   <div className="flex justify-between gap-4 py-3" key={item.label}>
-                    <dt className="text-[#8a949f]">{item.label}</dt>
+                    <dt className="text-[#687381]">{item.label}</dt>
                     <dd className="font-mono text-[#3b424b]">{item.value}</dd>
                   </div>
                 ))}
               </dl>
-              <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#4176e6]" href={plugin.repository} target="_blank" rel="noreferrer">
+              <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#3565c5]" href={plugin.repository} target="_blank" rel="noreferrer">
                 查看源码 ↗
               </a>
             </aside>
@@ -6529,7 +6529,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               <div className="flex items-start gap-2">
                 <span className="mt-0.5 shrink-0 rounded bg-[#dce9ff] px-1.5 py-0.5 text-[10px] text-[#315fb8]">选中片段</span>
                 <p className="max-h-16 flex-1 overflow-auto whitespace-pre-wrap text-[11px] text-[#30343b]">{annotationSelection}</p>
-                <button aria-label="取消批注" className="text-[12px] text-[#8a949f]" onClick={() => setAnnotationSelection("")} type="button">
+                <button aria-label="取消批注" className="text-[12px] text-[#687381]" onClick={() => setAnnotationSelection("")} type="button">
                   ×
                 </button>
               </div>
@@ -6541,7 +6541,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                   placeholder="备注（可选）"
                   value={annotationNote}
                 />
-                <button className="rounded-md bg-[#4176e6] px-3 py-1.5 text-[11px] font-medium text-white" onClick={addAnnotation} type="button">
+                <button className="rounded-md bg-[#3565c5] px-3 py-1.5 text-[11px] font-medium text-white" onClick={addAnnotation} type="button">
                   加入批注
                 </button>
               </div>
@@ -6561,7 +6561,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                   #{annotation.id} {annotation.quote}
                 </button>
               ))}
-              <button className="shrink-0 text-[#8a949f]" onClick={() => setAnnotations([])} type="button">
+              <button className="shrink-0 text-[#687381]" onClick={() => setAnnotations([])} type="button">
                 清空
               </button>
             </div>
@@ -6791,6 +6791,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           </div>
           <input
             accept=".jsonl,application/json,application/x-ndjson"
+            aria-label="导入会话文件"
             className="visually-hidden"
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
@@ -6802,6 +6803,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               });
             }}
             ref={importInputRef}
+            tabIndex={-1}
             type="file"
           />
         </div>
@@ -7058,7 +7060,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               <div className="flex items-center justify-between gap-2">
                 <strong className="text-[11px] font-semibold text-[#253044]">工作区概览</strong>
                 <span
-                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean === true ? "bg-[#eaf8f0] text-[#198754]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean === true ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#fff0f0] text-[#b42318]"}`}
                 >
                   {betterSidebarData.clean === true ? "clean" : `${value(betterSidebarData.changedCount ?? 0)} 变更`}
                 </span>
