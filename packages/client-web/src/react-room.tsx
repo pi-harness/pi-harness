@@ -20,10 +20,11 @@ import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
-import { marketplaceCategoryTabs, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
+import { marketplaceCategoryTabs, marketplaceDetailPath, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
 import { pluginStarsRows } from "./plugin-stars-view.js";
 import { browserSessionTabs } from "./browser-session-view.js";
 import { matchesPluginQuery } from "./plugin-search.js";
+import { installedPluginDetailPath, readInstalledPluginDetailId } from "./plugin-navigation.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -239,6 +240,7 @@ const readQueryState = (): {
   marketplaceCapability: string;
   marketplaceCategory: string;
   marketplacePlugin: string | undefined;
+  installedPlugin: string | undefined;
   marketplacePage: number;
 } => {
   if (typeof window === "undefined")
@@ -249,6 +251,7 @@ const readQueryState = (): {
       marketplaceCapability: "",
       marketplaceCategory: "",
       marketplacePlugin: undefined,
+      installedPlugin: undefined,
       marketplacePage: 0,
     };
   const params = new URLSearchParams(window.location.search);
@@ -268,6 +271,7 @@ const readQueryState = (): {
     marketplaceCapability: params.get("capability") ?? "",
     marketplaceCategory: params.get("category") ?? "",
     marketplacePlugin: readMarketplaceDetailId(params),
+    installedPlugin: readInstalledPluginDetailId(params),
     marketplacePage: Number.isFinite(pageNumber) && pageNumber >= 0 ? pageNumber : 0,
   };
 };
@@ -3836,11 +3840,68 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
   );
 }
 
+function PluginUninstallDialog({
+  pluginName,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  pluginName: string;
+  busy: boolean;
+  error: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || busy) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [busy, onCancel]);
+  return (
+    <div
+      className="plugin-confirm-backdrop"
+      onClick={() => {
+        if (!busy) onCancel();
+      }}
+    >
+      <div aria-label="确认卸载插件" aria-modal="true" className="plugin-confirm-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+        <header>
+          <div>
+            <strong>卸载插件？</strong>
+            <small>将从运行配置中移除，之后可以从插件市场重新安装。</small>
+          </div>
+        </header>
+        <code>{pluginName}</code>
+        {error && (
+          <p className="plugin-confirm-error" role="alert">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button autoFocus disabled={busy} onClick={onCancel} type="button">
+            取消
+          </button>
+          <button className="danger" disabled={busy} onClick={onConfirm} type="button">
+            {busy ? "卸载中…" : "确认卸载"}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function Plugins({
   plugins,
   panels,
   marketplace,
   onMarketplace,
+  onOpenDetail,
   onToml,
   onToggle,
   onUninstall,
@@ -3849,6 +3910,7 @@ function Plugins({
   panels: readonly ClientPluginPanel[];
   marketplace: readonly ClientMarketplacePlugin[];
   onMarketplace: () => void;
+  onOpenDetail: (plugin: ClientPlugin) => void;
   onToml: () => void;
   onToggle: (plugin: ClientPlugin) => Promise<void>;
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
@@ -3856,7 +3918,6 @@ function Plugins({
   const marketplaceNames = useMemo(() => new Map(marketplace.map((plugin) => [plugin.packageName, plugin.name])), [marketplace]);
   const panelPluginIds = useMemo(() => new Set(panels.map((panel) => panel.pluginId)), [panels]);
   const installedPlugins = useMemo(() => plugins.filter((plugin) => plugin.removable || panelPluginIds.has(plugin.name)), [panelPluginIds, plugins]);
-  const panelByPlugin = useMemo(() => new Map(panels.map((panel) => [panel.pluginId, panel])), [panels]);
   const [query, setQuery] = useState("");
   const [busyPlugin, setBusyPlugin] = useState<string>();
   const [pluginError, setPluginError] = useState("");
@@ -3872,17 +3933,6 @@ function Plugins({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [query]);
-  useEffect(() => {
-    if (!pendingUninstall) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busyPlugin !== undefined) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      setPendingUninstall(undefined);
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [busyPlugin, pendingUninstall]);
   const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>): Promise<boolean> => {
     setPluginError("");
     setBusyPlugin(plugin.id);
@@ -3934,7 +3984,6 @@ function Plugins({
         <div className="plugins-scroll" ref={scrollRef}>
           <div className="plugins-list">
             {visiblePlugins.map((plugin) => {
-              const panel = panelByPlugin.get(plugin.name);
               const categoryLabel = plugin.category?.label;
               const capabilityLabel = capability(plugin.name);
               return (
@@ -3986,15 +4035,21 @@ function Plugins({
                         )}
                       </div>
                     </div>
-                    {panel && (
-                      <details className="mt-4 border-t border-[#e3e7ee] pt-3">
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] text-[#4176e6]">
-                          <span className="font-semibold">查看详情</span>
-                          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#a0a8b2]">实时面板</span>
-                        </summary>
-                        <PluginPanelCard inline panel={panel} />
-                      </details>
-                    )}
+                    <div className="mt-auto flex items-center justify-between gap-3 border-t border-[#e3e7ee] pt-3">
+                      <a
+                        className="text-[11px] font-semibold text-[#4176e6]"
+                        href={installedPluginDetailPath(plugin.name)}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          onOpenDetail(plugin);
+                        }}
+                      >
+                        查看详情 →
+                      </a>
+                      {panelPluginIds.has(plugin.name) ? (
+                        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#a0a8b2]">实时面板</span>
+                      ) : null}
+                    </div>
                   </article>
                 </div>
               );
@@ -4026,50 +4081,206 @@ function Plugins({
           )}
         </div>
         {pendingUninstall && (
-          <div
-            className="plugin-confirm-backdrop"
-            onClick={() => busyPlugin === undefined && setPendingUninstall(undefined)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && busyPlugin === undefined) {
-                event.stopPropagation();
-                setPendingUninstall(undefined);
-              }
-            }}
-          >
-            <div aria-label="确认卸载插件" aria-modal="true" className="plugin-confirm-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
-              <header>
-                <div>
-                  <strong>卸载插件？</strong>
-                  <small>将从运行配置中移除，之后可以从插件市场重新安装。</small>
-                </div>
-              </header>
-              <code>{marketplaceNames.get(pendingUninstall.name) ?? displayPluginName(pendingUninstall.name)}</code>
-              {pluginError && (
-                <p className="plugin-confirm-error" role="alert">
-                  {pluginError}
-                </p>
-              )}
-              <footer>
-                <button autoFocus disabled={busyPlugin !== undefined} onClick={() => setPendingUninstall(undefined)} type="button">
-                  取消
-                </button>
-                <button
-                  className="danger"
-                  disabled={busyPlugin !== undefined}
-                  onClick={() =>
-                    void runPluginAction(pendingUninstall, onUninstall).then((completed) => {
-                      if (completed) setPendingUninstall(undefined);
-                    })
-                  }
-                  type="button"
-                >
-                  {busyPlugin !== undefined ? "卸载中…" : "确认卸载"}
-                </button>
-              </footer>
-            </div>
-          </div>
+          <PluginUninstallDialog
+            busy={busyPlugin !== undefined}
+            error={pluginError}
+            onCancel={() => setPendingUninstall(undefined)}
+            onConfirm={() =>
+              void runPluginAction(pendingUninstall, onUninstall).then((completed) => {
+                if (completed) setPendingUninstall(undefined);
+              })
+            }
+            pluginName={marketplaceNames.get(pendingUninstall.name) ?? displayPluginName(pendingUninstall.name)}
+          />
         )}
       </div>
+    </section>
+  );
+}
+
+function InstalledPluginDetail({
+  plugin,
+  panel,
+  metadata,
+  onBack,
+  onToggle,
+  onUninstall,
+}: {
+  plugin: ClientPlugin;
+  panel?: ClientPluginPanel;
+  metadata?: ClientMarketplacePlugin;
+  onBack: () => void;
+  onToggle: (plugin: ClientPlugin) => Promise<void>;
+  onUninstall: (plugin: ClientPlugin) => Promise<void>;
+}) {
+  const [busyAction, setBusyAction] = useState<"toggle" | "uninstall">();
+  const [error, setError] = useState("");
+  const [confirmUninstall, setConfirmUninstall] = useState(false);
+  const title = metadata?.name ?? displayPluginName(plugin.name);
+  const run = async (action: "toggle" | "uninstall", callback: () => Promise<void>) => {
+    setError("");
+    setBusyAction(action);
+    try {
+      await callback();
+      return true;
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return false;
+    } finally {
+      setBusyAction(undefined);
+    }
+  };
+  return (
+    <section className="marketplace-page flex min-w-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="subnav plugin-detail-subnav">
+          <a
+            href="?page=plugins"
+            onClick={(event) => {
+              event.preventDefault();
+              onBack();
+            }}
+          >
+            ← 已安装插件
+          </a>
+          <span>插件详情</span>
+        </div>
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <header className="border-b border-[#e3e7ee] pb-7">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[#e6faed] text-[#16834f]" : "bg-[#eef0f3] text-[#6f7883]"}`}>
+                {plugin.enabled ? "运行中" : "已停用"}
+              </span>
+              <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">{plugin.category?.label ?? "运行时插件"}</span>
+              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#4176e6]">{capability(plugin.name)}</span>
+            </div>
+            <div className="flex flex-wrap items-end justify-between gap-5">
+              <div className="min-w-0">
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#8a949f]">PLUGIN DETAIL</p>
+                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#20252b]">{title}</h1>
+                <code className="mt-3 block break-all text-[12px] text-[#6f7883]">
+                  {plugin.name}
+                  {metadata ? ` · v${metadata.version}` : ""}
+                </code>
+              </div>
+              {plugin.removable ? (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="rounded-md border border-black/10 bg-white px-3 py-2 text-[12px] text-[#20252b] disabled:opacity-50"
+                    disabled={busyAction !== undefined}
+                    onClick={() => void run("toggle", () => onToggle(plugin))}
+                    type="button"
+                  >
+                    {busyAction === "toggle" ? "处理中…" : plugin.enabled ? "停用插件" : "启用插件"}
+                  </button>
+                  <button
+                    className="rounded-md border border-[#f0caca] bg-[#fff5f5] px-3 py-2 text-[12px] text-[#b42318] disabled:opacity-50"
+                    disabled={busyAction !== undefined}
+                    onClick={() => {
+                      setError("");
+                      setConfirmUninstall(true);
+                    }}
+                    type="button"
+                  >
+                    卸载插件
+                  </button>
+                </div>
+              ) : (
+                <span className="rounded-full bg-[#eef0f3] px-3 py-1.5 text-[11px] text-[#6f7883]">内置组件</span>
+              )}
+            </div>
+            <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">
+              {metadata?.description ?? (plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "插件保留在运行配置中，但当前处于停用状态。")}
+            </p>
+            {error && (
+              <p className="mt-3 text-[12px] text-[#b42318]" role="alert">
+                操作失败：{error}
+              </p>
+            )}
+          </header>
+          <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="space-y-4">
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <h2 className="text-[13px] font-semibold text-[#20252b]">插件能力</h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(metadata?.capabilities.length ? metadata.capabilities : [capability(plugin.name)]).map((item) => (
+                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 font-mono text-[11px] text-[#61666b]" key={item}>
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </section>
+              {metadata?.hooks.length ? (
+                <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                  <h2 className="text-[13px] font-semibold text-[#20252b]">扩展点</h2>
+                  <div className="mt-4 space-y-2">
+                    {metadata.hooks.map((item) => (
+                      <div className="rounded-md bg-[#f8f9fb] px-3 py-2 font-mono text-[11px] text-[#61666b]" key={item}>
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-[13px] font-semibold text-[#20252b]">实时详情</h2>
+                    <p className="mt-1 text-[12px] text-[#8a949f]">当前本机会话中的插件运行状态。</p>
+                  </div>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#a0a8b2]">LIVE</span>
+                </div>
+                {panel ? <PluginPanelCard inline panel={panel} /> : <div className="empty-state">这个插件暂未提供实时面板。</div>}
+              </section>
+            </div>
+            <aside className="h-fit rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
+              <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">运行状态</dt>
+                  <dd className="font-mono text-[#3b424b]">{plugin.state}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">配置标识</dt>
+                  <dd className="max-w-[150px] break-all text-right font-mono text-[#3b424b]">{plugin.id}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">分类</dt>
+                  <dd className="text-right text-[#3b424b]">{plugin.category?.label ?? "运行时插件"}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-[#8a949f]">管理方式</dt>
+                  <dd className="text-right text-[#3b424b]">{plugin.removable ? "可配置" : "随运行时加载"}</dd>
+                </div>
+                {metadata ? (
+                  <div className="flex justify-between gap-4 py-3">
+                    <dt className="text-[#8a949f]">版本</dt>
+                    <dd className="font-mono text-[#3b424b]">{metadata.version}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              {metadata ? (
+                <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#4176e6]" href={metadata.repository} rel="noreferrer" target="_blank">
+                  查看源码 ↗
+                </a>
+              ) : null}
+            </aside>
+          </div>
+        </div>
+      </div>
+      {confirmUninstall ? (
+        <PluginUninstallDialog
+          busy={busyAction === "uninstall"}
+          error={error}
+          onCancel={() => setConfirmUninstall(false)}
+          onConfirm={() =>
+            void run("uninstall", () => onUninstall(plugin)).then((completed) => {
+              if (completed) setConfirmUninstall(false);
+            })
+          }
+          pluginName={title}
+        />
+      ) : null}
     </section>
   );
 }
@@ -4268,9 +4479,15 @@ function Marketplace({
                   <span>
                     {plugin.author} · {plugin.license}
                   </span>
-                  <button onClick={() => onOpenDetail(plugin)} type="button">
-                    查看详情
-                  </button>
+                  <a
+                    href={marketplaceDetailPath(plugin.id)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onOpenDetail(plugin);
+                    }}
+                  >
+                    查看详情 →
+                  </a>
                   <a href={plugin.repository} target="_blank" rel="noreferrer">
                     查看源码 ↗
                   </a>
@@ -4351,10 +4568,16 @@ function MarketplaceDetail({
   return (
     <section className="marketplace-page flex min-w-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-auto">
-        <div className="subnav">
-          <button onClick={onBack} type="button">
+        <div className="subnav plugin-detail-subnav">
+          <a
+            href="?page=marketplace"
+            onClick={(event) => {
+              event.preventDefault();
+              onBack();
+            }}
+          >
             ← 插件市场
-          </button>
+          </a>
           <span>插件详情</span>
         </div>
         <div className="mx-auto max-w-5xl px-6 py-8">
@@ -4383,9 +4606,6 @@ function MarketplaceDetail({
                 </code>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button className="rounded-md border border-black/10 bg-white px-3 py-2 text-[12px] text-[#20252b]" onClick={onBack} type="button">
-                  返回市场
-                </button>
                 <button
                   className="rounded-md bg-[#20252b] px-3 py-2 text-[12px] text-white disabled:cursor-default disabled:opacity-50"
                   disabled={installed || busy}
@@ -4569,13 +4789,13 @@ function Settings({
         </nav>
         <section>
           <header>
+            <button className="settings-back" onClick={onClose} type="button">
+              ← 返回会话
+            </button>
             <div className="settings-header-copy">
               <strong>{tab === "general" ? "通用" : tab === "providers" ? "提供商" : "pi.toml"}</strong>
               <small>{tab === "toml" ? "配置即代码，改完重载" : "运行时状态与快捷键"}</small>
             </div>
-            <button className="settings-back" onClick={onClose} type="button">
-              返回会话
-            </button>
           </header>
           <div className="settings-body">
             {tab === "general" && (
@@ -5413,6 +5633,10 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [marketplaceCategory, setMarketplaceCategory] = useState(initialQueryState.marketplaceCategory);
   const [marketplacePluginId, setMarketplacePluginId] = useState<string | undefined>(initialQueryState.marketplacePlugin);
   const [marketplaceDetail, setMarketplaceDetail] = useState<ClientMarketplacePlugin>();
+  const [marketplaceDetailPending, setMarketplaceDetailPending] = useState(initialQueryState.marketplacePlugin !== undefined);
+  const [marketplaceDetailError, setMarketplaceDetailError] = useState("");
+  const [installedPluginId, setInstalledPluginId] = useState<string | undefined>(initialQueryState.installedPlugin);
+  const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [permission, setPermission] = useState(true);
   const [contextExpanded, setContextExpanded] = useState(false);
@@ -5436,9 +5660,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
   useEffect(() => {
-    if (data.session?.messages.length && data.status?.cwd) setSelectedWorkspacePath(data.status.cwd);
-  }, [data.session?.messages.length, data.status?.cwd]);
-  useEffect(() => {
     if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
   }, [data.session?.sessionFile, selectedSessionPath]);
   const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
@@ -5452,6 +5673,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   }, [data.commands, data.files, promptCompletion]);
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
   const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
+  const workspaceReady =
+    !workspaceChooserOpen &&
+    Boolean(selectedWorkspacePath || data.status?.cwd || data.workspaces.find((workspace) => workspace.current)?.path || data.session);
   const installedPluginCount = useMemo(() => {
     const panelPluginIds = new Set(data.pluginPanels.map((panel) => panel.pluginId));
     return data.plugins.filter((plugin) => plugin.removable || panelPluginIds.has(plugin.name)).length;
@@ -5475,34 +5699,86 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     else params.delete("capability");
     if (marketplaceCategory) params.set("category", marketplaceCategory);
     else params.delete("category");
-    if (page === "marketplace" && marketplacePluginId) params.set("plugin", marketplacePluginId);
+    if (page === "plugins" && installedPluginId) params.set("plugin", installedPluginId);
+    else if (page === "marketplace" && marketplacePluginId) params.set("plugin", marketplacePluginId);
     else params.delete("plugin");
     if (marketplacePage > 0) params.set("marketplacePage", String(marketplacePage));
     else params.delete("marketplacePage");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [marketplaceCapability, marketplaceCategory, marketplacePage, marketplacePluginId, marketplaceQuery, page, selectedSessionPath, settings, view]);
+  }, [installedPluginId, marketplaceCapability, marketplaceCategory, marketplacePage, marketplacePluginId, marketplaceQuery, page, selectedSessionPath, settings, view]);
+  useEffect(() => {
+    const onPopState = () => {
+      const next = readQueryState();
+      setPage(next.page);
+      setView(next.view);
+      setSettings(next.settings);
+      setSelectedSessionPath(next.sessionPath);
+      setMarketplaceQuery(next.marketplaceQuery);
+      setMarketplaceCapability(next.marketplaceCapability);
+      setMarketplaceCategory(next.marketplaceCategory);
+      setMarketplacePage(next.marketplacePage);
+      setInstalledPluginId(next.installedPlugin);
+      setMarketplacePluginId(next.marketplacePlugin);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   useEffect(() => {
     if (marketplacePluginId === undefined) {
       setMarketplaceDetail(undefined);
+      setMarketplaceDetailPending(false);
+      setMarketplaceDetailError("");
       return;
     }
     const visible = data.marketplace.find((plugin) => plugin.id === marketplacePluginId);
     if (visible !== undefined) {
       setMarketplaceDetail(visible);
+      setMarketplaceDetailPending(false);
+      setMarketplaceDetailError("");
       return;
     }
     let cancelled = false;
-    void api.listMarketplace("", "", 0, 100).then((result) => {
-      if (cancelled) return;
-      const plugin = result.items.find((item) => item.id === marketplacePluginId);
-      if (plugin === undefined) setMarketplacePluginId(undefined);
-      else setMarketplaceDetail(plugin);
-    });
+    setMarketplaceDetail(undefined);
+    setMarketplaceDetailPending(true);
+    setMarketplaceDetailError("");
+    void api
+      .listMarketplace("", "", 0, 100)
+      .then((result) => {
+        if (cancelled) return;
+        const plugin = result.items.find((item) => item.id === marketplacePluginId);
+        if (plugin === undefined) setMarketplaceDetailError("没有找到这个市场插件，它可能已下架。");
+        else setMarketplaceDetail(plugin);
+      })
+      .catch((cause) => {
+        if (!cancelled) setMarketplaceDetailError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setMarketplaceDetailPending(false);
+      });
     return () => {
       cancelled = true;
     };
   }, [api, data.marketplace, marketplacePluginId]);
+  useEffect(() => {
+    if (installedPluginId === undefined) {
+      setInstalledPluginMetadata(undefined);
+      return;
+    }
+    let cancelled = false;
+    setInstalledPluginMetadata(undefined);
+    void api
+      .listMarketplace("", "", 0, 100)
+      .then((result) => {
+        if (!cancelled) setInstalledPluginMetadata(result.items.find((item) => item.packageName === installedPluginId));
+      })
+      .catch(() => {
+        if (!cancelled) setInstalledPluginMetadata(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, installedPluginId]);
   const refresh = useCallback(async () => {
     const [status, session, sessions, files, models, providers, plugins, pluginPanels, marketplace, commands, workspaces] = await Promise.allSettled([
       api.getStatus(),
@@ -5795,6 +6071,34 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     setSessionMenuOpen(false);
     setSessionMenuPath(undefined);
   };
+  const pushInstalledPluginRoute = (pluginId: string | undefined) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", "plugins");
+    params.delete("settings");
+    if (pluginId) params.set("plugin", pluginId);
+    else params.delete("plugin");
+    const query = params.toString();
+    window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    setSettings(undefined);
+    setPage("plugins");
+    setInstalledPluginId(pluginId);
+    setMarketplacePluginId(undefined);
+  };
+  const pushMarketplacePluginRoute = (pluginId: string | undefined) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", "marketplace");
+    params.delete("settings");
+    if (pluginId) params.set("plugin", pluginId);
+    else params.delete("plugin");
+    const query = params.toString();
+    window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    setSettings(undefined);
+    setPage("marketplace");
+    setInstalledPluginId(undefined);
+    setMarketplacePluginId(pluginId);
+  };
+  const installedPlugin = installedPluginId === undefined ? undefined : data.plugins.find((plugin) => plugin.name === installedPluginId);
+  const installedPluginPanel = installedPluginId === undefined ? undefined : data.pluginPanels.find((panel) => panel.pluginId === installedPluginId);
   const content = settings ? (
     <Settings
       api={api}
@@ -5808,12 +6112,46 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
         setView("chat");
       }}
     />
+  ) : page === "plugins" && installedPluginId && installedPlugin ? (
+    <InstalledPluginDetail
+      metadata={installedPluginMetadata}
+      onBack={() => pushInstalledPluginRoute(undefined)}
+      onToggle={async (plugin) => {
+        await api.togglePlugin(plugin.id, !plugin.enabled);
+        await refresh();
+      }}
+      onUninstall={async (plugin) => {
+        await api.uninstallPlugin(plugin.id);
+        const plugins = await api.listPlugins();
+        setData((current) => ({ ...current, plugins: plugins.filter((item) => item.id !== plugin.id) }));
+        pushInstalledPluginRoute(undefined);
+      }}
+      panel={installedPluginPanel}
+      plugin={installedPlugin}
+    />
+  ) : page === "plugins" && installedPluginId ? (
+    <section className="view-panel min-w-0 overflow-auto bg-[#f8f9fb]">
+      <div className="subnav plugin-detail-subnav bg-white">
+        <a
+          href="?page=plugins"
+          onClick={(event) => {
+            event.preventDefault();
+            pushInstalledPluginRoute(undefined);
+          }}
+        >
+          ← 已安装插件
+        </a>
+        <span>插件详情</span>
+      </div>
+      <div className="empty-state">{data.status ? "没有找到这个已安装插件，它可能已被移除。" : "正在读取插件详情…"}</div>
+    </section>
   ) : page === "plugins" ? (
     <Plugins
       plugins={data.plugins}
       panels={data.pluginPanels}
       marketplace={data.marketplace}
-      onMarketplace={() => setPage("marketplace")}
+      onMarketplace={() => pushMarketplacePluginRoute(undefined)}
+      onOpenDetail={(plugin) => pushInstalledPluginRoute(plugin.name)}
       onToml={() => setSettings("toml")}
       onToggle={async (plugin) => {
         await api.togglePlugin(plugin.id, !plugin.enabled);
@@ -5826,17 +6164,37 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       }}
     />
   ) : page === "marketplace" ? (
-    marketplaceDetail ? (
+    marketplacePluginId && marketplaceDetail?.id === marketplacePluginId ? (
       <MarketplaceDetail
         plugin={marketplaceDetail}
         installed={installedPackages.has(marketplaceDetail.packageName)}
-        onBack={() => setMarketplacePluginId(undefined)}
+        onBack={() => pushMarketplacePluginRoute(undefined)}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
           return result;
         }}
       />
+    ) : marketplacePluginId ? (
+      <section className="marketplace-page flex min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="subnav plugin-detail-subnav">
+            <a
+              href="?page=marketplace"
+              onClick={(event) => {
+                event.preventDefault();
+                pushMarketplacePluginRoute(undefined);
+              }}
+            >
+              ← 插件市场
+            </a>
+            <span>插件详情</span>
+          </div>
+          <div className="empty-state">
+            {marketplaceDetailPending ? "正在读取插件详情…" : marketplaceDetailError || "没有找到这个市场插件，它可能已下架。"}
+          </div>
+        </div>
+      </section>
     ) : (
       <Marketplace
         plugins={data.marketplace}
@@ -5860,9 +6218,9 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           setMarketplaceCategory(value);
           setMarketplacePage(0);
         }}
-        onOpenDetail={(plugin) => setMarketplacePluginId(plugin.id)}
+        onOpenDetail={(plugin) => pushMarketplacePluginRoute(plugin.id)}
         onPageChange={setMarketplacePage}
-        onBack={() => setPage("plugins")}
+        onBack={() => pushInstalledPluginRoute(undefined)}
         onToml={() => setSettings("toml")}
         installedPackages={installedPackages}
         onInstall={async (plugin) => {
@@ -6062,16 +6420,16 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                 }
               }}
               onClick={() => {
-                if (!selectedWorkspacePath) setWorkspaceChooserOpen(true);
+                if (!workspaceReady) setWorkspaceChooserOpen(true);
               }}
               onFocus={(event) => {
-                if (!selectedWorkspacePath) {
+                if (!workspaceReady) {
                   event.currentTarget.blur();
                   setWorkspaceChooserOpen(true);
                 }
               }}
-              placeholder={selectedWorkspacePath ? "描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令" : "先选择工作区，再描述要做的改动"}
-              readOnly={!selectedWorkspacePath}
+              placeholder={workspaceReady ? "描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令" : "先选择工作区，再描述要做的改动"}
+              readOnly={!workspaceReady}
               ref={promptInputRef}
               rows={2}
               value={draft}
@@ -6534,6 +6892,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             className={`sidebar-link ${page === "plugins" || page === "marketplace" ? "active" : ""}`}
             onClick={() => {
               setPage("plugins");
+              setInstalledPluginId(undefined);
               setSettings(undefined);
             }}
             type="button"
@@ -6553,9 +6912,13 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               {settings
                 ? "设置"
                 : page === "plugins"
-                  ? "运行时插件"
+                  ? installedPluginId
+                    ? "插件详情"
+                    : "运行时插件"
                   : page === "marketplace"
-                    ? "插件市场"
+                    ? marketplacePluginId
+                      ? "插件详情"
+                      : "插件市场"
                     : data.session?.messages.length
                       ? data.session.sessionId.slice(0, 12)
                       : "新会话"}
@@ -6564,9 +6927,13 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               {settings
                 ? "运行时状态与配置"
                 : page === "plugins"
-                  ? "已安装插件"
+                  ? installedPluginId
+                    ? (installedPluginMetadata?.name ?? displayPluginName(installedPluginId))
+                    : "已安装插件"
                   : page === "marketplace"
-                    ? "社区目录 · 可审查插件"
+                    ? marketplacePluginId
+                      ? (marketplaceDetail?.name ?? marketplacePluginId)
+                      : "社区目录 · 可审查插件"
                     : sessionSource(data.status, data.session)}
             </small>
           </div>
