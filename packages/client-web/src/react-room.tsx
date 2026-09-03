@@ -4158,7 +4158,7 @@ function Plugins({
               const capabilityLabel = capability(plugin.name);
               const pluginTitle = marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name);
               return (
-                <article className="plugin-card" key={plugin.id}>
+                <article className="catalog-card plugin-card" key={plugin.id}>
                   <div className="plugin-card-head">
                     <span className="plugin-icon">◈</span>
                     <div className="plugin-copy">
@@ -4524,7 +4524,7 @@ function Marketplace({
               插件市场
             </button>
           </div>
-          <span>社区插件目录</span>
+          <span>已审核插件目录</span>
           <a
             href="#"
             onClick={(event) => {
@@ -4537,14 +4537,11 @@ function Marketplace({
         </div>
         <div className="marketplace-hero">
           <div>
-            <small>COMMUNITY MARKETPLACE</small>
-            <h2>发现社区插件</h2>
-            <p>可审查的社区目录。推荐顺序综合验证状态、npm 质量分、近 30 天下载量和 npm 更新时间。</p>
+            <small>PLUGIN MARKETPLACE</small>
+            <h2>发现适合当前运行时的插件</h2>
+            <p>浏览已审核的官方与社区插件。推荐顺序综合验证状态、npm 质量分、近 30 天下载量和 npm 更新时间。</p>
           </div>
           <div className="marketplace-hero-actions">
-            <button onClick={onBack} type="button">
-              运行时插件
-            </button>
             <a href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md" target="_blank" rel="noreferrer">
               贡献插件 ↗
             </a>
@@ -4588,7 +4585,7 @@ function Marketplace({
         <div className="marketplace-scroll">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
-              <article className="marketplace-card" key={plugin.id}>
+              <article className="catalog-card marketplace-card" key={plugin.id}>
                 <div className="flex items-start gap-2.5">
                   <div className="marketplace-card-mark">◈</div>
                   <div className="min-w-0 flex-1">
@@ -5736,7 +5733,7 @@ function GlobalSearch({
   );
 }
 
-export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }) {
+export function ControlRoomView({ api = createClientApi(), appVersion }: { api?: ClientApi; appVersion?: string }) {
   const initialQueryState = useMemo(readQueryState, []);
   const [data, setData] = useState<RoomData>({
     sessions: [],
@@ -6740,7 +6737,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             <img src="/icons/svg/mark-white.svg" alt="" />
           </span>
           <strong>pi harness</strong>
-          <span className="version">0.9.4</span>
+          {appVersion ? <span className="version">{appVersion}</span> : null}
         </header>
         <div className="sidebar-actions">
           <button className="new-session" onClick={beginNewSession} type="button" aria-expanded={workspaceChooserOpen}>
@@ -7152,7 +7149,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
                   : page === "marketplace"
                     ? marketplacePluginId
                       ? (marketplaceDetail?.name ?? marketplacePluginId)
-                      : "社区目录 · 可审查插件"
+                      : "官方与社区 · 已审核目录"
                     : sessionSource(data.status, data.session)}
             </small>
           </div>

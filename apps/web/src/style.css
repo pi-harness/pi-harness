@@ -1549,9 +1549,13 @@ button:disabled {
   }
 }
 /* Use one scroll surface when fixed marketplace controls would leave less than one card visible. */
-@media (max-height: 1079px) and (max-width: 360px),
-  (max-height: 899px) and (min-width: 361px) and (max-width: 900px),
-  (max-height: 700px) and (min-width: 901px) {
+@media (max-height: 1111px) and (max-width: 360px),
+  (max-height: 976px) and (min-width: 361px) and (max-width: 420px),
+  (max-height: 893px) and (min-width: 421px) and (max-width: 680px),
+  (max-height: 845px) and (min-width: 681px) and (max-width: 760px),
+  (max-height: 805px) and (min-width: 761px) and (max-width: 900px),
+  (max-height: 747px) and (min-width: 901px) and (max-width: 1023px),
+  (max-height: 664px) and (min-width: 1024px) {
   .marketplace-page > div {
     @apply [overflow:auto];
   }
@@ -1861,12 +1865,6 @@ button:disabled {
 .marketplace-hero-actions {
   @apply [display:flex] [align-items:center] [gap:12px] [flex:none];
 }
-.marketplace-hero-actions button {
-  @apply [min-height:32px] [border:1px_solid_rgba(65,_118,_230,_0.28)] [border-radius:6px] [background:var(--color-blue-soft)] [padding:5px_12px] [color:var(--color-blue)] [font-size:11.5px];
-}
-.marketplace-hero-actions button:hover {
-  @apply [background:#e1ebff];
-}
 .marketplace-toolbar {
   @apply [display:flex] [flex-wrap:wrap] [align-items:center] [gap:12px] [padding:12px_24px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.08)] [background:#fff];
 }
@@ -1902,6 +1900,9 @@ button:disabled {
 }
 .marketplace-card {
   @apply [display:flex] [height:100%] [min-height:226px] [flex-direction:column] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:10px] [background:#fff] [padding:16px] [transition:border-color_120ms_ease,box-shadow_120ms_ease,transform_120ms_ease];
+}
+.catalog-card {
+  @apply [min-height:280px];
 }
 .marketplace-card:hover {
   @apply [transform:translateY(-1px)] [border-color:rgba(65,_118,_230,_0.32)] [box-shadow:0_8px_22px_rgba(15,_17,_21,_0.06)];
@@ -2226,6 +2227,9 @@ body {
   }
 }
 @media (max-width: 680px) {
+  .catalog-card {
+    @apply [min-height:340px];
+  }
   .sidebar {
     @apply [width:54px] [flex-basis:54px];
   }
@@ -2405,7 +2409,6 @@ body {
     @apply [margin-left:0];
   }
   .segmented button,
-  .marketplace-hero-actions button,
   .marketplace-hero-actions a,
   .effective-config a,
   .context-line button,
@@ -2497,7 +2500,6 @@ body {
   .marketplace-search,
   .marketplace-filter,
   .marketplace-category,
-  .marketplace-hero-actions button,
   .marketplace-card-footer a,
   .marketplace-card-footer button,
   .marketplace-pagination-button,
@@ -2602,6 +2604,9 @@ body {
   }
 }
 @media (max-width: 360px) {
+  .catalog-card {
+    @apply [min-height:448px];
+  }
   .main-header {
     @apply [gap:4px] [padding-left:8px] [padding-right:8px];
   }

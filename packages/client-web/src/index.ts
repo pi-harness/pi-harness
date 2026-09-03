@@ -14,16 +14,18 @@ declare module "@deepseek-ai/cordis" {
 export class AppWebEntry {
   readonly context: Context;
   readonly root: HTMLElement;
+  readonly version?: string;
   #reactRoot?: Root;
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, options: { readonly version?: string } = {}) {
     this.root = root;
+    this.version = options.version;
     this.context = new Context();
   }
   run(): void {
     this.context.provide("clientRoot", this.root);
     this.context.provide("clientApi", createClientApi());
     this.#reactRoot = createRoot(this.root);
-    this.#reactRoot.render(createElement(ControlRoomView, { api: this.context.clientApi }));
+    this.#reactRoot.render(createElement(ControlRoomView, { api: this.context.clientApi, appVersion: this.version }));
   }
   async dispose(): Promise<void> {
     this.#reactRoot?.unmount();
