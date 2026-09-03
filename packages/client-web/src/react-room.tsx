@@ -1080,22 +1080,33 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         </div>
       ) : panel.id === "token-guard-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className={`rounded-lg border px-3 py-3 ${data?.exceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
-              <strong className="font-mono text-[12px] text-[#315fb8]">
-                {value(data?.percent ?? "—")}% / {value(data?.maxPercent ?? "—")}%
-              </strong>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className={`rounded-lg border px-3 py-3 ${data?.exceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
+                <strong className="font-mono text-[12px] text-[#315fb8]">
+                  {value(data?.percent ?? "—")}% / {value(data?.maxPercent ?? "—")}%
+                </strong>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+                <div
+                  className={`h-full rounded-full ${data?.exceeded === true ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
+                  style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-[#71809a]">
+                {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${value(data?.aborts ?? 0)}`}
+              </p>
             </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
-              <div
-                className={`h-full rounded-full ${data?.exceeded === true ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
-                style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
-              />
+            <div className={`rounded-lg border px-3 py-3 ${data?.runExceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold text-[#30343b]">单次任务</span>
+                <strong className="font-mono text-[12px] text-[#315fb8]">
+                  {value(data?.runTokens ?? "—")} / {value(data?.maxRunTokens || "—")}
+                </strong>
+              </div>
+              <p className="mt-2 text-[11px] text-[#71809a]">{data?.maxRunTokens ? "按 agent_start 后累计 token 熔断。" : "未启用绝对 Token 上限。"}</p>
             </div>
-            <p className="mt-2 text-[11px] text-[#71809a]">
-              {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${value(data?.aborts ?? 0)}`}
-            </p>
           </div>
         </div>
       ) : panel.id === "test-harness-panel" ? (
