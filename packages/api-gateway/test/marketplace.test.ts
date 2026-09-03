@@ -23,6 +23,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("plugin-stars")?.category.id).toBe("discovery");
     expect(official.get("vision-toolkit")?.category.id).toBe("multimodal");
     expect(official.get("session-bridge")?.category.id).toBe("workflow");
+    expect(official.get("session-bridge")?.capabilities).toContain("five-part preview");
     expect(official.get("skill-guard")?.category.id).toBe("security");
     expect(official.get("cost-meter")?.category.id).toBe("observability");
     expect(official.get("skill-catalog")?.category.id).toBe("discovery");

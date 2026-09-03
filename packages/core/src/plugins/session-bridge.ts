@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult, type SessionManager } from "@earendil-works/pi-coding-agent";
 
 const bridgeVersion = 1 as const;
 const maxMessages = 100;
@@ -30,6 +30,14 @@ export interface BridgePackage {
   unresolvedAttachments: string[];
 }
 
+export interface HandoffPreview {
+  goal: string;
+  currentState: string;
+  decisions: string[];
+  keyFiles: string[];
+  nextStep: string;
+}
+
 type MessageInput = { role?: unknown; content?: unknown };
 
 function textContent(content: unknown): { text: string; imageTypes: string[] } {
@@ -48,6 +56,45 @@ function textContent(content: unknown): { text: string; imageTypes: string[] } {
 
 function role(value: unknown): BridgeMessage["role"] {
   return typeof value === "string" && roles.has(value) ? (value as BridgeMessage["role"]) : "other";
+}
+
+const previewTextLimit = 1_000;
+const previewListLimit = 8;
+
+function boundedPreviewText(value: string): string {
+  const normalized = value.trim();
+  return normalized.length <= previewTextLimit ? normalized : `${normalized.slice(0, previewTextLimit - 1)}…`;
+}
+
+function extractKeyFiles(messages: readonly BridgeMessage[]): string[] {
+  const files: string[] = [];
+  const seen = new Set<string>();
+  const pattern =
+    /(?:^|[^\w@])((?:\.\.?\/|[\w-]+\/)+[\w.-]+\.[a-z0-9]{1,12}|[\w.-]+\.(?:json|toml|yaml|yml|md|ts|tsx|js|jsx|rs|go|py|swift|css|html))(?![\w])/giu;
+  for (const message of messages) {
+    for (const match of message.text.matchAll(pattern)) {
+      const file = match[1];
+      if (file !== undefined && !seen.has(file)) {
+        seen.add(file);
+        files.push(file);
+        if (files.length === previewListLimit) return files;
+      }
+    }
+  }
+  return files;
+}
+
+export function buildHandoffPreview(packageValue: BridgePackage): HandoffPreview {
+  const userMessages = packageValue.messages.filter((message) => message.role === "user" && message.text.trim() !== "");
+  const assistantMessages = packageValue.messages.filter((message) => message.role === "assistant" && message.text.trim() !== "");
+  const goal = boundedPreviewText(userMessages[0]?.text ?? "No explicit goal was found in the source session.");
+  const currentState = boundedPreviewText(assistantMessages.at(-1)?.text ?? "No assistant progress message was found.");
+  const decisions = userMessages
+    .filter((message) => /(?:\b(?:fix|keep|use|avoid|must|should|decide|preserve)\b|不要|保持|使用|改|修复|决定)/iu.test(message.text))
+    .slice(0, previewListLimit)
+    .map((message) => boundedPreviewText(message.text));
+  const nextStep = boundedPreviewText(userMessages.at(-1)?.text ?? "Continue from the current state after reviewing this preview.");
+  return { goal, currentState, decisions, keyFiles: extractKeyFiles(packageValue.messages), nextStep };
 }
 
 export function buildBridgePackage(source: BridgeSource, input: readonly MessageInput[]): BridgePackage {
@@ -128,8 +175,8 @@ export function parseBridgePackage(raw: string): BridgePackage {
   };
 }
 
-function sessionMessages(context: Context): MessageInput[] {
-  return context.piSession.manager.buildSessionContext().messages.map((message) => {
+function sessionMessages(manager: SessionManager): MessageInput[] {
+  return manager.buildSessionContext().messages.map((message) => {
     const value = message as unknown as MessageInput;
     return { role: value.role, content: value.content };
   });
@@ -152,6 +199,16 @@ export default {
   inject: ["piSession", "piPluginUi", "piTools"],
   apply(context: Context) {
     let latest: { direction: "export" | "import"; sessionId: string; messages: number; attachments: number; at: string } | undefined;
+    let latestPreview: { source: BridgeSource; preview: HandoffPreview; at: string } | undefined;
+    const exportCurrentSession = (): BridgePackage => {
+      const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+      const current = manager.buildSessionContext();
+      const model = current.model === null ? undefined : current.model;
+      return buildBridgePackage(
+        { sessionId: manager.getSessionId(), cwd: manager.getCwd(), ...(model === undefined ? {} : { model }) },
+        sessionMessages(manager),
+      );
+    };
     const unregisterExport = context.piTools.register(
       defineTool({
         name: "session_bridge_export",
@@ -160,13 +217,7 @@ export default {
         promptSnippet: "export the current session as a handoff package",
         parameters: Type.Object({}),
         execute(): Promise<AgentToolResult<BridgePackage>> {
-          const manager = context.piSession.manager;
-          const current = manager.buildSessionContext();
-          const model = current.model === null ? undefined : current.model;
-          const packageValue = buildBridgePackage(
-            { sessionId: manager.getSessionId(), cwd: manager.getCwd(), ...(model === undefined ? {} : { model }) },
-            sessionMessages(context),
-          );
+          const packageValue = exportCurrentSession();
           latest = {
             direction: "export",
             sessionId: packageValue.source.sessionId,
@@ -175,6 +226,24 @@ export default {
             at: packageValue.createdAt,
           };
           return Promise.resolve({ content: [{ type: "text", text: JSON.stringify(packageValue) }], details: packageValue });
+        },
+      }),
+    );
+    const unregisterPreview = context.piTools.register(
+      defineTool({
+        name: "session_bridge_preview",
+        label: "Preview session handoff",
+        description: "Create a bounded five-part handoff preview without creating a target session or changing the source session.",
+        promptSnippet: "preview the current session handoff before migration",
+        parameters: Type.Object({ package: Type.Optional(Type.String({ description: "Optional JSON produced by session_bridge_export" })) }),
+        execute(_toolCallId, params): Promise<AgentToolResult<{ source: BridgeSource; preview: HandoffPreview }>> {
+          const packageValue = params.package === undefined ? exportCurrentSession() : parseBridgePackage(params.package);
+          const preview = buildHandoffPreview(packageValue);
+          latestPreview = { source: packageValue.source, preview, at: new Date().toISOString() };
+          return Promise.resolve({
+            content: [{ type: "text", text: `Prepared a five-part handoff preview for ${packageValue.source.sessionId}.` }],
+            details: { source: packageValue.source, preview },
+          });
         },
       }),
     );
@@ -211,11 +280,19 @@ export default {
       title: "Session Bridge",
       description: "导出或导入可审查的会话交接包，不改写源会话树。",
       icon: "⇄",
-      read: () => ({ latest: latest ?? null, formatVersion: bridgeVersion, maxMessages, maxTotalChars }),
+      read: () => ({
+        latest: latest ?? null,
+        latestPreview: latestPreview ?? null,
+        currentPreview: buildHandoffPreview(exportCurrentSession()),
+        formatVersion: bridgeVersion,
+        maxMessages,
+        maxTotalChars,
+      }),
     });
     context.effect(() => () => {
       unregisterExport();
       unregisterImport();
+      unregisterPreview();
       disposePanel();
     });
   },

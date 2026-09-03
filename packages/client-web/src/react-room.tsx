@@ -1178,6 +1178,55 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             );
           })()}
         </div>
+      ) : panel.id === "session-bridge-panel" ? (
+        <div className="mt-3 grid gap-3">
+          {(() => {
+            const latestPreview =
+              data?.latestPreview !== null && typeof data?.latestPreview === "object"
+                ? ((data.latestPreview as Record<string, unknown>).preview as Record<string, unknown> | undefined)
+                : undefined;
+            const preview =
+              latestPreview ??
+              (data?.currentPreview !== null && typeof data?.currentPreview === "object" ? (data.currentPreview as Record<string, unknown>) : {});
+            const sections: readonly [string, unknown][] = [
+              ["目标", preview.goal],
+              ["当前状态", preview.currentState],
+              ["下一步", preview.nextStep],
+            ];
+            return (
+              <>
+                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px] leading-5 text-[#315fb8]">
+                  预览不会创建目标会话，也不会修改源会话。
+                </div>
+                {sections.map(([label, item]) => (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={label}>
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{label}</span>
+                    <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-[#30343b]">{value(item)}</p>
+                  </div>
+                ))}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    ["关键决策", preview.decisions],
+                    ["关键文件", preview.keyFiles],
+                  ].map(([label, items]) => (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a949f]">{value(label)}</span>
+                      {Array.isArray(items) && items.length > 0 ? (
+                        <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
+                          {items.slice(0, 8).map((item, index) => (
+                            <li key={`${value(item)}-${index}`}>{value(item)}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-[10px] text-[#8a949f]">暂无</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </div>
       ) : panel.id === "session-compare-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.left && typeof data.left === "object" && data?.right && typeof data.right === "object" ? (
