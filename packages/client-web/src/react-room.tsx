@@ -6792,7 +6792,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <input
             accept=".jsonl,application/json,application/x-ndjson"
             aria-label="导入会话文件"
-            className="visually-hidden"
+            hidden
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
@@ -6803,7 +6803,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               });
             }}
             ref={importInputRef}
-            tabIndex={-1}
             type="file"
           />
         </div>
@@ -7094,13 +7093,14 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               status <b>{value(data.status?.status, "connecting")}</b>
             </span>
           </div>
-          <button aria-label="新建会话" className="sidebar-link compact-new-session" onClick={beginNewSession} type="button">
+          <button aria-label="新建会话" className="sidebar-link compact-new-session" onClick={beginNewSession} title="新建会话" type="button">
             ＋
           </button>
           <button
             aria-label={`插件，已安装 ${installedPluginCount} 个`}
             className={`sidebar-link ${page === "plugins" || page === "marketplace" ? "active" : ""}`}
             onClick={() => pushInstalledPluginRoute(undefined)}
+            title={`插件 · ${installedPluginCount} 个`}
             type="button"
           >
             ◈ <span>插件</span>
@@ -7117,6 +7117,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               setDetails(undefined);
               setSettings("general");
             }}
+            title="设置"
             type="button"
           >
             ⚙ <span>设置</span>
