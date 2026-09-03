@@ -179,6 +179,11 @@ export interface ClientApi {
   reloadConfig(): Promise<ClientPiConfig>;
   subscribeEvents(onEvent: (payload: Record<string, unknown>) => void): () => void;
 }
+
+export function failedRefreshLabels(labels: readonly string[], results: readonly PromiseSettledResult<unknown>[]): readonly string[] {
+  return labels.filter((_, index) => results[index]?.status === "rejected");
+}
+
 function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return fetch(path, init).then(async (response) => {
     const payload = (await response.json()) as unknown;

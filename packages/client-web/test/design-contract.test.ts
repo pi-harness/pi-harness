@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { failedRefreshLabels } from "../src/control-room.js";
 import { DESIGN_EVENTS, DESIGN_PLUGINS, DESIGN_SESSIONS, DESIGN_WORKSPACES, DESIGN_TURNS, DESIGN_PROVIDERS, DESIGN_TOML } from "../src/design-contract.js";
 import { marketplaceCategoryTabs, marketplaceDetailPath, marketplaceStatisticItems, readMarketplaceDetailId } from "../src/marketplace-navigation.js";
 
@@ -51,5 +52,18 @@ describe("Pi Harness design contract", () => {
       { label: "npm 更新时间", value: "2026-08-30" },
     ]);
     expect(marketplaceStatisticItems(undefined)).toEqual([]);
+  });
+
+  it("reports every failed control-room refresh surface without hiding partial failures", () => {
+    expect(
+      failedRefreshLabels(
+        ["status", "session", "plugins"],
+        [
+          { status: "fulfilled", value: {} },
+          { status: "rejected", reason: new Error("offline") },
+          { status: "rejected", reason: new Error("timeout") },
+        ],
+      ),
+    ).toEqual(["session", "plugins"]);
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   createClientApi,
+  failedRefreshLabels,
   type ClientApi,
   type ClientCommand,
   type ClientFile,
@@ -59,6 +60,71 @@ const value = (input: unknown, fallback = "—"): string => {
     return fallback;
   }
 };
+
+const dialogFocusSelector = [
+  "button:not([disabled])",
+  "a[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "summary",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function useModalFocus(open: boolean, onClose: () => void, busy = false, returnFocusSelector?: string) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  const busyRef = useRef(busy);
+  closeRef.current = onClose;
+  busyRef.current = busy;
+  useEffect(() => {
+    if (!open) return;
+    const activeElement = document.activeElement;
+    const previous =
+      activeElement instanceof HTMLElement && activeElement !== document.body && activeElement !== document.documentElement ? activeElement : undefined;
+    const focusable = () =>
+      Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(dialogFocusSelector) ?? []).filter(
+        (element) => !element.hidden && element.getAttribute("aria-hidden") !== "true" && element.getClientRects().length > 0,
+      );
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      if (!dialog || dialog.contains(document.activeElement)) return;
+      (dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]") ?? focusable()[0])?.focus();
+    });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!busyRef.current) closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) {
+        event.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown, true);
+      const returnFocus = previous?.isConnected ? previous : returnFocusSelector ? document.querySelector<HTMLElement>(returnFocusSelector) : undefined;
+      if (returnFocus) window.requestAnimationFrame(() => returnFocus.focus());
+    };
+  }, [open, returnFocusSelector]);
+  return dialogRef;
+}
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
 const eventLabel = (event: Record<string, unknown>): string => {
@@ -388,9 +454,18 @@ function WorkspaceChooser({
   onClose: () => void;
   error?: string;
 }) {
+  const dialogRef = useModalFocus(true, onClose);
   return (
     <div className="workspace-chooser" onClick={onClose}>
-      <div aria-label="选择工作区" aria-modal="true" className="workspace-chooser-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+      <div
+        aria-label="选择工作区"
+        aria-modal="true"
+        className="workspace-chooser-dialog"
+        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <div className="workspace-chooser-heading">
           <strong>新建会话</strong>
           <button aria-label="关闭工作区选择" onClick={onClose} type="button">
@@ -403,7 +478,7 @@ function WorkspaceChooser({
             {error}
           </div>
         ) : null}
-        <button autoFocus className="workspace-pick-directory" onClick={() => void onPickDirectory()} type="button">
+        <button className="workspace-pick-directory" data-dialog-initial-focus onClick={() => void onPickDirectory()} type="button">
           <span>打开目录</span>
           <small>从 Finder 选择一个新的工作目录</small>
         </button>
@@ -456,16 +531,7 @@ function SessionDialog({
       : kind === "archive"
         ? "归档后会从默认列表隐藏，之后仍可在会话工具中恢复。"
         : `将永久删除${count && count > 1 ? ` ${count} 个会话` : "这个会话"}及其本地记录，此操作不可撤销。`;
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (!busy) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [busy, onClose]);
+  const dialogRef = useModalFocus(true, onClose, busy, ".session-menu");
   return (
     <div
       className="session-dialog-backdrop"
@@ -473,7 +539,15 @@ function SessionDialog({
         if (!busy) onClose();
       }}
     >
-      <div aria-label={title} aria-modal="true" className="session-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+      <div
+        aria-label={title}
+        aria-modal="true"
+        className="session-dialog"
+        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <header className="session-dialog-header">
           <div>
             <strong>{title}</strong>
@@ -487,7 +561,7 @@ function SessionDialog({
           <label className="session-dialog-field">
             <span>名称</span>
             <input
-              autoFocus
+              data-dialog-initial-focus
               disabled={busy}
               onChange={(event) => onChange(event.target.value)}
               onKeyDown={(event) => event.key === "Enter" && !busy && onConfirm()}
@@ -497,7 +571,7 @@ function SessionDialog({
         )}
         {name && kind !== "rename" && <div className="session-dialog-target">{name}</div>}
         <footer className="session-dialog-actions">
-          <button autoFocus={kind !== "rename"} disabled={busy} onClick={onClose} type="button">
+          <button data-dialog-initial-focus={kind !== "rename" ? "" : undefined} disabled={busy} onClick={onClose} type="button">
             取消
           </button>
           <button className={destructive ? "danger" : "primary"} disabled={busy || (kind === "rename" && !draft.trim())} onClick={onConfirm} type="button">
@@ -526,16 +600,7 @@ function ConfirmDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (!busy) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [busy, onClose]);
+  const dialogRef = useModalFocus(true, onClose, busy);
   return (
     <div
       className="session-dialog-backdrop"
@@ -543,7 +608,15 @@ function ConfirmDialog({
         if (!busy) onClose();
       }}
     >
-      <div aria-label={title} aria-modal="true" className="session-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+      <div
+        aria-label={title}
+        aria-modal="true"
+        className="session-dialog"
+        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <header className="session-dialog-header">
           <div>
             <strong>{title}</strong>
@@ -555,7 +628,7 @@ function ConfirmDialog({
         </header>
         {target && <div className="session-dialog-target">{target}</div>}
         <footer className="session-dialog-actions">
-          <button autoFocus disabled={busy} onClick={onClose} type="button">
+          <button data-dialog-initial-focus disabled={busy} onClick={onClose} type="button">
             取消
           </button>
           <button className="danger" disabled={busy} onClick={onConfirm} type="button">
@@ -3953,16 +4026,7 @@ function PluginUninstallDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (!busy) onCancel();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [busy, onCancel]);
+  const dialogRef = useModalFocus(true, onCancel, busy);
   return (
     <div
       className="plugin-confirm-backdrop"
@@ -3970,7 +4034,15 @@ function PluginUninstallDialog({
         if (!busy) onCancel();
       }}
     >
-      <div aria-label="确认卸载插件" aria-modal="true" className="plugin-confirm-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+      <div
+        aria-label="确认卸载插件"
+        aria-modal="true"
+        className="plugin-confirm-dialog"
+        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <header>
           <div>
             <strong>卸载插件？</strong>
@@ -3984,7 +4056,7 @@ function PluginUninstallDialog({
           </p>
         )}
         <footer>
-          <button autoFocus disabled={busy} onClick={onCancel} type="button">
+          <button data-dialog-initial-focus disabled={busy} onClick={onCancel} type="button">
             取消
           </button>
           <button className="danger" disabled={busy} onClick={onConfirm} type="button">
@@ -4050,11 +4122,11 @@ function Plugins({
     <section className="view-panel plugins-view">
       <div className="plugins-page">
         <div className="subnav">
-          <div className="segmented">
-            <button className="active" type="button">
+          <div aria-label="插件目录" className="segmented" role="tablist">
+            <button aria-selected="true" className="active" role="tab" type="button">
               已安装
             </button>
-            <button onClick={onMarketplace} type="button">
+            <button aria-selected="false" onClick={onMarketplace} role="tab" type="button">
               插件市场
             </button>
           </div>
@@ -4108,6 +4180,7 @@ function Plugins({
                         <>
                           <button
                             aria-label={`${plugin.enabled ? "停用" : "启用"} ${pluginTitle}`}
+                            aria-pressed={plugin.enabled}
                             className="plugin-switch-button"
                             disabled={busyPlugin !== undefined}
                             onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
@@ -4443,11 +4516,11 @@ function Marketplace({
     <section className="marketplace-page flex min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="subnav">
-          <div className="segmented">
-            <button onClick={onBack} type="button">
+          <div aria-label="插件目录" className="segmented" role="tablist">
+            <button aria-selected="false" onClick={onBack} role="tab" type="button">
               已安装
             </button>
-            <button className="active" type="button">
+            <button aria-selected="true" className="active" role="tab" type="button">
               插件市场
             </button>
           </div>
@@ -4799,17 +4872,7 @@ function Settings({
   const [configBusy, setConfigBusy] = useState(false);
   const [configState, setConfigState] = useState("");
   const notifierActive = data.plugins.some((plugin) => plugin.name.endsWith("/cli-notifier") && plugin.enabled);
-  useEffect(() => {
-    if (!providerAddOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      setProviderAddOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [providerAddOpen]);
+  const providerDialogRef = useModalFocus(providerAddOpen, () => setProviderAddOpen(false), providerBusy.__add);
   useEffect(() => {
     if (tab !== "general" && tab !== "toml") return;
     setConfigState("读取中…");
@@ -4859,9 +4922,16 @@ function Settings({
   return (
     <section className="view-panel settings-page">
       <div className="settings-dialog">
-        <nav aria-label="设置分类" className="settings-top-tabs">
+        <nav aria-label="设置分类" className="settings-top-tabs" role="tablist">
           {(["general", "providers", "toml"] as const).map((item) => (
-            <button className={`settings-tab ${tab === item ? "active" : ""}`} key={item} onClick={() => onTab(item)} type="button">
+            <button
+              aria-selected={tab === item}
+              className={`settings-tab ${tab === item ? "active" : ""}`}
+              key={item}
+              onClick={() => onTab(item)}
+              role="tab"
+              type="button"
+            >
               {item === "general" ? "通用" : item === "providers" ? `提供商 ${data.providers.length}` : "运行配置"}
             </button>
           ))}
@@ -4946,7 +5016,9 @@ function Settings({
                       aria-modal="true"
                       className="provider-add-modal"
                       onClick={(event) => event.stopPropagation()}
+                      ref={providerDialogRef}
                       role="dialog"
+                      tabIndex={-1}
                     >
                       <header>
                         <div>
@@ -4982,7 +5054,7 @@ function Settings({
                           <span>提供商 ID</span>
                           <input
                             aria-label="提供商 ID"
-                            autoFocus
+                            data-dialog-initial-focus
                             maxLength={64}
                             minLength={2}
                             pattern="[a-z0-9][a-z0-9._-]{1,63}"
@@ -5067,7 +5139,7 @@ function Settings({
                       </div>
                       <div className="provider-field">
                         <code>provider</code>
-                        <input disabled value={provider.provider} readOnly />
+                        <input aria-label={`${provider.name} 提供商 ID`} disabled value={provider.provider} readOnly />
                       </div>
                       <div className="provider-field">
                         <code>model</code>
@@ -5087,7 +5159,7 @@ function Settings({
                       </div>
                       <div className="provider-field">
                         <code>api_key</code>
-                        <input disabled value="不会在浏览器显示" readOnly />
+                        <input aria-label={`${provider.name} API key 状态`} disabled value="不会在浏览器显示" readOnly />
                       </div>
                       <div className="provider-footer">
                         <code>{provider.models.length} 个模型</code>
@@ -5568,6 +5640,7 @@ function GlobalSearch({
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const dialogRef = useModalFocus(true, onClose);
   const normalized = query.trim().toLowerCase();
   const matches = (text: string) => !normalized || text.toLowerCase().includes(normalized);
   const items: readonly GlobalSearchItem[] = [
@@ -5594,14 +5667,14 @@ function GlobalSearch({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div aria-label="全局搜索" aria-modal="true" className="global-search-dialog" role="dialog">
+      <div aria-label="全局搜索" aria-modal="true" className="global-search-dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
         <div className="global-search-heading">
           <strong>全局搜索</strong>
           <small>命令 · 会话 · 文件</small>
         </div>
         <input
           aria-label="全局搜索"
-          autoFocus
+          data-dialog-initial-focus
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -5745,6 +5818,8 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
+  const [initialRefreshPending, setInitialRefreshPending] = useState(true);
+  const [refreshIssues, setRefreshIssues] = useState<readonly string[]>([]);
   useEffect(() => {
     if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
   }, [data.session?.sessionFile, selectedSessionPath]);
@@ -5880,7 +5955,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
     };
   }, [api, installedPluginId]);
   const refresh = useCallback(async () => {
-    const [status, session, sessions, files, models, providers, plugins, pluginPanels, marketplace, commands, workspaces] = await Promise.allSettled([
+    const results = await Promise.allSettled([
       api.getStatus(),
       api.getSession(),
       api.listSessions(sessionPage, 30, includeArchivedSessions),
@@ -5893,6 +5968,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
       api.listCommands(),
       api.listWorkspaces(),
     ]);
+    const [status, session, sessions, files, models, providers, plugins, pluginPanels, marketplace, commands, workspaces] = results;
+    setRefreshIssues(
+      failedRefreshLabels(["运行状态", "当前会话", "会话列表", "文件", "模型", "提供商", "插件", "插件面板", "插件市场", "命令", "工作区"], results),
+    );
+    setInitialRefreshPending(false);
     setData((current) => ({
       status: status.status === "fulfilled" ? status.value : current.status,
       session: session.status === "fulfilled" ? session.value : current.session,
@@ -6673,15 +6753,6 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           <button className="new-session" onClick={beginNewSession} type="button" aria-expanded={workspaceChooserOpen}>
             ＋ 新建会话
           </button>
-          {workspaceChooserOpen && (
-            <WorkspaceChooser
-              error={workspaceError}
-              onClose={() => setWorkspaceChooserOpen(false)}
-              onPickDirectory={openDirectory}
-              onSelect={(workspace) => void createNewSession(workspace)}
-              workspaces={data.workspaces}
-            />
-          )}
           <div className="session-search">
             <input
               aria-controls={commandOpen ? "command-menu" : undefined}
@@ -7028,7 +7099,11 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
               status <b>{value(data.status?.status, "connecting")}</b>
             </span>
           </div>
+          <button aria-label="新建会话" className="sidebar-link compact-new-session" onClick={beginNewSession} type="button">
+            ＋
+          </button>
           <button
+            aria-label={`插件，已安装 ${installedPluginCount} 个`}
             className={`sidebar-link ${page === "plugins" || page === "marketplace" ? "active" : ""}`}
             onClick={() => pushInstalledPluginRoute(undefined)}
             type="button"
@@ -7037,6 +7112,7 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             <b>{installedPluginCount}</b>
           </button>
           <button
+            aria-label="设置"
             className={`sidebar-link ${settings ? "active" : ""}`}
             onClick={() => {
               setCommandOpen(false);
@@ -7095,15 +7171,17 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </div>
           )}
           {!settings && page === "session" && (
-            <div className="view-tabs">
+            <div aria-label="会话视图" className="view-tabs" role="tablist">
               {(["chat", "trajectory", "files"] as const).map((item) => (
                 <button
+                  aria-selected={view === item}
                   className={`view-tab ${view === item ? "active" : ""}`}
                   key={item}
                   onClick={() => {
                     setView(item);
                     setDetails(undefined);
                   }}
+                  role="tab"
                   type="button"
                 >
                   {item === "chat" ? "对话" : item === "trajectory" ? "轨迹" : "产出"}
@@ -7189,7 +7267,27 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </div>
           )}
         </header>
-        <div className="view-host">{content}</div>
+        {refreshIssues.length > 0 && (
+          <div aria-live="polite" className="refresh-warning" role="status">
+            <span>
+              <strong>部分数据刷新失败</strong>
+              {refreshIssues.join("、")}可能为空或显示上次结果。
+            </span>
+            <button onClick={() => void refresh()} type="button">
+              重试
+            </button>
+          </div>
+        )}
+        <div className="view-host">
+          {initialRefreshPending ? (
+            <div aria-live="polite" className="initial-loading" role="status">
+              <span aria-hidden="true"></span>
+              正在连接 Pi runtime…
+            </div>
+          ) : (
+            content
+          )}
+        </div>
       </section>
       {!settings && page === "session" && details !== undefined && (
         <Details
@@ -7211,6 +7309,15 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
           onOpenSession={openSession}
           onUse={setDraft}
           sessions={data.sessions}
+        />
+      )}
+      {workspaceChooserOpen && (
+        <WorkspaceChooser
+          error={workspaceError}
+          onClose={() => setWorkspaceChooserOpen(false)}
+          onPickDirectory={openDirectory}
+          onSelect={(workspace) => void createNewSession(workspace)}
+          workspaces={data.workspaces}
         />
       )}
       {sessionDialog && (
