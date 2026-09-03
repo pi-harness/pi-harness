@@ -4122,11 +4122,11 @@ function Plugins({
     <section className="view-panel plugins-view">
       <div className="plugins-page">
         <div className="subnav">
-          <div aria-label="插件目录" className="segmented" role="tablist">
-            <button aria-selected="true" className="active" role="tab" type="button">
+          <div aria-label="插件目录" className="segmented">
+            <button aria-pressed="true" className="active" type="button">
               已安装
             </button>
-            <button aria-selected="false" onClick={onMarketplace} role="tab" type="button">
+            <button aria-pressed="false" onClick={onMarketplace} type="button">
               插件市场
             </button>
           </div>
@@ -4516,11 +4516,11 @@ function Marketplace({
     <section className="marketplace-page flex min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="subnav">
-          <div aria-label="插件目录" className="segmented" role="tablist">
-            <button aria-selected="false" onClick={onBack} role="tab" type="button">
+          <div aria-label="插件目录" className="segmented">
+            <button aria-pressed="false" onClick={onBack} type="button">
               已安装
             </button>
-            <button aria-selected="true" className="active" role="tab" type="button">
+            <button aria-pressed="true" className="active" type="button">
               插件市场
             </button>
           </div>
@@ -4922,16 +4922,9 @@ function Settings({
   return (
     <section className="view-panel settings-page">
       <div className="settings-dialog">
-        <nav aria-label="设置分类" className="settings-top-tabs" role="tablist">
+        <nav aria-label="设置分类" className="settings-top-tabs">
           {(["general", "providers", "toml"] as const).map((item) => (
-            <button
-              aria-selected={tab === item}
-              className={`settings-tab ${tab === item ? "active" : ""}`}
-              key={item}
-              onClick={() => onTab(item)}
-              role="tab"
-              type="button"
-            >
+            <button aria-pressed={tab === item} className={`settings-tab ${tab === item ? "active" : ""}`} key={item} onClick={() => onTab(item)} type="button">
               {item === "general" ? "通用" : item === "providers" ? `提供商 ${data.providers.length}` : "运行配置"}
             </button>
           ))}
@@ -7171,17 +7164,16 @@ export function ControlRoomView({ api = createClientApi() }: { api?: ClientApi }
             </div>
           )}
           {!settings && page === "session" && (
-            <div aria-label="会话视图" className="view-tabs" role="tablist">
+            <div aria-label="会话视图" className="view-tabs">
               {(["chat", "trajectory", "files"] as const).map((item) => (
                 <button
-                  aria-selected={view === item}
+                  aria-pressed={view === item}
                   className={`view-tab ${view === item ? "active" : ""}`}
                   key={item}
                   onClick={() => {
                     setView(item);
                     setDetails(undefined);
                   }}
-                  role="tab"
                   type="button"
                 >
                   {item === "chat" ? "对话" : item === "trajectory" ? "轨迹" : "产出"}
