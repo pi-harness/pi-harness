@@ -1789,7 +1789,7 @@ button:disabled {
   @apply [margin-left:auto] [color:var(--color-faint)] [font:10.5px_var(--font-mono)];
 }
 .marketplace-categories {
-  @apply [display:flex] [min-width:0] [gap:4px] [overflow-x:auto] [padding:8px_24px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.08)] [background:#fff];
+  @apply [display:flex] [min-width:0] [flex-wrap:wrap] [gap:4px] [padding:8px_24px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.08)] [background:#fff];
 }
 .marketplace-category {
   @apply [display:flex] [min-height:32px] [flex:none] [align-items:center] [gap:6px] [border-radius:999px] [padding:4px_12px] [color:#61666b] [font-size:11px];
@@ -2234,6 +2234,9 @@ body {
   }
   .marketplace-hero {
     @apply [flex-direction:column];
+  }
+  .marketplace-categories {
+    @apply [flex-wrap:nowrap] [overflow-x:auto];
   }
   .subnav {
     @apply [flex-wrap:wrap];
