@@ -4535,18 +4535,6 @@ function Marketplace({
             查看运行配置
           </a>
         </div>
-        <div className="marketplace-hero">
-          <div>
-            <small>PLUGIN MARKETPLACE</small>
-            <h2>发现适合当前运行时的插件</h2>
-            <p>浏览已审核的官方与社区插件。推荐顺序综合验证状态、npm 质量分、近 30 天下载量和 npm 更新时间。</p>
-          </div>
-          <div className="marketplace-hero-actions">
-            <a href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md" target="_blank" rel="noreferrer">
-              贡献插件 ↗
-            </a>
-          </div>
-        </div>
         <div className="marketplace-toolbar">
           <input
             className="marketplace-search"
