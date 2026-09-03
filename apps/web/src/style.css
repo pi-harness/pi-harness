@@ -1010,6 +1010,18 @@ button:disabled {
 .plugins-scroll {
   @apply [flex:1] [overflow:auto] [padding:14px_16px];
 }
+.plugins-toolbar {
+  @apply [display:flex] [align-items:center] [gap:10px] [padding:10px_16px] [border-bottom:1px_solid_var(--color-line)] [background:#fff];
+}
+.plugins-toolbar input {
+  @apply [height:34px] [min-width:220px] [flex:1] [border:1px_solid_rgba(0,_0,_0,_0.12)] [border-radius:8px] [padding:0_11px] [outline:none] [font-size:12px];
+}
+.plugins-toolbar input:focus {
+  @apply [border-color:rgba(65,_118,_230,_0.55)] [box-shadow:0_0_0_3px_rgba(65,_118,_230,_0.1)];
+}
+.plugins-toolbar > span {
+  @apply [flex:none] [color:var(--color-faint)] [font:10.5px_var(--font-mono)];
+}
 .plugins-list {
   @apply [width:100%] [display:grid] [grid-template-columns:repeat(auto-fit,_minmax(360px,_1fr))] [gap:12px];
 }
@@ -1206,6 +1218,15 @@ button:disabled {
 }
 .general-row small {
   @apply [display:block] [margin-top:2px] [color:var(--color-muted)] [font-size:11.5px];
+}
+.setting-status {
+  @apply [flex:none] [padding:3px_8px] [border-radius:999px] [background:#ebeef2] [color:#61666b] [font:10.5px_var(--font-mono)];
+}
+.setting-status.on {
+  @apply [background:#eaf8f0] [color:#198754];
+}
+.general-row small.setting-error {
+  @apply [color:#b42318];
 }
 .provider-card {
   @apply [margin-bottom:12px] [padding:12px_13px] [border:1px_solid_var(--color-line)] [border-radius:10px];
@@ -1481,6 +1502,12 @@ button:disabled {
   }
   .tool-chip {
     @apply [white-space:nowrap] [padding-left:6px] [padding-right:6px] [font-size:10.5px];
+  }
+  .plugins-toolbar {
+    @apply [flex-wrap:wrap];
+  }
+  .plugins-toolbar input {
+    @apply [min-width:0] [flex-basis:100%];
   }
 }
 @media (max-width: 760px) {
@@ -1814,6 +1841,37 @@ button:disabled {
 }
 .plugin-action-error {
   @apply [margin:10px_0_0_37px] [color:var(--color-red)] [font-size:11px];
+}
+.plugin-confirm-backdrop {
+  @apply [position:fixed] [inset:0] [z-index:60] [display:grid] [place-items:center] [padding:24px] [background:rgba(15,_23,_42,_0.32)] [backdrop-filter:blur(6px)];
+}
+.plugin-confirm-dialog {
+  @apply [width:100%] [max-width:440px] [padding:20px] [border:1px_solid_rgba(15,_23,_42,_0.14)] [border-radius:14px] [background:#fff] [box-shadow:0_24px_64px_rgba(15,_23,_42,_0.26)];
+}
+.plugin-confirm-dialog header strong,
+.plugin-confirm-dialog header small {
+  @apply [display:block];
+}
+.plugin-confirm-dialog header strong {
+  @apply [font-size:15px];
+}
+.plugin-confirm-dialog header small {
+  @apply [margin-top:4px] [color:var(--color-muted)] [font-size:12px];
+}
+.plugin-confirm-dialog > code {
+  @apply [display:block] [margin-top:16px] [padding:10px_11px] [overflow-wrap:anywhere] [border-radius:8px] [background:var(--color-soft)] [font:11px_var(--font-mono)];
+}
+.plugin-confirm-dialog footer {
+  @apply [display:flex] [justify-content:flex-end] [gap:8px] [margin-top:18px];
+}
+.plugin-confirm-dialog footer button {
+  @apply [padding:7px_12px] [border:1px_solid_var(--color-line)] [border-radius:7px] [background:#fff] [font-size:12px];
+}
+.plugin-confirm-dialog footer button.danger {
+  @apply [border-color:rgba(185,_28,_28,_0.22)] [background:#fff5f5] [color:#b42318];
+}
+.plugin-confirm-error {
+  @apply [margin:10px_0_0] [color:#b42318] [font-size:11px];
 }
 .session-menu-popover[hidden] {
   @apply [display:none];

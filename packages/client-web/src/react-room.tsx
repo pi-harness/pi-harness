@@ -23,6 +23,7 @@ import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } 
 import { marketplaceCategoryTabs, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
 import { pluginStarsRows } from "./plugin-stars-view.js";
 import { browserSessionTabs } from "./browser-session-view.js";
+import { matchesPluginQuery } from "./plugin-search.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -381,7 +382,7 @@ function WorkspaceChooser({
 }) {
   return (
     <div className="workspace-chooser" onClick={onClose}>
-      <div aria-label="选择工作区" className="workspace-chooser-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+      <div aria-label="选择工作区" aria-modal="true" className="workspace-chooser-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
         <div className="workspace-chooser-heading">
           <strong>新建会话</strong>
           <button aria-label="关闭工作区选择" onClick={onClose} type="button">
@@ -394,7 +395,7 @@ function WorkspaceChooser({
             {error}
           </div>
         ) : null}
-        <button className="workspace-pick-directory" onClick={() => void onPickDirectory()} type="button">
+        <button autoFocus className="workspace-pick-directory" onClick={() => void onPickDirectory()} type="button">
           <span>打开目录</span>
           <small>从 Finder 选择一个新的工作目录</small>
         </button>
@@ -467,7 +468,7 @@ function SessionDialog({
         )}
         {name && kind !== "rename" && <div className="session-dialog-target">{name}</div>}
         <footer className="session-dialog-actions">
-          <button onClick={onClose} type="button">
+          <button autoFocus={kind !== "rename"} onClick={onClose} type="button">
             取消
           </button>
           <button className={destructive ? "danger" : "primary"} disabled={busy || (kind === "rename" && !draft.trim())} onClick={onConfirm} type="button">
@@ -3856,15 +3857,41 @@ function Plugins({
   const panelPluginIds = useMemo(() => new Set(panels.map((panel) => panel.pluginId)), [panels]);
   const installedPlugins = useMemo(() => plugins.filter((plugin) => plugin.removable || panelPluginIds.has(plugin.name)), [panelPluginIds, plugins]);
   const panelByPlugin = useMemo(() => new Map(panels.map((panel) => [panel.pluginId, panel])), [panels]);
+  const [query, setQuery] = useState("");
   const [busyPlugin, setBusyPlugin] = useState<string>();
   const [pluginError, setPluginError] = useState("");
-  const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>) => {
+  const [pendingUninstall, setPendingUninstall] = useState<ClientPlugin>();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const visiblePlugins = useMemo(() => {
+    return installedPlugins.filter((plugin) => {
+      const marketplaceName = marketplaceNames.get(plugin.name) ?? "";
+      const fields = [plugin.name, marketplaceName, displayPluginName(plugin.name), plugin.category?.label, capability(plugin.name)];
+      return matchesPluginQuery(query, fields);
+    });
+  }, [installedPlugins, marketplaceNames, query]);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [query]);
+  useEffect(() => {
+    if (!pendingUninstall) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || busyPlugin !== undefined) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setPendingUninstall(undefined);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [busyPlugin, pendingUninstall]);
+  const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>): Promise<boolean> => {
     setPluginError("");
     setBusyPlugin(plugin.id);
     try {
       await action(plugin);
+      return true;
     } catch (error) {
       setPluginError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setBusyPlugin(undefined);
     }
@@ -3892,9 +3919,21 @@ function Plugins({
             在 pi.toml 里看这份清单
           </a>
         </div>
-        <div className="plugins-scroll">
+        <div className="plugins-toolbar">
+          <input
+            aria-label="搜索已安装插件"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索名称、包名或能力…"
+            type="search"
+            value={query}
+          />
+          <span aria-live="polite">
+            {query.trim() ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}`} 个插件
+          </span>
+        </div>
+        <div className="plugins-scroll" ref={scrollRef}>
           <div className="plugins-list">
-            {installedPlugins.map((plugin) => {
+            {visiblePlugins.map((plugin) => {
               const panel = panelByPlugin.get(plugin.name);
               const categoryLabel = plugin.category?.label;
               const capabilityLabel = capability(plugin.name);
@@ -3931,7 +3970,10 @@ function Plugins({
                             <button
                               className="plugin-uninstall"
                               disabled={busyPlugin !== undefined}
-                              onClick={() => void runPluginAction(plugin, onUninstall)}
+                              onClick={() => {
+                                setPluginError("");
+                                setPendingUninstall(plugin);
+                              }}
                               type="button"
                             >
                               卸载
@@ -3957,7 +3999,11 @@ function Plugins({
                 </div>
               );
             })}
-            {!installedPlugins.length && <div className="empty-state">还没有安装可管理的插件。去插件市场安装一个吧。</div>}
+            {!installedPlugins.length ? (
+              <div className="empty-state">还没有安装可管理的插件。去插件市场安装一个吧。</div>
+            ) : !visiblePlugins.length ? (
+              <div className="empty-state">没有匹配“{query.trim()}”的已安装插件。</div>
+            ) : null}
           </div>
           {pluginError && <p className="plugin-action-error">{pluginError}</p>}
           {panels.length > installedPlugins.length && (
@@ -3979,6 +4025,50 @@ function Plugins({
             </section>
           )}
         </div>
+        {pendingUninstall && (
+          <div
+            className="plugin-confirm-backdrop"
+            onClick={() => busyPlugin === undefined && setPendingUninstall(undefined)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && busyPlugin === undefined) {
+                event.stopPropagation();
+                setPendingUninstall(undefined);
+              }
+            }}
+          >
+            <div aria-label="确认卸载插件" aria-modal="true" className="plugin-confirm-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
+              <header>
+                <div>
+                  <strong>卸载插件？</strong>
+                  <small>将从运行配置中移除，之后可以从插件市场重新安装。</small>
+                </div>
+              </header>
+              <code>{marketplaceNames.get(pendingUninstall.name) ?? displayPluginName(pendingUninstall.name)}</code>
+              {pluginError && (
+                <p className="plugin-confirm-error" role="alert">
+                  {pluginError}
+                </p>
+              )}
+              <footer>
+                <button autoFocus disabled={busyPlugin !== undefined} onClick={() => setPendingUninstall(undefined)} type="button">
+                  取消
+                </button>
+                <button
+                  className="danger"
+                  disabled={busyPlugin !== undefined}
+                  onClick={() =>
+                    void runPluginAction(pendingUninstall, onUninstall).then((completed) => {
+                      if (completed) setPendingUninstall(undefined);
+                    })
+                  }
+                  type="button"
+                >
+                  {busyPlugin !== undefined ? "卸载中…" : "确认卸载"}
+                </button>
+              </footer>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -4409,8 +4499,20 @@ function Settings({
   const [configSourceDraft, setConfigSourceDraft] = useState("");
   const [configBusy, setConfigBusy] = useState(false);
   const [configState, setConfigState] = useState("");
+  const notifierActive = data.plugins.some((plugin) => plugin.name.endsWith("/cli-notifier") && plugin.enabled);
   useEffect(() => {
-    if (tab !== "toml") return;
+    if (!providerAddOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setProviderAddOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [providerAddOpen]);
+  useEffect(() => {
+    if (tab !== "general" && tab !== "toml") return;
     setConfigState("读取中…");
     void api
       .getConfig()
@@ -4494,20 +4596,25 @@ function Settings({
                 ))}
                 <div className="general-row">
                   <div>
-                    <strong>任务结束提醒</strong>
-                    <small>由 runtime 插件提供</small>
+                    <strong>任务结束提醒插件</strong>
+                    <small>由 CLI Notifier 提供，具体目标在插件配置中管理</small>
                   </div>
-                  <span className="switch">
-                    <i></i>
+                  <span className={`setting-status ${notifierActive ? "on" : ""}`}>
+                    {notifierActive ? "已加载" : "未加载"}
                   </span>
                 </div>
                 <div className="general-row">
                   <div>
                     <strong>自动压缩上下文</strong>
-                    <small>事件通过 SSE 实时刷新</small>
+                    <small>接近上下文上限时自动整理历史消息，可在 pi.toml 中修改</small>
+                    {!config && configState && configState !== "读取中…" ? (
+                      <small className="setting-error" role="alert">
+                        配置读取失败：{configState}
+                      </small>
+                    ) : null}
                   </div>
-                  <span className="switch on">
-                    <i></i>
+                  <span className={`setting-status ${config?.settings.compaction.enabled ? "on" : ""}`}>
+                    {config ? (config.settings.compaction.enabled ? "已开启" : "已关闭") : configState === "读取中…" ? "读取中" : "不可用"}
                   </span>
                 </div>
               </>
@@ -4524,8 +4631,17 @@ function Settings({
                   </button>
                 </div>
                 {providerAddOpen && (
-                  <div className="provider-add-overlay" onClick={() => setProviderAddOpen(false)}>
-                    <div aria-label="添加提供商" className="provider-add-modal" onClick={(event) => event.stopPropagation()} role="dialog">
+                  <div
+                    className="provider-add-overlay"
+                    onClick={() => setProviderAddOpen(false)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.stopPropagation();
+                        setProviderAddOpen(false);
+                      }
+                    }}
+                  >
+                    <div aria-label="添加提供商" aria-modal="true" className="provider-add-modal" onClick={(event) => event.stopPropagation()} role="dialog">
                       <header>
                         <div>
                           <strong>添加自定义提供商</strong>
@@ -4560,7 +4676,12 @@ function Settings({
                           <span>提供商 ID</span>
                           <input
                             aria-label="提供商 ID"
+                            autoFocus
+                            maxLength={64}
+                            minLength={2}
+                            pattern="[a-z0-9][a-z0-9._-]{1,63}"
                             placeholder="例如 openrouter"
+                            required
                             value={providerForm.provider}
                             onChange={(event) => setProviderForm((current) => ({ ...current, provider: event.target.value }))}
                           />
@@ -4579,6 +4700,7 @@ function Settings({
                           <input
                             aria-label="接口地址"
                             placeholder="https://api.example.com/v1"
+                            required
                             type="url"
                             value={providerForm.baseUrl}
                             onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
@@ -4589,6 +4711,7 @@ function Settings({
                           <input
                             aria-label="模型 ID"
                             placeholder="例如 gpt-4o"
+                            required
                             value={providerForm.model}
                             onChange={(event) => setProviderForm((current) => ({ ...current, model: event.target.value }))}
                           />
@@ -4611,6 +4734,7 @@ function Settings({
                           <input
                             aria-label="API key"
                             placeholder="只在本机提交，不会回显"
+                            required
                             type="password"
                             value={providerForm.apiKey}
                             onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
