@@ -1054,17 +1054,17 @@ button:disabled {
 .plugin-detail-content > header {
   min-height: 207px;
 }
-@container (max-width: 640px) {
+@container (max-width: 600px) {
   .plugin-detail-content > header {
     min-height: 235px;
   }
 }
-@container (max-width: 520px) {
+@container (max-width: 500px) {
   .plugin-detail-content > header {
     min-height: 299px;
   }
 }
-@container (max-width: 360px) {
+@container (max-width: 320px) {
   .plugin-detail-content > header {
     min-height: 345px;
   }
@@ -1253,6 +1253,7 @@ button:disabled {
 }
 .settings-top-tabs {
   @apply [display:flex] [align-items:center] [gap:4px] [height:48px] [flex:none] [padding:0_24px] [border-bottom:1px_solid_var(--color-line)] [background:#fff];
+  padding-inline: max(24px, calc((100% - 1024px) / 2 + 24px));
 }
 .settings-top-tabs .settings-tab {
   @apply [height:30px] [padding:0_12px] [border-radius:7px] [font-size:12px];
@@ -1288,10 +1289,11 @@ button:disabled {
   @apply [float:right] [color:#61666b] [font:10px_var(--font-mono)] [font-weight:400];
 }
 .settings-dialog > section {
-  @apply [display:flex] [min-width:0] [flex:1] [flex-direction:column];
+  @apply [display:flex] [min-width:0] [min-height:0] [flex:1] [flex-direction:column];
 }
 .settings-dialog section > header {
   @apply [display:flex] [height:52px] [align-items:center] [justify-content:flex-start] [gap:16px] [padding:0_24px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.06)];
+  padding-inline: max(24px, calc((100% - 1024px) / 2 + 24px));
 }
 .settings-header-copy {
   @apply [display:flex] [min-width:0] [align-items:baseline] [gap:10px];
@@ -1310,6 +1312,7 @@ button:disabled {
 }
 .settings-body {
   @apply [flex:1] [overflow:auto] [padding:16px_24px_24px];
+  padding-inline: max(24px, calc((100% - 1024px) / 2 + 24px));
 }
 .settings-intro {
   @apply [padding:5px_0_11px] [border-bottom:1px_solid_var(--color-line)];
@@ -1543,6 +1546,28 @@ button:disabled {
 @media (max-width: 1024px) {
   .composer-hint {
     @apply [display:none];
+  }
+}
+/* Use one scroll surface when fixed marketplace controls would leave less than one card visible. */
+@media (max-height: 1079px) and (max-width: 360px),
+  (max-height: 899px) and (min-width: 361px) and (max-width: 900px),
+  (max-height: 700px) and (min-width: 901px) {
+  .marketplace-page > div {
+    @apply [overflow:auto];
+  }
+  .marketplace-page .marketplace-scroll {
+    @apply [flex:none] [overflow:visible];
+  }
+}
+@media (max-height: 400px) {
+  .sidebar .runtime-cells {
+    @apply [display:none];
+  }
+  .sidebar .sidebar-footer {
+    @apply [padding-top:2px] [padding-bottom:2px];
+  }
+  .sidebar .sidebar-scroll {
+    @apply [padding-bottom:0];
   }
 }
 @media (max-width: 900px) {
@@ -1813,7 +1838,7 @@ button:disabled {
   @apply [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:24px] [padding:24px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.08)] [background:#fbfcff];
 }
 .marketplace-page {
-  @apply [background:#f8fafc];
+  @apply [min-height:0] [background:#f8fafc];
 }
 .marketplace-page > div {
   @apply [background:#f8fafc];
