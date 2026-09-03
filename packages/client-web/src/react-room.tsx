@@ -3986,72 +3986,70 @@ function Plugins({
             {visiblePlugins.map((plugin) => {
               const categoryLabel = plugin.category?.label;
               const capabilityLabel = capability(plugin.name);
+              const pluginTitle = marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name);
               return (
-                <div className="flex min-w-0 flex-col gap-3" key={plugin.id}>
-                  <article className="plugin-card">
-                    <div className="plugin-card-head">
-                      <span className="plugin-icon">◈</span>
-                      <div className="plugin-copy">
-                        <div className="plugin-title">
-                          <code>{marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name)}</code>
-                          <small>{plugin.state}</small>
-                          {categoryLabel && <span className="capability">{categoryLabel}</span>}
-                          {categoryLabel !== capabilityLabel && <span className="capability">{capabilityLabel}</span>}
-                        </div>
-                        <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
-                        <div className="hook-list">
-                          <span>loader</span>
-                          <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
-                        </div>
+                <article className="plugin-card" key={plugin.id}>
+                  <div className="plugin-card-head">
+                    <span className="plugin-icon">◈</span>
+                    <div className="plugin-copy">
+                      <div className="plugin-title">
+                        <strong>{pluginTitle}</strong>
+                        <span className={`plugin-state ${plugin.enabled ? "active" : ""}`}>{plugin.enabled ? "运行中" : "已停用"}</span>
+                        {categoryLabel && <span className="capability">{categoryLabel}</span>}
+                        {categoryLabel !== capabilityLabel && <span className="capability">{capabilityLabel}</span>}
                       </div>
-                      <div className="plugin-actions">
-                        {plugin.removable ? (
-                          <>
-                            <button
-                              aria-label={`${plugin.enabled ? "停用" : "启用"} ${marketplaceNames.get(plugin.name) ?? plugin.name}`}
-                              className={`switch ${plugin.enabled ? "on" : ""}`}
-                              disabled={busyPlugin !== undefined}
-                              onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
-                              type="button"
-                            >
-                              <i></i>
-                            </button>
-                            <button
-                              className="plugin-uninstall"
-                              disabled={busyPlugin !== undefined}
-                              onClick={() => {
-                                setPluginError("");
-                                setPendingUninstall(plugin);
-                              }}
-                              type="button"
-                            >
-                              卸载
-                            </button>
-                          </>
-                        ) : (
-                          <span className={`switch ${plugin.enabled ? "on" : ""}`}>
+                      <code className="plugin-package">{plugin.name}</code>
+                      <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
+                      <div className="hook-list">
+                        <span>loader</span>
+                        <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
+                      </div>
+                    </div>
+                    <div className="plugin-actions">
+                      {plugin.removable ? (
+                        <>
+                          <button
+                            aria-label={`${plugin.enabled ? "停用" : "启用"} ${pluginTitle}`}
+                            className={`switch ${plugin.enabled ? "on" : ""}`}
+                            disabled={busyPlugin !== undefined}
+                            onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
+                            type="button"
+                          >
                             <i></i>
-                          </span>
-                        )}
-                      </div>
+                          </button>
+                          <button
+                            className="plugin-uninstall"
+                            disabled={busyPlugin !== undefined}
+                            onClick={() => {
+                              setPluginError("");
+                              setPendingUninstall(plugin);
+                            }}
+                            type="button"
+                          >
+                            卸载
+                          </button>
+                        </>
+                      ) : (
+                        <span className={`switch ${plugin.enabled ? "on" : ""}`}>
+                          <i></i>
+                        </span>
+                      )}
                     </div>
-                    <div className="mt-auto flex items-center justify-between gap-3 border-t border-[#e3e7ee] pt-3">
-                      <a
-                        className="text-[11px] font-semibold text-[#4176e6]"
-                        href={installedPluginDetailPath(plugin.name)}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          onOpenDetail(plugin);
-                        }}
-                      >
-                        查看详情 →
-                      </a>
-                      {panelPluginIds.has(plugin.name) ? (
-                        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#a0a8b2]">实时面板</span>
-                      ) : null}
-                    </div>
-                  </article>
-                </div>
+                  </div>
+                  <footer className="plugin-card-footer">
+                    <a
+                      className="plugin-detail-link"
+                      href={installedPluginDetailPath(plugin.name)}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        onOpenDetail(plugin);
+                      }}
+                    >
+                      查看详情 →
+                    </a>
+                    {panelPluginIds.has(plugin.name) ? <span>实时面板</span> : null}
+                  </footer>
+                </article>
               );
             })}
             {!installedPlugins.length ? (
@@ -4145,7 +4143,7 @@ function InstalledPluginDetail({
           </a>
           <span>插件详情</span>
         </div>
-        <div className="mx-auto max-w-5xl px-6 py-8">
+        <div className="plugin-detail-content">
           <header className="border-b border-[#e3e7ee] pb-7">
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[#e6faed] text-[#16834f]" : "bg-[#eef0f3] text-[#6f7883]"}`}>
@@ -4164,9 +4162,9 @@ function InstalledPluginDetail({
                 </code>
               </div>
               {plugin.removable ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="plugin-detail-actions">
                   <button
-                    className="rounded-md border border-black/10 bg-white px-3 py-2 text-[12px] text-[#20252b] disabled:opacity-50"
+                    className="plugin-detail-action"
                     disabled={busyAction !== undefined}
                     onClick={() => void run("toggle", () => onToggle(plugin))}
                     type="button"
@@ -4174,7 +4172,7 @@ function InstalledPluginDetail({
                     {busyAction === "toggle" ? "处理中…" : plugin.enabled ? "停用插件" : "启用插件"}
                   </button>
                   <button
-                    className="rounded-md border border-[#f0caca] bg-[#fff5f5] px-3 py-2 text-[12px] text-[#b42318] disabled:opacity-50"
+                    className="plugin-detail-action danger"
                     disabled={busyAction !== undefined}
                     onClick={() => {
                       setError("");
@@ -4200,7 +4198,7 @@ function InstalledPluginDetail({
           </header>
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
-              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                 <h2 className="text-[13px] font-semibold text-[#20252b]">插件能力</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {(metadata?.capabilities.length ? metadata.capabilities : [capability(plugin.name)]).map((item) => (
@@ -4211,7 +4209,7 @@ function InstalledPluginDetail({
                 </div>
               </section>
               {metadata?.hooks.length ? (
-                <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+                <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                   <h2 className="text-[13px] font-semibold text-[#20252b]">扩展点</h2>
                   <div className="mt-4 space-y-2">
                     {metadata.hooks.map((item) => (
@@ -4222,7 +4220,7 @@ function InstalledPluginDetail({
                   </div>
                 </section>
               ) : null}
-              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="text-[13px] font-semibold text-[#20252b]">实时详情</h2>
@@ -4233,7 +4231,7 @@ function InstalledPluginDetail({
                 {panel ? <PluginPanelCard inline panel={panel} /> : <div className="empty-state">这个插件暂未提供实时面板。</div>}
               </section>
             </div>
-            <aside className="h-fit rounded-xl border border-[#e3e7ee] bg-white p-5">
+            <aside className="h-fit rounded-[10px] border border-[#e3e7ee] bg-white p-5">
               <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
@@ -4397,17 +4395,13 @@ function Marketplace({
           </select>
           <span className="marketplace-count">{total} 个已审核条目 · 推荐排序</span>
         </div>
-        <nav aria-label="插件分类" className="flex min-w-0 gap-1 overflow-x-auto border-b border-black/[0.08] bg-white px-5 py-2.5">
+        <nav aria-label="插件分类" className="marketplace-categories">
           {categoryTabs.map((category) => {
             const active = categoryFilter === category.id;
             return (
               <button
                 aria-pressed={active}
-                className={
-                  active
-                    ? "flex flex-none items-center gap-1.5 rounded-full bg-[#e4edfd] px-3 py-1.5 text-[11px] font-medium text-[#4176e6]"
-                    : "flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] text-[#61666b] hover:bg-[#f1f4f9]"
-                }
+                className={`marketplace-category ${active ? "active" : ""}`}
                 key={category.id || "all"}
                 onClick={() => onCategoryChange(category.id)}
                 type="button"
@@ -4418,7 +4412,7 @@ function Marketplace({
             );
           })}
         </nav>
-        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
+        <div className="marketplace-scroll">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
               <article className="marketplace-card" key={plugin.id}>
@@ -4501,9 +4495,9 @@ function Marketplace({
           </div>
           {installNotice && <p className="mt-2 text-[11px] text-[#4176e6]">{installNotice}</p>}
           {installError && <p className="mt-2 text-[11px] text-[#ec1313]">安装失败：{installError}</p>}
-          <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[11px] text-[#81858c]">
+          <div className="marketplace-pagination">
             <button
-              className="rounded-md border border-black/10 bg-white px-2.5 py-1 text-[11px] text-[#0f1115] disabled:cursor-default disabled:opacity-40"
+              className="marketplace-pagination-button"
               disabled={page === 0}
               onClick={() => onPageChange(page - 1)}
               type="button"
@@ -4512,7 +4506,7 @@ function Marketplace({
             </button>
             <span>第 {page + 1} 页</span>
             <button
-              className="rounded-md border border-black/10 bg-white px-2.5 py-1 text-[11px] text-[#0f1115] disabled:cursor-default disabled:opacity-40"
+              className="marketplace-pagination-button"
               disabled={!hasNext}
               onClick={() => onPageChange(page + 1)}
               type="button"
@@ -4580,7 +4574,7 @@ function MarketplaceDetail({
           </a>
           <span>插件详情</span>
         </div>
-        <div className="mx-auto max-w-5xl px-6 py-8">
+        <div className="plugin-detail-content">
           <header className="border-b border-[#e3e7ee] pb-7">
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#4176e6]">
@@ -4605,9 +4599,9 @@ function MarketplaceDetail({
                   {plugin.packageName} · v{plugin.version}
                 </code>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="plugin-detail-actions">
                 <button
-                  className="rounded-md bg-[#20252b] px-3 py-2 text-[12px] text-white disabled:cursor-default disabled:opacity-50"
+                  className="plugin-detail-action primary"
                   disabled={installed || busy}
                   onClick={() => void install()}
                   type="button"
@@ -4622,7 +4616,7 @@ function MarketplaceDetail({
           </header>
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
-              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                 <h2 className="text-[13px] font-semibold text-[#20252b]">插件能力</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {plugin.capabilities.map((item) => (
@@ -4632,7 +4626,7 @@ function MarketplaceDetail({
                   ))}
                 </div>
               </section>
-              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                 <h2 className="text-[13px] font-semibold text-[#20252b]">扩展点</h2>
                 <div className="mt-4 space-y-2">
                   {plugin.hooks.map((item) => (
@@ -4642,7 +4636,7 @@ function MarketplaceDetail({
                   ))}
                 </div>
               </section>
-              <section className="rounded-xl border border-[#e3e7ee] bg-white p-5">
+              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
                 <h2 className="text-[13px] font-semibold text-[#20252b]">运行配置</h2>
                 <p className="mt-1 text-[12px] text-[#8a949f]">安装后会以这个 profile 写入 pi.toml。</p>
                 <pre className="mt-4 overflow-auto rounded-lg bg-[#f7f8fa] p-4 text-[11px] leading-6 text-[#3b424b]">
@@ -4650,7 +4644,7 @@ function MarketplaceDetail({
                 </pre>
               </section>
             </div>
-            <aside className="h-fit rounded-xl border border-[#e3e7ee] bg-white p-5">
+            <aside className="h-fit rounded-[10px] border border-[#e3e7ee] bg-white p-5">
               <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
