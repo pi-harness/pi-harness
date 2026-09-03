@@ -5,6 +5,7 @@ import { listWorkspaceNodes, readWorkspaceGitStatus } from "./workspace-navigato
 
 export interface SidebarOverviewInput {
   readonly cwd: string;
+  readonly gitAvailable: boolean;
   readonly branch: string | null;
   readonly clean: boolean;
   readonly changedFiles: readonly { readonly path: string; readonly status: string }[];
@@ -21,11 +22,10 @@ export interface SidebarOverview extends SidebarOverviewInput {
 
 export function summarizeSidebar(input: SidebarOverviewInput): SidebarOverview {
   const changedCount = input.changedFiles.length;
-  const summary =
-    input.branch === null
-      ? `非 Git 工作区 · ${changedCount > 0 ? `${changedCount} 个变更` : "无变更"}`
-      : `${input.branch} · ${changedCount > 0 ? `${changedCount} 个变更` : "clean"}`;
-  return { ...input, changedFiles: [...input.changedFiles], changedCount, summary };
+  const summary = !input.gitAvailable
+    ? `非 Git 工作区 · ${changedCount > 0 ? `${changedCount} 个变更` : "无变更"}`
+    : `${input.branch ?? "detached HEAD"} · ${changedCount > 0 ? `${changedCount} 个变更` : "clean"}`;
+  return { ...input, changedFiles: input.changedFiles.slice(0, 12), changedCount, summary };
 }
 
 function textSummary(report: SidebarOverview): string {
@@ -46,9 +46,10 @@ export default {
       const [tree, git] = await Promise.all([listWorkspaceNodes(cwd, { maxDepth: 2, maxNodes: 80 }), readWorkspaceGitStatus(cwd)]);
       latest = summarizeSidebar({
         cwd,
+        gitAvailable: git.available,
         branch: git.available ? git.branch : null,
         clean: git.available && git.clean,
-        changedFiles: git.entries.slice(0, 12),
+        changedFiles: git.entries,
         directoryCount: tree.directoryCount,
         fileCount: tree.fileCount,
         truncated: tree.truncated,

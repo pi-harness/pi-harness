@@ -511,6 +511,49 @@ describe("API gateway plugin", () => {
     await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/core/plugins/skill-guard"');
   });
 
+  test("locks marketplace installation before reading a request body", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-install-lock-"));
+    const configPath = join(cwd, "pi.toml");
+    await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-install-lock-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd, agentDir: cwd, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", { entries: () => [] });
+    await context.plugin(apiPlugin);
+
+    let finishBody: (() => void) | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"id":"skill'));
+        finishBody = () => {
+          controller.enqueue(new TextEncoder().encode('-guard"}'));
+          controller.close();
+        };
+      },
+    });
+    const first = fetch(context.webServer.url + "/api/marketplace/install", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+
+    const competing = await fetch(context.webServer.url + "/api/marketplace/install", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "cost-meter" }),
+    });
+    expect(competing.status).toBe(409);
+
+    finishBody?.();
+    expect((await first).status).toBe(200);
+  });
+
   test("marks legacy random-id marketplace entries as removable", async () => {
     const context = new Context();
     contexts.push(context);
@@ -554,6 +597,50 @@ describe("API gateway plugin", () => {
     });
   });
 
+  test("toggles a legacy marketplace entry using its existing profile id", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-toggle-"));
+    const configPath = join(directory, "profile.yml");
+    const entryId = "769990d2";
+    let disabled = false;
+    const loaderEntry = {
+      id: `profile:${entryId}`,
+      options: { id: entryId, name: "@deepseek-ai/cordis-plugin-logger-console", config: {} },
+      update(options: { disabled?: boolean }): Promise<void> {
+        disabled = options.disabled === true;
+        return Promise.resolve();
+      },
+    };
+    await writeFile(
+      configPath,
+      `- id: agent\n  name: cordis:group\n  group: true\n  config:\n    - id: ${entryId}\n      name: ${JSON.stringify(loaderEntry.options.name)}\n      config: {}\n    - id: sibling\n      name: "@pi-harness/core/plugins/runtime"\n      config: {}\n`,
+      "utf8",
+    );
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "legacy-plugin-toggle-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", {
+      *entries() {
+        yield loaderEntry;
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: entryId, enabled: false }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(disabled).toBe(true);
+    await expect(readFile(configPath, "utf8")).resolves.toContain("disabled: true");
+    await expect(readFile(configPath, "utf8")).resolves.toContain("- id: sibling");
+  });
+
   test("uninstalls a nested marketplace entry using its resolvable loader id", async () => {
     const context = new Context();
     contexts.push(context);
@@ -578,7 +665,11 @@ describe("API gateway plugin", () => {
         if (active) yield loaderEntry;
       },
     };
-    await writeFile(configPath, `- id: ${entryId}\n  name: ${JSON.stringify(loaderEntry.options.name)}\n  config: {}\n`, "utf8");
+    await writeFile(
+      configPath,
+      `- id: agent\n  name: cordis:group\n  group: true\n  config:\n    - id: ${entryId}\n      name: ${JSON.stringify(loaderEntry.options.name)}\n      config: {}\n    - id: sibling\n      name: "@pi-harness/core/plugins/runtime"\n      config: {}\n`,
+      "utf8",
+    );
     await writeFile(join(directory, "package.json"), JSON.stringify({ private: true, dependencies: { [loaderEntry.options.name]: "1.0.1" } }), "utf8");
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const session = { sessionId: "plugin-uninstall-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
@@ -598,6 +689,55 @@ describe("API gateway plugin", () => {
     expect(plugins.status).toBe(200);
     const pluginsPayload = (await plugins.json()) as { items?: unknown };
     expect(pluginsPayload.items).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: entryId })]));
+    await expect(readFile(configPath, "utf8")).resolves.toContain("- id: sibling");
+  });
+
+  test("uninstalls bundled marketplace plugins from their existing profile row without invoking npm", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-bundled-uninstall-"));
+    const configPath = join(directory, "profile.yml");
+    const entryId = "skill-guard";
+    let active = true;
+    const loaderEntry = {
+      id: `profile:${entryId}`,
+      options: { id: entryId, name: "@pi-harness/core/plugins/skill-guard", config: {} },
+      parent: {
+        tree: { write() {} },
+        remove(id: string): Promise<void> {
+          if (id !== entryId) throw new Error(`cannot resolve entry ${id}`);
+          active = false;
+          return Promise.resolve();
+        },
+      },
+    };
+    await writeFile(
+      configPath,
+      `- id: agent\n  name: cordis:group\n  group: true\n  config:\n    - id: ${entryId}\n      name: ${JSON.stringify(loaderEntry.options.name)}\n      config: {}\n    - id: sibling\n      name: "@pi-harness/core/plugins/runtime"\n      config: {}\n`,
+      "utf8",
+    );
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "bundled-uninstall-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", {
+      *entries() {
+        if (active) yield loaderEntry;
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: entryId }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(active).toBe(false);
+    await expect(readFile(configPath, "utf8")).resolves.not.toContain(entryId);
+    await expect(readFile(configPath, "utf8")).resolves.toContain("- id: sibling");
   });
 
   test("commits selected workspace files only after an explicit message", async () => {

@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 describe("session compare", () => {
-  test("reports added and removed messages as a multiset", () => {
+  test("reports added and removed messages by conversation position", () => {
     const left: SessionCompareMessage[] = [
       { role: "user", text: "Keep the API stable" },
       { role: "assistant", text: "I will add a regression test." },
@@ -37,6 +37,14 @@ describe("session compare", () => {
         { role: "assistant", text: "I will add a regression test." },
       ],
     });
+  });
+
+  test("detects reordered messages and differences beyond the preview limit", () => {
+    const first = { role: "user", text: `same-prefix-${"x".repeat(4_100)}-left` };
+    const second = { role: "assistant", text: `same-prefix-${"x".repeat(4_100)}-right` };
+
+    expect(compareMessageEntries([first, second], [second, first])).toMatchObject({ shared: 0, added: [{ role: "assistant" }, { role: "user" }] });
+    expect(compareMessageEntries([first], [{ ...first, text: first.text.replace(/left$/u, "right") }])).toMatchObject({ shared: 0 });
   });
 
   test("compares persisted sessions through the Pi tool registry", async () => {

@@ -58,37 +58,25 @@ export function sessionMessageEntries(entries: readonly unknown[]): SessionCompa
     const item = record(entry);
     const message = record(item?.message);
     if (item?.type !== "message" || typeof message?.role !== "string") return [];
-    const text = contentText(message.content).slice(0, maxMessageTextLength);
+    const text = contentText(message.content);
     return text === "" ? [] : [{ role: message.role, text }];
   });
 }
 
 export function compareMessageEntries(left: readonly SessionCompareMessage[], right: readonly SessionCompareMessage[]): SessionCompareDiff {
-  const remaining = new Map<string, number>();
-  for (const message of left) {
-    const key = `${message.role}\u0000${message.text}`;
-    remaining.set(key, (remaining.get(key) ?? 0) + 1);
-  }
   const added: SessionCompareMessage[] = [];
-  let shared = 0;
-  for (const message of right) {
-    const key = `${message.role}\u0000${message.text}`;
-    const count = remaining.get(key) ?? 0;
-    if (count > 0) {
-      remaining.set(key, count - 1);
-      shared += 1;
-    } else if (added.length < maxDiffMessages) {
-      added.push(message);
-    }
-  }
   const removed: SessionCompareMessage[] = [];
-  for (const message of left) {
-    const key = `${message.role}\u0000${message.text}`;
-    const count = remaining.get(key) ?? 0;
-    if (count > 0) {
-      remaining.set(key, count - 1);
-      if (removed.length < maxDiffMessages) removed.push(message);
+  let shared = 0;
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftMessage = left[index];
+    const rightMessage = right[index];
+    if (leftMessage !== undefined && rightMessage !== undefined && leftMessage.role === rightMessage.role && leftMessage.text === rightMessage.text) {
+      shared += 1;
+      continue;
     }
+    if (rightMessage !== undefined && added.length < maxDiffMessages) added.push({ ...rightMessage, text: rightMessage.text.slice(0, maxMessageTextLength) });
+    if (leftMessage !== undefined && removed.length < maxDiffMessages) removed.push({ ...leftMessage, text: leftMessage.text.slice(0, maxMessageTextLength) });
   }
   return { shared, added, removed };
 }
@@ -136,7 +124,7 @@ async function compareSessions(context: Context, leftId: string, rightId: string
     ...diff,
     left: side(leftSession, leftMessages),
     right: side(rightSession, rightMessages),
-    changed: diff.added.length > 0 || diff.removed.length > 0 || leftMessages.length !== rightMessages.length,
+    changed: diff.shared !== leftMessages.length || diff.shared !== rightMessages.length,
     comparedAt: new Date().toISOString(),
   };
 }

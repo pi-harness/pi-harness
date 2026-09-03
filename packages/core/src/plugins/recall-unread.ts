@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
@@ -8,6 +8,8 @@ import { assertKnownConfigKeys } from "../config.js";
 const defaultMaxSessions = 100;
 const maxAllowedSessions = 500;
 const maxPreviewChars = 500;
+const maxSessionFileBytes = 4 * 1024 * 1024;
+const sessionReadConcurrency = 8;
 
 export interface RecallUnreadPluginConfig {
   maxSessions?: number;
@@ -54,6 +56,8 @@ export function unreadUserMessage(entries: readonly unknown[]): string | undefin
 
 async function unreadSession(session: SessionInfo): Promise<UnreadSession | undefined> {
   try {
+    const metadata = await stat(session.path);
+    if (!metadata.isFile() || metadata.size > maxSessionFileBytes) return undefined;
     const message = unreadUserMessage(parseSessionEntries(await readFile(session.path, "utf8")));
     if (message === undefined) return undefined;
     return {
@@ -70,6 +74,15 @@ async function unreadSession(session: SessionInfo): Promise<UnreadSession | unde
   }
 }
 
+async function unreadSessions(sessions: readonly SessionInfo[]): Promise<UnreadSession[]> {
+  const results: UnreadSession[] = [];
+  for (let index = 0; index < sessions.length; index += sessionReadConcurrency) {
+    const batch = await Promise.all(sessions.slice(index, index + sessionReadConcurrency).map(unreadSession));
+    results.push(...batch.filter((item): item is UnreadSession => item !== undefined));
+  }
+  return results;
+}
+
 export default {
   name: "pi-recall-unread",
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
@@ -83,9 +96,9 @@ export default {
       const normalizedQuery = query.trim().toLocaleLowerCase();
       if (normalizedQuery.length > 120) throw new Error("Recall unread query must contain 0-120 characters");
       const sessions = await SessionManager.list(context.piHarnessLaunch.cwd, context.piSession.manager.getSessionDir());
-      items = (await Promise.all(sessions.slice(0, maxSessions).map(unreadSession)))
-        .filter((item): item is UnreadSession => item !== undefined)
-        .filter((item) => normalizedQuery === "" || `${item.name} ${item.message} ${item.cwd}`.toLocaleLowerCase().includes(normalizedQuery));
+      items = (await unreadSessions(sessions.slice(0, maxSessions))).filter(
+        (item) => normalizedQuery === "" || `${item.name} ${item.message} ${item.cwd}`.toLocaleLowerCase().includes(normalizedQuery),
+      );
       scans += 1;
       return items;
     };

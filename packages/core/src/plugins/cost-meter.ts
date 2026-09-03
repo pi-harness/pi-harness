@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
@@ -72,6 +73,10 @@ function reportFor(entries: readonly CostEntry[], current: SessionStats, budget:
   };
 }
 
+export function upsertCostEntry(entries: readonly CostEntry[], entry: CostEntry, limit: number): CostEntry[] {
+  return [entry, ...entries.filter((item) => item.sessionId !== entry.sessionId)].slice(0, limit);
+}
+
 export default {
   name: "pi-cost-meter",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
@@ -115,12 +120,54 @@ export default {
       return loading;
     };
     const persist = async (): Promise<void> => {
-      const payload = JSON.stringify({ version: 1, entries } satisfies CostFile, null, 2);
       writeQueue = writeQueue.then(async () => {
         await mkdir(dirname(filePath), { recursive: true });
-        const temporary = join(dirname(filePath), `.${basename(filePath)}.tmp`);
-        await writeFile(temporary, payload, { encoding: "utf8", mode: 0o600 });
-        await rename(temporary, filePath);
+        const lockPath = `${filePath}.lock`;
+        let lock: Awaited<ReturnType<typeof open>> | undefined;
+        for (let attempt = 0; attempt < 80; attempt += 1) {
+          try {
+            lock = await open(lockPath, "wx", 0o600);
+            break;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt === 79) throw error;
+            const lockAge = await stat(lockPath)
+              .then((metadata) => Date.now() - metadata.mtimeMs)
+              .catch(() => 0);
+            if (lockAge > 30_000) await unlink(lockPath).catch(() => {});
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+          }
+        }
+        if (lock === undefined) throw new Error("Could not acquire the cost meter persistence lock");
+        try {
+          const diskEntries = await readFile(filePath, "utf8")
+            .then((source) => {
+              const parsed = JSON.parse(source) as Partial<CostFile>;
+              return parsed.version === 1 && Array.isArray(parsed.entries) ? parsed.entries : [];
+            })
+            .catch((error: unknown) => {
+              if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+              throw error;
+            });
+          const merged = new Map(diskEntries.map((entry) => [entry.sessionId, entry]));
+          for (const entry of entries) {
+            const existing = merged.get(entry.sessionId);
+            if (existing === undefined || entry.recordedAt >= existing.recordedAt) merged.set(entry.sessionId, entry);
+          }
+          entries = [...merged.values()].sort((left, right) => right.recordedAt.localeCompare(left.recordedAt)).slice(0, entryLimit);
+          const payload = JSON.stringify({ version: 1, entries } satisfies CostFile, null, 2);
+          const temporary = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
+          let renamed = false;
+          try {
+            await writeFile(temporary, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
+            await rename(temporary, filePath);
+            renamed = true;
+          } finally {
+            if (!renamed) await unlink(temporary).catch(() => {});
+          }
+        } finally {
+          await lock.close();
+          await unlink(lockPath).catch(() => {});
+        }
       });
       await writeQueue;
     };
@@ -129,7 +176,8 @@ export default {
       const current = runtime().session.getSessionStats();
       const signature = `${current.sessionId}:${current.totalMessages}:${finiteCost(current.cost)}`;
       if (entries.some((entry) => `${entry.sessionId}:${entry.messages}:${entry.cost}` === signature)) return;
-      entries = [
+      entries = upsertCostEntry(
+        entries,
         {
           sessionId: current.sessionId,
           cost: finiteCost(current.cost),
@@ -137,8 +185,8 @@ export default {
           messages: current.totalMessages,
           recordedAt: new Date().toISOString(),
         },
-        ...entries,
-      ].slice(0, entryLimit);
+        entryLimit,
+      );
       await persist();
     };
     const readReport = async (): Promise<CostMeterReport> => {

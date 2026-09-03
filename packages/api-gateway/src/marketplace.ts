@@ -209,37 +209,28 @@ export function createMarketplaceStatisticsLoader(options: MarketplaceStatistics
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? 3_000;
   const ttlMs = options.ttlMs ?? 6 * 60 * 60 * 1_000;
-  let cached: { readonly key: string; readonly expiresAt: number; readonly value: ReadonlyMap<string, MarketplaceStatistics> } | undefined;
-  let inFlight:
-    | { readonly key: string; readonly value: Promise<{ readonly failed: boolean; readonly statistics: ReadonlyMap<string, MarketplaceStatistics> }> }
-    | undefined;
+  const cache = new Map<string, { readonly expiresAt: number; readonly result: NpmPackageStatisticsResult }>();
+  const inFlight = new Map<string, Promise<NpmPackageStatisticsResult>>();
+  const loadPackage = async (packageName: string): Promise<NpmPackageStatisticsResult> => {
+    const timestamp = now();
+    const cached = cache.get(packageName);
+    if (cached !== undefined && cached.expiresAt > timestamp) return cached.result;
+    const pending = inFlight.get(packageName);
+    if (pending !== undefined) return pending;
+    const request = fetchNpmPackageStatistics(packageName, fetcher, timeoutMs);
+    inFlight.set(packageName, request);
+    try {
+      const result = await request;
+      cache.set(packageName, { expiresAt: now() + (result.failed ? failureTtlMs : ttlMs), result });
+      return result;
+    } finally {
+      if (inFlight.get(packageName) === request) inFlight.delete(packageName);
+    }
+  };
   return async (plugins: readonly MarketplacePlugin[]): Promise<ReadonlyMap<string, MarketplaceStatistics>> => {
     const packageNames = [...new Set(plugins.map((plugin) => marketplaceNpmPackageName(plugin.packageName)))].sort();
-    const key = packageNames.join("\n");
-    const timestamp = now();
-    if (cached?.key === key && cached.expiresAt > timestamp) return cached.value;
-    if (inFlight?.key === key) return (await inFlight.value).statistics;
-    const value = Promise.all(
-      packageNames.map(async (packageName) => [packageName, await fetchNpmPackageStatistics(packageName, fetcher, timeoutMs)] as const),
-    ).then((entries) => ({
-      failed: entries.some(([, result]) => result.failed),
-      statistics: new Map(
-        entries
-          .filter(
-            (entry): entry is readonly [string, NpmPackageStatisticsResult & { readonly statistics: MarketplaceStatistics }] =>
-              entry[1].statistics !== undefined,
-          )
-          .map(([packageName, result]) => [packageName, result.statistics]),
-      ),
-    }));
-    inFlight = { key, value };
-    try {
-      const result = await value;
-      cached = { key, expiresAt: timestamp + (result.failed ? failureTtlMs : ttlMs), value: result.statistics };
-      return result.statistics;
-    } finally {
-      if (inFlight?.value === value) inFlight = undefined;
-    }
+    const entries = await Promise.all(packageNames.map(async (packageName) => [packageName, await loadPackage(packageName)] as const));
+    return new Map(entries.flatMap(([packageName, result]) => (result.statistics === undefined ? [] : [[packageName, result.statistics] as const])));
   };
 }
 

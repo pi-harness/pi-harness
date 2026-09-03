@@ -486,6 +486,7 @@ describe("Pi domain plugins", () => {
       },
     ]);
     const panel = (await panels.snapshot())[0];
+    if (panel === undefined) throw new Error("agent-teams-panel was not registered");
     expect((panel.data as { members: { id: string; status: string }[] }).members.find((member) => member.id === "builder")).toMatchObject({
       status: "working",
     });
@@ -510,7 +511,7 @@ describe("Pi domain plugins", () => {
     context.provide("piPluginUi", panels);
 
     await context.plugin(pluginDevPlugin);
-    const tool = tools.snapshot().customTools[0];
+    const tool = firstTool(tools);
     await expect(tool.execute("reload-1", { reason: "更新本地插件" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { status: "reloaded", reason: "更新本地插件" },
     });
@@ -536,7 +537,7 @@ describe("Pi domain plugins", () => {
     await context.plugin(openPetsPlugin);
     context.emit("pi/session-event", { type: "agent_start" } as never);
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "openpets-panel", data: { mood: "focused" } }]);
-    const tool = tools.snapshot().customTools[0];
+    const tool = firstTool(tools);
     await expect(tool.execute("pet-1", { action: "feed" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { mood: "happy", energy: 100 },
     });
@@ -1983,7 +1984,7 @@ describe("Pi domain plugins", () => {
     const tools = new PiToolRegistry();
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
-    const sessionStats = {
+    let sessionStats = {
       sessionFile: undefined,
       sessionId: "session-1",
       userMessages: 2,
@@ -1998,12 +1999,21 @@ describe("Pi domain plugins", () => {
     await context.plugin(costMeterPlugin, { dailyBudget: 5 });
     context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false });
     await new Promise((resolve) => setTimeout(resolve, 10));
+    sessionStats = {
+      ...sessionStats,
+      assistantMessages: 3,
+      totalMessages: 5,
+      tokens: { ...sessionStats.tokens, output: 100, total: 200 },
+      cost: 2,
+    };
+    context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false });
+    await new Promise((resolve) => setTimeout(resolve, 10));
     const tool = tools.snapshot().customTools.find((entry) => entry.name === "cost_report");
     if (tool === undefined) throw new Error("cost_report was not registered");
     const report = await tool.execute("report", {}, undefined, undefined, {} as never);
-    expect(report.details).toMatchObject({ sessionCost: 1.25, todayCost: 1.25, budget: 5, budgetPercent: 25 });
+    expect(report.details).toMatchObject({ sessionCost: 2, todayCost: 2, budget: 5, budgetPercent: 40 });
     const panel = (await panels.snapshot())[0];
-    expect(panel).toMatchObject({ id: "cost-meter-panel", data: { todayCost: 1.25 } });
+    expect(panel).toMatchObject({ id: "cost-meter-panel", data: { todayCost: 2 } });
     if (panel === undefined) throw new Error("cost-meter-panel was not registered");
     expect((panel.data as { entries: unknown[] }).entries).toHaveLength(1);
     expect(await readFile(join(agentDir, "cost-meter.json"), "utf8")).toContain("session-1");
@@ -2040,6 +2050,7 @@ describe("Pi domain plugins", () => {
     expect(await readFile(target, "utf8")).toBe("before\n");
     expect((await tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).details).toMatchObject({ count: 1 });
     expect(await readFile(join(agentDir, "undo-savepoints", `${(saved.details as { id: string }).id}.json`), "utf8")).toContain("before edit");
+    await expect(tool.execute("invalid-id", { action: "diff", id: "../outside" }, undefined, undefined, {} as never)).rejects.toThrow(/Invalid savepoint id/);
   });
 
   test("lists loaded skills and MCP servers without exposing write operations", async () => {
@@ -2062,13 +2073,14 @@ describe("Pi domain plugins", () => {
       },
     } as never);
     context.provide("piMcp", { snapshot: () => ({ servers: [{ id: "docs", command: ["node", "server.js"], status: "running", startedAt: 1 }] }) });
-    await context.plugin(skillCatalogPlugin, {});
+    await context.plugin(skillCatalogPlugin);
     const tool = tools.snapshot().customTools.find((entry) => entry.name === "skill_catalog");
     if (tool === undefined) throw new Error("skill_catalog was not registered");
     const list = await tool.execute("list", { action: "list", query: "review" }, undefined, undefined, {} as never);
     expect(list.details).toMatchObject({ skills: [{ name: "review" }], total: 1 });
     const read = await tool.execute("read", { action: "read", name: "review" }, undefined, undefined, {} as never);
-    expect(read.content[0]?.text).toContain("Review the diff carefully");
+    const readContent = read.content[0];
+    expect(readContent?.type === "text" ? readContent.text : "").toContain("Review the diff carefully");
     const mcp = await tool.execute("mcp", { action: "mcp" }, undefined, undefined, {} as never);
     expect(mcp.details).toMatchObject({ servers: [{ id: "docs", status: "running" }] });
     expect((await panels.snapshot())[0]).toMatchObject({ id: "skill-catalog-panel", data: { skillCount: 1, mcpCount: 1 } });
@@ -2089,7 +2101,7 @@ describe("Pi domain plugins", () => {
         label: "MCP search",
         description: "Search documentation",
         parameters: Type.Object({}),
-        execute: () => Promise.resolve({ content: [{ type: "text", text: "ok" }] }),
+        execute: () => Promise.resolve({ content: [{ type: "text", text: "ok" }], details: {} }),
       }),
     );
     const patchPath = join(agentDir, "cordis.patch.yml");
@@ -2098,6 +2110,7 @@ describe("Pi domain plugins", () => {
     if (tool === undefined) throw new Error("mcp_panel was not registered");
     const status = await tool.execute("status", { action: "status" }, undefined, undefined, {} as never);
     expect(status.details).toMatchObject({ servers: [{ id: "docs", status: "running", toolCount: 1 }] });
+    expect(JSON.stringify(status.details)).not.toContain("server.js");
     const listed = await tool.execute("tools", { action: "tools", serverId: "docs" }, undefined, undefined, {} as never);
     expect(listed.details).toMatchObject({ serverId: "docs", tools: [{ name: "mcp__docs__search" }] });
     const health = await tool.execute("health", { action: "health", serverId: "docs" }, undefined, undefined, {} as never);
@@ -2109,7 +2122,8 @@ describe("Pi domain plugins", () => {
       undefined,
       {} as never,
     );
-    expect(preview.content[0]?.text).toContain("@pi-harness/core/plugins/mcp-client");
+    const previewContent = preview.content[0];
+    expect(previewContent?.type === "text" ? previewContent.text : "").toContain("@pi-harness/core/plugins/mcp-client");
     const denied = tool.execute("apply-denied", { action: "apply", serverId: "docs", command: ["node", "server.js"] }, undefined, undefined, {} as never);
     await expect(denied).rejects.toThrow(/confirm=true/);
     const applied = await tool.execute(
@@ -2121,6 +2135,15 @@ describe("Pi domain plugins", () => {
     );
     expect(applied.details).toMatchObject({ action: "apply", serverId: "docs", path: patchPath });
     expect(await readFile(patchPath, "utf8")).toContain("mcp-docs");
+    expect(await readFile(`${patchPath}.bak`, "utf8")).toBe("");
+    await tool.execute(
+      "apply-second",
+      { action: "apply", serverId: "search", command: ["node", "search.js"], confirm: true },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(await readFile(patchPath, "utf8")).toContain("mcp-search");
     expect(await readFile(`${patchPath}.bak`, "utf8")).toBe("");
     expect((await panels.snapshot())[0]).toMatchObject({ id: "mcp-panel", data: { servers: [{ id: "docs", toolCount: 1 }] } });
   });

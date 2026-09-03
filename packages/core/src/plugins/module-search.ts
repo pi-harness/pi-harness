@@ -1,8 +1,9 @@
-import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { resolveExistingWorkspacePath } from "../workspace-path.js";
 
 const maxQueryLength = 120;
 const maxPathLength = 512;
@@ -24,11 +25,6 @@ export type ModuleSearchReport = {
   skippedFiles: number;
   truncated: boolean;
 };
-
-function inside(root: string, target: string): boolean {
-  const remainder = relative(root, target);
-  return remainder === "" || (remainder !== ".." && !remainder.startsWith(`..${"/"}`) && !remainder.startsWith("/"));
-}
 
 function moduleNames(source: string, kind: ModuleMatchKind): string[] {
   if (kind === "import") {
@@ -83,7 +79,7 @@ export function extractModuleMatches(source: string, path: string, query: string
     for (const entryKind of kinds) {
       if (kind === "all" && entryKind === "symbol" && /\bexport\b/u.test(line)) continue;
       for (const name of moduleNames(line, entryKind)) {
-        if (!name.toLocaleLowerCase().includes(normalizedQuery) && !line.toLocaleLowerCase().includes(normalizedQuery)) continue;
+        if (!name.toLocaleLowerCase().includes(normalizedQuery)) continue;
         matches.push({ kind: entryKind, name, path, line: index + 1, text: line });
       }
     }
@@ -105,16 +101,8 @@ async function filesUnder(target: string, root: string, files: string[]): Promis
     if (files.length >= maxFiles) return;
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
     const child = resolve(target, entry.name);
-    if (inside(root, child)) await filesUnder(child, root, files);
+    await filesUnder(child, root, files);
   }
-}
-
-function workspacePath(root: string, requested: string): string {
-  if (requested.length > maxPathLength || requested.includes("\\"))
-    throw new Error("Module search path must be a relative POSIX path of at most 512 characters");
-  const target = resolve(root, requested || ".");
-  if (!inside(root, target)) throw new Error("Module search path must stay inside the current workspace");
-  return target;
 }
 
 export default {
@@ -131,13 +119,18 @@ export default {
       const normalizedQuery = query.trim();
       if (normalizedQuery.length < 1 || normalizedQuery.length > maxQueryLength) throw new Error("Module search query must contain 1-120 characters");
       const normalizedKind = kind === "import" || kind === "export" || kind === "symbol" ? kind : "all";
-      const root = await realpath(context.piHarnessLaunch.cwd);
-      const target = workspacePath(root, requestedPath?.trim() ?? ".");
+      const requested = requestedPath?.trim() ?? ".";
+      if (requested.length > maxPathLength || requested.includes("\\"))
+        throw new Error("Module search path must be a relative POSIX path of at most 512 characters");
+      const resolved = await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, requested, "Module search path must stay inside the current workspace");
+      const root = resolved.root;
+      const target = resolved.target;
       const targetMetadata = await stat(target);
       const files: string[] = [];
       await filesUnder(target, root, files);
       const limit = Math.max(1, Math.min(maxResults, Math.trunc(requestedLimit ?? maxResults)));
       const matches: ModuleMatch[] = [];
+      let truncated = false;
       let scannedFiles = 0;
       let skippedFiles = targetMetadata.isFile() && targetMetadata.size > maxFileBytes ? 1 : 0;
       for (const file of files) {
@@ -149,7 +142,10 @@ export default {
         }
         const source = await readFile(file, "utf8");
         scannedFiles += 1;
-        matches.push(...extractModuleMatches(source, relative(root, file), normalizedQuery, normalizedKind).slice(0, limit - matches.length));
+        const fileMatches = extractModuleMatches(source, relative(root, file), normalizedQuery, normalizedKind);
+        const remaining = limit - matches.length;
+        matches.push(...fileMatches.slice(0, remaining));
+        if (fileMatches.length > remaining) truncated = true;
       }
       const report: ModuleSearchReport = {
         query: normalizedQuery,
@@ -158,7 +154,7 @@ export default {
         matches,
         scannedFiles,
         skippedFiles,
-        truncated: matches.length >= limit && files.length > scannedFiles,
+        truncated: truncated || (matches.length >= limit && files.length > scannedFiles + skippedFiles),
       };
       latest = report;
       return report;

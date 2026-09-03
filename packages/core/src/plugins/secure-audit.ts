@@ -3,6 +3,7 @@ import { basename, join, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { resolveExistingWorkspacePath } from "../workspace-path.js";
 
 const maxFiles = 500;
 const maxFileBytes = 512 * 1024;
@@ -76,20 +77,14 @@ async function workspaceFiles(root: string, current: string, files: string[]): P
   }
 }
 
-function workspaceTarget(root: string, requested: string): string {
-  const resolvedRoot = resolve(root);
-  const target = resolve(resolvedRoot, requested);
-  const outside = relative(resolvedRoot, target);
-  if (outside.startsWith("..") || outside.includes("/..")) throw new Error("Audit path must stay inside the current workspace");
-  return target;
-}
-
 export async function auditWorkspace(root: string, requested = "."): Promise<AuditSummary> {
-  const target = workspaceTarget(root, requested);
+  const resolved = await resolveExistingWorkspacePath(root, requested, "Audit path must stay inside the current workspace");
+  root = resolved.root;
+  const target = resolved.target;
   const metadata = await stat(target);
   const files: string[] = [];
-  if (metadata.isFile()) files.push(relative(resolve(root), target));
-  else if (metadata.isDirectory()) await workspaceFiles(resolve(root), target, files);
+  if (metadata.isFile()) files.push(relative(root, target));
+  else if (metadata.isDirectory()) await workspaceFiles(root, target, files);
   else throw new Error("Audit target must be a file or directory");
   const findings: AuditFinding[] = [];
   let skipped = 0;
@@ -107,7 +102,7 @@ export async function auditWorkspace(root: string, requested = "."): Promise<Aud
     }
     findings.push(...auditText(file || basename(fullPath), source));
   }
-  return summarizeAudit(findings, relative(resolve(root), target) || ".", files.length, skipped);
+  return summarizeAudit(findings, relative(root, target) || ".", files.length, skipped);
 }
 
 function emptySummary(): AuditSummary {

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { basename, join } from "node:path";
@@ -49,14 +50,11 @@ export default {
           const status = await git(context.piHarnessLaunch.cwd, ["status", "--short"]);
           const patch = await git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--binary", "--no-ext-diff", "--", ".", ":(exclude).pi-harness/capsules"]);
           await mkdir(directory, { recursive: true });
-          const timestamp = new Date()
-            .toISOString()
-            .replace(/[-:]/g, "")
-            .replace(/\.\d{3}Z$/, "Z");
-          const name = `${timestamp}.patch`;
+          const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
+          const name = `${timestamp}-${randomUUID().slice(0, 8)}.patch`;
           const path = join(directory, name);
-          await writeFile(path, patch, "utf8");
-          const files = status.split("\n").filter((line) => line.trim() !== "").length;
+          await writeFile(path, patch, { encoding: "utf8", mode: 0o600, flag: "wx" });
+          const files = status.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("??")).length;
           latest = { name, bytes: Buffer.byteLength(patch), files };
           return { content: [{ type: "text", text: `Git snapshot saved: ${name}` }], details: { path, bytes: latest.bytes, files } };
         },

@@ -1,8 +1,9 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { rename, writeFile } from "node:fs/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { prepareWorkspaceFile } from "../workspace-path.js";
 
 const maxOutputBytes = 1024 * 1024;
 const defaultFileName = "pi-session.md";
@@ -40,15 +41,11 @@ export function renderSessionMarkdown(messages: readonly unknown[]): string {
   return `# Pi Harness Session\n\n${sections.length > 0 ? `${sections.join("\n\n")}\n` : ""}`;
 }
 
-function workspacePath(workspace: string, requested: string): string {
+function normalizedOutputPath(requested: string): string {
   const normalized = requested.trim() || defaultFileName;
   if (normalized.length > 256) throw new Error("Session export path must be at most 256 characters");
-  const root = resolve(workspace);
-  const target = resolve(root, normalized);
-  const relativePath = relative(root, target);
-  if (relativePath.startsWith("..") || relativePath.includes("/..")) throw new Error("Session export path must stay inside the current workspace");
-  if (!relativePath.endsWith(".md")) throw new Error("Session export path must end with .md");
-  return target;
+  if (!normalized.toLowerCase().endsWith(".md")) throw new Error("Session export path must end with .md");
+  return normalized;
 }
 
 export default {
@@ -69,15 +66,19 @@ export default {
         async execute(_toolCallId, params): Promise<AgentToolResult<ExportState>> {
           const runtime = context.get("piRuntime");
           if (runtime === undefined) throw new Error("Pi runtime is not ready");
-          const target = workspacePath(context.piHarnessLaunch.cwd, params.path ?? defaultFileName);
-          const existing = await stat(target).catch(() => undefined);
-          if (existing !== undefined && params.confirm !== true) throw new Error("Session export would overwrite an existing file; retry with confirm=true");
+          const prepared = await prepareWorkspaceFile(
+            context.piHarnessLaunch.cwd,
+            normalizedOutputPath(params.path ?? defaultFileName),
+            "Session export path must stay inside the current workspace and target a regular file",
+          );
+          if (prepared.exists && params.confirm !== true) throw new Error("Session export would overwrite an existing file; retry with confirm=true");
           const markdown = renderSessionMarkdown(runtime.session.messages);
           const bytes = Buffer.byteLength(markdown, "utf8");
           if (bytes > maxOutputBytes) throw new Error("Session export exceeds the 1 MiB output limit");
-          await mkdir(dirname(target), { recursive: true });
-          await writeFile(target, markdown, { encoding: "utf8", mode: 0o600 });
-          latest = { path: relative(context.piHarnessLaunch.cwd, target), bytes, messages: runtime.session.messages.length };
+          const temporary = `${prepared.target}.${randomUUID()}.tmp`;
+          await writeFile(temporary, markdown, { encoding: "utf8", mode: 0o600 });
+          await rename(temporary, prepared.target);
+          latest = { path: prepared.relativePath, bytes, messages: runtime.session.messages.length };
           return { content: [{ type: "text", text: `Session exported to ${latest.path}.` }], details: latest };
         },
       }),

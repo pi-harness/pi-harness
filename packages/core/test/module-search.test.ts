@@ -20,6 +20,9 @@ describe("module search", () => {
       { kind: "import", name: "readFile", path: "config.ts", line: 1, text: 'import { readFile } from "node:fs/promises";' },
       { kind: "export", name: "readConfig", path: "config.ts", line: 2, text: "export function readConfig() { return readFile; }" },
     ]);
+    expect(extractModuleMatches('import { readFile, writeFile } from "node:fs/promises";', "config.ts", "readFile", "import")).toEqual([
+      { kind: "import", name: "readFile", path: "config.ts", line: 1, text: 'import { readFile, writeFile } from "node:fs/promises";' },
+    ]);
   });
 
   test("searches source files without traversing dependency directories", async () => {
@@ -46,6 +49,26 @@ describe("module search", () => {
           ],
           scannedFiles: 2,
         },
+      });
+    } finally {
+      await context.fiber.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("reports truncation when one file contains more matches than the limit", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-module-search-limit-"));
+    await writeFile(join(cwd, "module.ts"), "export const readOne = 1; export const readTwo = 2;\n", "utf8");
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(moduleSearchPlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "module_search");
+      await expect(tool!.execute("call-1", { query: "read", kind: "export", maxResults: 1 }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { matches: [{ name: "readOne" }], truncated: true },
       });
     } finally {
       await context.fiber.dispose();

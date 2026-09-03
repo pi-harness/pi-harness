@@ -1,8 +1,9 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { resolveExistingWorkspacePath } from "../workspace-path.js";
 
 export type DependencyConflict = {
   name: string;
@@ -24,14 +25,6 @@ export type ParsedRequirements = {
   constraints: DependencyConflict[];
 };
 
-function workspacePath(workspace: string, requested: string): string {
-  const root = resolve(workspace);
-  const target = resolve(root, requested);
-  const path = relative(root, target);
-  if (path.startsWith("..") || path.includes("/..")) throw new Error("Manifest path must stay inside the current workspace");
-  return target;
-}
-
 function conflictList(entries: readonly { name: string; constraint: string }[]): DependencyConflict[] {
   const grouped = new Map<string, string[]>();
   for (const entry of entries) {
@@ -39,7 +32,67 @@ function conflictList(entries: readonly { name: string; constraint: string }[]):
     if (!values.includes(entry.constraint)) values.push(entry.constraint);
     grouped.set(entry.name, values);
   }
-  return [...grouped.entries()].filter(([, constraints]) => constraints.length > 1).map(([name, constraints]) => ({ name, constraints }));
+  return [...grouped.entries()].filter(([, constraints]) => constraintsConflict(constraints)).map(([name, constraints]) => ({ name, constraints }));
+}
+
+type NumericVersion = readonly number[];
+
+function numericVersion(value: string): NumericVersion | undefined {
+  const match = /^v?(\d+(?:\.\d+){0,3})(?:[-+].*)?$/u.exec(value.trim());
+  return match?.[1]?.split(".").map(Number);
+}
+
+function compareVersions(left: NumericVersion, right: NumericVersion): number {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return Math.sign(difference);
+  }
+  return 0;
+}
+
+function constraintAllows(constraint: string, version: NumericVersion): boolean {
+  const parts = constraint
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.every((part) => {
+    const match = /^(===|==|=|>=|<=|>|<|\^|~)?\s*(v?\d+(?:\.\d+){0,3}(?:[-+][^\s]+)?)$/u.exec(part);
+    if (match === null) return true;
+    const candidate = numericVersion(match[2] ?? "");
+    if (candidate === undefined) return true;
+    const comparison = compareVersions(version, candidate);
+    switch (match[1] ?? "=") {
+      case ">=":
+        return comparison >= 0;
+      case "<=":
+        return comparison <= 0;
+      case ">":
+        return comparison > 0;
+      case "<":
+        return comparison < 0;
+      case "^":
+        return (
+          comparison >= 0 &&
+          version[0] === candidate[0] &&
+          ((candidate[0] ?? 0) > 0 || (version[1] === candidate[1] && ((candidate[1] ?? 0) > 0 || version[2] === candidate[2])))
+        );
+      case "~":
+        return comparison >= 0 && version[0] === candidate[0] && version[1] === candidate[1];
+      default:
+        return comparison === 0;
+    }
+  });
+}
+
+function constraintsConflict(constraints: readonly string[]): boolean {
+  if (constraints.length < 2) return false;
+  const pinned = constraints.flatMap((constraint) => {
+    const match = /^(?:===|==|=)?\s*(v?\d+(?:\.\d+){0,3}(?:[-+][^\s]+)?)$/u.exec(constraint);
+    const version = match === null ? undefined : numericVersion(match[1] ?? "");
+    return version === undefined ? [] : [version];
+  });
+  if (pinned.length === 0) return false;
+  return pinned.some((version) => constraints.some((constraint) => !constraintAllows(constraint, version)));
 }
 
 export function parseRequirements(source: string): ParsedRequirements {
@@ -76,7 +129,7 @@ async function inspectRequirements(workspace: string, target: string): Promise<D
   const parsed = parseRequirements(await readFile(target, "utf8"));
   const missing: string[] = [];
   for (const name of parsed.names) {
-    if (!(await installedPythonPackage(workspace, name))) missing.push(name);
+    if (!(await installedPythonPackage(dirname(target), name)) && !(await installedPythonPackage(workspace, name))) missing.push(name);
   }
   return {
     manifest: relative(workspace, target) || ".",
@@ -90,7 +143,9 @@ async function inspectRequirements(workspace: string, target: string): Promise<D
 }
 
 export async function inspectManifest(workspace: string, requested = "package.json"): Promise<DependencyReport> {
-  const target = workspacePath(workspace, requested);
+  const resolved = await resolveExistingWorkspacePath(workspace, requested, "Manifest path must stay inside the current workspace");
+  const target = resolved.target;
+  workspace = resolved.root;
   const source = await readFile(target, "utf8");
   if (basename(target).toLowerCase().startsWith("requirements") && target.toLowerCase().endsWith(".txt")) return inspectRequirements(workspace, target);
   let parsed: unknown;
@@ -109,16 +164,30 @@ export async function inspectManifest(workspace: string, requested = "package.js
       : [];
   });
   const unique = [...new Set(entries.map((entry) => entry.name))];
+  const moduleRoots: string[] = [];
+  for (let directory = dirname(target); ; directory = dirname(directory)) {
+    moduleRoots.push(join(directory, "node_modules"));
+    if (directory === workspace) break;
+  }
   const missing: string[] = [];
   const invalid: string[] = [];
   for (const name of unique) {
-    const modulePath = join(workspace, "node_modules", ...name.split("/"));
-    try {
-      const moduleStat = await stat(modulePath);
-      if (!moduleStat.isDirectory()) invalid.push(name);
-    } catch {
-      missing.push(name);
+    let found = false;
+    for (const moduleRoot of moduleRoots) {
+      try {
+        const moduleStat = await stat(join(moduleRoot, ...name.split("/")));
+        if (moduleStat.isDirectory()) {
+          found = true;
+          break;
+        }
+        invalid.push(name);
+        found = true;
+        break;
+      } catch {
+        continue;
+      }
     }
+    if (!found) missing.push(name);
   }
   return {
     manifest: relative(workspace, target) || ".",

@@ -1,10 +1,11 @@
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { resolveExistingWorkspacePath } from "../workspace-path.js";
 
 const maxDepthLimit = 8;
 const maxNodesLimit = 500;
@@ -80,18 +81,6 @@ export async function listWorkspaceNodes(root: string, options: WorkspaceNodeOpt
   };
 }
 
-function inside(root: string, target: string): boolean {
-  const remainder = relative(root, target);
-  return remainder === "" || (remainder !== ".." && !remainder.startsWith(`..${"/"}`) && !remainder.startsWith("/"));
-}
-
-function workspacePath(root: string, requested: string): string {
-  if (requested.length > 512 || requested.includes("\\")) throw new Error("Workspace navigator path must be a relative POSIX path of at most 512 characters");
-  const target = resolve(root, requested || ".");
-  if (!inside(root, target)) throw new Error("Workspace navigator path must stay inside the current workspace");
-  return target;
-}
-
 export default {
   name: "pi-workspace-navigator",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
@@ -99,8 +88,16 @@ export default {
     let latest: (WorkspaceNodeReport & { path: string; maxDepth: number; maxNodes: number }) | undefined;
     let latestGit: WorkspaceGitStatus | undefined;
     const inspect = async (requestedPath: string | undefined, requestedDepth: number | undefined, requestedNodes: number | undefined) => {
-      const root = await realpath(context.piHarnessLaunch.cwd);
-      const target = workspacePath(root, requestedPath?.trim() ?? ".");
+      const requested = requestedPath?.trim() ?? ".";
+      if (requested.length > 512 || requested.includes("\\"))
+        throw new Error("Workspace navigator path must be a relative POSIX path of at most 512 characters");
+      const resolved = await resolveExistingWorkspacePath(
+        context.piHarnessLaunch.cwd,
+        requested,
+        "Workspace navigator path must stay inside the current workspace",
+      );
+      const root = resolved.root;
+      const target = resolved.target;
       const options = normalizeOptions({
         ...(requestedDepth === undefined ? {} : { maxDepth: requestedDepth }),
         ...(requestedNodes === undefined ? {} : { maxNodes: requestedNodes }),

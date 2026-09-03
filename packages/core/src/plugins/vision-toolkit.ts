@@ -1,8 +1,9 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, isAbsolute, relative, resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { resolveExistingWorkspacePath } from "../workspace-path.js";
 
 const maxImages = 100;
 const maxImageBytes = 20 * 1024 * 1024;
@@ -53,18 +54,15 @@ function dimensions(data: Buffer, mimeType: string): { width: number; height: nu
   return undefined;
 }
 
-function imagePath(root: string, requested: string): { absolute: string; relativePath: string } {
-  const workspace = resolve(root);
-  const absolute = resolve(workspace, requested);
-  const relativePath = relative(workspace, absolute);
-  if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(".." + "/")) throw new Error("Image path must stay inside the workspace");
-  const mimeType = mimeByExtension[extname(absolute).toLowerCase()];
+async function imagePath(root: string, requested: string): Promise<{ absolute: string; relativePath: string }> {
+  const resolved = await resolveExistingWorkspacePath(root, requested, "Image path must stay inside the workspace");
+  const mimeType = mimeByExtension[extname(resolved.target).toLowerCase()];
   if (mimeType === undefined) throw new Error("Unsupported image type; use png, jpeg, gif, or webp");
-  return { absolute, relativePath: relativePath || "." };
+  return { absolute: resolved.target, relativePath: resolved.relativePath };
 }
 
 export async function imageInfo(root: string, requested: string): Promise<VisionAsset> {
-  const { absolute, relativePath } = imagePath(root, requested);
+  const { absolute, relativePath } = await imagePath(root, requested);
   const mimeType = mimeByExtension[extname(absolute).toLowerCase()]!;
   const metadata = await stat(absolute);
   if (!metadata.isFile()) throw new Error("Image path is not a file");

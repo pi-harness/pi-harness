@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -80,6 +80,34 @@ describe("git time capsule restore", () => {
         details: { restored: true },
       });
       await expect(readFile(join(workspace, "note.txt"), "utf8")).resolves.toBe("before\n");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("creates distinct capsules and excludes untracked files from the recoverable count", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-distinct-workspace-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-capsule-distinct-agent-"));
+    temporaryDirectories.push(workspace, agentDir);
+    await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: workspace });
+    await execFileAsync("git", ["config", "user.email", "test@example.invalid"], { cwd: workspace });
+    await execFileAsync("git", ["config", "user.name", "Pi Harness Test"], { cwd: workspace });
+    await writeFile(join(workspace, "tracked.txt"), "before\n", "utf8");
+    await execFileAsync("git", ["add", "tracked.txt"], { cwd: workspace });
+    await execFileAsync("git", ["commit", "-qm", "fixture"], { cwd: workspace });
+    await writeFile(join(workspace, "tracked.txt"), "after\n", "utf8");
+    await writeFile(join(workspace, "untracked.txt"), "not in the patch\n", "utf8");
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(gitTimeCapsulePlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "git_snapshot");
+      await expect(tool!.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { files: 1 } });
+      await expect(tool!.execute("call-2", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { files: 1 } });
+      await expect(readdir(join(agentDir, "capsules"))).resolves.toHaveLength(2);
     } finally {
       await context.fiber.dispose();
     }

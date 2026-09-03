@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -27,7 +27,12 @@ describe("vision toolkit", () => {
 
   test("rejects image paths outside the workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-vision-toolkit-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-vision-toolkit-outside-"));
     temporaryDirectories.push(root);
+    temporaryDirectories.push(outside);
     await expect(imageInfo(root, "../outside.png")).rejects.toThrow(/inside the workspace/);
+    await writeFile(join(outside, "outside.png"), Buffer.alloc(24));
+    await symlink(outside, join(root, "linked"));
+    await expect(imageInfo(root, "linked/outside.png")).rejects.toThrow(/inside the workspace/);
   });
 });

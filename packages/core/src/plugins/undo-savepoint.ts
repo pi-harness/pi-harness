@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, extname, join, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { isPathInside, prepareWorkspaceFile, resolveExistingWorkspacePath } from "../workspace-path.js";
 
 const defaultStoreName = "undo-savepoints";
 const defaultTrackedPaths = ["."];
@@ -63,13 +64,13 @@ function safeStoreName(value: string | undefined): string {
 }
 
 function withinRoot(root: string, candidate: string): boolean {
-  const rel = relative(root, candidate);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+  return isPathInside(root, candidate);
 }
 
-function normalizedTrackedPaths(cwd: string, paths: readonly string[]): string[] {
+async function normalizedTrackedPaths(cwd: string, paths: readonly string[]): Promise<string[]> {
   const values = paths.length === 0 ? defaultTrackedPaths : paths;
-  return [...new Set(values.map((item) => resolve(cwd, item)))].filter((item) => withinRoot(cwd, item));
+  const resolved = await Promise.all(values.map((item) => resolveExistingWorkspacePath(cwd, item, "Tracked paths must stay inside the current workspace")));
+  return [...new Set(resolved.map((item) => item.target))];
 }
 
 function relativePath(cwd: string, path: string): string {
@@ -158,12 +159,12 @@ async function diffManifest(root: string, manifest: SavepointManifest): Promise<
   const missing: string[] = [];
   let unchanged = 0;
   for (const file of manifest.files) {
-    const path = join(root, ...file.path.split("/"));
-    if (!withinRoot(root, resolve(path))) {
+    const path = await resolveExistingWorkspacePath(root, file.path, "Savepoint path must stay inside the workspace").catch(() => undefined);
+    if (path === undefined) {
       missing.push(file.path);
       continue;
     }
-    const content = await readFile(path).catch(() => undefined);
+    const content = await readFile(path.target).catch(() => undefined);
     if (content === undefined) {
       missing.push(file.path);
     } else if (hash(content) === file.sha256) {
@@ -179,13 +180,16 @@ export default {
   name: "pi-undo-savepoint",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   Config,
-  apply(context: Context, config: UndoSavepointPluginConfig) {
-    const cwd = context.piHarnessLaunch.cwd;
+  async apply(context: Context, config: UndoSavepointPluginConfig) {
+    const cwd = (await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, ".", "Workspace path is invalid")).root;
     const store = join(context.piHarnessLaunch.agentDir, safeStoreName(config.storeName));
-    const trackedPaths = normalizedTrackedPaths(cwd, config.trackedPaths ?? defaultTrackedPaths);
+    const trackedPaths = await normalizedTrackedPaths(cwd, config.trackedPaths ?? defaultTrackedPaths);
     const maxFiles = Math.max(1, Math.min(2_000, Math.trunc(config.maxFiles ?? 400)));
     const maxFileBytes = Math.max(1, Math.min(maxSnapshotBytes, Math.trunc(config.maxFileBytes ?? 256 * 1024)));
-    const manifestPath = (id: string): string => join(store, `${id}.json`);
+    const manifestPath = (id: string): string => {
+      if (!/^\d{17}-[0-9a-f]{8}$/u.test(id)) throw new Error("Invalid savepoint id");
+      return join(store, `${id}.json`);
+    };
     const load = async (id: string): Promise<SavepointManifest> => readManifest(manifestPath(id));
     const save = async (reason: string): Promise<SavepointManifest> => {
       const createdAt = new Date().toISOString();
@@ -206,12 +210,14 @@ export default {
     const restore = async (manifest: SavepointManifest): Promise<string[]> => {
       const restored: string[] = [];
       for (const file of manifest.files) {
-        const path = resolve(cwd, ...file.path.split("/"));
-        if (!withinRoot(cwd, path) || isSensitivePath(path)) continue;
+        const lexicalPath = resolve(cwd, ...file.path.split("/"));
+        if (!withinRoot(cwd, lexicalPath) || isSensitivePath(lexicalPath)) continue;
         const content = Buffer.from(file.content, "base64");
         if (hash(content) !== file.sha256) throw new Error(`Savepoint integrity check failed: ${file.path}`);
-        await mkdir(dirname(path), { recursive: true });
-        await writeFile(path, content, { mode: 0o600 });
+        const prepared = await prepareWorkspaceFile(cwd, file.path, `Savepoint path must stay inside the workspace and target a regular file: ${file.path}`);
+        const temporary = `${prepared.target}.${randomUUID()}.tmp`;
+        await writeFile(temporary, content, { mode: 0o600 });
+        await rename(temporary, prepared.target);
         restored.push(file.path);
       }
       return restored;

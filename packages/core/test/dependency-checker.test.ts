@@ -44,5 +44,17 @@ describe("dependency checker", () => {
       missing: [],
       conflicts: [{ name: "react", constraints: ["18.3.1", "19.0.0"] }],
     });
+
+    await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { react: "^18.0.0" }, devDependencies: { react: ">=18" } }));
+    await expect(inspectManifest(root)).resolves.toMatchObject({ conflicts: [] });
+  });
+
+  test("checks dependencies relative to a nested package manifest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-dependency-checker-nested-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, "apps/example/node_modules/local-only"), { recursive: true });
+    await writeFile(join(root, "apps/example/package.json"), JSON.stringify({ dependencies: { "local-only": "1.0.0" } }));
+
+    await expect(inspectManifest(root, "apps/example/package.json")).resolves.toMatchObject({ installed: 1, missing: [] });
   });
 });

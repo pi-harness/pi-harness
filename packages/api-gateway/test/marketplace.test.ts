@@ -169,8 +169,44 @@ describe("plugin marketplace registry", () => {
 
     expect(first.get("@deepseek-ai/cordis-plugin-timer")).toEqual({ downloads30d: 1_014_632, quality: 0.92, updatedAt: "2026-08-30T13:14:00.557Z" });
     expect(first.has("@pi-harness/core")).toBe(false);
-    expect(second).toBe(first);
+    expect(second).toEqual(first);
     expect(requests).toHaveLength(3);
+  });
+
+  test("keeps successful package statistics cached while retrying only failed packages", async () => {
+    let timestamp = 1_000;
+    let flakyAvailable = false;
+    const requests = new Map<string, number>();
+    const fetcher = (url: string): Promise<Response> => {
+      const parsed = new URL(url);
+      const packageName = parsed.hostname === "registry.npmjs.org" ? parsed.searchParams.get("text")! : decodeURIComponent(parsed.pathname.split("/").at(-1)!);
+      requests.set(packageName, (requests.get(packageName) ?? 0) + 1);
+      if (packageName === "flaky-package" && !flakyAvailable) throw new Error("temporary npm failure");
+      if (parsed.hostname === "registry.npmjs.org") {
+        return Promise.resolve(
+          Response.json({
+            objects: [{ package: { name: packageName, date: "2026-09-01T00:00:00.000Z" }, score: { detail: { quality: 0.9 } } }],
+          }),
+        );
+      }
+      return Promise.resolve(Response.json({ downloads: packageName === "stable-package" ? 100 : 10 }));
+    };
+    const base = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "cordis-timer")!;
+    const plugins = [
+      { ...base, id: "stable", packageName: "stable-package" },
+      { ...base, id: "flaky", packageName: "flaky-package" },
+    ];
+    const load = createMarketplaceStatisticsLoader({ fetcher, now: () => timestamp, ttlMs: 10_000, failureTtlMs: 100 });
+
+    await load(plugins);
+    flakyAvailable = true;
+    timestamp += 101;
+    const retried = await load(plugins);
+
+    expect(retried.get("stable-package")?.downloads30d).toBe(100);
+    expect(retried.get("flaky-package")?.downloads30d).toBe(10);
+    expect(requests.get("stable-package")).toBe(2);
+    expect(requests.get("flaky-package")).toBe(3);
   });
 
   test("keeps partial npm statistics when the download endpoint is unavailable", async () => {

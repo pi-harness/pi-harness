@@ -67,7 +67,7 @@ describe("session bridge", () => {
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
     await context.plugin(sessionPlugin, { storage: "memory" });
-    await context.plugin(sessionBridge, {});
+    await context.plugin(sessionBridge);
     const tools = context.piTools.snapshot().customTools;
     const exporter = tools.find((tool) => tool.name === "session_bridge_export");
     const importer = tools.find((tool) => tool.name === "session_bridge_import");
@@ -75,9 +75,9 @@ describe("session bridge", () => {
     expect(exporter).toBeDefined();
     expect(importer).toBeDefined();
     expect(previewer).toBeDefined();
-    const exported = await exporter!.execute("export", {});
+    const exported = await exporter!.execute("export", {}, undefined, undefined, {} as never);
     expect(exported.details).toMatchObject({ version: 1, messageCount: 0 });
-    await importer!.execute("import", { package: JSON.stringify(exported.details) });
+    await importer!.execute("import", { package: JSON.stringify(exported.details) }, undefined, undefined, {} as never);
     expect(context.piSession.manager.getEntries().some((entry) => entry.type === "custom_message" && entry.customType === "pi-harness/session-bridge")).toBe(
       true,
     );
@@ -93,10 +93,10 @@ describe("session bridge", () => {
     const activeManager = SessionManager.inMemory("/active");
     activeManager.appendMessage({ role: "user", content: [{ type: "text", text: "active session" }], timestamp: Date.now() });
     context.provide("piRuntime", { session: { sessionManager: activeManager } } as never);
-    await context.plugin(sessionBridge, {});
+    await context.plugin(sessionBridge);
     const previewer = context.piTools.snapshot().customTools.find((tool) => tool.name === "session_bridge_preview");
     expect(previewer).toBeDefined();
-    const result = await previewer!.execute("preview", {});
+    const result = await previewer!.execute("preview", {}, undefined, undefined, {} as never);
     expect(result.details).toMatchObject({ source: { cwd: "/active" }, preview: { goal: "active session" } });
     await context.fiber.dispose();
   });

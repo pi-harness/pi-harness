@@ -5,6 +5,7 @@ describe("better sidebar", () => {
   test("summarizes workspace, Git, and session context without exposing full paths", () => {
     const report = summarizeSidebar({
       cwd: "/workspace/project",
+      gitAvailable: true,
       branch: "feature/sidebar",
       clean: false,
       changedFiles: [
@@ -18,6 +19,7 @@ describe("better sidebar", () => {
     });
     expect(report).toEqual({
       cwd: "/workspace/project",
+      gitAvailable: true,
       branch: "feature/sidebar",
       clean: false,
       changedFiles: [
@@ -37,6 +39,7 @@ describe("better sidebar", () => {
     expect(
       summarizeSidebar({
         cwd: "/tmp/project",
+        gitAvailable: false,
         branch: null,
         clean: false,
         changedFiles: [],
@@ -49,5 +52,22 @@ describe("better sidebar", () => {
       summary: "非 Git 工作区 · 无变更",
       changedCount: 0,
     });
+  });
+
+  test("distinguishes detached HEAD and counts changes before truncating details", () => {
+    const report = summarizeSidebar({
+      cwd: "/workspace/project",
+      gitAvailable: true,
+      branch: null,
+      clean: false,
+      changedFiles: Array.from({ length: 20 }, (_, index) => ({ path: `file-${index}.ts`, status: " M" })),
+      directoryCount: 1,
+      fileCount: 20,
+      truncated: false,
+      sessionId: "session",
+    });
+    expect(report.summary).toBe("detached HEAD · 20 个变更");
+    expect(report.changedCount).toBe(20);
+    expect(report.changedFiles).toHaveLength(12);
   });
 });

@@ -1,12 +1,13 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { PiMcpServerSnapshot } from "../services.js";
 
-type McpPanelServer = PiMcpServerSnapshot & { toolCount: number; statusSource: "runtime" };
+type McpPanelServer = Omit<PiMcpServerSnapshot, "command"> & { executable: string; toolCount: number; statusSource: "runtime" };
 type McpPanelHealth = { serverId: string; status: string; severity: "ok" | "warning"; suggestions: string[] };
 
 export interface McpPanelPluginConfig {
@@ -73,26 +74,50 @@ export default {
     const snapshot = (): McpPanelServer[] => {
       const customTools = context.piTools.snapshot().customTools;
       return context.piMcp.snapshot().servers.map((server) => ({
-        ...server,
-        command: [...server.command],
+        id: server.id,
+        status: server.status,
+        startedAt: server.startedAt,
+        executable: basename(server.command[0] ?? ""),
         toolCount: serverTools(server.id, customTools).length,
         statusSource: "runtime",
       }));
     };
     const buildPatch = (serverId: string, command: readonly string[], autoStart: boolean): string =>
       patchFragment(validateServerId(serverId), validateCommand(command), autoStart);
+    let patchWriteQueue = Promise.resolve();
     const applyPatch = async (fragment: string, serverId: string): Promise<string> => {
-      if (patchTarget === undefined) throw new Error("MCP profile writes are disabled; configure patchPath first");
-      const existing = await readFile(patchTarget, "utf8").catch((error: unknown) => {
-        if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") return "";
-        throw error;
+      const write = patchWriteQueue.then(async () => {
+        if (patchTarget === undefined) throw new Error("MCP profile writes are disabled; configure patchPath first");
+        await mkdir(dirname(patchTarget), { recursive: true });
+        const metadata = await lstat(patchTarget).catch((error: unknown) => {
+          if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+          throw error;
+        });
+        if (metadata?.isSymbolicLink() || (metadata !== undefined && !metadata.isFile()))
+          throw new Error("MCP profile patch target must be a regular file and cannot be a symbolic link");
+        const existing = metadata === undefined ? "" : await readFile(patchTarget, "utf8");
+        const rowPattern = new RegExp(`^- id: mcp-${serverId}\\s*$`, "mu");
+        if (rowPattern.test(existing)) throw new Error(`MCP server patch already exists: ${serverId}`);
+        const backup = `${patchTarget}.bak`;
+        await writeFile(backup, existing, { encoding: "utf8", mode: 0o600, flag: "wx" }).catch((error: unknown) => {
+          if (!(error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST")) throw error;
+        });
+        const temporary = `${patchTarget}.${randomUUID()}.tmp`;
+        let renamed = false;
+        try {
+          await writeFile(temporary, `${existing.trimEnd()}${existing.trimEnd() === "" ? "" : "\n"}${fragment}`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+          await rename(temporary, patchTarget);
+          renamed = true;
+        } finally {
+          if (!renamed) await unlink(temporary).catch(() => {});
+        }
+        return patchTarget;
       });
-      const rowPattern = new RegExp(`^- id: mcp-${serverId}\\s*$`, "mu");
-      if (rowPattern.test(existing)) throw new Error(`MCP server patch already exists: ${serverId}`);
-      await mkdir(dirname(patchTarget), { recursive: true });
-      await writeFile(`${patchTarget}.bak`, existing, { encoding: "utf8", mode: 0o600 });
-      await writeFile(patchTarget, `${existing.trimEnd()}${existing.trimEnd() === "" ? "" : "\n"}${fragment}`, { encoding: "utf8", mode: 0o600 });
-      return patchTarget;
+      patchWriteQueue = write.then(
+        () => undefined,
+        () => undefined,
+      );
+      return write;
     };
     const unregister = context.piTools.register(
       defineTool({

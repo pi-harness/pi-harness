@@ -335,16 +335,35 @@ async function appendMarketplaceProfile(configPath: string, plugin: MarketplaceP
 async function updateMarketplaceProfile(configPath: string, entryId: string, update: { disabled?: boolean; remove?: boolean }): Promise<string> {
   const source = await readFile(configPath, "utf8");
   const escapedId = entryId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^- id: ${escapedId}\\n(?:(?!^- id: ).*(?:\\n|$))*`, "m");
+  const pattern = new RegExp(`^([ \\t]*)- id: ${escapedId}[ \\t]*(?:\\r?\\n|$)`, "m");
   const match = source.match(pattern);
   if (match === null) throw new Error(`Installed plugin profile entry was not found: ${entryId}`);
+  const indent = match[1] ?? "";
+  const start = match.index ?? 0;
+  let end = source.length;
+  const linePattern = /^([ \t]*)(?=\S)/gm;
+  linePattern.lastIndex = start + match[0].length;
+  for (let line = linePattern.exec(source); line !== null; line = linePattern.exec(source)) {
+    const lineIndent = line[1] ?? "";
+    const content = source.slice(line.index + lineIndent.length);
+    if (lineIndent.length < indent.length || (lineIndent === indent && content.startsWith("- "))) {
+      end = line.index;
+      break;
+    }
+  }
+  const originalBlock = source.slice(start, end);
   if (update.remove === true) {
-    await writeFile(configPath, source.replace(match[0], ""), "utf8");
+    await writeFile(configPath, source.slice(0, start) + source.slice(end), "utf8");
     return source;
   }
-  let block = match[0].replace(/^ {2}disabled: .*\n/m, "");
-  if (update.disabled === true) block = block.replace(/^( {2}name: .*\n)/m, "$1  disabled: true\n");
-  await writeFile(configPath, source.replace(match[0], block), "utf8");
+  const childIndent = `${indent}  `;
+  const disabledPattern = new RegExp(`^${childIndent}disabled: .*\\r?\\n`, "m");
+  let block = originalBlock.replace(disabledPattern, "");
+  if (update.disabled === true) {
+    const namePattern = new RegExp(`^(${childIndent}name: .*\\r?\\n)`, "m");
+    block = block.replace(namePattern, `$1${childIndent}disabled: true\n`);
+  }
+  await writeFile(configPath, source.slice(0, start) + block + source.slice(end), "utf8");
   return source;
 }
 
@@ -828,7 +847,7 @@ export default {
         });
       },
     });
-    let marketplaceInstallInFlight = false;
+    let marketplaceMutationInFlight = false;
     const disposeMarketplaceInstall = services.webServer.register({
       path: "/api/marketplace/install",
       async handler(request, response) {
@@ -836,8 +855,8 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
-        if (marketplaceInstallInFlight) {
-          sendJson(response, 409, { error: "Another plugin installation is already running" });
+        if (marketplaceMutationInFlight) {
+          sendJson(response, 409, { error: "Another marketplace plugin change is already running" });
           return;
         }
         const loader = services.loader;
@@ -846,6 +865,7 @@ export default {
           sendJson(response, 501, { error: "Plugin installation is unavailable for this runtime" });
           return;
         }
+        marketplaceMutationInFlight = true;
         try {
           const payload = JSON.parse(await bodyText(request)) as { id?: unknown };
           if (typeof payload.id !== "string" || payload.id.trim() === "") {
@@ -862,7 +882,6 @@ export default {
             sendJson(response, 409, { error: "Plugin is already installed", plugin });
             return;
           }
-          marketplaceInstallInFlight = true;
           const packageJsonPath = join(services.launch.cwd, "package.json");
           const packageLockPath = join(services.launch.cwd, "package-lock.json");
           const packageJsonBefore = await readFile(packageJsonPath, "utf8").catch(() => undefined);
@@ -894,11 +913,11 @@ export default {
             if (packageJsonBefore !== undefined) await writeFile(packageJsonPath, packageJsonBefore, "utf8").catch(() => {});
             if (packageLockBefore !== undefined) await writeFile(packageLockPath, packageLockBefore, "utf8").catch(() => {});
             sendJson(response, 502, { error: errorText(error) });
-          } finally {
-            marketplaceInstallInFlight = false;
           }
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
+        } finally {
+          marketplaceMutationInFlight = false;
         }
       },
     });
@@ -915,6 +934,11 @@ export default {
           sendJson(response, 501, { error: "Plugin configuration is unavailable for this runtime" });
           return;
         }
+        if (marketplaceMutationInFlight) {
+          sendJson(response, 409, { error: "Another marketplace plugin change is already running" });
+          return;
+        }
+        marketplaceMutationInFlight = true;
         try {
           const payload = JSON.parse(await bodyText(request)) as { id?: unknown; enabled?: unknown };
           if (typeof payload.id !== "string" || typeof payload.enabled !== "boolean") {
@@ -931,7 +955,7 @@ export default {
             sendJson(response, 403, { error: "Built-in plugins cannot be changed" });
             return;
           }
-          const profileEntryId = entry.options.id.startsWith("marketplace-") ? entry.options.id : `marketplace-${plugin.id}`;
+          const profileEntryId = entry.options.id;
           const before = await updateMarketplaceProfile(configPath, profileEntryId, { disabled: !payload.enabled });
           try {
             await entry.update({ disabled: !payload.enabled });
@@ -942,6 +966,8 @@ export default {
           }
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
+        } finally {
+          marketplaceMutationInFlight = false;
         }
       },
     });
@@ -958,6 +984,11 @@ export default {
           sendJson(response, 501, { error: "Plugin configuration is unavailable for this runtime" });
           return;
         }
+        if (marketplaceMutationInFlight) {
+          sendJson(response, 409, { error: "Another marketplace plugin change is already running" });
+          return;
+        }
+        marketplaceMutationInFlight = true;
         try {
           const payload = JSON.parse(await bodyText(request)) as { id?: unknown };
           if (typeof payload.id !== "string") {
@@ -974,7 +1005,7 @@ export default {
             sendJson(response, 403, { error: "Only marketplace plugins can be uninstalled" });
             return;
           }
-          const profileEntryId = entry.options.id.startsWith("marketplace-") ? entry.options.id : `marketplace-${plugin.id}`;
+          const profileEntryId = entry.options.id;
           const profileBefore = await readFile(configPath, "utf8");
           const packageJsonPath = join(services.launch.cwd, "package.json");
           const packageLockPath = join(services.launch.cwd, "package-lock.json");
@@ -984,18 +1015,22 @@ export default {
           entry.parent.tree.write();
           try {
             await updateMarketplaceProfile(configPath, profileEntryId, { remove: true });
-            await runProcess("npm", ["uninstall", "--package-lock=false", plugin.packageName], services.launch.cwd);
+            if (needsMarketplacePackageInstall(plugin)) await runProcess("npm", ["uninstall", "--package-lock=false", plugin.packageName], services.launch.cwd);
             sendJson(response, 200, { uninstalled: true, id: payload.id });
           } catch (error) {
             await writeFile(configPath, profileBefore, "utf8").catch(() => {});
             if (packageJsonBefore !== undefined) await writeFile(packageJsonPath, packageJsonBefore, "utf8").catch(() => {});
             if (packageLockBefore !== undefined) await writeFile(packageLockPath, packageLockBefore, "utf8").catch(() => {});
             const options = entry.options as { name: string; config?: unknown; group?: boolean | null };
-            await loader.create({ name: options.name, config: options.config, ...(options.group ? { group: true } : {}) }).catch(() => {});
+            await loader
+              .create({ id: entry.options.id, name: options.name, config: options.config, ...(options.group ? { group: true } : {}) } as never)
+              .catch(() => {});
             sendJson(response, 502, { error: errorText(error) });
           }
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
+        } finally {
+          marketplaceMutationInFlight = false;
         }
       },
     });

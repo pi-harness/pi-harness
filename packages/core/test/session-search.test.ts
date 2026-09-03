@@ -21,4 +21,10 @@ describe("session search", () => {
     expect(() => searchSessionEntries([], "")).toThrow("Session search query must contain 1-120 characters");
     expect(() => searchSessionEntries([], "x".repeat(121))).toThrow("Session search query must contain 1-120 characters");
   });
+
+  test("centers long previews around the matching text", () => {
+    const result = searchSessionEntries([{ type: "message", message: { role: "user", content: `${"x".repeat(700)}needle${"y".repeat(700)}` } }], "needle");
+    expect(result[0]?.text).toContain("needle");
+    expect(result[0]?.text).toHaveLength(500);
+  });
 });
