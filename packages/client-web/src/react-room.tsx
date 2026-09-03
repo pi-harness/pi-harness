@@ -73,6 +73,7 @@ const capability = (name: string): string => {
     ["test-harness", "测试"],
     ["session-insights", "会话统计"],
     ["session-compare", "会话对比"],
+    ["secure-audit", "安全审计"],
     ["readme-gen", "文档生成"],
     ["i18n-pair", "国际化"],
     ["cleaner", "清理"],
@@ -157,6 +158,7 @@ const displayPluginName = (name: string): string => {
     ["@pi-harness/core/plugins/test-harness", "Test Harness"],
     ["@pi-harness/core/plugins/session-insights", "Session Insights"],
     ["@pi-harness/core/plugins/session-compare", "Session Compare"],
+    ["@pi-harness/core/plugins/secure-audit", "Secure Audit"],
     ["@pi-harness/core/plugins/readme-gen", "README Generator"],
     ["@pi-harness/core/plugins/i18n-pair", "I18n Pair"],
     ["@pi-harness/core/plugins/cleaner", "Harness Cleaner"],
@@ -1239,6 +1241,48 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">
               执行 session_compare 后显示两个会话的差异。
             </div>
+          )}
+        </div>
+      ) : panel.id === "secure-audit-panel" ? (
+        <div className="mt-3 grid gap-3">
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              ["扫描文件", data?.scanned ?? 0],
+              ["严重", data?.critical ?? 0],
+              ["高风险", data?.high ?? 0],
+              ["总发现", data?.total ?? 0],
+            ].map(([label, item]) => (
+              <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center" key={value(label)}>
+                <span className="block text-[10px] text-[#8a949f]">{value(label)}</span>
+                <strong className="mt-1 block text-[16px] font-semibold text-[#30343b]">{value(item)}</strong>
+              </div>
+            ))}
+          </div>
+          <div
+            className={`rounded-lg border px-3 py-3 text-[11px] ${Number(data?.total ?? 0) > 0 ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#198754]"}`}
+          >
+            {Number(data?.total ?? 0) > 0 ? "发现需要人工确认的安全风险。" : "未发现凭据泄露或危险命令。"}
+          </div>
+          {Array.isArray(data?.findings) && data.findings.length > 0 ? (
+            <div className="grid gap-2">
+              {data.findings.slice(0, 6).map((item, index) => {
+                const finding = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                const severity = value(finding.severity, "medium");
+                return (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(finding.path)}-${value(finding.line)}-${index}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <code className="min-w-0 truncate text-[10px] text-[#315fb8]">{value(finding.path)}</code>
+                      <span className={`shrink-0 text-[10px] font-semibold ${severity === "critical" ? "text-[#b42318]" : "text-[#9a6700]"}`}>{severity}</span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-4 text-[#65707b]">
+                      第 {value(finding.line)} 行 · {value(finding.message)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#8a949f]">运行 security_audit 后显示脱敏结果。</div>
           )}
         </div>
       ) : panel.id === "context-doctor-panel" ? (

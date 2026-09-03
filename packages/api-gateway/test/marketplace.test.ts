@@ -65,6 +65,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("session-export")?.category.id).toBe("workflow");
     expect(official.get("session-search")?.category.id).toBe("discovery");
     expect(official.get("session-compare")?.category.id).toBe("discovery");
+    expect(official.get("secure-audit")?.category.id).toBe("security");
     expect(official.get("session-bookmarks")?.category.id).toBe("workflow");
     expect(official.get("llm-verifier")?.category.id).toBe("testing");
     expect(official.get("module-search")?.category.id).toBe("discovery");

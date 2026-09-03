@@ -208,6 +208,9 @@
     - id: session-compare
       name: "@pi-harness/core/plugins/session-compare"
       config: {}
+    - id: secure-audit
+      name: "@pi-harness/core/plugins/secure-audit"
+      config: {}
     - id: session-bookmarks
       name: "@pi-harness/core/plugins/session-bookmarks"
       config: {}
