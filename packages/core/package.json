@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/core",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Cordis boot and Pi runtime plugins for Pi Harness",
   "license": "MIT",
   "repository": {

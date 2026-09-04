@@ -1,7 +1,7 @@
 {
   "id": "fail-logger",
   "packageName": "@pi-harness/core/plugins/fail-logger",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "name": "Failure Logger",
   "description": "Deduplicate extension and runtime failures into a bounded diagnostic panel without retaining full message payloads.",
   "author": "Pi Harness",

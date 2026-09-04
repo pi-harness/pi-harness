@@ -1,7 +1,7 @@
 {
   "id": "session-insights",
   "packageName": "@pi-harness/core/plugins/session-insights",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "name": "Session Insights",
   "description": "Report current-session messages, token usage, tool calls, cost, and context statistics with an optional explicit compaction action.",
   "author": "Pi Harness",

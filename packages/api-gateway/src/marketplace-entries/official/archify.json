@@ -1,7 +1,7 @@
 {
   "id": "archify",
   "packageName": "@pi-harness/core/plugins/archify",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "name": "Architecture Map",
   "description": "Build a bounded, read-only architecture map from workspace components and package dependencies.",
   "author": "Pi Harness",

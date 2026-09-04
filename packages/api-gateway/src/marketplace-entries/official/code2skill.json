@@ -1,7 +1,7 @@
 {
   "id": "code2skill",
   "packageName": "@pi-harness/core/plugins/code2skill",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "name": "Code2Skill",
   "description": "Package a reviewed source snippet into a portable skill artifact with bounded input and explicit metadata.",
   "author": "Pi Harness",

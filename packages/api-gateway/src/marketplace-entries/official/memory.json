@@ -1,7 +1,7 @@
 {
   "id": "memory",
   "packageName": "@pi-harness/core/plugins/memory",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "name": "Memory",
   "description": "Persist bounded cross-session notes with explicit recall and update operations.",
   "author": "Pi Harness",

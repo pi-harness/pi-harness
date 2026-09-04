@@ -1,7 +1,7 @@
 {
   "id": "session-bridge",
   "packageName": "@pi-harness/core/plugins/session-bridge",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "name": "Session Bridge",
   "description": "Preview, export, and import bounded five-part session handoffs without modifying the source session.",
   "author": "Pi Harness",
