@@ -39,5 +39,6 @@ describe("release package", () => {
     expect(workflow).not.toContain("npm publish --workspace");
     expect(workflow.match(/npm publish --access public/g)).toHaveLength(1);
     expect(workflow).toContain("Verify package availability");
+    expect(workflow).toContain("RELEASE_TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}");
   });
 });

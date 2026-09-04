@@ -36,7 +36,7 @@ jobs:
           npm test
           npm run typecheck:workspaces
           npm run test:package
-          npm run lint
+          npm run lint:check
           git diff --check
 
       - name: Prepare release version
@@ -108,10 +108,12 @@ jobs:
             if [ "$tag_exists" = false ]; then git push origin "refs/tags/$TAG"; fi
           fi
           echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
 
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
             echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
@@ -121,6 +123,8 @@ jobs:
           package_version=$(node -p "require('./package.json').version")
           if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$package_name@$package_version already exists; skipping"
+          elif [ "$RELEASE_TAG_EXISTS" = true ]; then
+            echo "$package_name@$package_version was already submitted; waiting for registry availability"
           elif npm publish --access public; then
             echo "$package_name@$package_version published"
           elif npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
