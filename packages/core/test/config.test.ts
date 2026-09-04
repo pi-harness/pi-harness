@@ -36,7 +36,9 @@ describe("plugin configuration validation", () => {
   test("rejects an unknown key in the session plugin", async () => {
     const { context } = await createContext();
 
-    await expect(context.plugin(sessionPlugin, { storage: "memory", directroy: "/tmp/x" } as never)).rejects.toThrow(/Unknown pi-session config keys: directroy/);
+    await expect(context.plugin(sessionPlugin, { storage: "memory", directroy: "/tmp/x" } as never)).rejects.toThrow(
+      /Unknown pi-session config keys: directroy/,
+    );
   });
 
   test("rejects an empty session directory instead of writing transcripts to the launch cwd", async () => {
@@ -71,11 +73,19 @@ describe("project trust", () => {
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-untrusted-agent-"));
     const marker = join(cwd, "executed.txt");
     await mkdir(join(cwd, ".pi", "extensions"), { recursive: true });
-    await writeFile(join(cwd, ".pi", "extensions", "evil.js"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed"); export default function (pi) {};`, "utf8");
+    await writeFile(
+      join(cwd, ".pi", "extensions", "evil.js"),
+      `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed"); export default function (pi) {};`,
+      "utf8",
+    );
     const context = new Context();
     contexts.push(context);
     provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
-    context.provide("piModelRuntime", { runtime: await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null, authPath: join(agentDir, "auth.json") }), provider: "none", model: "none" });
+    context.provide("piModelRuntime", {
+      runtime: await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null, authPath: join(agentDir, "auth.json") }),
+      provider: "none",
+      model: "none",
+    });
 
     await context.plugin(resourcesPlugin, { noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
 
@@ -88,11 +98,19 @@ describe("project trust", () => {
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-trusted-agent-"));
     const marker = join(cwd, "executed.txt");
     await mkdir(join(cwd, ".pi", "extensions"), { recursive: true });
-    await writeFile(join(cwd, ".pi", "extensions", "probe.js"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed"); export default function (pi) {};`, "utf8");
+    await writeFile(
+      join(cwd, ".pi", "extensions", "probe.js"),
+      `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed"); export default function (pi) {};`,
+      "utf8",
+    );
     const context = new Context();
     contexts.push(context);
     provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
-    context.provide("piModelRuntime", { runtime: await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null, authPath: join(agentDir, "auth.json") }), provider: "none", model: "none" });
+    context.provide("piModelRuntime", {
+      runtime: await ModelRuntime.create({ refreshOnCreate: false, modelsPath: null, authPath: join(agentDir, "auth.json") }),
+      provider: "none",
+      model: "none",
+    });
 
     await context.plugin(resourcesPlugin, { trustProject: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
 

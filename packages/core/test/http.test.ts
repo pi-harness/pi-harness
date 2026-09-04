@@ -27,8 +27,10 @@ describe("configureHttpProxy", () => {
       expect(process.env.HTTPS_PROXY).toBe("http://127.0.0.1:9999");
       expect(process.env.HTTP_PROXY).toBe("http://127.0.0.1:9999");
     } finally {
-      if (previousHttp === undefined) delete process.env.HTTP_PROXY; else process.env.HTTP_PROXY = previousHttp;
-      if (previousHttps === undefined) delete process.env.HTTPS_PROXY; else process.env.HTTPS_PROXY = previousHttps;
+      if (previousHttp === undefined) delete process.env.HTTP_PROXY;
+      else process.env.HTTP_PROXY = previousHttp;
+      if (previousHttps === undefined) delete process.env.HTTPS_PROXY;
+      else process.env.HTTPS_PROXY = previousHttps;
     }
   });
 });

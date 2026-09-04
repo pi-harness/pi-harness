@@ -13,15 +13,8 @@
     "id": "web",
     "label": "网页"
   },
-  "capabilities": [
-    "companion state",
-    "session events",
-    "ambient UI"
-  ],
-  "hooks": [
-    "session events",
-    "plugin UI"
-  ],
+  "capabilities": ["companion state", "session events", "ambient UI"],
+  "hooks": ["session events", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/openpets",
     "config": {}

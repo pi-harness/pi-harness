@@ -1,6 +1,12 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { createAgentSessionFromServices, createAgentSessionRuntime, type AgentSession, type CreateAgentSessionRuntimeFactory, type SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSessionFromServices,
+  createAgentSessionRuntime,
+  type AgentSession,
+  type CreateAgentSessionRuntimeFactory,
+  type SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { PiRuntime } from "../runtime.js";
 import { assertKnownConfigKeys } from "../config.js";
 
@@ -24,7 +30,13 @@ function enterSessionManagerGate(manager: SessionManager): { ready: Promise<void
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  sessionManagerGate.set(manager, ready.then(() => held, () => held));
+  sessionManagerGate.set(
+    manager,
+    ready.then(
+      () => held,
+      () => held,
+    ),
+  );
   return { ready, release };
 }
 
@@ -80,7 +92,12 @@ export default {
       // profile did not name is dropped. Report it rather than letting the tool vanish silently.
       const activeTools = new Set(session.getActiveToolNames());
       const droppedTools = registeredTools.filter((name) => !activeTools.has(name));
-      if (droppedTools.length > 0) context.emit("pi/extension-error", { extensionPath: "pi-tools", event: "session_start", error: `Pi tools registered by extensions are not enabled because the profile does not list them: ${droppedTools.join(", ")}; add them to the pi-tools names option to enable them` });
+      if (droppedTools.length > 0)
+        context.emit("pi/extension-error", {
+          extensionPath: "pi-tools",
+          event: "session_start",
+          error: `Pi tools registered by extensions are not enabled because the profile does not list them: ${droppedTools.join(", ")}; add them to the pi-tools names option to enable them`,
+        });
     };
     let unsubscribe: (() => void) | undefined;
     const rebindSession = async (session: AgentSession): Promise<void> => {
@@ -91,7 +108,11 @@ export default {
         try {
           context.emit("pi/session-event", event);
         } catch (error) {
-          context.emit("pi/extension-error", { extensionPath: "pi/session-event", event: event.type, error: error instanceof Error ? error.message : String(error) });
+          context.emit("pi/extension-error", {
+            extensionPath: "pi/session-event",
+            event: event.type,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       });
     };

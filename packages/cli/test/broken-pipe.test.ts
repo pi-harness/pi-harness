@@ -13,14 +13,25 @@ describe("broken output pipe", () => {
     const markerPath = join(directory, "marker.txt");
     const pluginPath = join(directory, "application.mjs");
     const configPath = join(directory, "cordis.yml");
-    await writeFile(pluginPath, `import { appendFileSync } from "node:fs"; export default { inject: ["piHarnessStdio"], apply(ctx, config) { ctx.effect(() => () => appendFileSync(config.markerPath, "disposed\\n")); ctx.provide("piApplication", { async run() { for (let i = 0; i < 200; i += 1) { ctx.piHarnessStdio.writeOutput("line " + i + " " + "-".repeat(200) + "\\n"); await new Promise((resolve) => setTimeout(resolve, 5)); } appendFileSync(config.markerPath, "completed\\n"); return 0; } }); } };`, "utf8");
+    await writeFile(
+      pluginPath,
+      `import { appendFileSync } from "node:fs"; export default { inject: ["piHarnessStdio"], apply(ctx, config) { ctx.effect(() => () => appendFileSync(config.markerPath, "disposed\\n")); ctx.provide("piApplication", { async run() { for (let i = 0; i < 200; i += 1) { ctx.piHarnessStdio.writeOutput("line " + i + " " + "-".repeat(200) + "\\n"); await new Promise((resolve) => setTimeout(resolve, 5)); } appendFileSync(config.markerPath, "completed\\n"); return 0; } }); } };`,
+      "utf8",
+    );
     await writeFile(configPath, JSON.stringify([{ name: pathToFileURL(pluginPath).href, config: { markerPath } }]), "utf8");
 
-    const producer = spawn(process.execPath, [BIN, "--config", configPath, "--prompt", "hi"], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PI_AGENT_DIR: directory } });
+    const producer = spawn(process.execPath, [BIN, "--config", configPath, "--prompt", "hi"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, PI_AGENT_DIR: directory },
+    });
     let stderr = "";
     producer.stderr.setEncoding("utf8");
-    producer.stderr.on("data", (chunk: string) => { stderr += chunk; });
-    producer.stdout.once("data", () => { producer.stdout.destroy(); });
+    producer.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    producer.stdout.once("data", () => {
+      producer.stdout.destroy();
+    });
 
     const code = await new Promise<number | null>((resolve) => producer.once("exit", resolve));
 

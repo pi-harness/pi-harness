@@ -10,7 +10,10 @@ function assertUniqueEntryIds(entries: readonly EntryOptions[], seen = new Map<s
   for (const entry of entries) {
     if (typeof entry.id === "string" && entry.id.length > 0) {
       const previous = seen.get(entry.id);
-      if (previous !== undefined) throw new Error(`Duplicate loader entry id "${entry.id}" is used by both ${previous} and ${entry.name}; ids must be unique across the whole profile because nested groups share their tree's entry store`);
+      if (previous !== undefined)
+        throw new Error(
+          `Duplicate loader entry id "${entry.id}" is used by both ${previous} and ${entry.name}; ids must be unique across the whole profile because nested groups share their tree's entry store`,
+        );
       seen.set(entry.id, entry.name);
     }
     if (entry.group === true && Array.isArray(entry.config)) assertUniqueEntryIds(entry.config as EntryOptions[], seen);
@@ -30,7 +33,8 @@ class ReadonlyInclude extends Include {
   override write(): void {}
 
   override import(name: string, getOuterStack?: () => string[]): unknown {
-    if (this.ctx.loader.internal !== undefined || name.startsWith("cordis:") || name.startsWith(".") || name.startsWith("/") || name.includes("://")) return super.import(name, getOuterStack);
+    if (this.ctx.loader.internal !== undefined || name.startsWith("cordis:") || name.startsWith(".") || name.startsWith("/") || name.includes("://"))
+      return super.import(name, getOuterStack);
     let resolved: string;
     try {
       resolved = createRequire(this.filename).resolve(name);

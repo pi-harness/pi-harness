@@ -101,12 +101,20 @@ describe("bootHarness", () => {
 
   test("rejects a duplicate entry id reused across sibling groups", async () => {
     const profile = await createProfile([]);
-    const first = await createPlugin(profile.directory, "first", `export default function first(ctx, config) { ctx.provide("fixtureDuplicate", config?.tag ?? "no-config"); }`);
+    const first = await createPlugin(
+      profile.directory,
+      "first",
+      `export default function first(ctx, config) { ctx.provide("fixtureDuplicate", config?.tag ?? "no-config"); }`,
+    );
     const second = await createPlugin(profile.directory, "second", `export default function second(ctx) { ctx.provide("fixtureDuplicateSecond", true); }`);
-    await writeFile(profile.profilePath, JSON.stringify([
-      { id: "one", name: "cordis:group", group: true, config: [{ id: "shared", name: first, config: { tag: "kept" } }] },
-      { id: "two", name: "cordis:group", group: true, config: [{ id: "shared", name: second }] },
-    ]), "utf8");
+    await writeFile(
+      profile.profilePath,
+      JSON.stringify([
+        { id: "one", name: "cordis:group", group: true, config: [{ id: "shared", name: first, config: { tag: "kept" } }] },
+        { id: "two", name: "cordis:group", group: true, config: [{ id: "shared", name: second }] },
+      ]),
+      "utf8",
+    );
 
     await expect(bootHarness({ configPath: profile.profilePath })).rejects.toThrow(/Duplicate loader entry id "shared"/);
   });

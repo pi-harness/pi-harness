@@ -13,14 +13,8 @@
     "id": "web",
     "label": "网页与研究"
   },
-  "capabilities": [
-    "web fetch",
-    "SSRF protection"
-  ],
-  "hooks": [
-    "network request",
-    "plugin UI"
-  ],
+  "capabilities": ["web fetch", "SSRF protection"],
+  "hooks": ["network request", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/browser-fetch",
     "config": {}

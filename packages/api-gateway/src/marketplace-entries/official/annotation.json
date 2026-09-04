@@ -13,14 +13,8 @@
     "id": "context",
     "label": "上下文管理"
   },
-  "capabilities": [
-    "annotations",
-    "context"
-  ],
-  "hooks": [
-    "session event",
-    "plugin UI"
-  ],
+  "capabilities": ["annotations", "context"],
+  "hooks": ["session event", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/annotation",
     "config": {}
