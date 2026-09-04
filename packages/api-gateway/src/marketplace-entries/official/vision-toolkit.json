@@ -1,7 +1,7 @@
 {
   "id": "vision-toolkit",
   "packageName": "@pi-harness/core/plugins/vision-toolkit",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "name": "Vision Toolkit",
   "description": "Catalog workspace images and inspect safe metadata such as MIME type, size, and dimensions.",
   "author": "Pi Harness",
