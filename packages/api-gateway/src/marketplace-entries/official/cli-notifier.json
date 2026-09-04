@@ -1,7 +1,7 @@
 {
   "id": "cli-notifier",
   "packageName": "@pi-harness/core/plugins/cli-notifier",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "name": "CLI Notifier",
   "description": "Notify a local command or webhook when a long-running Pi session finishes, fails, or is aborted.",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "readme-gen",
   "packageName": "@pi-harness/core/plugins/readme-gen",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "name": "README Gen",
   "description": "Generate a bounded README report and write it to an explicitly confirmed workspace path.",
   "author": "Pi Harness",

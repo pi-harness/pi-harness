@@ -1,7 +1,7 @@
 {
   "id": "plugin-radar",
   "packageName": "@pi-harness/core/plugins/plugin-radar",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "name": "Plugin Radar",
   "description": "Inspect installed and configured plugins with lifecycle state and source metadata.",
   "author": "Pi Harness",
