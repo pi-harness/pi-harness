@@ -5902,7 +5902,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [permission, setPermission] = useState(true);
-  const [contextExpanded, setContextExpanded] = useState(false);
   const [promptError, setPromptError] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState("");
@@ -6652,23 +6651,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 <b>{value(data.status?.model)}</b>
               </span>
             </div>
-            <button aria-expanded={contextExpanded} onClick={() => setContextExpanded((current) => !current)} type="button">
-              {contextExpanded ? "收起" : "展开"}
-            </button>
           </div>
-          {contextExpanded && (
-            <div className="context-breakdown" role="status">
-              <span>
-                消息 <b>{data.status?.messages ?? 0}</b>
-              </span>
-              <span>
-                运行时事件 <b>{data.status?.events ?? events.length}</b>
-              </span>
-              <span>
-                模型 <b>{value(data.status?.model)}</b>
-              </span>
-            </div>
-          )}
         </div>
         <div className="composer-stack">
           {promptError && <PromptError message={promptError} />}
@@ -7310,7 +7293,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         </footer>
       </aside>
       <section className="main-pane">
-        <header className="main-header">
+        <header className={`main-header ${!settings && page === "session" ? "session-track" : ""}`}>
           <div className="active-heading">
             <strong>
               {settings

@@ -780,12 +780,6 @@ button:disabled {
 .context-line b {
   @apply [color:var(--color-muted)] [font-weight:400];
 }
-.context-line button {
-  @apply [display:inline-flex] [align-items:center] [justify-content:center] [padding:0] [border-radius:6px] [color:var(--color-blue)] [font-size:11px];
-}
-.context-line button:focus-visible {
-  @apply [outline:none] [background:#f4f7ff] [box-shadow:0_0_0_2px_rgba(65,_118,_230,_0.16)];
-}
 .context-bar {
   @apply [display:flex] [flex:1] [height:4px] [overflow:hidden] [border-radius:3px] [background:#ebeef2];
 }
@@ -794,15 +788,6 @@ button:disabled {
 }
 .context-bar.expanded {
   @apply [height:8px];
-}
-.context-breakdown {
-  @apply [position:absolute] [right:0] [bottom:calc(100%_+_6px)] [left:0] [z-index:20] [display:flex] [width:100%] [flex-wrap:wrap] [gap:6px_14px] [padding:8px_10px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:8px] [background:#fff] [box-shadow:0_8px_24px_rgba(15,_17,_21,_0.08)] [color:var(--color-faint)] [font:10px_var(--font-mono)];
-}
-.context-breakdown span {
-  @apply [display:inline-flex] [min-width:0] [gap:4px] [align-items:center];
-}
-.context-breakdown b {
-  @apply [min-width:0] [overflow:hidden] [color:var(--color-muted)] [font-weight:400] [text-overflow:ellipsis] [white-space:nowrap];
 }
 .composer {
   @apply [position:relative] [max-width:748px] [margin:0_auto] [border:1px_solid_rgba(0,_0,_0,_0.12)] [border-radius:10px] [background:#fff] [box-shadow:0_1px_2px_rgba(0,_0,_0,_0.03)] [overflow:visible] [transition:border-color_120ms_ease,box-shadow_120ms_ease];
@@ -2170,6 +2155,13 @@ body {
 .main-header {
   @apply [height:56px] [flex-basis:56px] [padding:0_24px];
 }
+.main-header.session-track {
+  padding-right: max(24px, calc((100% - 960px) / 2));
+  padding-left: max(24px, calc((100% - 960px) / 2));
+}
+.main-header.session-track .session-menu-popover {
+  right: max(24px, calc((100% - 960px) / 2));
+}
 .active-heading strong {
   @apply [font-size:15px];
 }
@@ -2255,6 +2247,12 @@ body {
   .main-header {
     @apply [height:48px] [flex-basis:48px] [padding:0_16px];
   }
+  .main-header.session-track {
+    @apply [padding-left:16px] [padding-right:16px];
+  }
+  .main-header.session-track .session-menu-popover {
+    @apply [right:16px];
+  }
   .chat-scroll,
   .composer-wrap,
   .trajectory-summary,
@@ -2266,9 +2264,6 @@ body {
   .settings-dialog section > header,
   .settings-body {
     @apply [padding-left:16px] [padding-right:16px];
-  }
-  .session-menu-popover {
-    @apply [right:16px];
   }
   .subnav,
   .plugins-toolbar,
@@ -2492,14 +2487,10 @@ body {
   }
   .segmented button,
   .effective-config a,
-  .context-line button,
   .composer-tools select,
   .tool-chip,
   .send-button {
     @apply [min-height:44px];
-  }
-  .context-line button {
-    @apply [min-width:44px];
   }
   .send-button {
     @apply [min-width:44px];
@@ -2661,9 +2652,6 @@ body {
   .settings-top-tabs {
     @apply [height:auto] [min-height:56px];
   }
-  .context-line button {
-    @apply [min-width:44px] [min-height:44px];
-  }
   .plugin-switch-button {
     @apply [height:44px];
   }
@@ -2734,6 +2722,14 @@ body {
 @media (max-width: 360px) {
   .main-header {
     @apply [gap:4px] [padding-left:8px] [padding-right:8px];
+  }
+  .main-header.session-track,
+  .chat-scroll,
+  .composer-wrap {
+    @apply [padding-left:8px] [padding-right:8px];
+  }
+  .main-header.session-track .session-menu-popover {
+    @apply [right:8px];
   }
   .view-tabs {
     @apply [flex:none];
