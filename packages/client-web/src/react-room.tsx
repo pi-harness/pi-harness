@@ -6638,36 +6638,38 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         )}
       </div>
       <div className="composer-wrap">
-        <div className="context-line">
-          <span className="context-label">实时上下文</span>
-          <div className="context-metrics">
-            <span>
-              <b>{data.status?.messages ?? 0}</b> 条消息
-            </span>
-            <span>
-              <b>{data.status?.events ?? events.length}</b> 个事件
-            </span>
-            <span>
-              <b>{value(data.status?.model)}</b>
-            </span>
+        <div className="context-shell">
+          <div className="context-line">
+            <span className="context-label">实时上下文</span>
+            <div className="context-metrics">
+              <span>
+                <b>{data.status?.messages ?? 0}</b> 条消息
+              </span>
+              <span>
+                <b>{data.status?.events ?? events.length}</b> 个事件
+              </span>
+              <span>
+                <b>{value(data.status?.model)}</b>
+              </span>
+            </div>
+            <button aria-expanded={contextExpanded} onClick={() => setContextExpanded((current) => !current)} type="button">
+              {contextExpanded ? "收起" : "展开"}
+            </button>
           </div>
-          <button aria-expanded={contextExpanded} onClick={() => setContextExpanded((current) => !current)} type="button">
-            {contextExpanded ? "收起" : "展开"}
-          </button>
+          {contextExpanded && (
+            <div className="context-breakdown" role="status">
+              <span>
+                消息 <b>{data.status?.messages ?? 0}</b>
+              </span>
+              <span>
+                运行时事件 <b>{data.status?.events ?? events.length}</b>
+              </span>
+              <span>
+                模型 <b>{value(data.status?.model)}</b>
+              </span>
+            </div>
+          )}
         </div>
-        {contextExpanded && (
-          <div className="context-breakdown" role="status">
-            <span>
-              消息 <b>{data.status?.messages ?? 0}</b>
-            </span>
-            <span>
-              运行时事件 <b>{data.status?.events ?? events.length}</b>
-            </span>
-            <span>
-              模型 <b>{value(data.status?.model)}</b>
-            </span>
-          </div>
-        )}
         <div className="composer-stack">
           {promptError && <PromptError message={promptError} />}
           {annotationSelection ? (
