@@ -31,6 +31,7 @@
     "format": "vp fmt . --write",
     "format:check": "vp fmt . --check",
     "prepack": "npm run build:web",
+    "test:package": "node scripts/test-packed-package.mjs",
     "clean": "npm run clean --workspaces --if-present",
     "lint": "eslint .",
     "test": "npm run build && vitest run",
@@ -67,6 +68,9 @@
     "vitest": "4.1.11"
   },
   "bundledDependencies": [
+    "@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-coding-agent",
     "@pi-harness/api-gateway",
     "@pi-harness/cli",
     "@pi-harness/core",
