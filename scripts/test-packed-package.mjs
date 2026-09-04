@@ -16,14 +16,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const temporaryRoot = await mkdtemp(join(tmpdir(), "pi-harness-packed-package-"));
 const installPrefix = join(temporaryRoot, "prefix");
-const npmCli =
-  process.platform === "win32"
-    ? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")
-    : join(dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
+const npmCli = process.env.npm_execpath;
 
 /** @param {...string} args */
 const runNpm = (...args) =>
-  execFileSync(process.execPath, [npmCli, ...args], {
+  execFileSync(npmCli ? process.execPath : process.platform === "win32" ? "npm.cmd" : "npm", npmCli ? [npmCli, ...args] : args, {
     cwd: repositoryRoot,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
