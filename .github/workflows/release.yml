@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -35,9 +37,62 @@ jobs:
           npm run lint
           git diff --check
 
-      - name: Read release version
+      - name: Prepare release version
         id: metadata
-        run: echo "version=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync("package.json", "utf8")).version)')" >> "$GITHUB_OUTPUT"
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          existing_tag=""
+          for tag in $(git tag --list 'v*' --sort=-v:refname); do
+            target=$(git rev-list -n 1 "$tag")
+            parent=$(git rev-parse "$target^" 2>/dev/null || true)
+            if [ "$target" = "$HEAD_SHA" ] || [ "$parent" = "$HEAD_SHA" ]; then
+              existing_tag="$tag"
+              break
+            fi
+          done
+
+          if [ -n "$existing_tag" ]; then
+            version="${existing_tag#v}"
+          else
+            package_name=$(node -p "require('./package.json').name")
+            published_version=$(npm view "$package_name" version --registry=https://registry.npmjs.org 2>/dev/null || echo "0.0.0")
+            tagged_version=$(git tag --list 'v*' --sort=-v:refname | head -n 1 | sed 's/^v//' || true)
+            version=$(node -e '
+              const versions = process.argv.slice(1).filter((value) => /^\d+\.\d+\.\d+$/.test(value));
+              const latest = versions.map((value) => value.split(".").map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).at(-1) ?? [0, 0, 0];
+              process.stdout.write([latest[0], latest[1], latest[2] + 1].join("."));
+            ' "$published_version" "$tagged_version")
+          fi
+
+          node scripts/set-release-version.mjs "$version"
+          npm install --package-lock-only --ignore-scripts
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Reserve release tag
+        id: release
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            target=$(git rev-list -n 1 "$TAG")
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json package-lock.json packages/*/package.json apps/*/package.json examples/*/package.json
+            git commit -m "release: $TAG"
+            target=$(git rev-parse HEAD)
+            git tag "$TAG" "$target"
+            git push origin "refs/tags/$TAG"
+          fi
+          parent=$(git rev-parse "$target^" 2>/dev/null || true)
+          if [ "$target" != "$HEAD_SHA" ] && [ "$parent" != "$HEAD_SHA" ]; then
+            echo "$TAG does not belong to $HEAD_SHA" >&2
+            exit 1
+          fi
+          echo "target=$target" >> "$GITHUB_OUTPUT"
 
       - name: Publish public workspaces
         env:
@@ -83,9 +138,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="v${{ steps.metadata.outputs.version }}"
+          tag="${{ steps.metadata.outputs.tag }}"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "GitHub Release $tag already exists; skipping"
           else
-            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+            gh release create "$tag" --verify-tag --title "$tag" --generate-notes
           fi
