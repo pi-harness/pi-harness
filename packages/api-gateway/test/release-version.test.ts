@@ -55,6 +55,12 @@ describe("release version preparation", () => {
       string,
       unknown
     >;
+    const packedInternalEntry = JSON.parse(
+      await readFile(resolve(fixture, "packages/api-gateway/dist/marketplace-entries/official/internal.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const packedExternalEntry = JSON.parse(
+      await readFile(resolve(fixture, "packages/api-gateway/dist/marketplace-entries/official/external.json"), "utf8"),
+    ) as Record<string, unknown>;
 
     expect(rootManifest).toMatchObject({ version: "0.1.3", dependencies: { "@pi-harness/core": "0.1.3" } });
     expect(packageLock).toMatchObject({
@@ -67,5 +73,7 @@ describe("release version preparation", () => {
     });
     expect(internalEntry.version).toBe("0.1.3");
     expect(externalEntry.version).toBe("4.5.6");
+    expect(packedInternalEntry.version).toBe("0.1.3");
+    expect(packedExternalEntry.version).toBe("4.5.6");
   });
 });
