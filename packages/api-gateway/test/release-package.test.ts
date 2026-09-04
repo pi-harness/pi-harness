@@ -1,0 +1,33 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const repositoryRoot = resolve(import.meta.dirname, "../../..");
+const bundledWorkspacePaths = ["api-gateway", "cli", "core", "host-webserver", "bundle-web-app"] as const;
+const bundledPackageNames = ["@pi-harness/api-gateway", "@pi-harness/cli", "@pi-harness/core", "@pi-harness/host-webserver", "@pi-harness/web-app"] as const;
+
+const readJson = async (path: string): Promise<Record<string, unknown>> =>
+  JSON.parse(await readFile(resolve(repositoryRoot, path), "utf8")) as Record<string, unknown>;
+
+describe("release package", () => {
+  it("publishes one self-contained public package", async () => {
+    const rootManifest = await readJson("package.json");
+    const dependencies = rootManifest.dependencies as Record<string, string>;
+
+    expect(rootManifest.bundledDependencies).toEqual(bundledPackageNames);
+    expect(bundledPackageNames.every((name) => dependencies[name] === rootManifest.version)).toBe(true);
+
+    for (const path of bundledWorkspacePaths) {
+      const manifest = await readJson(`packages/${path}/package.json`);
+      expect(manifest.private, `${manifest.name as string} must not be published separately`).toBe(true);
+      expect(manifest.dependencies, `${manifest.name as string} dependencies must be owned by the public root package`).toBeUndefined();
+    }
+
+    const clientManifest = await readJson("packages/client-web/package.json");
+    expect(clientManifest.private).toBe(true);
+
+    const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
+    expect(workflow).not.toContain("npm publish --workspace");
+    expect(workflow.match(/npm publish --access public/g)).toHaveLength(1);
+  });
+});

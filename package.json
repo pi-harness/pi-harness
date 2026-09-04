@@ -1,14 +1,14 @@
 {
   "name": "@pi-harness/pi-harness",
   "version": "0.1.5",
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pi-harness/pi-harness.git"
-  },
-  "homepage": "https://github.com/pi-harness/pi-harness#readme",
-  "bugs": {
-    "url": "https://github.com/pi-harness/pi-harness/issues"
   },
   "bin": {
     "pi-harness": "./apps/web/server-dist/bin.js",
@@ -37,11 +37,23 @@
     "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/cordis-plugin-group": "1.0.1",
+    "@deepseek-ai/cordis-plugin-hmr": "1.0.16",
+    "@deepseek-ai/cordis-plugin-include": "1.0.6",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.2",
+    "@deepseek-ai/cordis-plugin-logger-console": "1.0.1",
+    "@deepseek-ai/cordis-plugin-timer": "1.1.3",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@earendil-works/pi-agent-core": "0.84.4",
+    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-coding-agent": "0.84.4",
     "@pi-harness/api-gateway": "0.1.5",
     "@pi-harness/cli": "0.1.5",
     "@pi-harness/core": "0.1.5",
     "@pi-harness/host-webserver": "0.1.5",
-    "@pi-harness/web-app": "0.1.5"
+    "@pi-harness/web-app": "0.1.5",
+    "yaml": "2.9.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -54,6 +66,13 @@
     "vite-plus": "0.3.0",
     "vitest": "4.1.11"
   },
+  "bundledDependencies": [
+    "@pi-harness/api-gateway",
+    "@pi-harness/cli",
+    "@pi-harness/core",
+    "@pi-harness/host-webserver",
+    "@pi-harness/web-app"
+  ],
   "engines": {
     "node": ">=22.19.0"
   }

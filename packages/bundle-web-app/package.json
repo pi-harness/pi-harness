@@ -1,16 +1,17 @@
 {
   "name": "@pi-harness/web-app",
   "version": "0.1.5",
+  "private": true,
   "description": "Patchable Web application bundle for Pi Harness",
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pi-harness/pi-harness.git",
     "directory": "packages/bundle-web-app"
-  },
-  "homepage": "https://github.com/pi-harness/pi-harness#readme",
-  "bugs": {
-    "url": "https://github.com/pi-harness/pi-harness/issues"
   },
   "files": [
     "dist",
@@ -29,10 +30,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json"
-  },
-  "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1",
-    "@pi-harness/host-webserver": "0.1.5"
   },
   "engines": {
     "node": ">=22.19.0"

@@ -255,7 +255,7 @@
       name: "@pi-harness/host-webserver"
       config:
         host: !!js process.env.PI_HARNESS_HOST ?? '127.0.0.1'
-        port: !!js Number(process.env.PI_HARNESS_PORT ?? 3080)
+        port: !!js Number(process.env.PI_HARNESS_PORT ?? 3081)
 - id: api
   name: "@pi-harness/api-gateway"
   config: {}

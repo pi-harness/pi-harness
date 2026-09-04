@@ -44,7 +44,7 @@ export default {
   name: "pi-webserver",
   async apply(context: Context, config: WebServerConfig) {
     const host = config.host ?? "127.0.0.1";
-    const port = config.port ?? 3080;
+    const port = config.port ?? 3081;
     const routes = new Map<string, WebRoute["handler"]>();
     let fallback: WebRoute["handler"] | undefined;
     const server = createServer((request, response) => {

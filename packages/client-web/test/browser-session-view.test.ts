@@ -6,12 +6,12 @@ describe("browser session view", () => {
     expect(
       browserSessionTabs(
         [
-          { targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3080" },
+          { targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081" },
           { targetId: "", title: "invalid", url: "http://invalid" },
           { targetId: "two", title: "Docs", url: "https://example.com" },
         ],
         1,
       ),
-    ).toEqual([{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3080" }]);
+    ).toEqual([{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081" }]);
   });
 });
