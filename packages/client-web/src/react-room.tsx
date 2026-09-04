@@ -27,6 +27,7 @@ import { pluginStarsRows } from "./plugin-stars-view.js";
 import { browserSessionTabs } from "./browser-session-view.js";
 import { matchesPluginQuery } from "./plugin-search.js";
 import { installedPluginDetailPath, readInstalledPluginDetailId } from "./plugin-navigation.js";
+import { installedPluginCardContent } from "./plugin-card.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -4202,6 +4203,7 @@ function Plugins({
               const categoryLabel = metadata?.category.label ?? plugin.category?.label;
               const capabilityLabel = capability(plugin.name);
               const pluginTitle = metadata?.name ?? displayPluginName(plugin.name);
+              const cardContent = installedPluginCardContent(plugin, metadata);
               return (
                 <article className="catalog-card plugin-card" key={plugin.id}>
                   <div className="plugin-card-head">
@@ -4251,11 +4253,12 @@ function Plugins({
                     </div>
                   </div>
                   <div className="plugin-card-body">
-                    <code className="plugin-package">{plugin.name}</code>
-                    <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
+                    <code className="plugin-package">{cardContent.packageLabel}</code>
+                    <p className="plugin-description">{cardContent.description}</p>
                     <div className="hook-list">
-                      <span>loader</span>
-                      <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
+                      {cardContent.tags.map((tag, index) => (
+                        <span key={`${tag}-${index}`}>{tag}</span>
+                      ))}
                     </div>
                   </div>
                   <footer className="plugin-card-footer">
@@ -4625,7 +4628,7 @@ function Marketplace({
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
               <article className="catalog-card marketplace-card" key={plugin.id}>
-                <div className="flex items-start gap-2.5">
+                <header className="marketplace-card-head">
                   <div className="marketplace-card-mark">◈</div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -4650,33 +4653,35 @@ function Marketplace({
                       </span>
                       <span className="rounded bg-[#f2edff] px-1.5 py-px text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
                     </div>
-                    <code className="marketplace-package">
-                      {displayPluginName(plugin.packageName)} · v{plugin.version}
-                    </code>
-                    <p className="marketplace-description">{plugin.description}</p>
-                    <div className="marketplace-tags">
-                      {plugin.capabilities.map((item) => (
-                        <span className="rounded bg-[#f1f4f9] px-1.5 py-px font-mono text-[10px] text-[#61666b]" key={item}>
-                          {item}
-                        </span>
-                      ))}
-                      {plugin.hooks.map((item) => (
-                        <span className="rounded bg-[#f1f4f9] px-1.5 py-px font-mono text-[10px] text-[#61666b]" key={item}>
-                          hook:{item}
+                  </div>
+                </header>
+                <div className="marketplace-card-body">
+                  <code className="marketplace-package">
+                    {displayPluginName(plugin.packageName)} · v{plugin.version}
+                  </code>
+                  <p className="marketplace-description">{plugin.description}</p>
+                  <div className="marketplace-tags">
+                    {plugin.capabilities.map((item) => (
+                      <span className="rounded bg-[#f1f4f9] px-1.5 py-px font-mono text-[10px] text-[#61666b]" key={item}>
+                        {item}
+                      </span>
+                    ))}
+                    {plugin.hooks.map((item) => (
+                      <span className="rounded bg-[#f1f4f9] px-1.5 py-px font-mono text-[10px] text-[#61666b]" key={`hook:${item}`}>
+                        hook:{item}
+                      </span>
+                    ))}
+                  </div>
+                  {plugin.statistics && (
+                    <div className="mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
+                      {marketplaceStatisticItems(plugin.statistics).map((item) => (
+                        <span className="min-w-0 px-2 py-1.5" key={item.label} title={`${item.label} ${item.value}`}>
+                          <small className="block truncate text-[9px] text-[#687381]">{item.label}</small>
+                          <strong className="mt-0.5 block truncate font-mono text-[10px] font-medium text-[#3b424b]">{item.value}</strong>
                         </span>
                       ))}
                     </div>
-                    {plugin.statistics && (
-                      <div className="mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
-                        {marketplaceStatisticItems(plugin.statistics).map((item) => (
-                          <span className="min-w-0 px-2 py-1.5" key={item.label} title={`${item.label} ${item.value}`}>
-                            <small className="block truncate text-[9px] text-[#687381]">{item.label}</small>
-                            <strong className="mt-0.5 block truncate font-mono text-[10px] font-medium text-[#3b424b]">{item.value}</strong>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
                 <footer className="marketplace-card-footer">
                   <span>
@@ -4700,7 +4705,7 @@ function Marketplace({
                 </footer>
               </article>
             ))}
-            {!plugins.length && <div className="p-7 text-center text-[12px] text-[#687381]">没有匹配的插件。</div>}
+            {!plugins.length && <div className="empty-state">没有匹配的插件。</div>}
           </div>
           {installNotice && <p className="mt-2 text-[11px] text-[#3565c5]">{installNotice}</p>}
           {installError && <p className="mt-2 text-[11px] text-[#b42318]">安装失败：{installError}</p>}
