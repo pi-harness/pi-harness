@@ -26,6 +26,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-marketplace-entries.mjs",
+    "prepack": "node scripts/copy-marketplace-entries.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

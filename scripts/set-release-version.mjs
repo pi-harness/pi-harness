@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 
@@ -103,5 +103,9 @@ for (const marketplacePath of marketplacePaths) {
   entry.version = version;
   await writeFile(marketplacePath, `${JSON.stringify(entry, undefined, 2)}\n`);
 }
+const marketplaceDestination = "packages/api-gateway/dist/marketplace-entries";
+await rm(marketplaceDestination, { recursive: true, force: true });
+await mkdir("packages/api-gateway/dist", { recursive: true });
+await cp(marketplaceRoot, marketplaceDestination, { recursive: true });
 
 process.stdout.write(`${version}\n`);
