@@ -38,7 +38,7 @@ jobs:
         run: npm run test:package
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint:check
 
       - name: Check formatting
         run: npm run format:check
