@@ -3,9 +3,7 @@ import { installedPluginDetailPath, readInstalledPluginDetailId } from "../src/p
 
 describe("installed plugin navigation", () => {
   it("uses a stable secondary route for installed plugin details", () => {
-    expect(installedPluginDetailPath("@pi-harness/core/plugins/docker-sandbox")).toBe(
-      "?page=plugins&plugin=%40pi-harness%2Fcore%2Fplugins%2Fdocker-sandbox",
-    );
+    expect(installedPluginDetailPath("@pi-harness/core/plugins/docker-sandbox")).toBe("?page=plugins&plugin=%40pi-harness%2Fcore%2Fplugins%2Fdocker-sandbox");
   });
 
   it("only reads plugin details on the installed plugins page", () => {

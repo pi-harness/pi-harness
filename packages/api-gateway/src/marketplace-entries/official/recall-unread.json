@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "session recall",
-    "unanswered messages",
-    "search"
-  ],
-  "hooks": [
-    "session storage",
-    "plugin UI"
-  ],
+  "capabilities": ["session recall", "unanswered messages", "search"],
+  "hooks": ["session storage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/recall-unread",
     "config": {}

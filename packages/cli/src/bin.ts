@@ -40,7 +40,11 @@ const environment: CliEnvironment = {
 const args = process.argv.slice(2);
 if (shouldRelaunchForDevelopmentProfile(args, process.execArgv)) {
   try {
-    process.exitCode = await superviseDevelopmentProcess(process.execPath, ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args], { stdio: "inherit", env: { ...process.env, PI_HARNESS_SUPERVISED: "1" } });
+    process.exitCode = await superviseDevelopmentProcess(
+      process.execPath,
+      ["--expose-internals", ...process.execArgv, fileURLToPath(import.meta.url), ...args],
+      { stdio: "inherit", env: { ...process.env, PI_HARNESS_SUPERVISED: "1" } },
+    );
   } catch (error) {
     process.stderr.write(`Pi Harness could not start the supervised development process: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

@@ -13,15 +13,8 @@
     "id": "security",
     "label": "安全"
   },
-  "capabilities": [
-    "container isolation",
-    "resource limits",
-    "safe execution"
-  ],
-  "hooks": [
-    "Docker CLI",
-    "plugin UI"
-  ],
+  "capabilities": ["container isolation", "resource limits", "safe execution"],
+  "hooks": ["Docker CLI", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/docker-sandbox",
     "config": {}

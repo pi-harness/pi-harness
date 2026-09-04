@@ -21,9 +21,13 @@ export default {
   apply(context: Context, config: SessionPluginConfig) {
     assertKnownConfigKeys("pi-session", config, ["storage", "directory"]);
     const storage = config.storage ?? "jsonl";
-    const manager = storage === "memory"
-      ? SessionManager.inMemory(context.piHarnessLaunch.cwd)
-      : SessionManager.create(context.piHarnessLaunch.cwd, config.directory == null ? join(context.piHarnessLaunch.agentDir, "sessions") : resolve(context.piHarnessLaunch.cwd, config.directory));
+    const manager =
+      storage === "memory"
+        ? SessionManager.inMemory(context.piHarnessLaunch.cwd)
+        : SessionManager.create(
+            context.piHarnessLaunch.cwd,
+            config.directory == null ? join(context.piHarnessLaunch.agentDir, "sessions") : resolve(context.piHarnessLaunch.cwd, config.directory),
+          );
     context.provide("piSession", { manager });
   },
 };

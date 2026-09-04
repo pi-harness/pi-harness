@@ -35,8 +35,16 @@ describe("published binary", () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-harness-bin-resolve-"));
     const packageDir = join(directory, "node_modules", "@acme", "pi-probe");
     await mkdir(packageDir, { recursive: true });
-    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "@acme/pi-probe", version: "1.0.0", type: "module", exports: { ".": "./index.mjs" } }), "utf8");
-    await writeFile(join(packageDir, "index.mjs"), `export default { apply(ctx) { ctx.provide("piApplication", { async run() { ctx.piHarnessStdio.writeOutput("probe ran\\n"); return 0; } }); }, inject: ["piHarnessStdio"] };`, "utf8");
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "@acme/pi-probe", version: "1.0.0", type: "module", exports: { ".": "./index.mjs" } }),
+      "utf8",
+    );
+    await writeFile(
+      join(packageDir, "index.mjs"),
+      `export default { apply(ctx) { ctx.provide("piApplication", { async run() { ctx.piHarnessStdio.writeOutput("probe ran\\n"); return 0; } }); }, inject: ["piHarnessStdio"] };`,
+      "utf8",
+    );
     await writeFile(join(directory, "cordis.yml"), JSON.stringify([{ id: "probe", name: "@acme/pi-probe" }]), "utf8");
 
     const result = await pih(["--config", join(directory, "cordis.yml"), "--prompt", "hi"], directory, directory);

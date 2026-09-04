@@ -13,15 +13,8 @@
     "id": "testing",
     "label": "测试"
   },
-  "capabilities": [
-    "test runner",
-    "command output",
-    "duration metrics"
-  ],
-  "hooks": [
-    "workspace commands",
-    "plugin UI"
-  ],
+  "capabilities": ["test runner", "command output", "duration metrics"],
+  "hooks": ["workspace commands", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/test-harness",
     "config": {}

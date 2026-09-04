@@ -29,8 +29,18 @@ function createEnvironment(cwd = process.cwd(), input: string | null = "", shutd
     agentDir: join(cwd, ".pi-agent-test"),
     version: "0.1.0-test",
     stdin,
-    stdout: new Writable({ write(chunk, _encoding, callback) { output.push(String(chunk)); callback(); } }),
-    stderr: new Writable({ write(chunk, _encoding, callback) { errors.push(String(chunk)); callback(); } }),
+    stdout: new Writable({
+      write(chunk, _encoding, callback) {
+        output.push(String(chunk));
+        callback();
+      },
+    }),
+    stderr: new Writable({
+      write(chunk, _encoding, callback) {
+        errors.push(String(chunk));
+        callback();
+      },
+    }),
     output,
     errors,
     forcedExitCodes,
@@ -115,7 +125,9 @@ describe("runCli", () => {
   });
 
   test("aborts and disposes a running application on SIGINT", async () => {
-    const profile = await createApplicationProfile(`import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run(signal) { appendFileSync(config.markerPath, ":run"); await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true })); appendFileSync(config.markerPath, ":aborted"); return 0; } }); } };`);
+    const profile = await createApplicationProfile(
+      `import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run(signal) { appendFileSync(config.markerPath, ":run"); await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true })); appendFileSync(config.markerPath, ":aborted"); return 0; } }); } };`,
+    );
     const environment = createEnvironment(profile.directory);
     const result = runCli(["--config", profile.configPath], environment);
     const markerPath = join(profile.directory, "marker.txt");
@@ -129,7 +141,9 @@ describe("runCli", () => {
   });
 
   test("forces the bin exit when an application ignores the shutdown signal", async () => {
-    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`);
+    const profile = await createApplicationProfile(
+      `import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`,
+    );
     const environment = createEnvironment(profile.directory, "", 25);
     const result = runCli(["--config", profile.configPath], environment);
     await waitForFileContent(join(profile.directory, "marker.txt"), "started");
@@ -168,7 +182,9 @@ describe("runCli", () => {
   });
 
   test("forces the bin exit on a repeated signal instead of waiting for the shutdown deadline", async () => {
-    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piRuntime", { async abort() { return new Promise(() => {}); }, async dispose() {} }); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`);
+    const profile = await createApplicationProfile(
+      `import { writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piRuntime", { async abort() { return new Promise(() => {}); }, async dispose() {} }); ctx.provide("piApplication", { async run() { return new Promise(() => {}); } }); } };`,
+    );
     const environment = createEnvironment(profile.directory, "", 60_000);
     const result = runCli(["--config", profile.configPath], environment);
     await waitForFileContent(join(profile.directory, "marker.txt"), "started");
@@ -182,7 +198,9 @@ describe("runCli", () => {
   });
 
   test("does not exit with the restart code when the process is not supervised", async () => {
-    const profile = await createApplicationProfile(`import { writeFileSync } from "node:fs"; export default { inject: ["piHarnessLaunch"], apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piApplication", { async run() { ctx.loader.exit(); return 0; } }); } };`);
+    const profile = await createApplicationProfile(
+      `import { writeFileSync } from "node:fs"; export default { inject: ["piHarnessLaunch"], apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.provide("piApplication", { async run() { ctx.loader.exit(); return 0; } }); } };`,
+    );
     const environment = createEnvironment(profile.directory);
 
     const exitCode = await runCli(["--config", profile.configPath], environment);

@@ -1,6 +1,12 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { ProjectTrustStore, SettingsManager, createAgentSessionServices, hasTrustRequiringProjectResources, type AgentSessionServices } from "@earendil-works/pi-coding-agent";
+import {
+  ProjectTrustStore,
+  SettingsManager,
+  createAgentSessionServices,
+  hasTrustRequiringProjectResources,
+  type AgentSessionServices,
+} from "@earendil-works/pi-coding-agent";
 import { assertKnownConfigKeys } from "../config.js";
 import { configureHttpProxy } from "../http.js";
 
@@ -50,8 +56,16 @@ export default {
         resourceLoaderOptions,
         resourceLoaderReloadOptions: { resolveProjectTrust: () => Promise.resolve(projectTrusted) },
       });
-      for (const failure of settingsManager.drainErrors()) services.diagnostics.push({ type: "warning", message: `Invalid ${failure.scope} settings file${failure.path === undefined ? "" : ` ${failure.path}`}: ${failure.error.message}` });
-      if (!projectTrusted && hasTrustRequiringProjectResources(cwd)) services.diagnostics.push({ type: "warning", message: `Skipped project-local Pi resources under ${cwd} because the project is not trusted; set trustProject: true on the pi-resources entry to load them` });
+      for (const failure of settingsManager.drainErrors())
+        services.diagnostics.push({
+          type: "warning",
+          message: `Invalid ${failure.scope} settings file${failure.path === undefined ? "" : ` ${failure.path}`}: ${failure.error.message}`,
+        });
+      if (!projectTrusted && hasTrustRequiringProjectResources(cwd))
+        services.diagnostics.push({
+          type: "warning",
+          message: `Skipped project-local Pi resources under ${cwd} because the project is not trusted; set trustProject: true on the pi-resources entry to load them`,
+        });
       const errors = services.diagnostics.filter((diagnostic) => diagnostic.type === "error");
       if (errors.length > 0) throw new Error(`Pi resource loading failed:\n${errors.map((diagnostic) => diagnostic.message).join("\n")}`);
       return services;

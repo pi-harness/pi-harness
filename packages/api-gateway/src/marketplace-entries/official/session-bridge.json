@@ -13,16 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "session handoff",
-    "five-part preview",
-    "import/export"
-  ],
-  "hooks": [
-    "session manager",
-    "plugin UI",
-    "agent tool"
-  ],
+  "capabilities": ["session handoff", "five-part preview", "import/export"],
+  "hooks": ["session manager", "plugin UI", "agent tool"],
   "profile": {
     "name": "@pi-harness/core/plugins/session-bridge",
     "config": {}
