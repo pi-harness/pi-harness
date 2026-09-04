@@ -11,7 +11,8 @@ import type { WebServer } from "@pi-harness/host-webserver";
 type HarnessWebServer = WebServer;
 
 const host = process.env.PI_HARNESS_HOST ?? "127.0.0.1";
-const port = Number(process.env.PI_HARNESS_PORT ?? "3081");
+const DEFAULT_PI_HARNESS_PORT = 3141;
+const port = Number(process.env.PI_HARNESS_PORT ?? DEFAULT_PI_HARNESS_PORT);
 if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("PI_HARNESS_PORT must be an integer between 0 and 65535");
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 if (!loopbackHosts.has(host) && process.env.PI_HARNESS_ALLOW_REMOTE !== "1")

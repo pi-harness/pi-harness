@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import webServerPlugin from "../src/index.js";
+import webServerPlugin, { DEFAULT_WEB_SERVER_PORT } from "../src/index.js";
 
 const contexts: Context[] = [];
 
@@ -9,6 +9,10 @@ afterEach(async () => {
 });
 
 describe("web server plugin", () => {
+  test("uses the memorable Pi default port", () => {
+    expect(DEFAULT_WEB_SERVER_PORT).toBe(3141);
+  });
+
   test("serves registered routes and disposes the listener with the Cordis fiber", async () => {
     const context = new Context();
     contexts.push(context);

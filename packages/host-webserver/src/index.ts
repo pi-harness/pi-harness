@@ -20,6 +20,8 @@ export interface WebServer {
   close(): Promise<void>;
 }
 
+export const DEFAULT_WEB_SERVER_PORT = 3141;
+
 declare module "@deepseek-ai/cordis" {
   interface Context {
     webServer: WebServer;
@@ -44,7 +46,7 @@ export default {
   name: "pi-webserver",
   async apply(context: Context, config: WebServerConfig) {
     const host = config.host ?? "127.0.0.1";
-    const port = config.port ?? 3081;
+    const port = config.port ?? DEFAULT_WEB_SERVER_PORT;
     const routes = new Map<string, WebRoute["handler"]>();
     let fallback: WebRoute["handler"] | undefined;
     const server = createServer((request, response) => {

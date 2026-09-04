@@ -2,7 +2,7 @@
   name: "@pi-harness/host-webserver"
   config:
     host: 127.0.0.1
-    port: 3081
+    port: 3141
 - id: api
   name: "@pi-harness/api-gateway"
   config: {}
