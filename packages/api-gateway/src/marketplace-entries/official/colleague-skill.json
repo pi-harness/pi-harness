@@ -1,7 +1,7 @@
 {
   "id": "colleague-skill",
   "packageName": "@pi-harness/core/plugins/colleague-skill",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "name": "Colleague Skill",
   "description": "Create durable, structured handoff packets for another role without hidden agents or external message delivery.",
   "author": "Pi Harness",

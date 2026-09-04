@@ -1,7 +1,7 @@
 {
   "id": "canvas-draw",
   "packageName": "@pi-harness/core/plugins/canvas-draw",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "name": "Canvas Draw",
   "description": "Build structured nodes and edges for architecture, flow, and dependency diagrams in the workspace UI.",
   "author": "Pi Harness",

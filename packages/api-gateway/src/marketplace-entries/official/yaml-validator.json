@@ -1,7 +1,7 @@
 {
   "id": "yaml-validator",
   "packageName": "@pi-harness/core/plugins/yaml-validator",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "name": "YAML Validator",
   "description": "Validate bounded YAML configuration files and return precise parse errors without rewriting the source.",
   "author": "Pi Harness",
