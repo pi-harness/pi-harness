@@ -67,7 +67,11 @@ describe("Pi runtime plugin", () => {
   test("accepts a tool an extension registers during session start", async () => {
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-extension-tool-"));
     await mkdir(join(agentDir, "extensions"), { recursive: true });
-    await writeFile(join(agentDir, "extensions", "greet.js"), `export default function (pi) { pi.on("session_start", () => { pi.registerTool({ name: "greet", label: "Greet", description: "Greet a person.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }, async execute() { return { content: [{ type: "text", text: "hi" }], details: undefined }; } }); }); }`, "utf8");
+    await writeFile(
+      join(agentDir, "extensions", "greet.js"),
+      `export default function (pi) { pi.on("session_start", () => { pi.registerTool({ name: "greet", label: "Greet", description: "Greet a person.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }, async execute() { return { content: [{ type: "text", text: "hi" }], details: undefined }; } }); }); }`,
+      "utf8",
+    );
 
     const { context } = await createTestRuntimeContext([], ["greet"], { noExtensions: false, agentDir });
     contexts.push(context);
@@ -79,7 +83,11 @@ describe("Pi runtime plugin", () => {
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-shutdown-"));
     const marker = join(agentDir, "shutdown.txt");
     await mkdir(join(agentDir, "extensions"), { recursive: true });
-    await writeFile(join(agentDir, "extensions", "probe.js"), `import { writeFileSync } from "node:fs"; export default function (pi) { pi.on("session_shutdown", () => { writeFileSync(${JSON.stringify(marker)}, "shutdown"); }); }`, "utf8");
+    await writeFile(
+      join(agentDir, "extensions", "probe.js"),
+      `import { writeFileSync } from "node:fs"; export default function (pi) { pi.on("session_shutdown", () => { writeFileSync(${JSON.stringify(marker)}, "shutdown"); }); }`,
+      "utf8",
+    );
     const { context } = await createTestRuntimeContext([], [], { noExtensions: false, agentDir });
 
     await context.fiber.dispose();
@@ -106,7 +114,9 @@ describe("Pi runtime plugin", () => {
     }
 
     const teardown = context.fiber.dispose();
-    const replacement = replacementContext.plugin(runtimePlugin, { thinkingLevel: "off" }).then(() => { order.push("second-session:created"); });
+    const replacement = replacementContext.plugin(runtimePlugin, { thinkingLevel: "off" }).then(() => {
+      order.push("second-session:created");
+    });
     await Promise.all([teardown, replacement]);
 
     expect(order).toEqual(["teardown:start", "teardown:end", "second-session:created"]);
@@ -120,7 +130,10 @@ describe("Pi runtime plugin", () => {
     let disposed = 0;
     Object.defineProperty(session, "isIdle", { value: false, configurable: true });
     session.abort = () => Promise.reject(new Error("abort failed"));
-    session.dispose = () => { disposed += 1; realDispose(); };
+    session.dispose = () => {
+      disposed += 1;
+      realDispose();
+    };
 
     await expect(runtime.dispose()).rejects.toThrow(/abort failed/);
 
@@ -131,8 +144,12 @@ describe("Pi runtime plugin", () => {
   test("keeps the agent run alive when a pi/session-event listener throws", async () => {
     const { context, responseText, callCount } = await createRuntimeContext();
     const extensionErrors: string[] = [];
-    context.on("pi/extension-error", (error) => { extensionErrors.push(error.error); });
-    context.on("pi/session-event", () => { throw new Error("listener boom"); });
+    context.on("pi/extension-error", (error) => {
+      extensionErrors.push(error.error);
+    });
+    context.on("pi/session-event", () => {
+      throw new Error("listener boom");
+    });
 
     await context.piRuntime.prompt("respond once");
 

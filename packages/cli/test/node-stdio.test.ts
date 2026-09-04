@@ -17,7 +17,10 @@ function createTerminal(): { input: FakeTty; output: FakeTty; stdio: NodeStdio }
 
 async function settle(promise: Promise<string>): Promise<string> {
   return await Promise.race([
-    promise.then((value) => `resolved:${value}`, (error: Error) => `rejected:${error.name}`),
+    promise.then(
+      (value) => `resolved:${value}`,
+      (error: Error) => `rejected:${error.name}`,
+    ),
     new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 1_000)),
   ]);
 }
@@ -59,7 +62,9 @@ describe("NodeStdio interactive prompt", () => {
     stdio.writeOutput("x".repeat(4_096));
     let drained = false;
 
-    const flushed = stdio.flush().then(() => { drained = true; });
+    const flushed = stdio.flush().then(() => {
+      drained = true;
+    });
     expect(drained).toBe(false);
     output.resume();
     await flushed;
@@ -73,7 +78,9 @@ describe("NodeStdio interactive prompt", () => {
     output.resume();
     const stdio = new NodeStdio(input, output, output);
 
-    await expect(Promise.race([stdio.flush().then(() => "flushed"), new Promise((resolve) => setTimeout(() => resolve("pending"), 500))])).resolves.toBe("flushed");
+    await expect(Promise.race([stdio.flush().then(() => "flushed"), new Promise((resolve) => setTimeout(() => resolve("pending"), 500))])).resolves.toBe(
+      "flushed",
+    );
   });
 
   test("reads a piped prompt to end of stream", async () => {

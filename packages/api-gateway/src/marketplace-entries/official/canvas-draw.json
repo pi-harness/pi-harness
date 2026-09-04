@@ -13,15 +13,8 @@
     "id": "multimodal",
     "label": "多模态"
   },
-  "capabilities": [
-    "diagram",
-    "nodes and edges",
-    "visual planning"
-  ],
-  "hooks": [
-    "canvas state",
-    "plugin UI"
-  ],
+  "capabilities": ["diagram", "nodes and edges", "visual planning"],
+  "hooks": ["canvas state", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/canvas-draw",
     "config": {}

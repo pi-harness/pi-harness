@@ -62,7 +62,7 @@ const TOOL_ARGUMENT_SUMMARY_LIMIT = 120;
 function summarizeToolArguments(args: unknown): string {
   let text: string;
   try {
-    text = typeof args === "string" ? args : JSON.stringify(args) ?? "";
+    text = typeof args === "string" ? args : (JSON.stringify(args) ?? "");
   } catch {
     return "";
   }
@@ -139,7 +139,9 @@ export class StdioApplication implements PiHarnessApplication {
       const stopReason = lastAssistantMessage?.stopReason;
       if (stopReason === "error" || stopReason === "aborted" || stopReason === "length") {
         if (this.#wroteOutput) this.#stdio.writeOutput("\n");
-        this.#stdio.writeError(`${lastAssistantMessage?.errorMessage ?? (stopReason === "length" ? "Response was truncated by the model's output limit" : `Request ${stopReason}`)}\n`);
+        this.#stdio.writeError(
+          `${lastAssistantMessage?.errorMessage ?? (stopReason === "length" ? "Response was truncated by the model's output limit" : `Request ${stopReason}`)}\n`,
+        );
         return 1;
       }
       if (!this.#wroteOutput) {

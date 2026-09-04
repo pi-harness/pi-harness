@@ -7,13 +7,28 @@ describe("parseLauncherArgs", () => {
   });
 
   test("forwards the end-of-options separator so the application can take option-shaped prompts literally", () => {
-    expect(parseLauncherArgs(["--profile", "development", "--", "--profile", "inside", "hello"])).toEqual({ mode: "run", profile: "development", dumpConfig: false, args: ["--", "--profile", "inside", "hello"] });
+    expect(parseLauncherArgs(["--profile", "development", "--", "--profile", "inside", "hello"])).toEqual({
+      mode: "run",
+      profile: "development",
+      dumpConfig: false,
+      args: ["--", "--profile", "inside", "hello"],
+    });
   });
 
   test("stops recognizing launcher options at the first application argument", () => {
     expect(parseLauncherArgs(["--prompt", "--version"])).toEqual({ mode: "run", profile: "default", dumpConfig: false, args: ["--prompt", "--version"] });
-    expect(parseLauncherArgs(["explain", "what", "tar", "-h", "prints"])).toEqual({ mode: "run", profile: "default", dumpConfig: false, args: ["explain", "what", "tar", "-h", "prints"] });
-    expect(parseLauncherArgs(["hello", "--profile", "development"])).toEqual({ mode: "run", profile: "default", dumpConfig: false, args: ["hello", "--profile", "development"] });
+    expect(parseLauncherArgs(["explain", "what", "tar", "-h", "prints"])).toEqual({
+      mode: "run",
+      profile: "default",
+      dumpConfig: false,
+      args: ["explain", "what", "tar", "-h", "prints"],
+    });
+    expect(parseLauncherArgs(["hello", "--profile", "development"])).toEqual({
+      mode: "run",
+      profile: "default",
+      dumpConfig: false,
+      args: ["hello", "--profile", "development"],
+    });
   });
 
   test("accepts the inline form of launcher options", () => {

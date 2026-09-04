@@ -13,14 +13,8 @@
     "id": "interface",
     "label": "界面增强"
   },
-  "capabilities": [
-    "structured UI",
-    "rendering"
-  ],
-  "hooks": [
-    "session event",
-    "plugin UI"
-  ],
+  "capabilities": ["structured UI", "rendering"],
+  "hooks": ["session event", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/genui",
     "config": {}

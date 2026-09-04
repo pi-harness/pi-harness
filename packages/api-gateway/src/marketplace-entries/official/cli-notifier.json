@@ -13,16 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "completion notice",
-    "failure notice",
-    "webhook"
-  ],
-  "hooks": [
-    "agent end",
-    "session error",
-    "plugin UI"
-  ],
+  "capabilities": ["completion notice", "failure notice", "webhook"],
+  "hooks": ["agent end", "session error", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/cli-notifier",
     "config": {}

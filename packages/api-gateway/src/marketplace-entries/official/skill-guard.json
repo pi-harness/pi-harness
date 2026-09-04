@@ -13,15 +13,8 @@
     "id": "security",
     "label": "安全防护"
   },
-  "capabilities": [
-    "skill audit",
-    "prompt safety",
-    "exfiltration detection"
-  ],
-  "hooks": [
-    "resource loader",
-    "plugin UI"
-  ],
+  "capabilities": ["skill audit", "prompt safety", "exfiltration detection"],
+  "hooks": ["resource loader", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/skill-guard",
     "config": {}

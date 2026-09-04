@@ -13,14 +13,8 @@
     "id": "context",
     "label": "上下文管理"
   },
-  "capabilities": [
-    "context",
-    "diagnostics"
-  ],
-  "hooks": [
-    "session event",
-    "plugin UI"
-  ],
+  "capabilities": ["context", "diagnostics"],
+  "hooks": ["session event", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/context",
     "config": {}

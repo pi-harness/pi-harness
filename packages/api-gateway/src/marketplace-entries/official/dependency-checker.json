@@ -13,17 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "npm dependencies",
-    "Python requirements",
-    "version conflicts",
-    "package health"
-  ],
-  "hooks": [
-    "workspace access",
-    "virtualenv scan",
-    "plugin UI"
-  ],
+  "capabilities": ["npm dependencies", "Python requirements", "version conflicts", "package health"],
+  "hooks": ["workspace access", "virtualenv scan", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/dependency-checker",
     "config": {}

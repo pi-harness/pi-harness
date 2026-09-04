@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "translation pairs",
-    "locale workflow",
-    "key preservation"
-  ],
-  "hooks": [
-    "locale files",
-    "plugin UI"
-  ],
+  "capabilities": ["translation pairs", "locale workflow", "key preservation"],
+  "hooks": ["locale files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/i18n-pair",
     "config": {}

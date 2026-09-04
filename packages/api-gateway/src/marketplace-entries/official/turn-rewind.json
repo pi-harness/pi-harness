@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "session rewind",
-    "branching",
-    "recovery"
-  ],
-  "hooks": [
-    "session tree",
-    "plugin UI"
-  ],
+  "capabilities": ["session rewind", "branching", "recovery"],
+  "hooks": ["session tree", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/turn-rewind",
     "config": {}

@@ -13,15 +13,8 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": [
-    "YAML validation",
-    "config diagnostics",
-    "parse errors"
-  ],
-  "hooks": [
-    "workspace files",
-    "plugin UI"
-  ],
+  "capabilities": ["YAML validation", "config diagnostics", "parse errors"],
+  "hooks": ["workspace files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/yaml-validator",
     "config": {}

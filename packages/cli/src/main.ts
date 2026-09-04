@@ -171,14 +171,26 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
       shutdownAbort.abort(new Error("Pi Harness is shutting down"));
       const runtime = harness.context.get("piRuntime");
       if (runtime !== undefined) {
-        const aborted = await settleWithin(runtime.abort().then(() => undefined, (error: unknown) => {
-          environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
-        }), environment.shutdownTimeoutMs);
+        const aborted = await settleWithin(
+          runtime.abort().then(
+            () => undefined,
+            (error: unknown) => {
+              environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+            },
+          ),
+          environment.shutdownTimeoutMs,
+        );
         if (!aborted.settled) await forceExit(result.code);
       }
       // The application surface outlives the runtime abort unless it honours the signal, and
       // Node waits for it before exiting, so it gets the same deadline as everything else.
-      const finished = await settleWithin(applicationRun.then(() => undefined, () => undefined), environment.shutdownTimeoutMs);
+      const finished = await settleWithin(
+        applicationRun.then(
+          () => undefined,
+          () => undefined,
+        ),
+        environment.shutdownTimeoutMs,
+      );
       if (!finished.settled) await forceExit(result.code);
     }
     return result.code;
@@ -190,9 +202,15 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     removeSignals();
     stdio.close();
     if (harness !== undefined) {
-      const disposed = await settleWithin(harness.dispose().then(() => undefined, (error: unknown) => {
-        environment.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
-      }), environment.shutdownTimeoutMs);
+      const disposed = await settleWithin(
+        harness.dispose().then(
+          () => undefined,
+          (error: unknown) => {
+            environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+          },
+        ),
+        environment.shutdownTimeoutMs,
+      );
       if (!disposed.settled) await forceExit(resultCode ?? 1);
     }
   }

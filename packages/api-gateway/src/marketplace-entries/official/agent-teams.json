@@ -13,17 +13,8 @@
     "id": "collaboration",
     "label": "多 Agent 协作"
   },
-  "capabilities": [
-    "multi-agent",
-    "tasks",
-    "mailbox",
-    "dependency graph",
-    "cycle detection"
-  ],
-  "hooks": [
-    "session lifecycle",
-    "plugin UI"
-  ],
+  "capabilities": ["multi-agent", "tasks", "mailbox", "dependency graph", "cycle detection"],
+  "hooks": ["session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/agent-teams",
     "config": {}

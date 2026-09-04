@@ -11,7 +11,7 @@ interface HttpDispatcherModule {
 // shared with Pi, which a direct undici dependency of our own would not.
 async function loadHttpDispatcher(): Promise<HttpDispatcherModule> {
   const entry = import.meta.resolve("@earendil-works/pi-coding-agent");
-  return await import(new URL("./core/http-dispatcher.js", entry).href) as HttpDispatcherModule;
+  return (await import(new URL("./core/http-dispatcher.js", entry).href)) as HttpDispatcherModule;
 }
 
 /**

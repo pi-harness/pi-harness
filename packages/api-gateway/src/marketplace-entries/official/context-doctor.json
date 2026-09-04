@@ -13,16 +13,8 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": [
-    "context audit",
-    "compaction guidance",
-    "tool error detection"
-  ],
-  "hooks": [
-    "session messages",
-    "context usage",
-    "plugin UI"
-  ],
+  "capabilities": ["context audit", "compaction guidance", "tool error detection"],
+  "hooks": ["session messages", "context usage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/context-doctor",
     "config": {}

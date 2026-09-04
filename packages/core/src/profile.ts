@@ -27,7 +27,10 @@ export async function resolveProfileConfig(_options: ResolveProfileConfigOptions
   try {
     await access(configPath);
   } catch (cause) {
-    if (options.configPath === undefined) throw new Error(`Pi Harness profile config does not exist or is not readable: ${configPath}; built-in profiles are ${BUILTIN_PROFILES.join(", ")}`, { cause });
+    if (options.configPath === undefined)
+      throw new Error(`Pi Harness profile config does not exist or is not readable: ${configPath}; built-in profiles are ${BUILTIN_PROFILES.join(", ")}`, {
+        cause,
+      });
     throw new Error(`Pi Harness profile config does not exist or is not readable: ${configPath}`, { cause });
   }
   return configPath;

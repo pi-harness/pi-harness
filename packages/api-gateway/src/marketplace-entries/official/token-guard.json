@@ -13,15 +13,8 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": [
-    "token budget",
-    "per-run token budget",
-    "context monitoring"
-  ],
-  "hooks": [
-    "session event",
-    "plugin UI"
-  ],
+  "capabilities": ["token budget", "per-run token budget", "context monitoring"],
+  "hooks": ["session event", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/token-guard",
     "config": {

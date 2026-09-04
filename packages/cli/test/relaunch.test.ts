@@ -35,7 +35,11 @@ describe("development profile relaunch", () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-harness-supervisor-loop-"));
     const markerPath = join(directory, "runs.txt");
     const childPath = join(directory, "child.mjs");
-    await writeFile(childPath, `import { appendFileSync } from "node:fs"; appendFileSync(process.argv[2], "run\\n"); process.exit(${PI_HARNESS_RESTART_EXIT_CODE});`, "utf8");
+    await writeFile(
+      childPath,
+      `import { appendFileSync } from "node:fs"; appendFileSync(process.argv[2], "run\\n"); process.exit(${PI_HARNESS_RESTART_EXIT_CODE});`,
+      "utf8",
+    );
 
     const exitCode = await superviseDevelopmentProcess(process.execPath, [childPath, markerPath], { stdio: "ignore" });
 

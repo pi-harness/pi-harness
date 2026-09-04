@@ -26,13 +26,16 @@ export class NodeStdio implements PiHarnessStdio {
     this.#input.setEncoding("utf8");
     let content = "";
     await new Promise<void>((resolve, reject) => {
-      const onData = (chunk: unknown) => { content += String(chunk); };
+      const onData = (chunk: unknown) => {
+        content += String(chunk);
+      };
       const settle = (error?: Error) => {
         this.#input.off("data", onData);
         this.#input.off("end", onEnd);
         this.#input.off("error", onError);
         this.#abort.signal.removeEventListener("abort", onAbort);
-        if (error === undefined) resolve(); else reject(error);
+        if (error === undefined) resolve();
+        else reject(error);
       };
       const onEnd = () => settle();
       const onError = (error: Error) => settle(error);

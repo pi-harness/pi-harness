@@ -13,9 +13,15 @@ describe("stdin shutdown", () => {
     const pluginPath = join(directory, "application.mjs");
     const configPath = join(directory, "cordis.yml");
     const runnerPath = join(directory, "runner.mjs");
-    await writeFile(pluginPath, `export default { inject: ["piHarnessStdio"], apply(ctx) { ctx.provide("piApplication", { async run() { await ctx.piHarnessStdio.readPrompt(); return 0; } }); } };`, "utf8");
+    await writeFile(
+      pluginPath,
+      `export default { inject: ["piHarnessStdio"], apply(ctx) { ctx.provide("piApplication", { async run() { await ctx.piHarnessStdio.readPrompt(); return 0; } }); } };`,
+      "utf8",
+    );
     await writeFile(configPath, JSON.stringify([{ name: pathToFileURL(pluginPath).href, config: {} }]), "utf8");
-    await writeFile(runnerPath, `
+    await writeFile(
+      runnerPath,
+      `
 import { runCli } from ${JSON.stringify(MAIN_URL)};
 const environment = {
   cwd: ${JSON.stringify(directory)},
@@ -34,14 +40,23 @@ const environment = {
 };
 process.stderr.write("READY\\n");
 process.exitCode = await runCli(["--config", ${JSON.stringify(configPath)}], environment);
-`, "utf8");
+`,
+      "utf8",
+    );
 
     const child = spawn(process.execPath, [runnerPath], { stdio: ["pipe", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
     await new Promise<void>((resolve) => {
-      const check = () => { if (stderr.includes("READY")) { child.stderr.off("data", check); resolve(); } };
+      const check = () => {
+        if (stderr.includes("READY")) {
+          child.stderr.off("data", check);
+          resolve();
+        }
+      };
       child.stderr.on("data", check);
     });
     await new Promise((resolve) => setTimeout(resolve, 100));

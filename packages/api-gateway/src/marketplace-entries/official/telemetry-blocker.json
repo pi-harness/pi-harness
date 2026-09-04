@@ -13,15 +13,8 @@
     "id": "security",
     "label": "安全"
   },
-  "capabilities": [
-    "telemetry policy",
-    "outbound blocking",
-    "privacy"
-  ],
-  "hooks": [
-    "network policy",
-    "plugin UI"
-  ],
+  "capabilities": ["telemetry policy", "outbound blocking", "privacy"],
+  "hooks": ["network policy", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/telemetry-blocker",
     "config": {}
