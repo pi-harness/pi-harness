@@ -1,7 +1,7 @@
 {
   "id": "openpets",
   "packageName": "@pi-harness/core/plugins/openpets",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "OpenPets",
   "description": "Keep a small durable companion state in the workspace UI from session events without retaining message contents.",
   "author": "Pi Harness",

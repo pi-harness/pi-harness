@@ -1,7 +1,7 @@
 {
   "id": "skill-guard",
   "packageName": "@pi-harness/core/plugins/skill-guard",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "Skill Guard",
   "description": "Audit loaded Skills for instruction override, secret exfiltration, destructive commands, and obfuscated payloads.",
   "author": "Pi Harness",

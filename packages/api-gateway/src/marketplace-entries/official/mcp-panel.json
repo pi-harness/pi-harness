@@ -1,7 +1,7 @@
 {
   "id": "mcp-panel",
   "packageName": "@pi-harness/core/plugins/mcp-panel",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "MCP Panel",
   "description": "Inspect MCP server health and tools, preview profile patches, and apply changes only with an explicit confirmation and backup.",
   "author": "Pi Harness",

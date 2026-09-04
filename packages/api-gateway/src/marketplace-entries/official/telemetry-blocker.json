@@ -1,7 +1,7 @@
 {
   "id": "telemetry-blocker",
   "packageName": "@pi-harness/core/plugins/telemetry-blocker",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "Telemetry Blocker",
   "description": "Block configured outbound telemetry destinations and report blocked attempts without collecting payload contents.",
   "author": "Pi Harness",

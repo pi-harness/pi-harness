@@ -1,7 +1,7 @@
 {
   "id": "plugin-stars",
   "packageName": "@pi-harness/core/plugins/plugin-stars",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "Plugin Stars",
   "description": "Browse the public dsh-plugin-stars ranking with bounded metadata and source links.",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "context-doctor",
   "packageName": "@pi-harness/core/plugins/context-doctor",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "Context Doctor",
   "description": "Audit context pressure, oversized messages, and tool errors before a long task runs out of context.",
   "author": "Pi Harness",

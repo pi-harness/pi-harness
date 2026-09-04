@@ -1,7 +1,7 @@
 {
   "id": "cost-meter",
   "packageName": "@pi-harness/core/plugins/cost-meter",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "Cost Meter",
   "description": "Track current-session, daily, and persisted model costs with optional budget thresholds.",
   "author": "Pi Harness",

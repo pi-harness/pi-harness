@@ -1,7 +1,7 @@
 {
   "id": "genui",
   "packageName": "@pi-harness/core/plugins/genui",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "GenUI",
   "description": "Render bounded structured UI blocks from agent output without executing arbitrary HTML or scripts.",
   "author": "Pi Harness",

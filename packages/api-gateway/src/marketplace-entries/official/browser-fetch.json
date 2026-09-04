@@ -1,7 +1,7 @@
 {
   "id": "browser-fetch",
   "packageName": "@pi-harness/core/plugins/browser-fetch",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "name": "Browser Fetch",
   "description": "Fetch public HTTP and HTTPS pages as bounded text without executing page scripts or private network targets.",
   "author": "Pi Harness",
