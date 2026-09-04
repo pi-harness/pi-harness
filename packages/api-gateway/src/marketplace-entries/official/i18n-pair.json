@@ -1,7 +1,7 @@
 {
   "id": "i18n-pair",
   "packageName": "@pi-harness/core/plugins/i18n-pair",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "name": "I18n Pair",
   "description": "Generate paired translation suggestions from explicit source text while preserving keys and locale boundaries.",
   "author": "Pi Harness",

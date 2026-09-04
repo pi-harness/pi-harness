@@ -1,7 +1,7 @@
 {
   "id": "plan-execute",
   "packageName": "@pi-harness/core/plugins/plan-execute",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "name": "Plan Execute",
   "description": "Track an explicit multi-step execution plan with progress, dependencies, and completion state in the current session.",
   "author": "Pi Harness",

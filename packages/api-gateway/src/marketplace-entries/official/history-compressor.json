@@ -1,7 +1,7 @@
 {
   "id": "history-compressor",
   "packageName": "@pi-harness/core/plugins/history-compressor",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "name": "History Compressor",
   "description": "Compact the current Pi session automatically when context usage approaches a configured threshold.",
   "author": "Pi Harness",
