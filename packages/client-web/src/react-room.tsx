@@ -22,6 +22,7 @@ import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
 import { marketplaceCategoryTabs, marketplaceDetailPath, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
+import { loadMarketplaceCatalog } from "./marketplace-catalog.js";
 import { pluginStarsRows } from "./plugin-stars-view.js";
 import { browserSessionTabs } from "./browser-session-view.js";
 import { matchesPluginQuery } from "./plugin-search.js";
@@ -345,6 +346,7 @@ const readQueryState = (): {
     marketplacePage: Number.isFinite(pageNumber) && pageNumber >= 0 ? pageNumber : 0,
   };
 };
+
 function sessionGroups(sessions: readonly Record<string, unknown>[]): readonly [string, readonly Record<string, unknown>[]][] {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -4071,7 +4073,7 @@ function PluginUninstallDialog({
 function Plugins({
   plugins,
   panels,
-  marketplace,
+  catalog,
   onMarketplace,
   onOpenDetail,
   onToml,
@@ -4080,31 +4082,54 @@ function Plugins({
 }: {
   plugins: readonly ClientPlugin[];
   panels: readonly ClientPluginPanel[];
-  marketplace: readonly ClientMarketplacePlugin[];
+  catalog: readonly ClientMarketplacePlugin[];
   onMarketplace: () => void;
   onOpenDetail: (plugin: ClientPlugin) => void;
   onToml: () => void;
   onToggle: (plugin: ClientPlugin) => Promise<void>;
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
-  const marketplaceNames = useMemo(() => new Map(marketplace.map((plugin) => [plugin.packageName, plugin.name])), [marketplace]);
+  const catalogByPackage = useMemo(() => new Map(catalog.map((plugin) => [plugin.packageName, plugin])), [catalog]);
   const panelPluginIds = useMemo(() => new Set(panels.map((panel) => panel.pluginId)), [panels]);
   const installedPlugins = useMemo(() => plugins.filter((plugin) => plugin.removable || panelPluginIds.has(plugin.name)), [panelPluginIds, plugins]);
   const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [busyPlugin, setBusyPlugin] = useState<string>();
   const [pluginError, setPluginError] = useState("");
   const [pendingUninstall, setPendingUninstall] = useState<ClientPlugin>();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const installedCategories = useMemo(() => {
+    const counts = new Map<string, ClientMarketplaceCategory>();
+    for (const plugin of installedPlugins) {
+      const category = catalogByPackage.get(plugin.name)?.category ?? plugin.category ?? { id: "other", label: "其他" };
+      const current = counts.get(category.id);
+      counts.set(category.id, { ...category, count: (current?.count ?? 0) + 1 });
+    }
+    return marketplaceCategoryTabs([...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "zh-CN")));
+  }, [catalogByPackage, installedPlugins]);
   const visiblePlugins = useMemo(() => {
     return installedPlugins.filter((plugin) => {
-      const marketplaceName = marketplaceNames.get(plugin.name) ?? "";
-      const fields = [plugin.name, marketplaceName, displayPluginName(plugin.name), plugin.category?.label, capability(plugin.name)];
+      const metadata = catalogByPackage.get(plugin.name);
+      const category = metadata?.category ?? plugin.category ?? { id: "other", label: "其他" };
+      if (categoryFilter && category.id !== categoryFilter) return false;
+      const fields = [
+        plugin.name,
+        metadata?.name,
+        displayPluginName(plugin.name),
+        metadata?.category.label,
+        ...(metadata?.capabilities ?? []),
+        plugin.category?.label,
+        capability(plugin.name),
+      ];
       return matchesPluginQuery(query, fields);
     });
-  }, [installedPlugins, marketplaceNames, query]);
+  }, [catalogByPackage, categoryFilter, installedPlugins, query]);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
-  }, [query]);
+  }, [categoryFilter, query]);
+  useEffect(() => {
+    if (categoryFilter && !installedCategories.some((category) => category.id === categoryFilter)) setCategoryFilter("");
+  }, [categoryFilter, installedCategories]);
   const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>): Promise<boolean> => {
     setPluginError("");
     setBusyPlugin(plugin.id);
@@ -4149,64 +4174,88 @@ function Plugins({
             type="search"
             value={query}
           />
-          <span aria-live="polite">{query.trim() ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}`} 个插件</span>
+          <span aria-live="polite">
+            {query.trim() || categoryFilter ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}`} 个插件
+          </span>
         </div>
+        <nav aria-label="已安装插件分类" className="marketplace-categories">
+          {installedCategories.map((category) => {
+            const active = categoryFilter === category.id;
+            return (
+              <button
+                aria-pressed={active}
+                className={`marketplace-category ${active ? "active" : ""}`}
+                key={category.id || "all"}
+                onClick={() => setCategoryFilter(category.id)}
+                type="button"
+              >
+                <span>{category.label}</span>
+                <span className={active ? "font-mono text-[10px] text-[#3565c5]" : "font-mono text-[10px] text-[#687381]"}>{category.count}</span>
+              </button>
+            );
+          })}
+        </nav>
         <div className="plugins-scroll" ref={scrollRef}>
           <div className="plugins-list">
             {visiblePlugins.map((plugin) => {
-              const categoryLabel = plugin.category?.label;
+              const metadata = catalogByPackage.get(plugin.name);
+              const categoryLabel = metadata?.category.label ?? plugin.category?.label;
               const capabilityLabel = capability(plugin.name);
-              const pluginTitle = marketplaceNames.get(plugin.name) ?? displayPluginName(plugin.name);
+              const pluginTitle = metadata?.name ?? displayPluginName(plugin.name);
               return (
-                <article className="catalog-card plugin-card" key={plugin.id}>
+                <article className="plugin-card" key={plugin.id}>
                   <div className="plugin-card-head">
                     <span className="plugin-icon">◈</span>
                     <div className="plugin-copy">
-                      <div className="plugin-title">
-                        <strong>{pluginTitle}</strong>
-                        <span className={`plugin-state ${plugin.enabled ? "active" : ""}`}>{plugin.enabled ? "运行中" : "已停用"}</span>
-                        {categoryLabel && <span className="capability">{categoryLabel}</span>}
-                        {categoryLabel !== capabilityLabel && <span className="capability">{capabilityLabel}</span>}
-                      </div>
-                      <code className="plugin-package">{plugin.name}</code>
-                      <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
-                      <div className="hook-list">
-                        <span>loader</span>
-                        <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
-                      </div>
-                    </div>
-                    <div className="plugin-actions">
-                      {plugin.removable ? (
-                        <>
-                          <button
-                            aria-label={`${plugin.enabled ? "停用" : "启用"} ${pluginTitle}`}
-                            aria-pressed={plugin.enabled}
-                            className="plugin-switch-button"
-                            disabled={busyPlugin !== undefined}
-                            onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
-                            type="button"
-                          >
-                            <span aria-hidden="true" className={`switch ${plugin.enabled ? "on" : ""}`}>
+                      <div className="plugin-heading">
+                        <div className="plugin-title">
+                          <strong>{pluginTitle}</strong>
+                          <span className={`plugin-state ${plugin.enabled ? "active" : ""}`}>{plugin.enabled ? "运行中" : "已停用"}</span>
+                          {categoryLabel && <span className="capability">{categoryLabel}</span>}
+                          {categoryLabel !== capabilityLabel && <span className="capability">{capabilityLabel}</span>}
+                        </div>
+                        <div className="plugin-actions">
+                          {plugin.removable ? (
+                            <>
+                              <button
+                                aria-label={`${plugin.enabled ? "停用" : "启用"} ${pluginTitle}`}
+                                aria-pressed={plugin.enabled}
+                                className="plugin-switch-button"
+                                disabled={busyPlugin !== undefined}
+                                onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
+                                type="button"
+                              >
+                                <span aria-hidden="true" className={`switch ${plugin.enabled ? "on" : ""}`}>
+                                  <i></i>
+                                </span>
+                              </button>
+                              <button
+                                className="plugin-uninstall"
+                                disabled={busyPlugin !== undefined}
+                                onClick={() => {
+                                  setPluginError("");
+                                  setPendingUninstall(plugin);
+                                }}
+                                type="button"
+                              >
+                                卸载
+                              </button>
+                            </>
+                          ) : (
+                            <span className={`switch ${plugin.enabled ? "on" : ""}`}>
                               <i></i>
                             </span>
-                          </button>
-                          <button
-                            className="plugin-uninstall"
-                            disabled={busyPlugin !== undefined}
-                            onClick={() => {
-                              setPluginError("");
-                              setPendingUninstall(plugin);
-                            }}
-                            type="button"
-                          >
-                            卸载
-                          </button>
-                        </>
-                      ) : (
-                        <span className={`switch ${plugin.enabled ? "on" : ""}`}>
-                          <i></i>
-                        </span>
-                      )}
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="plugin-card-body">
+                    <code className="plugin-package">{plugin.name}</code>
+                    <p className="plugin-description">{plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。"}</p>
+                    <div className="hook-list">
+                      <span>loader</span>
+                      <span>{plugin.state === "active" ? "active" : `state:${plugin.state}`}</span>
                     </div>
                   </div>
                   <footer className="plugin-card-footer">
@@ -4228,7 +4277,7 @@ function Plugins({
             {!installedPlugins.length ? (
               <div className="empty-state">还没有安装可管理的插件。去插件市场安装一个吧。</div>
             ) : !visiblePlugins.length ? (
-              <div className="empty-state">没有匹配“{query.trim()}”的已安装插件。</div>
+              <div className="empty-state">没有匹配当前搜索与分类条件的已安装插件。</div>
             ) : null}
           </div>
           {pluginError && <p className="plugin-action-error">{pluginError}</p>}
@@ -4261,7 +4310,7 @@ function Plugins({
                 if (completed) setPendingUninstall(undefined);
               })
             }
-            pluginName={marketplaceNames.get(pendingUninstall.name) ?? displayPluginName(pendingUninstall.name)}
+            pluginName={catalogByPackage.get(pendingUninstall.name)?.name ?? displayPluginName(pendingUninstall.name)}
           />
         )}
       </div>
@@ -4573,7 +4622,7 @@ function Marketplace({
         <div className="marketplace-scroll">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
-              <article className="catalog-card marketplace-card" key={plugin.id}>
+              <article className="marketplace-card" key={plugin.id}>
                 <div className="flex items-start gap-2.5">
                   <div className="marketplace-card-mark">◈</div>
                   <div className="min-w-0 flex-1">
@@ -5772,6 +5821,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [marketplaceDetail, setMarketplaceDetail] = useState<ClientMarketplacePlugin>();
   const [marketplaceDetailPending, setMarketplaceDetailPending] = useState(initialQueryState.marketplacePlugin !== undefined);
   const [marketplaceDetailError, setMarketplaceDetailError] = useState("");
+  const [marketplaceCatalog, setMarketplaceCatalog] = useState<readonly ClientMarketplacePlugin[]>([]);
   const [installedPluginId, setInstalledPluginId] = useState<string | undefined>(initialQueryState.installedPlugin);
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
@@ -5798,6 +5848,19 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
   const [initialRefreshPending, setInitialRefreshPending] = useState(true);
   const [refreshIssues, setRefreshIssues] = useState<readonly string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void loadMarketplaceCatalog(api)
+      .then((items) => {
+        if (!cancelled) setMarketplaceCatalog(items);
+      })
+      .catch(() => {
+        if (!cancelled) setMarketplaceCatalog([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
   useEffect(() => {
     if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
   }, [data.session?.sessionFile, selectedSessionPath]);
@@ -6327,7 +6390,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     <Plugins
       plugins={data.plugins}
       panels={data.pluginPanels}
-      marketplace={data.marketplace}
+      catalog={marketplaceCatalog.length ? marketplaceCatalog : data.marketplace}
       onMarketplace={() => pushMarketplacePluginRoute(undefined)}
       onOpenDetail={(plugin) => pushInstalledPluginRoute(plugin.name)}
       onToml={() => {
