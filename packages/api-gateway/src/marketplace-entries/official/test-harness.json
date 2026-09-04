@@ -1,7 +1,7 @@
 {
   "id": "test-harness",
   "packageName": "@pi-harness/core/plugins/test-harness",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "name": "Test Harness",
   "description": "Run bounded project test commands and report exit status, output, and duration without shell interpolation.",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "browser-session",
   "packageName": "@pi-harness/core/plugins/browser-session",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "name": "Browser Session",
   "description": "Inspect and control a local Chrome DevTools session through a bounded browser endpoint without embedding browser credentials.",
   "author": "Pi Harness",
