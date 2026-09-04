@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   createClientApi,
   failedRefreshLabels,
@@ -645,34 +646,54 @@ function ConfirmDialog({
 
 function SessionActionMenu({
   busy,
+  position,
   onRename,
   onFork,
   onArchive,
   onDelete,
 }: {
   busy: boolean;
+  position: { left: number; top: number };
   onRename: () => void;
   onFork: () => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  return (
-    <div className="session-row-menu-popover" onClick={(event) => event.stopPropagation()}>
-      <button disabled={busy} onClick={onRename} type="button">
+  return createPortal(
+    <div className="session-row-menu-popover" data-session-popover onClick={(event) => event.stopPropagation()} role="menu" style={position}>
+      <button autoFocus disabled={busy} onClick={onRename} role="menuitem" type="button">
         重命名
       </button>
-      <button disabled={busy} onClick={onFork} type="button">
+      <button disabled={busy} onClick={onFork} role="menuitem" type="button">
         复制会话
       </button>
-      <button disabled={busy} onClick={onArchive} type="button">
+      <button disabled={busy} onClick={onArchive} role="menuitem" type="button">
         归档会话
       </button>
-      <button className="danger" disabled={busy} onClick={onDelete} type="button">
+      <button className="danger" disabled={busy} onClick={onDelete} role="menuitem" type="button">
         删除会话
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
+
+const sidebarPopoverPosition = (
+  trigger: HTMLButtonElement,
+  width: number,
+  estimatedHeight: number,
+  placement: "beside" | "below",
+): { left: number; top: number } => {
+  const rect = trigger.getBoundingClientRect();
+  const gutter = 8;
+  const spaceOnRight = window.innerWidth - rect.right - gutter;
+  const left = spaceOnRight >= width ? rect.right + gutter : Math.max(gutter, rect.left - width - gutter);
+  const preferredTop = placement === "below" ? rect.bottom + 6 : rect.top - 4;
+  return {
+    left: Math.round(left),
+    top: Math.round(Math.min(Math.max(gutter, preferredTop), Math.max(gutter, window.innerHeight - estimatedHeight - gutter))),
+  };
+};
 
 function PromptError({ message }: { message: string }) {
   const everyApiAuth = /No API key found for everyapi/i.test(message);
@@ -5679,7 +5700,13 @@ function PromptCompletionPopover({
       ? filterCommands(commands, query).slice(0, 12)
       : files.filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 12);
   return (
-    <div aria-label={kind === "command" ? "命令补全" : "文件补全"} className="prompt-completion" id="prompt-completion-list" role="listbox">
+    <div
+      aria-label={kind === "command" ? "命令补全" : "文件补全"}
+      className="prompt-completion"
+      data-prompt-completion
+      id="prompt-completion-list"
+      role="listbox"
+    >
       <small>{kind === "command" ? "命令" : "文件"}</small>
       {items.length ? (
         items.slice(0, 12).map((item, index) => {
@@ -5874,9 +5901,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [commandIndex, setCommandIndex] = useState(0);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [sessionMenuPath, setSessionMenuPath] = useState<string>();
+  const [sessionMenuPosition, setSessionMenuPosition] = useState<{ left: number; top: number }>();
   const [sessionToolsOpen, setSessionToolsOpen] = useState(false);
+  const [sessionToolsPosition, setSessionToolsPosition] = useState<{ left: number; top: number }>();
   const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
   const [sessionDialog, setSessionDialog] = useState<"rename" | "delete" | "archive" | "batch-delete">();
+  const [sessionActionTarget, setSessionActionTarget] = useState<{ name: string; path: string }>();
   const [sessionNameDraft, setSessionNameDraft] = useState("");
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
@@ -5912,6 +5942,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [sessionHasNext, setSessionHasNext] = useState(false);
   const [selectedSessionPaths, setSelectedSessionPaths] = useState<ReadonlySet<string>>(new Set());
   const importInputRef = useRef<HTMLInputElement>(null);
+  const sessionPopoverTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [streamingAssistant, setStreamingAssistant] = useState<{ thinking: string; text: string }>();
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -5960,6 +5991,78 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   useEffect(() => {
     setPromptCompletionIndex(0);
   }, [promptCompletion?.kind, promptCompletion?.query]);
+  useEffect(() => {
+    if (!sessionMenuOpen && !sessionToolsOpen) return;
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest("[data-session-popover]")) return;
+      setSessionMenuOpen(false);
+      setSessionMenuPath(undefined);
+      setSessionMenuPosition(undefined);
+      setSessionToolsOpen(false);
+      setSessionToolsPosition(undefined);
+      setSessionActionTarget(undefined);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSessionMenuOpen(false);
+      setSessionMenuPath(undefined);
+      setSessionMenuPosition(undefined);
+      setSessionToolsOpen(false);
+      setSessionToolsPosition(undefined);
+      setSessionActionTarget(undefined);
+      sessionPopoverTriggerRef.current?.focus();
+    };
+    const dismissOnViewportChange = () => {
+      setSessionMenuOpen(false);
+      setSessionMenuPath(undefined);
+      setSessionMenuPosition(undefined);
+      setSessionToolsOpen(false);
+      setSessionToolsPosition(undefined);
+      setSessionActionTarget(undefined);
+    };
+    document.addEventListener("pointerdown", dismissOnPointerDown);
+    document.addEventListener("keydown", dismissOnEscape);
+    document.addEventListener("scroll", dismissOnViewportChange, true);
+    window.addEventListener("resize", dismissOnViewportChange);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOnPointerDown);
+      document.removeEventListener("keydown", dismissOnEscape);
+      document.removeEventListener("scroll", dismissOnViewportChange, true);
+      window.removeEventListener("resize", dismissOnViewportChange);
+    };
+  }, [sessionMenuOpen, sessionToolsOpen]);
+  useEffect(() => {
+    if (!commandOpen && !promptCompletionOpen) return;
+    const dismissTransientLists = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (commandOpen && !target?.closest("[data-command-palette]")) {
+        setCommandOpen(false);
+        setCommandQuery("");
+      }
+      if (promptCompletionOpen && !target?.closest("[data-prompt-completion]")) setPromptCompletionSuppressed(true);
+    };
+    document.addEventListener("pointerdown", dismissTransientLists);
+    return () => document.removeEventListener("pointerdown", dismissTransientLists);
+  }, [commandOpen, promptCompletionOpen]);
+  useEffect(() => {
+    const dismissProviderModels = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      const target = event.target instanceof Element ? event.target : undefined;
+      document.querySelectorAll<HTMLDetailsElement>("details.provider-models-details[open]").forEach((details) => {
+        if (event instanceof PointerEvent && target && details.contains(target)) return;
+        details.removeAttribute("open");
+        if (event instanceof KeyboardEvent) details.querySelector<HTMLElement>("summary")?.focus();
+      });
+    };
+    document.addEventListener("pointerdown", dismissProviderModels);
+    document.addEventListener("keydown", dismissProviderModels);
+    return () => {
+      document.removeEventListener("pointerdown", dismissProviderModels);
+      document.removeEventListener("keydown", dismissProviderModels);
+    };
+  }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -6369,7 +6472,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSelectedSessionPaths(new Set());
       setSessionMenuOpen(false);
       setSessionMenuPath(undefined);
+      setSessionMenuPosition(undefined);
       setSessionToolsOpen(false);
+      setSessionToolsPosition(undefined);
+      setSessionActionTarget(undefined);
       setSessionSelectionMode(false);
       setSessionDialog(undefined);
     } catch (cause: unknown) {
@@ -6387,16 +6493,25 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       return next;
     });
   };
-  const openSessionMenu = (path: string, name?: string) => {
+  const openSessionMenu = (path: string, name: string | undefined, trigger: HTMLButtonElement) => {
+    if (sessionMenuOpen && sessionMenuPath === path) {
+      closeSessionMenu();
+      setSessionActionTarget(undefined);
+      return;
+    }
     setSessionToolsOpen(false);
-    setSelectedSessionPath(path);
+    setSessionToolsPosition(undefined);
+    sessionPopoverTriggerRef.current = trigger;
     setSessionNameDraft(name ?? "");
+    setSessionActionTarget({ name: name || "未命名会话", path });
     setSessionMenuPath(path);
+    setSessionMenuPosition(sidebarPopoverPosition(trigger, 142, 190, "beside"));
     setSessionMenuOpen(true);
   };
   const closeSessionMenu = () => {
     setSessionMenuOpen(false);
     setSessionMenuPath(undefined);
+    setSessionMenuPosition(undefined);
   };
   const pushInstalledPluginRoute = (pluginId: string | undefined) => {
     const params = new URLSearchParams(window.location.search);
@@ -6768,6 +6883,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               readOnly={!workspaceReady}
               ref={promptInputRef}
               rows={2}
+              data-prompt-completion
               value={draft}
             ></textarea>
             {promptCompletionOpen && promptCompletion && (
@@ -6895,7 +7011,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           <button className="new-session" onClick={beginNewSession} type="button" aria-expanded={workspaceChooserOpen}>
             ＋ 新建会话
           </button>
-          <div className="session-search">
+          <div className="session-search" data-command-palette>
             <input
               aria-controls={commandOpen ? "command-menu" : undefined}
               aria-expanded={commandOpen}
@@ -6974,56 +7090,79 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             >
               {sessionSelectionMode ? "完成" : "选择"}
             </button>
-            <div className="session-tools-wrap">
+            <div className="session-tools-wrap" data-session-popover>
               <button
                 aria-expanded={sessionToolsOpen}
+                aria-haspopup="menu"
                 aria-label="会话工具"
                 className="session-tool-button icon"
-                onClick={() => {
+                onClick={(event) => {
                   closeSessionMenu();
-                  setSessionToolsOpen((current) => !current);
+                  sessionPopoverTriggerRef.current = event.currentTarget;
+                  setSessionActionTarget(undefined);
+                  if (sessionToolsOpen) {
+                    setSessionToolsOpen(false);
+                    setSessionToolsPosition(undefined);
+                  } else {
+                    setSessionToolsPosition(sidebarPopoverPosition(event.currentTarget, 150, 190, "below"));
+                    setSessionToolsOpen(true);
+                  }
                 }}
                 type="button"
               >
                 ⋯
               </button>
-              {sessionToolsOpen && (
-                <div className="session-tools-popover">
-                  <button onClick={() => window.location.reload()} type="button">
-                    刷新列表
-                  </button>
-                  <button onClick={() => importInputRef.current?.click()} type="button">
-                    导入会话
-                  </button>
-                  <button
-                    disabled={!activeSessionPath || sessionActionBusy}
-                    onClick={() => {
-                      if (!activeSessionPath) return;
-                      void sessionAction(async () => {
-                        const blob = await api.exportSession(activeSessionPath);
-                        const link = document.createElement("a");
-                        link.href = URL.createObjectURL(blob);
-                        link.download = `${data.session?.sessionId ?? "session"}.jsonl`;
-                        link.click();
-                        URL.revokeObjectURL(link.href);
-                      });
-                    }}
-                    type="button"
-                  >
-                    导出当前会话
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIncludeArchivedSessions((current) => !current);
-                      setSessionToolsOpen(false);
-                      void refresh();
-                    }}
-                    type="button"
-                  >
-                    {includeArchivedSessions ? "隐藏归档会话" : "显示归档会话"}
-                  </button>
-                </div>
-              )}
+              {sessionToolsOpen &&
+                sessionToolsPosition &&
+                createPortal(
+                  <div className="session-tools-popover" data-session-popover role="menu" style={sessionToolsPosition}>
+                    <button autoFocus onClick={() => window.location.reload()} role="menuitem" type="button">
+                      刷新列表
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSessionToolsOpen(false);
+                        setSessionToolsPosition(undefined);
+                        importInputRef.current?.click();
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      导入会话
+                    </button>
+                    <button
+                      disabled={!activeSessionPath || sessionActionBusy}
+                      onClick={() => {
+                        if (!activeSessionPath) return;
+                        void sessionAction(async () => {
+                          const blob = await api.exportSession(activeSessionPath);
+                          const link = document.createElement("a");
+                          link.href = URL.createObjectURL(blob);
+                          link.download = `${data.session?.sessionId ?? "session"}.jsonl`;
+                          link.click();
+                          URL.revokeObjectURL(link.href);
+                        });
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      导出当前会话
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIncludeArchivedSessions((current) => !current);
+                        setSessionToolsOpen(false);
+                        setSessionToolsPosition(undefined);
+                        void refresh();
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      {includeArchivedSessions ? "隐藏归档会话" : "显示归档会话"}
+                    </button>
+                  </div>,
+                  document.body,
+                )}
             </div>
           </div>
         </div>
@@ -7039,6 +7178,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <button
               className="danger"
               onClick={() => {
+                setSessionActionTarget(undefined);
                 setSessionDialog("batch-delete");
               }}
               type="button"
@@ -7082,17 +7222,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 </button>
                 {!sessionSelectionMode && activeSessionPath && (
                   <button
+                    aria-expanded={sessionMenuOpen && sessionMenuPath === activeSessionPath}
+                    aria-haspopup="menu"
                     aria-label="当前会话操作"
                     className="session-row-more"
-                    onClick={() => openSessionMenu(activeSessionPath, data.session?.messages.length ? data.session?.sessionId.slice(0, 12) : "新会话")}
+                    data-session-popover
+                    onClick={(event) =>
+                      openSessionMenu(activeSessionPath, data.session?.messages.length ? data.session?.sessionId.slice(0, 12) : "新会话", event.currentTarget)
+                    }
                     type="button"
                   >
                     ⋯
                   </button>
                 )}
-                {!sessionSelectionMode && activeSessionPath && sessionMenuPath === activeSessionPath && sessionMenuOpen && (
+                {!sessionSelectionMode && activeSessionPath && sessionMenuPath === activeSessionPath && sessionMenuOpen && sessionMenuPosition && (
                   <SessionActionMenu
                     busy={sessionActionBusy}
+                    position={sessionMenuPosition}
                     onArchive={() => {
                       closeSessionMenu();
                       setSessionDialog("archive");
@@ -7151,43 +7297,51 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     {!sessionSelectionMode && typeof session.path === "string" && (
                       <button
+                        aria-expanded={sessionMenuOpen && sessionMenuPath === session.path}
+                        aria-haspopup="menu"
                         aria-label={`会话操作 ${value(session.name ?? session.firstMessage, "未命名会话")}`}
                         className="session-row-more"
+                        data-session-popover
                         onClick={(event) => {
                           event.stopPropagation();
-                          openSessionMenu(session.path as string, value(session.name ?? session.firstMessage, ""));
+                          openSessionMenu(session.path as string, value(session.name ?? session.firstMessage, ""), event.currentTarget);
                         }}
                         type="button"
                       >
                         ⋯
                       </button>
                     )}
-                    {!sessionSelectionMode && typeof session.path === "string" && sessionMenuPath === session.path && sessionMenuOpen && (
-                      <SessionActionMenu
-                        busy={sessionActionBusy}
-                        onArchive={() => {
-                          closeSessionMenu();
-                          setSessionDialog("archive");
-                        }}
-                        onDelete={() => {
-                          closeSessionMenu();
-                          setSessionDialog("delete");
-                        }}
-                        onFork={() =>
-                          void sessionAction(async () => {
-                            const result = await api.forkSession(session.path as string);
-                            if (result.sessionFile) {
-                              setSelectedSessionPath(result.sessionFile);
-                              await api.openSession(result.sessionFile);
-                            }
-                          })
-                        }
-                        onRename={() => {
-                          closeSessionMenu();
-                          setSessionDialog("rename");
-                        }}
-                      />
-                    )}
+                    {!sessionSelectionMode &&
+                      typeof session.path === "string" &&
+                      sessionMenuPath === session.path &&
+                      sessionMenuOpen &&
+                      sessionMenuPosition && (
+                        <SessionActionMenu
+                          busy={sessionActionBusy}
+                          position={sessionMenuPosition}
+                          onArchive={() => {
+                            closeSessionMenu();
+                            setSessionDialog("archive");
+                          }}
+                          onDelete={() => {
+                            closeSessionMenu();
+                            setSessionDialog("delete");
+                          }}
+                          onFork={() =>
+                            void sessionAction(async () => {
+                              const result = await api.forkSession(session.path as string);
+                              if (result.sessionFile) {
+                                setSelectedSessionPath(result.sessionFile);
+                                await api.openSession(result.sessionFile);
+                              }
+                            })
+                          }
+                          onRename={() => {
+                            closeSessionMenu();
+                            setSessionDialog("rename");
+                          }}
+                        />
+                      )}
                   </div>
                 ))}
               </div>
@@ -7365,17 +7519,91 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           {!settings && page === "session" && <span aria-hidden="true" className="header-divider"></span>}
           {!settings && page === "session" && (
             <>
-              <button
-                className="session-menu"
-                onClick={() => {
-                  setSessionMenuPath(undefined);
-                  setSessionMenuOpen((current) => !current);
-                }}
-                type="button"
-                aria-label="会话操作"
-              >
-                ⋯
-              </button>
+              <div className="session-menu-wrap" data-session-popover>
+                <button
+                  aria-expanded={sessionMenuOpen && !sessionMenuPath}
+                  aria-haspopup="menu"
+                  className="session-menu"
+                  onClick={(event) => {
+                    const closeCurrentMenu = sessionMenuOpen && !sessionMenuPath;
+                    setSessionMenuPath(undefined);
+                    setSessionMenuPosition(undefined);
+                    sessionPopoverTriggerRef.current = event.currentTarget;
+                    setSessionActionTarget(
+                      !closeCurrentMenu && activeSessionPath
+                        ? { name: data.session?.sessionId?.slice(0, 12) || "当前会话", path: activeSessionPath }
+                        : undefined,
+                    );
+                    setSessionMenuOpen(!closeCurrentMenu);
+                  }}
+                  type="button"
+                  aria-label="会话操作"
+                >
+                  ⋯
+                </button>
+                {sessionMenuOpen && !sessionMenuPath && (
+                  <div className="session-menu-popover compact-session-menu" role="menu">
+                    <button
+                      className="session-action"
+                      disabled={!activeSessionPath || sessionActionBusy}
+                      onClick={() => {
+                        setSessionNameDraft(data.session?.sessionId?.slice(0, 12) ?? "");
+                        setSessionDialog("rename");
+                        setSessionMenuOpen(false);
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <strong>重命名</strong>
+                      <small>设置一个容易识别的名称</small>
+                    </button>
+                    <button
+                      className="session-action"
+                      disabled={!activeSessionPath || sessionActionBusy}
+                      onClick={() =>
+                        void sessionAction(async () => {
+                          const result = await api.forkSession(activeSessionPath as string);
+                          if (result.sessionFile) {
+                            setSelectedSessionPath(result.sessionFile);
+                            await api.openSession(result.sessionFile);
+                          }
+                        })
+                      }
+                      role="menuitem"
+                      type="button"
+                    >
+                      <strong>复制会话</strong>
+                      <small>复制上下文并打开副本</small>
+                    </button>
+                    <button
+                      className="session-action"
+                      disabled={!activeSessionPath || sessionActionBusy}
+                      onClick={() => {
+                        setSessionMenuOpen(false);
+                        setSessionDialog("archive");
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <strong>归档会话</strong>
+                      <small>从默认列表隐藏</small>
+                    </button>
+                    <button
+                      className="session-action danger"
+                      disabled={!activeSessionPath || sessionActionBusy}
+                      onClick={() => {
+                        setSessionMenuOpen(false);
+                        setSessionDialog("delete");
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <strong>删除会话</strong>
+                      <small>永久删除本地记录</small>
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 aria-label={details !== undefined ? "关闭详情" : "打开详情"}
                 aria-pressed={details !== undefined}
@@ -7386,64 +7614,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 <span aria-hidden="true">◨</span> <span className="details-toggle-label">详情</span>
               </button>
             </>
-          )}
-          {!settings && page === "session" && sessionMenuOpen && !sessionMenuPath && (
-            <div className="session-menu-popover compact-session-menu">
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  setSessionNameDraft(data.session?.sessionId?.slice(0, 12) ?? "");
-                  setSessionDialog("rename");
-                  setSessionMenuOpen(false);
-                }}
-                type="button"
-              >
-                <strong>重命名</strong>
-                <small>设置一个容易识别的名称</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() =>
-                  void sessionAction(async () => {
-                    const result = await api.forkSession(activeSessionPath as string);
-                    if (result.sessionFile) {
-                      setSelectedSessionPath(result.sessionFile);
-                      await api.openSession(result.sessionFile);
-                    }
-                  })
-                }
-                type="button"
-              >
-                <strong>复制会话</strong>
-                <small>复制上下文并打开副本</small>
-              </button>
-              <button
-                className="session-action"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  setSessionMenuOpen(false);
-                  setSessionDialog("archive");
-                }}
-                type="button"
-              >
-                <strong>归档会话</strong>
-                <small>从默认列表隐藏</small>
-              </button>
-              <button
-                className="session-action danger"
-                disabled={!activeSessionPath || sessionActionBusy}
-                onClick={() => {
-                  setSessionMenuOpen(false);
-                  setSessionDialog("delete");
-                }}
-                type="button"
-              >
-                <strong>删除会话</strong>
-                <small>永久删除本地记录</small>
-              </button>
-            </div>
           )}
         </header>
         {refreshIssues.length > 0 && (
@@ -7507,19 +7677,27 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           busy={sessionActionBusy}
           count={sessionDialog === "batch-delete" ? selectedSessionPaths.size : undefined}
           kind={sessionDialog}
-          name={sessionDialog === "rename" ? undefined : value(data.session?.sessionId, "当前会话")}
+          name={
+            sessionDialog === "rename" || sessionDialog === "batch-delete"
+              ? undefined
+              : (sessionActionTarget?.name ?? value(data.session?.sessionId, "当前会话"))
+          }
           onChange={setSessionNameDraft}
-          onClose={() => setSessionDialog(undefined)}
+          onClose={() => {
+            setSessionDialog(undefined);
+            setSessionActionTarget(undefined);
+          }}
           onConfirm={() => {
-            if (sessionDialog === "rename" && activeSessionPath) {
-              void sessionAction(() => api.renameSession(activeSessionPath, sessionNameDraft.trim()).then(() => undefined));
-            } else if (sessionDialog === "archive" && activeSessionPath) {
+            const targetPath = sessionActionTarget?.path ?? activeSessionPath;
+            if (sessionDialog === "rename" && targetPath) {
+              void sessionAction(() => api.renameSession(targetPath, sessionNameDraft.trim()).then(() => undefined));
+            } else if (sessionDialog === "archive" && targetPath) {
               void sessionAction(async () => {
-                await api.setSessionMetadata(activeSessionPath, { archived: true });
+                await api.setSessionMetadata(targetPath, { archived: true });
               });
-            } else if (sessionDialog === "delete" && activeSessionPath) {
+            } else if (sessionDialog === "delete" && targetPath) {
               void sessionAction(async () => {
-                await api.deleteSession(activeSessionPath);
+                await api.deleteSession(targetPath);
               });
             } else if (sessionDialog === "batch-delete") {
               void sessionAction(() => api.batchSessions("delete", [...selectedSessionPaths]).then(() => undefined));

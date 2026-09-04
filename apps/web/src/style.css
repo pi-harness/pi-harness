@@ -27,7 +27,7 @@ button:focus-visible,
 summary:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible {
-  @apply [outline:2px_solid_rgba(65,_118,_230,_0.48)] [outline-offset:2px];
+  @apply [outline:2px_solid_rgba(31,_35,_40,_0.42)] [outline-offset:2px];
 }
 input:focus,
 textarea:focus,
@@ -201,7 +201,7 @@ button:disabled {
   @apply [position:relative];
 }
 .session-tools-popover {
-  @apply [position:absolute] [top:30px] [right:0] [z-index:40] [display:flex] [width:150px] [flex-direction:column] [padding:4px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:9px] [background:#fff] [box-shadow:0_12px_30px_rgba(15,_23,_42,_0.16)];
+  @apply [position:fixed] [z-index:70] [display:flex] [width:150px] [flex-direction:column] [padding:4px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:9px] [background:#fff] [box-shadow:0_12px_30px_rgba(15,_23,_42,_0.16)];
 }
 .session-tools-popover button {
   @apply [padding:7px_8px] [border-radius:6px] [text-align:left] [font-size:11px];
@@ -224,7 +224,7 @@ button:disabled {
   @apply [background:#e9eef8] [color:var(--color-blue)];
 }
 .session-row-menu-popover {
-  @apply [position:absolute] [top:calc(100%_-_2px)] [right:6px] [z-index:45] [display:flex] [width:142px] [flex-direction:column] [padding:4px] [border:1px_solid_rgba(15,_23,_42,_0.14)] [border-radius:8px] [background:#fff] [box-shadow:0_10px_24px_rgba(15,_23,_42,_0.18)];
+  @apply [position:fixed] [z-index:70] [display:flex] [width:142px] [flex-direction:column] [padding:4px] [border:1px_solid_rgba(15,_23,_42,_0.14)] [border-radius:8px] [background:#fff] [box-shadow:0_10px_24px_rgba(15,_23,_42,_0.18)];
 }
 .session-row-menu-popover button {
   @apply [padding:6px_8px] [border-radius:5px] [text-align:left] [font-size:11px];
@@ -1726,7 +1726,10 @@ button:disabled {
   @apply [opacity:0.45] [cursor:not-allowed];
 }
 .session-menu-popover {
-  @apply [position:absolute] [top:calc(100%_-_4px)] [right:24px] [z-index:35] [width:224px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:10px] [background:#fff] [box-shadow:0_10px_28px_rgba(0,_0,_0,_0.14)] [overflow:hidden];
+  @apply [position:absolute] [top:calc(100%_+_6px)] [right:0] [z-index:35] [width:224px] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:10px] [background:#fff] [box-shadow:0_10px_28px_rgba(0,_0,_0,_0.14)] [overflow:hidden];
+}
+.session-menu-wrap {
+  @apply [position:relative] [flex:none];
 }
 
 /* Final control-room pass: keep the quiet palette, sharpen hierarchy, and remove decorative telemetry that is not backed by the runtime. */
@@ -2159,9 +2162,6 @@ body {
   padding-right: max(24px, calc((100% - 960px) / 2));
   padding-left: max(24px, calc((100% - 960px) / 2));
 }
-.main-header.session-track .session-menu-popover {
-  right: max(24px, calc((100% - 960px) / 2));
-}
 .active-heading strong {
   @apply [font-size:15px];
 }
@@ -2249,9 +2249,6 @@ body {
   }
   .main-header.session-track {
     @apply [padding-left:16px] [padding-right:16px];
-  }
-  .main-header.session-track .session-menu-popover {
-    @apply [right:16px];
   }
   .chat-scroll,
   .composer-wrap,
@@ -2727,9 +2724,6 @@ body {
   .chat-scroll,
   .composer-wrap {
     @apply [padding-left:8px] [padding-right:8px];
-  }
-  .main-header.session-track .session-menu-popover {
-    @apply [right:8px];
   }
   .view-tabs {
     @apply [flex:none];
