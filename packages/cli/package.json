@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/cli",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Plugin-first Pi Harness CLI",
   "license": "MIT",
   "repository": {
@@ -27,7 +27,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@pi-harness/core": "0.1.2"
+    "@pi-harness/core": "0.1.4"
   },
   "engines": {
     "node": ">=22.19.0"

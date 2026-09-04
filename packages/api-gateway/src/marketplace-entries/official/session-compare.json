@@ -1,7 +1,7 @@
 {
   "id": "session-compare",
   "packageName": "@pi-harness/core/plugins/session-compare",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Session Compare",
   "description": "Compare two persisted Pi sessions by message role and text without modifying either session file.",
   "author": "Pi Harness",
@@ -9,8 +9,22 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "discovery", "label": "发现与生态" },
-  "capabilities": ["session diff", "history comparison", "read-only scan"],
-  "hooks": ["session manager", "JSONL sessions", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/session-compare", "config": {} }
+  "category": {
+    "id": "discovery",
+    "label": "发现与生态"
+  },
+  "capabilities": [
+    "session diff",
+    "history comparison",
+    "read-only scan"
+  ],
+  "hooks": [
+    "session manager",
+    "JSONL sessions",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/session-compare",
+    "config": {}
+  }
 }

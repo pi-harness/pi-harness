@@ -1,7 +1,7 @@
 {
   "id": "tab-manager",
   "packageName": "@pi-harness/core/plugins/tab-manager",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Session Tabs",
   "description": "Organize active Pi sessions into named tabs and switch between them without losing session identity.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "workflow", "label": "工作流" },
-  "capabilities": ["session tabs", "session switching", "workspace context"],
-  "hooks": ["session registry", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/tab-manager", "config": {} }
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
+  "capabilities": [
+    "session tabs",
+    "session switching",
+    "workspace context"
+  ],
+  "hooks": [
+    "session registry",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/tab-manager",
+    "config": {}
+  }
 }

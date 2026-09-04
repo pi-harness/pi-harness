@@ -1,7 +1,7 @@
 {
   "id": "at-file",
   "packageName": "@pi-harness/core/plugins/at-file",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "@file Context",
   "description": "Attach workspace files with a bounded @file reference and safe relative-path checks.",
   "author": "Pi Harness",
@@ -9,8 +9,20 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "context", "label": "上下文管理" },
-  "capabilities": ["file context", "workspace"],
-  "hooks": ["message parsing", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/at-file", "config": {} }
+  "category": {
+    "id": "context",
+    "label": "上下文管理"
+  },
+  "capabilities": [
+    "file context",
+    "workspace"
+  ],
+  "hooks": [
+    "message parsing",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/at-file",
+    "config": {}
+  }
 }

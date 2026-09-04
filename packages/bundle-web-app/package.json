@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/web-app",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Patchable Web application bundle for Pi Harness",
   "license": "MIT",
   "repository": {
@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@pi-harness/host-webserver": "0.1.2"
+    "@pi-harness/host-webserver": "0.1.4"
   },
   "engines": {
     "node": ">=22.19.0"

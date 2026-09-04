@@ -1,7 +1,7 @@
 {
   "id": "module-search",
   "packageName": "@pi-harness/core/plugins/module-search",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Module Search",
   "description": "Find imports, exports, and declared symbols in bounded workspace source files without modifying them.",
   "author": "Pi Harness",
@@ -9,8 +9,22 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "discovery", "label": "发现与生态" },
-  "capabilities": ["module discovery", "symbol lookup", "source navigation"],
-  "hooks": ["workspace files", "source scanning", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/module-search", "config": {} }
+  "category": {
+    "id": "discovery",
+    "label": "发现与生态"
+  },
+  "capabilities": [
+    "module discovery",
+    "symbol lookup",
+    "source navigation"
+  ],
+  "hooks": [
+    "workspace files",
+    "source scanning",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/module-search",
+    "config": {}
+  }
 }

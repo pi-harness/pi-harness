@@ -1,7 +1,7 @@
 {
   "id": "sql-lens",
   "packageName": "@pi-harness/core/plugins/sql-lens",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "SQL Lens",
   "description": "Inspect SQLite schemas and run constrained read-only queries without mutating the database.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "tools", "label": "工具" },
-  "capabilities": ["SQLite inspection", "read-only SQL", "schema browsing"],
-  "hooks": ["workspace database", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/sql-lens", "config": {} }
+  "category": {
+    "id": "tools",
+    "label": "工具"
+  },
+  "capabilities": [
+    "SQLite inspection",
+    "read-only SQL",
+    "schema browsing"
+  ],
+  "hooks": [
+    "workspace database",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/sql-lens",
+    "config": {}
+  }
 }

@@ -1,7 +1,7 @@
 {
   "id": "test-harness",
   "packageName": "@pi-harness/core/plugins/test-harness",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Test Harness",
   "description": "Run bounded project test commands and report exit status, output, and duration without shell interpolation.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "testing", "label": "测试" },
-  "capabilities": ["test runner", "command output", "duration metrics"],
-  "hooks": ["workspace commands", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/test-harness", "config": {} }
+  "category": {
+    "id": "testing",
+    "label": "测试"
+  },
+  "capabilities": [
+    "test runner",
+    "command output",
+    "duration metrics"
+  ],
+  "hooks": [
+    "workspace commands",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/test-harness",
+    "config": {}
+  }
 }

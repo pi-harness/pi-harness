@@ -1,7 +1,7 @@
 {
   "id": "context-insights",
   "packageName": "@pi-harness/core/plugins/context",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Context Insights",
   "description": "Expose bounded runtime context diagnostics so agents can reason about loaded resources and session state.",
   "author": "Pi Harness",
@@ -9,8 +9,20 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "context", "label": "上下文管理" },
-  "capabilities": ["context", "diagnostics"],
-  "hooks": ["session event", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/context", "config": {} }
+  "category": {
+    "id": "context",
+    "label": "上下文管理"
+  },
+  "capabilities": [
+    "context",
+    "diagnostics"
+  ],
+  "hooks": [
+    "session event",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/context",
+    "config": {}
+  }
 }

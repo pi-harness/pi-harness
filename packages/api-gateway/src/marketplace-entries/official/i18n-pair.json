@@ -1,7 +1,7 @@
 {
   "id": "i18n-pair",
   "packageName": "@pi-harness/core/plugins/i18n-pair",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "I18n Pair",
   "description": "Generate paired translation suggestions from explicit source text while preserving keys and locale boundaries.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "workflow", "label": "工作流" },
-  "capabilities": ["translation pairs", "locale workflow", "key preservation"],
-  "hooks": ["locale files", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/i18n-pair", "config": {} }
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
+  "capabilities": [
+    "translation pairs",
+    "locale workflow",
+    "key preservation"
+  ],
+  "hooks": [
+    "locale files",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/i18n-pair",
+    "config": {}
+  }
 }

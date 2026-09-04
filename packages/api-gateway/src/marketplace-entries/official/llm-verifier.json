@@ -1,7 +1,7 @@
 {
   "id": "llm-verifier",
   "packageName": "@pi-harness/core/plugins/llm-verifier",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "LLM Verifier",
   "description": "Ask a configured verifier model to judge a claim against bounded, untrusted evidence.",
   "author": "Pi Harness",
@@ -9,8 +9,24 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "testing", "label": "测试与质量" },
-  "capabilities": ["model verification", "batch verification", "evidence review", "audit history", "release confidence"],
-  "hooks": ["model runtime", "structured verdict", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/llm-verifier", "config": {} }
+  "category": {
+    "id": "testing",
+    "label": "测试与质量"
+  },
+  "capabilities": [
+    "model verification",
+    "batch verification",
+    "evidence review",
+    "audit history",
+    "release confidence"
+  ],
+  "hooks": [
+    "model runtime",
+    "structured verdict",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/llm-verifier",
+    "config": {}
+  }
 }

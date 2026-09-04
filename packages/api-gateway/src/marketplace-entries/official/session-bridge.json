@@ -1,7 +1,7 @@
 {
   "id": "session-bridge",
   "packageName": "@pi-harness/core/plugins/session-bridge",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Session Bridge",
   "description": "Preview, export, and import bounded five-part session handoffs without modifying the source session.",
   "author": "Pi Harness",
@@ -9,8 +9,22 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "workflow", "label": "工作流" },
-  "capabilities": ["session handoff", "five-part preview", "import/export"],
-  "hooks": ["session manager", "plugin UI", "agent tool"],
-  "profile": { "name": "@pi-harness/core/plugins/session-bridge", "config": {} }
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
+  "capabilities": [
+    "session handoff",
+    "five-part preview",
+    "import/export"
+  ],
+  "hooks": [
+    "session manager",
+    "plugin UI",
+    "agent tool"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/session-bridge",
+    "config": {}
+  }
 }

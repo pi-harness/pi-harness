@@ -1,7 +1,7 @@
 {
   "id": "change-verifier",
   "packageName": "@pi-harness/core/plugins/change-verifier",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Change Verifier",
   "description": "Combine project tests and Git change review into one explicit verification gate before handoff.",
   "author": "Pi Harness",
@@ -9,8 +9,22 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "workflow", "label": "工作流" },
-  "capabilities": ["verification gate", "test orchestration", "change review"],
-  "hooks": ["project scripts", "Git diff", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/change-verifier", "config": {} }
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
+  "capabilities": [
+    "verification gate",
+    "test orchestration",
+    "change review"
+  ],
+  "hooks": [
+    "project scripts",
+    "Git diff",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/change-verifier",
+    "config": {}
+  }
 }

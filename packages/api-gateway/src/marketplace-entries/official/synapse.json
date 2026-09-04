@@ -1,7 +1,7 @@
 {
   "id": "synapse",
   "packageName": "@pi-harness/core/plugins/synapse",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Synapse",
   "description": "Visualize session relationships and linked work items without changing the transcript.",
   "author": "Pi Harness",
@@ -9,8 +9,20 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "context", "label": "上下文管理" },
-  "capabilities": ["session map", "context"],
-  "hooks": ["session event", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/synapse", "config": {} }
+  "category": {
+    "id": "context",
+    "label": "上下文管理"
+  },
+  "capabilities": [
+    "session map",
+    "context"
+  ],
+  "hooks": [
+    "session event",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/synapse",
+    "config": {}
+  }
 }

@@ -1,7 +1,7 @@
 {
   "id": "yaml-validator",
   "packageName": "@pi-harness/core/plugins/yaml-validator",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "YAML Validator",
   "description": "Validate bounded YAML configuration files and return precise parse errors without rewriting the source.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "developer", "label": "开发工具" },
-  "capabilities": ["YAML validation", "config diagnostics", "parse errors"],
-  "hooks": ["workspace files", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/yaml-validator", "config": {} }
+  "category": {
+    "id": "developer",
+    "label": "开发工具"
+  },
+  "capabilities": [
+    "YAML validation",
+    "config diagnostics",
+    "parse errors"
+  ],
+  "hooks": [
+    "workspace files",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/yaml-validator",
+    "config": {}
+  }
 }

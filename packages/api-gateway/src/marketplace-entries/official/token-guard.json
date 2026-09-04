@@ -1,7 +1,7 @@
 {
   "id": "token-guard",
   "packageName": "@pi-harness/core/plugins/token-guard",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Token Guard",
   "description": "Monitor context usage and stop runs when the configured token budget threshold is reached.",
   "author": "Pi Harness",
@@ -9,8 +9,24 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "observability", "label": "可观测性" },
-  "capabilities": ["token budget", "per-run token budget", "context monitoring"],
-  "hooks": ["session event", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/token-guard", "config": { "maxPercent": 90, "maxRunTokens": 0 } }
+  "category": {
+    "id": "observability",
+    "label": "可观测性"
+  },
+  "capabilities": [
+    "token budget",
+    "per-run token budget",
+    "context monitoring"
+  ],
+  "hooks": [
+    "session event",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/token-guard",
+    "config": {
+      "maxPercent": 90,
+      "maxRunTokens": 0
+    }
+  }
 }

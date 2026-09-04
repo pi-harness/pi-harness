@@ -1,7 +1,7 @@
 {
   "id": "recall-unread",
   "packageName": "@pi-harness/core/plugins/recall-unread",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Recall Unread",
   "description": "Find persisted Pi sessions that end with an unanswered user message without modifying their transcripts.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "workflow", "label": "工作流" },
-  "capabilities": ["session recall", "unanswered messages", "search"],
-  "hooks": ["session storage", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/recall-unread", "config": {} }
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
+  "capabilities": [
+    "session recall",
+    "unanswered messages",
+    "search"
+  ],
+  "hooks": [
+    "session storage",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/recall-unread",
+    "config": {}
+  }
 }

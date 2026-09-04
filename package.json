@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/pi-harness",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -37,11 +37,11 @@
     "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
   },
   "dependencies": {
-    "@pi-harness/api-gateway": "0.1.2",
-    "@pi-harness/cli": "0.1.2",
-    "@pi-harness/core": "0.1.2",
-    "@pi-harness/host-webserver": "0.1.2",
-    "@pi-harness/web-app": "0.1.2"
+    "@pi-harness/api-gateway": "0.1.4",
+    "@pi-harness/cli": "0.1.4",
+    "@pi-harness/core": "0.1.4",
+    "@pi-harness/host-webserver": "0.1.4",
+    "@pi-harness/web-app": "0.1.4"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

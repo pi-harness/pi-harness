@@ -1,7 +1,7 @@
 {
   "id": "graph-memory",
   "packageName": "@pi-harness/core/plugins/graph-memory",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Graph Memory",
   "description": "Store bounded entities and relations across sessions for inspectable project memory.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "memory", "label": "记忆与上下文" },
-  "capabilities": ["memory", "relations", "search"],
-  "hooks": ["session lifecycle", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/graph-memory", "config": {} }
+  "category": {
+    "id": "memory",
+    "label": "记忆与上下文"
+  },
+  "capabilities": [
+    "memory",
+    "relations",
+    "search"
+  ],
+  "hooks": [
+    "session lifecycle",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/graph-memory",
+    "config": {}
+  }
 }

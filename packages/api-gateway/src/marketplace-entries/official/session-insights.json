@@ -1,7 +1,7 @@
 {
   "id": "session-insights",
   "packageName": "@pi-harness/core/plugins/session-insights",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Session Insights",
   "description": "Report current-session messages, token usage, tool calls, cost, and context statistics with an optional explicit compaction action.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "observability", "label": "可观测性" },
-  "capabilities": ["session metrics", "token usage", "cost report"],
-  "hooks": ["Pi session", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/session-insights", "config": {} }
+  "category": {
+    "id": "observability",
+    "label": "可观测性"
+  },
+  "capabilities": [
+    "session metrics",
+    "token usage",
+    "cost report"
+  ],
+  "hooks": [
+    "Pi session",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/session-insights",
+    "config": {}
+  }
 }

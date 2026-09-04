@@ -1,7 +1,7 @@
 {
   "id": "browser-fetch",
   "packageName": "@pi-harness/core/plugins/browser-fetch",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Browser Fetch",
   "description": "Fetch public HTTP and HTTPS pages as bounded text without executing page scripts or private network targets.",
   "author": "Pi Harness",
@@ -9,8 +9,20 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "web", "label": "网页与研究" },
-  "capabilities": ["web fetch", "SSRF protection"],
-  "hooks": ["network request", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/browser-fetch", "config": {} }
+  "category": {
+    "id": "web",
+    "label": "网页与研究"
+  },
+  "capabilities": [
+    "web fetch",
+    "SSRF protection"
+  ],
+  "hooks": [
+    "network request",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/browser-fetch",
+    "config": {}
+  }
 }

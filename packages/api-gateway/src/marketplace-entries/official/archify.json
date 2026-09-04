@@ -1,7 +1,7 @@
 {
   "id": "archify",
   "packageName": "@pi-harness/core/plugins/archify",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Architecture Map",
   "description": "Build a bounded, read-only architecture map from workspace components and package dependencies.",
   "author": "Pi Harness",
@@ -9,8 +9,23 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "developer", "label": "开发工具" },
-  "capabilities": ["architecture map", "workspace scan", "dependency map", "Mermaid"],
-  "hooks": ["workspace files", "package manifest", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/archify", "config": {} }
+  "category": {
+    "id": "developer",
+    "label": "开发工具"
+  },
+  "capabilities": [
+    "architecture map",
+    "workspace scan",
+    "dependency map",
+    "Mermaid"
+  ],
+  "hooks": [
+    "workspace files",
+    "package manifest",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/archify",
+    "config": {}
+  }
 }

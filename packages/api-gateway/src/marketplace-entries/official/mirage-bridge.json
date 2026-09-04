@@ -1,7 +1,7 @@
 {
   "id": "mirage-bridge",
   "packageName": "@pi-harness/core/plugins/mirage-bridge",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Mirage Bridge",
   "description": "Connect Pi Harness to the official Mirage virtual-terminal CLI without adding a second host shell.",
   "author": "Pi Harness",
@@ -9,11 +9,25 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "tools", "label": "工具" },
-  "capabilities": ["virtual terminal", "CLI bridge", "workspace execution"],
-  "hooks": ["Mirage CLI", "argv execution", "plugin UI"],
+  "category": {
+    "id": "tools",
+    "label": "工具"
+  },
+  "capabilities": [
+    "virtual terminal",
+    "CLI bridge",
+    "workspace execution"
+  ],
+  "hooks": [
+    "Mirage CLI",
+    "argv execution",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/mirage-bridge",
-    "config": { "executable": "mirage", "workspaceId": "" }
+    "config": {
+      "executable": "mirage",
+      "workspaceId": ""
+    }
   }
 }

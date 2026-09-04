@@ -1,7 +1,7 @@
 {
   "id": "code2skill",
   "packageName": "@pi-harness/core/plugins/code2skill",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "name": "Code2Skill",
   "description": "Package a reviewed source snippet into a portable skill artifact with bounded input and explicit metadata.",
   "author": "Pi Harness",
@@ -9,8 +9,21 @@
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "tools", "label": "工具" },
-  "capabilities": ["skill packaging", "source extraction", "artifact generation"],
-  "hooks": ["workspace files", "plugin UI"],
-  "profile": { "name": "@pi-harness/core/plugins/code2skill", "config": {} }
+  "category": {
+    "id": "tools",
+    "label": "工具"
+  },
+  "capabilities": [
+    "skill packaging",
+    "source extraction",
+    "artifact generation"
+  ],
+  "hooks": [
+    "workspace files",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/code2skill",
+    "config": {}
+  }
 }
