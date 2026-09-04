@@ -26,7 +26,7 @@ import { loadMarketplaceCatalog } from "./marketplace-catalog.js";
 import { pluginStarsRows } from "./plugin-stars-view.js";
 import { browserSessionTabs } from "./browser-session-view.js";
 import { matchesPluginQuery } from "./plugin-search.js";
-import { installedPluginDetailPath, readInstalledPluginDetailId } from "./plugin-navigation.js";
+import { readInstalledPluginDetailId } from "./plugin-navigation.js";
 import { installedPluginCardContent } from "./plugin-card.js";
 
 export type { ClientApi } from "./control-room.js";
@@ -741,12 +741,12 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
     <aside className="details-panel">
       <header>
         <strong>{eventLabel(event)}</strong>
-        <button aria-label="关闭事件详情" onClick={onClose} type="button">
+        <button aria-label={fileDetail ? "关闭文件差异" : "关闭事件详情"} onClick={onClose} type="button">
           ×
         </button>
       </header>
       <div className="details-body">
-        <div className="detail-stats">
+        <div className={`detail-stats ${fileDetail ? "is-file" : ""}`}>
           {stats.map(([key, item]) => (
             <div key={key}>
               <small>{key}</small>
@@ -845,11 +845,22 @@ function Trajectory({ events, onSelect }: { events: readonly Record<string, unkn
   );
 }
 
-function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]; api: ClientApi; onDiff: (path: string) => void; onRefresh: () => void }) {
+function Files({
+  files,
+  api,
+  onDiff,
+  onRefresh,
+}: {
+  files: readonly ClientFile[];
+  api: ClientApi;
+  onDiff: (path: string) => Promise<void>;
+  onRefresh: () => void;
+}) {
   const additions = files.filter((file) => file.status.includes("A") || file.status === "??").length;
   const deletions = files.filter((file) => file.status.includes("D")).length;
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [diffPending, setDiffPending] = useState<string>();
   const [error, setError] = useState("");
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const commit = () => {
@@ -880,6 +891,14 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setBusy(false));
   };
+  const openDiff = (path: string) => {
+    if (busy || diffPending) return;
+    setDiffPending(path);
+    setError("");
+    void onDiff(path)
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setDiffPending(undefined));
+  };
   return (
     <section className="view-panel files-view">
       <div className="files-content">
@@ -895,8 +914,14 @@ function Files({ files, api, onDiff, onRefresh }: { files: readonly ClientFile[]
                 <b className={`file-kind ${file.label === "untracked" ? "new" : ""}`}>{file.label}</b>
                 <code>{file.path}</code>
                 <span className={file.status.includes("D") ? "del" : "add"}>{file.status}</span>
-                <button className="diff-button" onClick={() => onDiff(file.path)} type="button">
-                  查看差异
+                <button
+                  aria-label={`${diffPending === file.path ? "正在读取" : "查看"}${file.path}的差异`}
+                  className="diff-button"
+                  disabled={busy || diffPending !== undefined}
+                  onClick={() => openDiff(file.path)}
+                  type="button"
+                >
+                  {diffPending === file.path ? "读取中…" : "查看差异"}
                 </button>
               </div>
             ))
@@ -4071,6 +4096,77 @@ function PluginUninstallDialog({
   );
 }
 
+function PluginCategoryNav({
+  label,
+  categories,
+  activeCategory,
+  onChange,
+}: {
+  label: string;
+  categories: readonly ClientMarketplaceCategory[];
+  activeCategory: string;
+  onChange: (category: string) => void;
+}) {
+  const navRef = useRef<HTMLElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const updateScrollState = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const maximum = Math.max(0, nav.scrollWidth - nav.clientWidth);
+    setCanScrollLeft(nav.scrollLeft > 1);
+    setCanScrollRight(nav.scrollLeft < maximum - 1);
+  }, []);
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    updateScrollState();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updateScrollState);
+    observer?.observe(nav);
+    window.addEventListener("resize", updateScrollState);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateScrollState);
+    };
+  }, [categories, updateScrollState]);
+  const scroll = (direction: -1 | 1) => {
+    const nav = navRef.current;
+    if (!nav) return;
+    nav.scrollBy({ behavior: "smooth", left: direction * Math.max(180, nav.clientWidth * 0.72) });
+  };
+  return (
+    <div className={`marketplace-categories-shell ${canScrollLeft ? "can-scroll-left" : ""} ${canScrollRight ? "can-scroll-right" : ""}`}>
+      {canScrollLeft && (
+        <button aria-label="向左查看更多分类" className="marketplace-category-scroll previous" onClick={() => scroll(-1)} type="button">
+          ‹
+        </button>
+      )}
+      <nav aria-label={label} className="marketplace-categories" onScroll={updateScrollState} ref={navRef}>
+        {categories.map((category) => {
+          const active = activeCategory === category.id;
+          return (
+            <button
+              aria-pressed={active}
+              className={`marketplace-category ${active ? "active" : ""}`}
+              key={category.id || "all"}
+              onClick={() => onChange(category.id)}
+              type="button"
+            >
+              <span>{category.label}</span>
+              <span className={active ? "font-mono text-[10px] text-[#3565c5]" : "font-mono text-[10px] text-[#687381]"}>{category.count}</span>
+            </button>
+          );
+        })}
+      </nav>
+      {canScrollRight && (
+        <button aria-label="向右查看更多分类" className="marketplace-category-scroll next" onClick={() => scroll(1)} type="button">
+          ›
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Plugins({
   plugins,
   panels,
@@ -4179,23 +4275,7 @@ function Plugins({
             {query.trim() || categoryFilter ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}`} 个插件
           </span>
         </div>
-        <nav aria-label="已安装插件分类" className="marketplace-categories">
-          {installedCategories.map((category) => {
-            const active = categoryFilter === category.id;
-            return (
-              <button
-                aria-pressed={active}
-                className={`marketplace-category ${active ? "active" : ""}`}
-                key={category.id || "all"}
-                onClick={() => setCategoryFilter(category.id)}
-                type="button"
-              >
-                <span>{category.label}</span>
-                <span className={active ? "font-mono text-[10px] text-[#3565c5]" : "font-mono text-[10px] text-[#687381]"}>{category.count}</span>
-              </button>
-            );
-          })}
-        </nav>
+        <PluginCategoryNav activeCategory={categoryFilter} categories={installedCategories} label="已安装插件分类" onChange={setCategoryFilter} />
         <div className="plugins-scroll" ref={scrollRef}>
           <div className="plugins-list">
             {visiblePlugins.map((plugin) => {
@@ -4262,16 +4342,9 @@ function Plugins({
                     </div>
                   </div>
                   <footer className="plugin-card-footer">
-                    <a
-                      className="plugin-detail-link"
-                      href={installedPluginDetailPath(plugin.name)}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        onOpenDetail(plugin);
-                      }}
-                    >
+                    <button aria-label={`查看 ${pluginTitle} 详情`} className="plugin-detail-link" onClick={() => onOpenDetail(plugin)} type="button">
                       查看详情 →
-                    </a>
+                    </button>
                     {panelPluginIds.has(plugin.name) ? <span>实时面板</span> : null}
                   </footer>
                 </article>
@@ -4552,7 +4625,7 @@ function Marketplace({
   const [installing, setInstalling] = useState<string>();
   const [installError, setInstallError] = useState("");
   const [installNotice, setInstallNotice] = useState("");
-  const categoryTabs = marketplaceCategoryTabs(categories);
+  const categoryTabs = useMemo(() => marketplaceCategoryTabs(categories), [categories]);
   const install = async (plugin: ClientMarketplacePlugin) => {
     setInstallError("");
     setInstallNotice("");
@@ -4607,23 +4680,7 @@ function Marketplace({
           </select>
           <span className="marketplace-count">{total} 个已审核条目 · 推荐排序</span>
         </div>
-        <nav aria-label="插件分类" className="marketplace-categories">
-          {categoryTabs.map((category) => {
-            const active = categoryFilter === category.id;
-            return (
-              <button
-                aria-pressed={active}
-                className={`marketplace-category ${active ? "active" : ""}`}
-                key={category.id || "all"}
-                onClick={() => onCategoryChange(category.id)}
-                type="button"
-              >
-                <span>{category.label}</span>
-                <span className={active ? "font-mono text-[10px] text-[#3565c5]" : "font-mono text-[10px] text-[#687381]"}>{category.count}</span>
-              </button>
-            );
-          })}
-        </nav>
+        <PluginCategoryNav activeCategory={categoryFilter} categories={categoryTabs} label="插件分类" onChange={onCategoryChange} />
         <div className="marketplace-scroll">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
@@ -4673,7 +4730,7 @@ function Marketplace({
                     ))}
                   </div>
                   {plugin.statistics && (
-                    <div className="mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
+                    <div className="marketplace-statistics mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
                       {marketplaceStatisticItems(plugin.statistics).map((item) => (
                         <span className="min-w-0 px-2 py-1.5" key={item.label} title={`${item.label} ${item.value}`}>
                           <small className="block truncate text-[9px] text-[#687381]">{item.label}</small>
@@ -5622,7 +5679,7 @@ function PromptCompletionPopover({
       ? filterCommands(commands, query).slice(0, 12)
       : files.filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 12);
   return (
-    <div aria-label={kind === "command" ? "命令补全" : "文件补全"} className="prompt-completion" role="listbox">
+    <div aria-label={kind === "command" ? "命令补全" : "文件补全"} className="prompt-completion" id="prompt-completion-list" role="listbox">
       <small>{kind === "command" ? "命令" : "文件"}</small>
       {items.length ? (
         items.slice(0, 12).map((item, index) => {
@@ -5632,6 +5689,7 @@ function PromptCompletionPopover({
           return (
             <button
               aria-selected={index === activeIndex}
+              id={`prompt-completion-option-${index}`}
               key={`${kind}:${label}`}
               onClick={() => onUse(label)}
               onMouseEnter={() => onActiveIndexChange(index)}
@@ -5686,6 +5744,8 @@ function GlobalSearch({
       .map((session) => ({ kind: "session" as const, session })),
     ...files.filter((file) => matches(`${file.path} ${file.label} ${file.status}`)).map((file) => ({ kind: "file" as const, file })),
   ];
+  const selectedIndex = items.length ? Math.min(activeIndex, items.length - 1) : -1;
+  const activeItemId = selectedIndex >= 0 ? `global-search-option-${selectedIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [query]);
   const execute = (item: GlobalSearchItem | undefined) => {
     if (!item) return;
@@ -5705,8 +5765,15 @@ function GlobalSearch({
         <div className="global-search-heading">
           <strong>全局搜索</strong>
           <small>命令 · 会话 · 文件</small>
+          <button aria-label="关闭全局搜索" onClick={onClose} type="button">
+            ×
+          </button>
         </div>
         <input
+          aria-activedescendant={activeItemId}
+          aria-autocomplete="list"
+          aria-controls="global-search-results"
+          aria-expanded="true"
           aria-label="全局搜索"
           data-dialog-initial-focus
           onChange={(event) => setQuery(event.target.value)}
@@ -5722,21 +5789,22 @@ function GlobalSearch({
               setActiveIndex((index) => (index - 1 + items.length) % items.length);
             } else if (event.key === "Enter") {
               event.preventDefault();
-              execute(items[activeIndex]);
+              execute(items[selectedIndex]);
             }
           }}
           placeholder="搜索命令、会话或文件"
+          role="combobox"
           value={query}
         />
-        <div className="global-search-results" role="listbox">
+        <div className="global-search-results" id="global-search-results" role="listbox">
           {items.length ? (
             (["command", "session", "file"] as const).map((kind) => {
               const group = items.filter((item) => item.kind === kind);
               if (!group.length) return null;
               const label = kind === "command" ? "命令" : kind === "session" ? "会话" : "文件";
               return (
-                <section className="global-search-group" key={kind}>
-                  <small>{label}</small>
+                <section aria-label={label} className="global-search-group" key={kind} role="group">
+                  <small aria-hidden="true">{label}</small>
                   {group.map((item) => {
                     const index = items.indexOf(item);
                     const title =
@@ -5753,7 +5821,8 @@ function GlobalSearch({
                           : `${item.file.path} · ${item.file.status}`;
                     return (
                       <button
-                        aria-selected={index === activeIndex}
+                        aria-selected={index === selectedIndex}
+                        id={`global-search-option-${index}`}
                         key={`${item.kind}:${title}:${index}`}
                         onClick={() => execute(item)}
                         onMouseEnter={() => setActiveIndex(index)}
@@ -5881,6 +5950,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           .slice(0, 12);
   }, [data.commands, data.files, promptCompletion]);
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
+  const promptCompletionActiveIndex = Math.min(promptCompletionIndex, Math.max(promptCompletionItems.length - 1, 0));
   const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
   const workspaceReady =
     !workspaceChooserOpen && Boolean(selectedWorkspacePath || data.status?.cwd || data.workspaces.find((workspace) => workspace.current)?.path || data.session);
@@ -6255,6 +6325,26 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setAnnotationSelection("");
     setAnnotationNote("");
   };
+  const openCommandCompletion = () => {
+    const input = promptInputRef.current;
+    const caret = input?.selectionStart ?? draft.length;
+    const existing = getPromptCompletion(draft, caret);
+    let nextCaret = caret;
+    if (existing?.kind !== "command") {
+      const separator = caret > 0 && !/\s/.test(draft[caret - 1] ?? "") ? " " : "";
+      const insertion = `${separator}/`;
+      const nextDraft = `${draft.slice(0, caret)}${insertion}${draft.slice(caret)}`;
+      nextCaret = caret + insertion.length;
+      setDraft(nextDraft);
+    }
+    setPromptCaret(nextCaret);
+    setPromptCompletionSuppressed(false);
+    setPromptCompletionIndex(0);
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
     if (!path) return;
@@ -6299,6 +6389,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     });
   };
   const openSessionMenu = (path: string, name?: string) => {
+    setSessionToolsOpen(false);
     setSelectedSessionPath(path);
     setSessionNameDraft(name ?? "");
     setSessionMenuPath(path);
@@ -6623,6 +6714,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           ) : null}
           <form className="composer" onSubmit={submit}>
             <textarea
+              aria-activedescendant={promptCompletionOpen ? `prompt-completion-option-${promptCompletionActiveIndex}` : undefined}
+              aria-autocomplete="list"
+              aria-controls={promptCompletionOpen ? "prompt-completion-list" : undefined}
+              aria-expanded={promptCompletionOpen}
+              aria-haspopup="listbox"
               aria-label="Prompt"
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -6649,7 +6745,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 }
                 if (popupOpen && (event.key === "Enter" || event.key === "Tab")) {
                   event.preventDefault();
-                  const item = items[promptCompletionIndex];
+                  const item = items[Math.min(promptCompletionIndex, items.length - 1)];
                   if (item && completion) {
                     const value = completion.kind === "command" ? `/${(item as ClientCommand).invocationName}` : `@${(item as ClientFile).path}`;
                     const replacement = replacePromptCompletion(event.currentTarget.value, completion, `${value} `);
@@ -6691,7 +6787,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             ></textarea>
             {promptCompletionOpen && promptCompletion && (
               <PromptCompletionPopover
-                activeIndex={promptCompletionIndex}
+                activeIndex={promptCompletionActiveIndex}
                 commands={data.commands}
                 files={data.files}
                 kind={promptCompletion.kind}
@@ -6716,8 +6812,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 disabled={!data.models.length || promptBusy}
                 value={data.status?.model ?? ""}
                 onChange={(event) => {
-                  const [provider, model] = event.target.value.split("/");
-                  if (provider && model) void api.selectModel(provider, model);
+                  const [provider, ...modelParts] = event.target.value.split("/");
+                  const model = modelParts.join("/");
+                  if (!provider || !model) return;
+                  setPromptError("");
+                  void api
+                    .selectModel(provider, model)
+                    .then(refresh)
+                    .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
                 }}
               >
                 {data.models.length ? (
@@ -6733,7 +6835,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               <button className="tool-chip" onClick={() => setPermission((current) => !current)} type="button">
                 ● {permission ? "改动前询问" : "自动允许"}
               </button>
-              <button className="tool-chip" onClick={() => setCommandOpen(true)} type="button">
+              <button className="tool-chip" onClick={openCommandCompletion} type="button">
                 ／ 命令
               </button>
               <span className="composer-hint">⌘↵ 发送 · ⌘K 命令 · ⌃C 中断</span>
@@ -6757,7 +6859,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     <Files
       api={api}
       files={data.files}
-      onDiff={(file) => void api.getFileDiff(file).then((diff) => setDetails({ type: "file_diff", path: diff.path, output: diff.diff }))}
+      onDiff={async (file) => {
+        const diff = await api.getFileDiff(file);
+        setDetails({
+          type: "file_diff",
+          path: diff.path,
+          output: diff.diff || "没有可显示的差异（工作区可能已更新）。",
+        });
+      }}
       onRefresh={() => void refresh()}
     />
   );
@@ -6871,8 +6980,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               aria-pressed={sessionSelectionMode}
               className={`session-tool-button ${sessionSelectionMode ? "active" : ""}`}
               onClick={() => {
-                setSessionSelectionMode((current) => !current);
+                setSessionSelectionMode(!sessionSelectionMode);
                 setSelectedSessionPaths(new Set());
+                setSessionToolsOpen(false);
+                closeSessionMenu();
               }}
               type="button"
             >
@@ -6883,7 +6994,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 aria-expanded={sessionToolsOpen}
                 aria-label="会话工具"
                 className="session-tool-button icon"
-                onClick={() => setSessionToolsOpen((current) => !current)}
+                onClick={() => {
+                  closeSessionMenu();
+                  setSessionToolsOpen((current) => !current);
+                }}
                 type="button"
               >
                 ⋯
@@ -7148,6 +7262,20 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               status <b>{value(data.status?.status, "connecting")}</b>
             </span>
           </div>
+          <button
+            aria-label="搜索会话、文件和命令"
+            className="sidebar-link compact-session-search"
+            onClick={() => {
+              setCommandOpen(false);
+              setSessionToolsOpen(false);
+              closeSessionMenu();
+              setGlobalSearchOpen(true);
+            }}
+            title="搜索会话、文件和命令"
+            type="button"
+          >
+            ⌕
+          </button>
           <button aria-label="新建会话" className="sidebar-link compact-new-session" onClick={beginNewSession} title="新建会话" type="button">
             ＋
           </button>
@@ -7216,7 +7344,17 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <div className="run-indicator running">
               <span className="run-dot"></span>
               <span>运行中 · Pi agent</span>
-              <button className="stop-button" onClick={() => void api.abort().then(refresh)} type="button">
+              <button
+                className="stop-button"
+                onClick={() => {
+                  setPromptError("");
+                  void api
+                    .abort()
+                    .then(refresh)
+                    .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
+                }}
+                type="button"
+              >
                 停止
               </button>
             </div>
@@ -7253,8 +7391,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               >
                 ⋯
               </button>
-              <button aria-pressed={details !== undefined} className="details-toggle" onClick={() => setDetails(details ? undefined : {})} type="button">
-                ◨ 详情
+              <button
+                aria-label={details !== undefined ? "关闭详情" : "打开详情"}
+                aria-pressed={details !== undefined}
+                className="details-toggle"
+                onClick={() => setDetails(details ? undefined : {})}
+                type="button"
+              >
+                <span aria-hidden="true">◨</span> <span className="details-toggle-label">详情</span>
               </button>
             </>
           )}
@@ -7340,11 +7484,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         </div>
       </section>
       {!settings && page === "session" && details !== undefined && (
-        <Details
-          event={Object.keys(details).length ? details : undefined}
-          onClose={() => setDetails(undefined)}
-          onCopy={() => void navigator.clipboard?.writeText(JSON.stringify(details, null, 2))}
-        />
+        <>
+          <button aria-label="关闭详情" className="details-backdrop" onClick={() => setDetails(undefined)} type="button" />
+          <Details
+            event={Object.keys(details).length ? details : undefined}
+            onClose={() => setDetails(undefined)}
+            onCopy={() => void navigator.clipboard?.writeText(JSON.stringify(details, null, 2))}
+          />
+        </>
       )}
       {globalSearchOpen && (
         <GlobalSearch
