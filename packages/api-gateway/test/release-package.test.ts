@@ -4,7 +4,15 @@ import { describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const bundledWorkspacePaths = ["api-gateway", "cli", "core", "host-webserver", "bundle-web-app"] as const;
-const bundledPackageNames = ["@pi-harness/api-gateway", "@pi-harness/cli", "@pi-harness/core", "@pi-harness/host-webserver", "@pi-harness/web-app"] as const;
+const bundledRuntimePackageNames = ["@earendil-works/pi-agent-core", "@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"] as const;
+const bundledWorkspacePackageNames = [
+  "@pi-harness/api-gateway",
+  "@pi-harness/cli",
+  "@pi-harness/core",
+  "@pi-harness/host-webserver",
+  "@pi-harness/web-app",
+] as const;
+const bundledPackageNames = [...bundledRuntimePackageNames, ...bundledWorkspacePackageNames];
 
 const readJson = async (path: string): Promise<Record<string, unknown>> =>
   JSON.parse(await readFile(resolve(repositoryRoot, path), "utf8")) as Record<string, unknown>;
@@ -15,7 +23,8 @@ describe("release package", () => {
     const dependencies = rootManifest.dependencies as Record<string, string>;
 
     expect(rootManifest.bundledDependencies).toEqual(bundledPackageNames);
-    expect(bundledPackageNames.every((name) => dependencies[name] === rootManifest.version)).toBe(true);
+    expect(bundledWorkspacePackageNames.every((name) => dependencies[name] === rootManifest.version)).toBe(true);
+    expect(bundledRuntimePackageNames.every((name) => /^\d+\.\d+\.\d+$/u.test(dependencies[name] ?? ""))).toBe(true);
 
     for (const path of bundledWorkspacePaths) {
       const manifest = await readJson(`packages/${path}/package.json`);

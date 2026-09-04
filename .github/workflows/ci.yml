@@ -31,6 +31,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test packed package
+        run: npm run test:package
+
       - name: Lint
         run: npm run lint
 
