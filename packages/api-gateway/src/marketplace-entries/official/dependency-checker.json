@@ -1,7 +1,7 @@
 {
   "id": "dependency-checker",
   "packageName": "@pi-harness/core/plugins/dependency-checker",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "name": "Dependency Checker",
   "description": "Inspect package.json or requirements.txt, report missing dependencies, and flag conflicting version constraints.",
   "author": "Pi Harness",

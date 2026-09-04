@@ -1,7 +1,7 @@
 {
   "id": "cleaner",
   "packageName": "@pi-harness/core/plugins/cleaner",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "name": "Cleaner",
   "description": "Remove bounded Pi Harness cache and transient files through an explicit, previewable cleanup operation.",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "at-file",
   "packageName": "@pi-harness/core/plugins/at-file",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "name": "@file Context",
   "description": "Attach workspace files with a bounded @file reference and safe relative-path checks.",
   "author": "Pi Harness",

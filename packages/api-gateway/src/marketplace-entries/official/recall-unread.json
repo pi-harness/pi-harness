@@ -1,7 +1,7 @@
 {
   "id": "recall-unread",
   "packageName": "@pi-harness/core/plugins/recall-unread",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "name": "Recall Unread",
   "description": "Find persisted Pi sessions that end with an unanswered user message without modifying their transcripts.",
   "author": "Pi Harness",
