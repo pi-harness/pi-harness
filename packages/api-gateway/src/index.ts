@@ -1269,11 +1269,15 @@ export default {
           });
           await services.runtime.prompt(payload.prompt);
           const last = services.runtime.session.messages.at(-1);
-          if (last?.role === "assistant" && (last.stopReason === "error" || last.stopReason === "aborted")) {
-            sendJson(response, 502, { error: last.errorMessage ?? "Request " + last.stopReason });
+          if (last?.role === "assistant" && last.stopReason === "error") {
+            sendJson(response, 502, { error: last.errorMessage ?? "Request error" });
             return;
           }
-          sendJson(response, 200, { reply: chunks.join(""), messages: services.runtime.session.messages.length });
+          sendJson(response, 200, {
+            reply: chunks.join(""),
+            messages: services.runtime.session.messages.length,
+            ...(last?.role === "assistant" && last.stopReason === "aborted" ? { aborted: true } : {}),
+          });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
         } finally {

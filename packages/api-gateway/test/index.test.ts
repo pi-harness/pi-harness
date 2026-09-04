@@ -419,6 +419,39 @@ describe("API gateway plugin", () => {
     expect(aborted).toBe(true);
   });
 
+  test("treats a user-aborted prompt as a successful cancellation", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "aborted-prompt-session",
+      sessionFile: undefined,
+      messages: [] as Array<Record<string, unknown>>,
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", {
+      session,
+      prompt: () => {
+        session.messages.push({ role: "assistant", content: [], stopReason: "aborted" });
+        return Promise.resolve();
+      },
+      abort: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+    } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "stop me" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ aborted: true, messages: 1, reply: "" });
+  });
+
   test("reports workspace file status without exposing a fake action", async () => {
     const context = new Context();
     contexts.push(context);

@@ -141,7 +141,7 @@ export interface ClientApi {
   getFileDiff(path: string): Promise<{ path: string; diff: string }>;
   commitFiles(paths: readonly string[], message: string): Promise<{ committed: boolean; commit?: string; message: string }>;
   revertFiles(paths: readonly string[]): Promise<{ reverted: boolean; paths: readonly string[] }>;
-  prompt(value: string): Promise<{ reply: string; messages: number }>;
+  prompt(value: string): Promise<{ reply: string; messages: number; aborted?: boolean }>;
   abort(): Promise<{ aborted: boolean }>;
   createSession(cwd?: string): Promise<ClientSession>;
   openSession(path: string): Promise<ClientSession>;
@@ -218,7 +218,7 @@ export function createClientApi(): ClientApi {
         body: JSON.stringify({ paths, confirm: true }),
       }),
     prompt: (value) =>
-      requestJson<{ reply: string; messages: number }>("/api/prompt", {
+      requestJson<{ reply: string; messages: number; aborted?: boolean }>("/api/prompt", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt: value }),
