@@ -1885,13 +1885,16 @@ button:disabled {
   @apply [display:flex] [height:100%] [min-height:226px] [flex-direction:column] [border:1px_solid_rgba(0,_0,_0,_0.1)] [border-radius:10px] [background:#fff] [padding:16px] [transition:border-color_120ms_ease,box-shadow_120ms_ease,transform_120ms_ease];
 }
 .catalog-card {
-  @apply [min-height:280px];
+  @apply [min-height:307px];
 }
 .marketplace-card:hover {
   @apply [transform:translateY(-1px)] [border-color:rgba(65,_118,_230,_0.32)] [box-shadow:0_8px_22px_rgba(15,_17,_21,_0.06)];
 }
-.marketplace-card > div:first-child {
-  @apply [flex:1];
+.marketplace-card-head {
+  @apply [display:flex] [align-items:flex-start] [gap:10px];
+}
+.marketplace-card-body {
+  @apply [min-width:0] [flex:1];
 }
 .marketplace-card-mark {
   @apply [color:var(--color-blue)] [font:14px_var(--font-mono)];
@@ -2216,7 +2219,7 @@ body {
 }
 @media (max-width: 680px) {
   .catalog-card {
-    @apply [min-height:340px];
+    @apply [min-height:395px];
   }
   .sidebar {
     @apply [width:54px] [flex-basis:54px];
@@ -2367,7 +2370,7 @@ body {
     @apply [display:none];
   }
   .subnav:not(.plugin-detail-subnav) > a {
-    @apply [display:inline-flex] [width:100%] [min-height:44px] [align-items:center] [margin-left:0];
+    @apply [display:inline-flex] [width:auto] [min-height:44px] [align-items:center] [margin-left:auto];
   }
   .plugin-detail-content {
     @apply [padding-top:24px] [padding-bottom:24px];
@@ -2390,6 +2393,10 @@ body {
   }
   .marketplace-card-footer span + a {
     @apply [margin-left:0];
+  }
+  .plugins-list > .empty-state,
+  .marketplace-grid > .empty-state {
+    @apply [grid-column:1/-1];
   }
   .segmented button,
   .effective-config a,
@@ -2574,7 +2581,7 @@ body {
     @apply [width:24px] [height:24px] [flex:none] [margin-left:0];
   }
 }
-@media (max-width: 420px) {
+@media (max-width: 360px) {
   .plugin-heading {
     @apply [align-items:stretch] [flex-direction:column] [gap:8px];
   }
@@ -2584,12 +2591,12 @@ body {
 }
 @media (max-width: 389px) {
   .catalog-card {
-    @apply [min-height:404px];
+    @apply [min-height:427px];
   }
 }
 @media (max-width: 360px) {
   .catalog-card {
-    @apply [min-height:448px];
+    @apply [min-height:469px];
   }
   .main-header {
     @apply [gap:4px] [padding-left:8px] [padding-right:8px];
