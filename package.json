@@ -35,7 +35,8 @@
     "clean": "npm run clean --workspaces --if-present",
     "lint": "eslint .",
     "test": "npm run build && vitest run",
-    "typecheck": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
+    "typecheck": "npm run build && npm run typecheck:workspaces",
+    "typecheck:workspaces": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",

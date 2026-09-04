@@ -38,5 +38,6 @@ describe("release package", () => {
     const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
     expect(workflow).not.toContain("npm publish --workspace");
     expect(workflow.match(/npm publish --access public/g)).toHaveLength(1);
+    expect(workflow).toContain("Verify package availability");
   });
 });
