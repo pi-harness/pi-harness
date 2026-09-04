@@ -4203,7 +4203,7 @@ function Plugins({
               const capabilityLabel = capability(plugin.name);
               const pluginTitle = metadata?.name ?? displayPluginName(plugin.name);
               return (
-                <article className="plugin-card" key={plugin.id}>
+                <article className="catalog-card plugin-card" key={plugin.id}>
                   <div className="plugin-card-head">
                     <span className="plugin-icon">◈</span>
                     <div className="plugin-copy">
@@ -4371,7 +4371,9 @@ function InstalledPluginDetail({
               <span className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[#e6faed] text-[#14733f]" : "bg-[#eef0f3] text-[#687381]"}`}>
                 {plugin.enabled ? "运行中" : "已停用"}
               </span>
-              <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">{plugin.category?.label ?? "运行时插件"}</span>
+              <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">
+                {metadata?.category.label ?? plugin.category?.label ?? "运行时插件"}
+              </span>
               <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#3565c5]">{capability(plugin.name)}</span>
             </div>
             <div className="flex flex-wrap items-end justify-between gap-5">
@@ -4622,7 +4624,7 @@ function Marketplace({
         <div className="marketplace-scroll">
           <div className="marketplace-grid">
             {plugins.map((plugin) => (
-              <article className="marketplace-card" key={plugin.id}>
+              <article className="catalog-card marketplace-card" key={plugin.id}>
                 <div className="flex items-start gap-2.5">
                   <div className="marketplace-card-mark">◈</div>
                   <div className="min-w-0 flex-1">
