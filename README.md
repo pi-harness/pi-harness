@@ -8,7 +8,7 @@
 
 Pi Harness is a plugin-first web host and CLI for [Pi](https://github.com/earendil-works/pi), built on [DeepSeek Cordis](https://github.com/DeepAgentsLab/cordis). It provides a local browser console, HTTP API, stdio workflows, and a composable plugin runtime.
 
-> Languages: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Português (Brasil)](README.pt-BR.md) · [Русский](README.ru.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
+> Languages: [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md) · [Español](docs/README.es.md) · [Français](docs/README.fr.md) · [Deutsch](docs/README.de.md) · [Português (Brasil)](docs/README.pt-BR.md) · [Русский](docs/README.ru.md) · [Italiano](docs/README.it.md) · [العربية](docs/README.ar.md)
 
 ## Quick start
 
@@ -50,7 +50,7 @@ pih --config ./cordis.yml "Summarize the current directory"
 pih --profile default --dump-config
 ```
 
-Profiles are Cordis Loader entry arrays. Each entry has a unique `id` and module `name`, plus optional `config`, `inject`, `group`, or `disabled` fields. See the [profile guide](README.reference.md#profiles) and [plugin catalog](README.reference.md#selected-core-production-plugins).
+Profiles are Cordis Loader entry arrays. Each entry has a unique `id` and module `name`, plus optional `config`, `inject`, `group`, or `disabled` fields. See the [profile guide](docs/README.reference.md#profiles) and [plugin catalog](docs/README.reference.md#selected-core-production-plugins).
 
 Common environment variables:
 
@@ -77,7 +77,7 @@ CLI / web launcher
 
 ## Author a plugin
 
-Use the [plugin authoring guide](README.reference.md#author-a-plugin) and the working [hello-plugin example](examples/plugin-hello). Treat profiles, plugin packages, and trusted project resources as executable code.
+Use the [plugin authoring guide](docs/README.reference.md#author-a-plugin) and the working [hello-plugin example](examples/plugin-hello). Treat profiles, plugin packages, and trusted project resources as executable code.
 
 ## Development
 
@@ -89,7 +89,7 @@ npm run build
 npm run test:package
 ```
 
-The complete reference documents every built-in plugin, API route, configuration rule, resource limit, failure mode, and security boundary: [README.reference.md](README.reference.md).
+The complete reference documents every built-in plugin, API route, configuration rule, resource limit, failure mode, and security boundary: [README.reference.md](docs/README.reference.md).
 
 ## Star history
 

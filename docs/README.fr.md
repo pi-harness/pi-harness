@@ -2,7 +2,7 @@
 
 Pi Harness est un hôte web orienté plugins pour [Pi](https://github.com/earendil-works/pi), construit avec DeepSeek Cordis. Il fournit une console web, une API HTTP et une CLI.
 
-Langues : [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Русский](README.ru.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
+Langues : [English](../README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Русский](README.ru.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
 
 ## Installation
 

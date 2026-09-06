@@ -2,7 +2,7 @@
 
 Pi Harness — ориентированный на плагины веб-хост для [Pi](https://github.com/earendil-works/pi), построенный на DeepSeek Cordis. Он предоставляет веб-консоль, HTTP API и CLI.
 
-Языки: [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
+Языки: [English](../README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
 
 ## Установка
 

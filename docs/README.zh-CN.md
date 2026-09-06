@@ -2,7 +2,7 @@
 
 Pi Harness 是一个以插件为核心的 [Pi](https://github.com/earendil-works/pi) Web 主机，基于 DeepSeek Cordis 构建。它同时提供浏览器控制台、HTTP API 和 CLI。
 
-语言： [English](README.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Русский](README.ru.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
+语言： [English](../README.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Русский](README.ru.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
 
 ## 安装
 
