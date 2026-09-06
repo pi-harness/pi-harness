@@ -1,7 +1,7 @@
 {
   "id": "session-bridge",
   "packageName": "@pi-harness/core/plugins/session-bridge",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "name": "Session Bridge",
   "description": "Preview and export handoffs, then require confirmed import of a strictly validated, bounded package into the active LLM context with duplicate protection.",
   "author": "Pi Harness",

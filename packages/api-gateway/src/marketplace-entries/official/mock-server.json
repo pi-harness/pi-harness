@@ -1,7 +1,7 @@
 {
   "id": "mock-server",
   "packageName": "@pi-harness/core/plugins/mock-server",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "name": "Mock Server",
   "description": "Start a local, bounded HTTP mock server from explicit routes for integration testing without external services.",
   "author": "Pi Harness",

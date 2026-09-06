@@ -1,7 +1,7 @@
 {
   "id": "graph-memory",
   "packageName": "@pi-harness/core/plugins/graph-memory",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "name": "Graph Memory",
   "description": "Store bounded typed task, skill, and event nodes with validated directed relations, atomic locked persistence, and inspectable cross-session search.",
   "author": "Pi Harness",

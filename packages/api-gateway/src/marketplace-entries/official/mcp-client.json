@@ -1,7 +1,7 @@
 {
   "id": "mcp-client",
   "packageName": "@pi-harness/core/plugins/mcp-client",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "name": "MCP Client",
   "description": "Connect to direct-argv MCP stdio servers with bounded pagination and protocol validation, tool, resource, and prompt bridging, cancellable queued requests, and lifecycle-owned process cleanup.",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "cleaner",
   "packageName": "@pi-harness/core/plugins/cleaner",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "name": "Cleaner",
   "description": "Strict descriptor-safe configuration and parameters, display-safe bounded Pi Harness Git capsule inventory, removal with explicit confirmation and retention controls, symlink and replacement defenses, cancellable serialization, and a fail-closed normalized panel.",
   "author": "Pi Harness",

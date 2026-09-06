@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/core",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Cordis boot and Pi runtime plugins for Pi Harness",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
   "bugs": {

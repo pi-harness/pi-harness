@@ -1,7 +1,7 @@
 {
   "id": "prompt-library",
   "packageName": "@pi-harness/core/plugins/prompt-library",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "name": "Prompt Library",
   "description": "Save, search, update, and delete reusable prompt templates in the current Pi session.",
   "author": "Pi Harness",
