@@ -80,9 +80,17 @@ function dataProperty(value: unknown, key: PropertyKey): unknown {
   }
 }
 
-function boundedLine(value: string, limit: number): string {
-  const prefix = value.length <= limit ? value : value.slice(0, limit - 1) + "…";
-  return prefix.replaceAll("\0", "�").replace(/\s+/gu, " ").trim();
+// Whitespace collapses first so a line break still becomes a separator. What remains to neutralize is provider- or extension-controlled text that changes the terminal's state rather than its content: C0/C1 controls and DEL (\p{Cc}, which is what carries ESC, CSI and BEL) plus the bidi controls that reorder an already-printed line. Other format characters are left alone because they are ordinary text - ZWJ holds emoji sequences together, and stripping them would corrupt the message this is trying to show.
+function singleLine(value: string): string {
+  return value
+    .replace(/\s+/gu, " ")
+    .replace(/[\p{Cc}\p{Bidi_Control}]/gu, "�")
+    .trim();
+}
+
+/** Collapse an untrusted diagnostic to one terminal-safe line of at most `limit` characters. */
+export function boundedLine(value: string, limit: number): string {
+  return singleLine(value.length <= limit ? value : value.slice(0, limit - 1) + "…");
 }
 
 function failureMessage(value: unknown, fallback: string): string {
@@ -164,7 +172,7 @@ function summarizeToolArguments(args: unknown): string {
   } catch {
     return "";
   }
-  const line = text.replaceAll("\0", "�").replace(/\s+/g, " ").trim();
+  const line = singleLine(text);
   return line.length > TOOL_ARGUMENT_SUMMARY_LIMIT ? `${line.slice(0, TOOL_ARGUMENT_SUMMARY_LIMIT)}...` : line;
 }
 

@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { StdioApplication } from "../stdio.js";
+import { boundedLine, StdioApplication } from "../stdio.js";
 import { assertKnownConfigKeys } from "../config.js";
 
 const resourceTypeLimit = 32;
@@ -18,11 +18,6 @@ function dataProperty(value: unknown, key: PropertyKey): unknown {
   } catch {
     return undefined;
   }
-}
-
-function boundedLine(value: string, limit: number): string {
-  const prefix = value.length <= limit ? value : value.slice(0, limit - 1) + "…";
-  return prefix.replaceAll("\0", "�").replace(/\s+/gu, " ").trim();
 }
 
 function diagnosticText(value: unknown): string | undefined {
