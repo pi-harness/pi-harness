@@ -1,7 +1,7 @@
 {
   "id": "agent-teams",
   "packageName": "@pi-harness/core/plugins/agent-teams",
-  "version": "0.1.15",
+  "version": "0.1.17",
   "name": "Agent Team Board",
   "description": "Maintain a bounded, session-local collaboration ledger of named roles, dependency-aware tasks, and mailbox notes without spawning agents or sending external messages.",
   "author": "Pi Harness",
@@ -13,8 +13,17 @@
     "id": "collaboration",
     "label": "会话协作"
   },
-  "capabilities": ["collaboration ledger", "tasks", "mailbox notes", "dependency graph", "cycle detection"],
-  "hooks": ["session lifecycle", "plugin UI"],
+  "capabilities": [
+    "collaboration ledger",
+    "tasks",
+    "mailbox notes",
+    "dependency graph",
+    "cycle detection"
+  ],
+  "hooks": [
+    "session lifecycle",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/agent-teams",
     "config": {}

@@ -1,7 +1,7 @@
 {
   "id": "history-compressor",
   "packageName": "@pi-harness/core/plugins/history-compressor",
-  "version": "0.1.15",
+  "version": "0.1.17",
   "name": "History Compressor",
   "description": "Compact the current Pi session automatically when context usage approaches a configured threshold.",
   "author": "Pi Harness",
@@ -13,8 +13,16 @@
     "id": "context",
     "label": "上下文"
   },
-  "capabilities": ["history compaction", "context budget", "automatic cleanup"],
-  "hooks": ["agent end", "context usage", "plugin UI"],
+  "capabilities": [
+    "history compaction",
+    "context budget",
+    "automatic cleanup"
+  ],
+  "hooks": [
+    "agent end",
+    "context usage",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/history-compressor",
     "config": {

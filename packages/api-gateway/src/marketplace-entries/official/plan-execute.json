@@ -1,7 +1,7 @@
 {
   "id": "plan-execute",
   "packageName": "@pi-harness/core/plugins/plan-execute",
-  "version": "0.1.15",
+  "version": "0.1.17",
   "name": "Plan Execute",
   "description": "Track an explicit multi-step execution plan with progress, dependencies, and completion state in the current session.",
   "author": "Pi Harness",
@@ -13,8 +13,15 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["planning", "progress tracking", "execution state"],
-  "hooks": ["session state", "plugin UI"],
+  "capabilities": [
+    "planning",
+    "progress tracking",
+    "execution state"
+  ],
+  "hooks": [
+    "session state",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/plan-execute",
     "config": {}

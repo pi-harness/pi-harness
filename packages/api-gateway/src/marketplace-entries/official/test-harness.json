@@ -1,7 +1,7 @@
 {
   "id": "test-harness",
   "packageName": "@pi-harness/core/plugins/test-harness",
-  "version": "0.1.15",
+  "version": "0.1.17",
   "name": "Test Harness",
   "description": "Run five fixed npm script names from a trusted workspace, reporting real status with a sanitized 12 KiB UTF-8-safe untrusted output tail, a bounded configurable timeout, and cancellable process-tree cleanup.",
   "author": "Pi Harness",
@@ -22,7 +22,11 @@
     "cancellable process-tree cleanup",
     "descriptor-safe normalized panel"
   ],
-  "hooks": ["project verification tool", "workspace npm scripts", "plugin UI"],
+  "hooks": [
+    "project verification tool",
+    "workspace npm scripts",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/test-harness",
     "config": {

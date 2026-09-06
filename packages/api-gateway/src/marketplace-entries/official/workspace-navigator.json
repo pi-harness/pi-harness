@@ -1,7 +1,7 @@
 {
   "id": "workspace-navigator",
   "packageName": "@pi-harness/core/plugins/workspace-navigator",
-  "version": "0.1.15",
+  "version": "0.1.17",
   "name": "Workspace Navigator",
   "description": "Show a bounded workspace tree and read-only Git status for a high-signal coding sidebar.",
   "author": "Pi Harness",
@@ -13,8 +13,18 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": ["workspace navigation", "directory tree", "Git status", "sidebar context"],
-  "hooks": ["workspace files", "bounded scan", "read-only Git", "plugin UI"],
+  "capabilities": [
+    "workspace navigation",
+    "directory tree",
+    "Git status",
+    "sidebar context"
+  ],
+  "hooks": [
+    "workspace files",
+    "bounded scan",
+    "read-only Git",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/workspace-navigator",
     "config": {}
