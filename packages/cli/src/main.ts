@@ -48,6 +48,9 @@ with a dash.
 
 const FLUSH_TIMEOUT_MS = 2_000;
 
+// A terminal broadcasts Ctrl-C to the whole foreground process group, so under `pih --profile development` this process receives SIGINT twice: once from the terminal and once relayed by the supervisor, measured under a millisecond apart. 50ms is far above that relay latency and far below the hundreds of milliseconds between two deliberate key presses, so a repeat inside the window is one keypress delivered twice and a repeat after it is still a force-quit request.
+export const DUPLICATE_SIGNAL_WINDOW_MS = 50;
+
 function signalExitCode(signal: NodeJS.Signals): number {
   return signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143;
 }
@@ -115,8 +118,16 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
   const startupAbort = new AbortController();
   const stdio = new NodeStdio(environment.stdin, environment.stdout, environment.stderr);
   let signalCount = 0;
+  let lastSignal: NodeJS.Signals | undefined;
+  let lastSignalAt = 0;
   const removeSignals = environment.onSignal((signal) => {
     const code = signalExitCode(signal);
+    // performance.now() is monotonic, so a clock adjustment cannot turn a duplicate into a force-quit or the reverse.
+    const receivedAt = performance.now();
+    // The window is measured from the first delivery, not the previous one, so a burst cannot postpone the force-quit indefinitely.
+    if (signal === lastSignal && receivedAt - lastSignalAt < DUPLICATE_SIGNAL_WINDOW_MS) return;
+    lastSignal = signal;
+    lastSignalAt = receivedAt;
     signalCount += 1;
     if (signalCount > 1) {
       environment.stderr.write(`Received ${signal} again; exiting immediately\n`);

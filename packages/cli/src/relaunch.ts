@@ -20,11 +20,10 @@ export async function superviseDevelopmentProcess(command: string, args: readonl
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       const child = spawn(command, [...args], options);
       const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
-      // The child inherits stdio and stays in the terminal's foreground process group, so on POSIX it already receives SIGINT and SIGHUP directly; forwarding them would make it count one Ctrl-C as a repeated signal and skip its graceful shutdown. Listeners are still registered for every signal so the supervisor stays alive to collect the child's exit code. SIGTERM is addressed to this pid alone and is the only one relayed.
-      const forwarded = new Set<NodeJS.Signals>(process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGTERM"]);
+      // Every signal this supervisor receives is relayed to the child, which is what a signal addressed to this pid alone (`kill -INT`, a process manager, a `timeout` wrapper) needs: it reaches no other process, so without the relay the child keeps running while the supervisor waits for an exit that never comes. Registering a listener also keeps the supervisor alive past the default disposition so it can report the child's exit code. When a terminal broadcasts the signal to the shared foreground process group instead, the child receives it twice - once from the terminal, once from this relay - because nothing observable here separates a group broadcast from a pid-directed signal; a child that treats a repeated signal as a force-quit request has to collapse that pair itself, which `runCli` does with DUPLICATE_SIGNAL_WINDOW_MS in main.ts.
       const handlers = signals.map((signal) => {
         const handler = () => {
-          if (forwarded.has(signal)) child.kill(signal);
+          child.kill(signal);
         };
         process.on(signal, handler);
         return { signal, handler };
