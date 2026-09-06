@@ -1,7 +1,7 @@
 {
   "id": "context-doctor",
   "packageName": "@pi-harness/core/plugins/context-doctor",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "name": "Context Doctor",
   "description": "Descriptor-safe bounded context audits detect pressure, oversized or uninspectable messages, and tool errors. Compaction requests are queued until the agent has settled; confirmed model-backed compaction may incur cost and provides cancellable waits with dedicated cancellation.",
   "author": "Pi Harness",

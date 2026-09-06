@@ -1,7 +1,7 @@
 {
   "id": "vision-toolkit",
   "packageName": "@pi-harness/core/plugins/vision-toolkit",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "name": "Vision Toolkit",
   "description": "Catalog signature-verified PNG, JPEG, GIF, and WebP metadata with bounded header reads, cancellable workspace traversal, explicit partial results, and a local-only normalized panel.",
   "author": "Pi Harness",

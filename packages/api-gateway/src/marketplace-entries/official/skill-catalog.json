@@ -1,7 +1,7 @@
 {
   "id": "skill-catalog",
   "packageName": "@pi-harness/core/plugins/skill-catalog",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "name": "Skills Catalog",
   "description": "List loaded Agent Skills and safely inspect one through a bounded untrusted-data boundary, plus managed MCP status.",
   "author": "Pi Harness",
