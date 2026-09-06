@@ -1,7 +1,7 @@
 {
   "id": "i18n-pair",
   "packageName": "@pi-harness/core/plugins/i18n-pair",
-  "version": "0.1.18",
+  "version": "0.1.20",
   "name": "I18n Pair",
   "description": "Strict read-only comparison of bounded JSON locale files from no-follow workspace paths, with collision-safe missing and extra keys, stable failures, cancellation, and validated panel status.",
   "author": "Pi Harness",

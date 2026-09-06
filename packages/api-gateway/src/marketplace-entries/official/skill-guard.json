@@ -1,7 +1,7 @@
 {
   "id": "skill-guard",
   "packageName": "@pi-harness/core/plugins/skill-guard",
-  "version": "0.1.18",
+  "version": "0.1.20",
   "name": "Skill Guard",
   "description": "Audit each loaded Skill entry Markdown file with bounded heuristics for instruction override, secret exfiltration, destructive commands, and obfuscation; it reports risk labels and does not disable loaded Skills.",
   "author": "Pi Harness",

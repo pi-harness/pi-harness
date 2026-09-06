@@ -1,7 +1,7 @@
 {
   "id": "sql-lens",
   "packageName": "@pi-harness/core/plugins/sql-lens",
-  "version": "0.1.18",
+  "version": "0.1.20",
   "name": "SQL Lens",
   "description": "Inspect workspace-contained SQLite databases with strict descriptor-safe inputs, a single read-only statement, bounded results, symlink and replacement checks, timed worker execution, cancellation, and fail-closed panel reporting.",
   "author": "Pi Harness",

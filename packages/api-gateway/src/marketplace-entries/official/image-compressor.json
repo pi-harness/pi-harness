@@ -1,7 +1,7 @@
 {
   "id": "image-compressor",
   "packageName": "@pi-harness/core/plugins/image-compressor",
-  "version": "0.1.18",
+  "version": "0.1.20",
   "name": "Image Compressor",
   "description": "Create bounded image copies for model context while preserving the original file and reporting saved bytes.",
   "author": "Pi Harness",
