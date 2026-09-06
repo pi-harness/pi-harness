@@ -46,7 +46,8 @@
       config: {}
     - id: test-harness
       name: "@pi-harness/core/plugins/test-harness"
-      config: {}
+      config:
+        timeoutMs: 120000
     - id: session-insights
       name: "@pi-harness/core/plugins/session-insights"
       config: {}
@@ -61,7 +62,8 @@
       config: {}
     - id: sql-lens
       name: "@pi-harness/core/plugins/sql-lens"
-      config: {}
+      config:
+        timeoutMs: 5000
     - id: docker-sandbox
       name: "@pi-harness/core/plugins/docker-sandbox"
       config: {}

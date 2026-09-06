@@ -3,14 +3,14 @@
   "packageName": "@deepseek-ai/cordis-plugin-logger-console",
   "version": "1.0.1",
   "name": "Console logger",
-  "description": "Exports lifecycle and runtime diagnostics to the host console.",
+  "description": "Exports bounded Cordis diagnostics to the host console with severity filters and a safe recent-log panel.",
   "author": "DeepSeek AI",
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
   "category": { "id": "observability", "label": "可观测性" },
-  "capabilities": ["logging", "diagnostics"],
-  "hooks": ["context lifecycle"],
-  "profile": { "name": "@deepseek-ai/cordis-plugin-logger-console", "config": {} }
+  "capabilities": ["bounded console logging", "per-logger severity filtering", "safe recent-log panel"],
+  "hooks": ["Cordis logger exporter", "plugin UI"],
+  "profile": { "name": "@deepseek-ai/cordis-plugin-logger-console", "config": { "levels": { "default": 2 }, "maxLength": 8192 } }
 }

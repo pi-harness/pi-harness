@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { rename, writeFile } from "node:fs/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { atomicWriteFile } from "../atomic-write.js";
 import { prepareWorkspaceFile } from "../workspace-path.js";
+import { EmptyConfig } from "../config.js";
 
 const maxOutputBytes = 1024 * 1024;
 const defaultFileName = "pi-session.md";
@@ -51,6 +51,7 @@ function normalizedOutputPath(requested: string): string {
 export default {
   name: "pi-session-export",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let latest: ExportState | undefined;
     const unregisterTool = context.piTools.register(
@@ -59,10 +60,14 @@ export default {
         label: "Export session",
         description: "Export the current Pi session as bounded Markdown without changing the conversation history.",
         promptSnippet: "export the current session to a Markdown file",
-        parameters: Type.Object({
-          path: Type.Optional(Type.String({ description: "Markdown path relative to the workspace" })),
-          confirm: Type.Optional(Type.Boolean({ description: "Must be true to overwrite an existing file" })),
-        }),
+        parameters: Type.Object(
+          {
+            path: Type.Optional(Type.String({ description: "Markdown path relative to the workspace" })),
+            confirm: Type.Optional(Type.Boolean({ description: "Must be true to overwrite an existing file" })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<ExportState>> {
           const runtime = context.get("piRuntime");
           if (runtime === undefined) throw new Error("Pi runtime is not ready");
@@ -75,9 +80,7 @@ export default {
           const markdown = renderSessionMarkdown(runtime.session.messages);
           const bytes = Buffer.byteLength(markdown, "utf8");
           if (bytes > maxOutputBytes) throw new Error("Session export exceeds the 1 MiB output limit");
-          const temporary = `${prepared.target}.${randomUUID()}.tmp`;
-          await writeFile(temporary, markdown, { encoding: "utf8", mode: 0o600 });
-          await rename(temporary, prepared.target);
+          await atomicWriteFile(prepared.target, markdown, { encoding: "utf8", mode: 0o600 });
           latest = { path: prepared.relativePath, bytes, messages: runtime.session.messages.length };
           return { content: [{ type: "text", text: `Session exported to ${latest.path}.` }], details: latest };
         },

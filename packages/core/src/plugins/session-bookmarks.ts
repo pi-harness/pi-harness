@@ -1,6 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig } from "../config.js";
 
 const maxLabelLength = 120;
 
@@ -30,6 +31,7 @@ export function listSessionBookmarks(entries: readonly unknown[]): SessionBookma
 export default {
   name: "pi-session-bookmarks",
   inject: ["piSession", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     const manager = context.piSession.manager;
     const readBookmarks = (): SessionBookmark[] => listSessionBookmarks(manager.getEntries());
@@ -39,12 +41,16 @@ export default {
         label: "Session bookmarks",
         description: "Add, list, or remove labels on entries in the current Pi session using native session history.",
         promptSnippet: "bookmark an important point in the current session",
-        parameters: Type.Object({
-          action: Type.Union([Type.Literal("add"), Type.Literal("list"), Type.Literal("remove")]),
-          label: Type.Optional(Type.String({ description: "Bookmark label for add" })),
-          entryId: Type.Optional(Type.String({ description: "Native session entry id for add" })),
-          bookmarkId: Type.Optional(Type.String({ description: "Bookmark id for remove" })),
-        }),
+        parameters: Type.Object(
+          {
+            action: Type.Union([Type.Literal("add"), Type.Literal("list"), Type.Literal("remove")]),
+            label: Type.Optional(Type.String({ description: "Bookmark label for add" })),
+            entryId: Type.Optional(Type.String({ description: "Native session entry id for add" })),
+            bookmarkId: Type.Optional(Type.String({ description: "Bookmark id for remove" })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         execute(_toolCallId, params): Promise<AgentToolResult<{ bookmarks: SessionBookmark[] }>> {
           return Promise.resolve().then(() => {
             if (params.action === "add") {

@@ -110,10 +110,14 @@ export default {
         label: "Verify with model",
         description: "Ask a configured verifier model to judge a claim against bounded, untrusted evidence.",
         promptSnippet: "verify a claim against test output or other evidence with a second model",
-        parameters: Type.Object({
-          claim: Type.String({ description: "The claim to verify, 1-2000 characters" }),
-          evidence: Type.String({ description: "Untrusted evidence to evaluate, 1-12000 characters" }),
-        }),
+        parameters: Type.Object(
+          {
+            claim: Type.String({ description: "The claim to verify, 1-2000 characters" }),
+            evidence: Type.String({ description: "Untrusted evidence to evaluate, 1-12000 characters" }),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<VerifierReport>> {
           const result = await verify(params.claim, params.evidence);
           return { content: [{ type: "text", text: `${result.verdict}: ${result.rationale}` }], details: result };
@@ -126,15 +130,22 @@ export default {
         label: "Verify claims in batch",
         description: "Verify up to eight independent claims sequentially and return an auditable verdict summary.",
         promptSnippet: "verify several claims against their evidence in one audit",
-        parameters: Type.Object({
-          items: Type.Array(
-            Type.Object({
-              claim: Type.String({ description: "The claim to verify, 1-2000 characters" }),
-              evidence: Type.String({ description: "Untrusted evidence, 1-12000 characters" }),
-            }),
-            { description: "One to eight claim/evidence pairs" },
-          ),
-        }),
+        parameters: Type.Object(
+          {
+            items: Type.Array(
+              Type.Object(
+                {
+                  claim: Type.String({ description: "The claim to verify, 1-2000 characters" }),
+                  evidence: Type.String({ description: "Untrusted evidence, 1-12000 characters" }),
+                },
+                { additionalProperties: false },
+              ),
+              { description: "One to eight claim/evidence pairs" },
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<VerifierBatchReport>> {
           if (params.items.length < 1 || params.items.length > maxBatchSize) throw new Error(`Batch verification accepts 1-${maxBatchSize} items`);
           const results: VerifierReport[] = [];
@@ -147,14 +158,21 @@ export default {
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "llm-verifier-panel",
-      pluginId: "@pi-harness/core/plugins/llm-verifier",
-      title: "LLM Verifier",
-      description: "用配置的校验模型对声明和证据进行独立判断。",
-      icon: "⊙",
-      read: () => ({ provider, model: modelId, maxTokens, latest: latest ?? null, history: summarizeVerifierHistory(history) }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "llm-verifier-panel",
+        pluginId: "@pi-harness/core/plugins/llm-verifier",
+        title: "LLM Verifier",
+        description: "用配置的校验模型对声明和证据进行独立判断。",
+        icon: "⊙",
+        read: () => ({ provider, model: modelId, maxTokens, latest: latest ?? null, history: summarizeVerifierHistory(history) }),
+      });
+    } catch (error) {
+      unregisterTool();
+      unregisterBatchTool();
+      throw error;
+    }
     context.effect(() => () => {
       unregisterTool();
       unregisterBatchTool();

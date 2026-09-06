@@ -1,12 +1,14 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig } from "../config.js";
 
 const maxPromptBytes = 128 * 1024;
 type Risk = "safe" | "review" | "blocked";
 type Finding = { code: string; severity: "medium" | "high"; message: string };
 type PromptGuardReport = { source: string; risk: Risk; score: number; scannedChars: number; findings: Finding[] };
 type Pattern = { code: string; severity: Finding["severity"]; score: number; message: string; pattern: RegExp };
+const scanParameterNames = new Set(["text", "source"]);
 
 const patterns: readonly Pattern[] = [
   {
@@ -49,30 +51,65 @@ function inspect(text: string, source: string): PromptGuardReport {
   return { source: source.trim().slice(0, 64) || "unknown", risk, score, scannedChars: text.length, findings };
 }
 
+function dataProperty(value: unknown, key: PropertyKey): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function messageText(message: unknown): string {
   if (message === null || typeof message !== "object") return "";
-  const content = (message as { content?: unknown }).content;
+  const content = dataProperty(message, "content");
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content
-    .filter(
-      (item): item is { type: "text"; text: string } =>
-        item !== null && typeof item === "object" && (item as { type?: unknown }).type === "text" && typeof (item as { text?: unknown }).text === "string",
-    )
-    .map((item) => item.text)
-    .join("\n");
+  const texts: string[] = [];
+  for (let index = 0; index < content.length; index += 1) {
+    const item = dataProperty(content, String(index));
+    if (dataProperty(item, "type") !== "text") continue;
+    const text = dataProperty(item, "text");
+    if (typeof text === "string") texts.push(text);
+  }
+  return texts.join("\n");
+}
+
+function scanParameters(value: unknown): { text: string; source: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Prompt guard parameters must be an object");
+  let prototype: unknown;
+  let descriptors: PropertyDescriptorMap;
+  try {
+    prototype = Object.getPrototypeOf(value) as unknown;
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch (error) {
+    throw new Error("Prompt guard parameters could not be inspected safely", { cause: error });
+  }
+  if (prototype !== Object.prototype && prototype !== null) throw new Error("Prompt guard parameters must be a plain object");
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !scanParameterNames.has(key)))
+    throw new Error("Prompt guard parameters contain an unknown property");
+  if (Object.values(descriptors).some((descriptor) => !("value" in descriptor))) throw new Error("Prompt guard parameters must use data properties");
+  const text: unknown = descriptors.text?.value;
+  const source: unknown = descriptors.source?.value;
+  if (typeof text !== "string") throw new Error("Prompt guard text must be a string");
+  if (source !== undefined && typeof source !== "string") throw new Error("Prompt guard source must be a string");
+  return { text, source: source ?? "tool" };
 }
 
 export default {
   name: "pi-prompt-guard",
   inject: ["piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let scans = 0;
     let latest: PromptGuardReport | undefined;
     const onSessionEvent = context.on("pi/session-event", (event) => {
-      if (event.type !== "message_start" || event.message.role !== "user") return;
+      if (dataProperty(event, "type") !== "message_start") return;
+      const message = dataProperty(event, "message");
+      if (dataProperty(message, "role") !== "user") return;
       try {
-        latest = inspect(messageText(event.message), "message_start");
+        latest = inspect(messageText(message), "message_start");
         scans += 1;
       } catch {
         latest = {
@@ -91,10 +128,12 @@ export default {
         label: "Prompt guard scan",
         description: "Scan text for prompt injection, secret exfiltration, and remote payload indicators without retaining the source text.",
         promptSnippet: "scan untrusted text for prompt injection risks",
-        parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }),
+        parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }, { additionalProperties: false }),
+        executionMode: "sequential",
         execute(_toolCallId, params): Promise<AgentToolResult<PromptGuardReport>> {
           return Promise.resolve().then(() => {
-            const report = inspect(params.text, params.source ?? "tool");
+            const parsed = scanParameters(params);
+            const report = inspect(parsed.text, parsed.source);
             latest = report;
             scans += 1;
             return {

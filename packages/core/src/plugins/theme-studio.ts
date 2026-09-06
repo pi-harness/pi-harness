@@ -125,7 +125,11 @@ export default {
         label: "Set UI theme",
         description: "Select one of the bounded Pi Harness theme presets and persist it in the current session.",
         promptSnippet: "switch the Pi Harness UI theme",
-        parameters: Type.Object({ theme: Type.Union([Type.Literal("light"), Type.Literal("midnight"), Type.Literal("paper"), Type.Literal("high-contrast")]) }),
+        parameters: Type.Object(
+          { theme: Type.Union([Type.Literal("light"), Type.Literal("midnight"), Type.Literal("paper"), Type.Literal("high-contrast")]) },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         execute(_toolCallId, params): Promise<AgentToolResult<ThemeState>> {
           theme = params.theme;
           changedAt = new Date().toISOString();
@@ -141,7 +145,8 @@ export default {
         label: "Theme status",
         description: "Show the active theme preset and its UI color tokens.",
         promptSnippet: "inspect the active Pi Harness theme",
-        parameters: Type.Object({}),
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
         execute(): Promise<AgentToolResult<ThemeState>> {
           const details = state();
           return Promise.resolve({ content: [{ type: "text", text: `${details.label}: ${details.description}` }], details });

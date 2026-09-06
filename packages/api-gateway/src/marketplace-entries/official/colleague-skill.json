@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["role handoff", "acceptance criteria", "durable session context"],
-  "hooks": ["session storage", "bounded input", "plugin UI"],
+  "hooks": ["session storage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/colleague-skill",
     "config": {}

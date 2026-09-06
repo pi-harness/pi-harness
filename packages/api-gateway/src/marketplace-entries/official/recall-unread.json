@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/recall-unread",
   "version": "0.1.12",
   "name": "Recall Unread",
-  "description": "Find persisted Pi sessions that end with an unanswered user message without modifying their transcripts.",
+  "description": "Read-only bounded discovery with strict UTF-8 session reads finds current workspace conversations ending in an unanswered user message, uses cached startup inventory, and rescans only on explicit tool calls.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,15 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["session recall", "unanswered messages", "search"],
-  "hooks": ["session storage", "plugin UI"],
+  "capabilities": [
+    "bounded current-workspace JSONL discovery",
+    "strict UTF-8 no-follow session reads",
+    "unanswered-tail detection",
+    "cached startup and manual rescans",
+    "descriptor-safe cancellable queries",
+    "bounded normalized panel"
+  ],
+  "hooks": ["recall unread tool", "native session storage", "active session manager", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/recall-unread",
     "config": {}

@@ -1,14 +1,18 @@
-import { lstat, readdir, readFile, stat } from "node:fs/promises";
+import { lstat, readdir, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { readBoundedFile } from "../bounded-file.js";
 import { resolveExistingWorkspacePath } from "../workspace-path.js";
+import { EmptyConfig } from "../config.js";
 
 const maxQueryLength = 120;
 const maxPathLength = 512;
 const maxFileBytes = 2 * 1024 * 1024;
 const maxFiles = 1_000;
+const maxDirectories = 512;
+const maxDepth = 16;
 const maxResults = 100;
 const ignoredDirectories = new Set([".git", "node_modules", ".pi", "dist", "build"]);
 const sourceExtensions = new Set([".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx"]);
@@ -87,27 +91,33 @@ export function extractModuleMatches(source: string, path: string, query: string
   });
 }
 
-async function filesUnder(target: string, root: string, files: string[]): Promise<void> {
-  if (files.length >= maxFiles) return;
+type WalkState = { files: string[]; directories: number };
+
+async function filesUnder(target: string, root: string, state: WalkState, depth = 0): Promise<boolean> {
+  if (state.files.length >= maxFiles || state.directories >= maxDirectories || depth > maxDepth) return true;
   const metadata = await lstat(target);
-  if (metadata.isSymbolicLink()) return;
+  if (metadata.isSymbolicLink()) return false;
   if (metadata.isFile()) {
-    if (sourceExtensions.has(target.slice(target.lastIndexOf(".")).toLocaleLowerCase())) files.push(target);
-    return;
+    if (sourceExtensions.has(target.slice(target.lastIndexOf(".")).toLocaleLowerCase())) state.files.push(target);
+    return false;
   }
-  if (!metadata.isDirectory()) return;
+  if (!metadata.isDirectory()) return false;
+  state.directories += 1;
+  if (depth >= maxDepth) return true;
   const entries = (await readdir(target, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
-    if (files.length >= maxFiles) return;
+    if (state.files.length >= maxFiles || state.directories >= maxDirectories) return true;
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
     const child = resolve(target, entry.name);
-    await filesUnder(child, root, files);
+    if (await filesUnder(child, root, state, depth + 1)) return true;
   }
+  return false;
 }
 
 export default {
   name: "pi-module-search",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let latest: ModuleSearchReport | undefined;
     const search = async (
@@ -126,8 +136,9 @@ export default {
       const root = resolved.root;
       const target = resolved.target;
       const targetMetadata = await stat(target);
-      const files: string[] = [];
-      await filesUnder(target, root, files);
+      const walkState: WalkState = { files: [], directories: 0 };
+      const filesTruncated = await filesUnder(target, root, walkState);
+      const files = walkState.files;
       const limit = Math.max(1, Math.min(maxResults, Math.trunc(requestedLimit ?? maxResults)));
       const matches: ModuleMatch[] = [];
       let truncated = false;
@@ -140,7 +151,13 @@ export default {
           skippedFiles += 1;
           continue;
         }
-        const source = await readFile(file, "utf8");
+        let source: string;
+        try {
+          source = new TextDecoder("utf-8", { fatal: true }).decode(await readBoundedFile(file, maxFileBytes, "Module search file"));
+        } catch {
+          skippedFiles += 1;
+          continue;
+        }
         scannedFiles += 1;
         const fileMatches = extractModuleMatches(source, relative(root, file), normalizedQuery, normalizedKind);
         const remaining = limit - matches.length;
@@ -154,7 +171,7 @@ export default {
         matches,
         scannedFiles,
         skippedFiles,
-        truncated: truncated || (matches.length >= limit && files.length > scannedFiles + skippedFiles),
+        truncated: filesTruncated || truncated || (matches.length >= limit && files.length > scannedFiles + skippedFiles),
       };
       latest = report;
       return report;
@@ -165,12 +182,16 @@ export default {
         label: "Search modules",
         description: "Find imports, exports, or declared symbols in bounded workspace source files without modifying them.",
         promptSnippet: "find a module import, export, or symbol in the workspace",
-        parameters: Type.Object({
-          query: Type.String({ description: "Name fragment to find, 1-120 characters" }),
-          kind: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("import"), Type.Literal("export"), Type.Literal("symbol")])),
-          path: Type.Optional(Type.String({ description: "Relative workspace path" })),
-          maxResults: Type.Optional(Type.Number({ description: "Maximum matches, 1-100" })),
-        }),
+        parameters: Type.Object(
+          {
+            query: Type.String({ description: "Name fragment to find, 1-120 characters" }),
+            kind: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("import"), Type.Literal("export"), Type.Literal("symbol")])),
+            path: Type.Optional(Type.String({ description: "Relative workspace path" })),
+            maxResults: Type.Optional(Type.Number({ description: "Maximum matches, 1-100" })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<ModuleSearchReport>> {
           const report = await search(params.query, params.path, params.kind ?? "all", params.maxResults);
           return {

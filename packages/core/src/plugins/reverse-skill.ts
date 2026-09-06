@@ -42,11 +42,15 @@ export default {
         label: "Safe skill inject",
         description: "Inspect untrusted Skill text and return it only when safe, or explicitly approved for review-risk content.",
         promptSnippet: "safely inspect and inject an external skill into context",
-        parameters: Type.Object({
-          text: Type.String({ description: "Untrusted Skill text" }),
-          name: Type.String({ description: "Skill name" }),
-          allowReview: Type.Optional(Type.Boolean({ description: "Allow review-risk content after inspection" })),
-        }),
+        parameters: Type.Object(
+          {
+            text: Type.String({ description: "Untrusted Skill text" }),
+            name: Type.String({ description: "Skill name" }),
+            allowReview: Type.Optional(Type.Boolean({ description: "Allow review-risk content after inspection" })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         execute(_toolCallId, params): Promise<AgentToolResult<SkillInjection>> {
           return Promise.resolve().then(() => {
             const result = buildSkillInjection(params.text, params.name, params.allowReview === true || allowReviewByDefault);

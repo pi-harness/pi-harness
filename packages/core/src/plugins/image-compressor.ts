@@ -1,27 +1,33 @@
 import { inflateSync, deflateSync } from "node:zlib";
-import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, relative, resolve } from "node:path";
+import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { atomicWriteFile } from "../atomic-write.js";
+import { EmptyConfig } from "../config.js";
 
 const pngSignature = Buffer.from("89504e470d0a1a0a", "hex");
 const maxInputBytes = 32 * 1024 * 1024;
+const maxDecodedBytes = 128 * 1024 * 1024;
 const maxPathLength = 512;
 const maxChunks = 10_000;
 type PngChunk = { type: string; data: Buffer };
 type CompressionReport = { inputPath: string; outputPath: string; format: "png"; inputBytes: number; outputBytes: number; savedBytes: number; saved: true };
 
-function inside(root: string, target: string): boolean {
-  const remainder = relative(root, target);
-  return remainder === "" || (remainder !== ".." && !remainder.startsWith(`..${"/"}`) && !remainder.startsWith("/"));
+type PathSemantics = { isAbsolute(path: string): boolean; relative(from: string, to: string): string; sep: string };
+const nativePathSemantics: PathSemantics = { isAbsolute, relative, sep };
+
+export function isImageCompressorPathInside(root: string, target: string, pathSemantics: PathSemantics = nativePathSemantics): boolean {
+  const remainder = pathSemantics.relative(root, target);
+  return remainder === "" || (remainder !== ".." && !remainder.startsWith(`..${pathSemantics.sep}`) && !pathSemantics.isAbsolute(remainder));
 }
 
 function workspacePath(root: string, requested: string): string {
   if (requested.length === 0 || requested.length > maxPathLength || requested.includes("\\"))
     throw new Error("Image path must be a relative POSIX path of at most 512 characters");
   const target = resolve(root, requested);
-  if (!inside(root, target)) throw new Error("Image path must stay inside the current workspace");
+  if (!isImageCompressorPathInside(root, target)) throw new Error("Image path must stay inside the current workspace");
   return target;
 }
 
@@ -44,6 +50,54 @@ function chunk(type: string, data: Buffer): Buffer {
   return result;
 }
 
+function expectedImageDataBytes(header: Buffer): number {
+  const width = header.readUInt32BE(0);
+  const height = header.readUInt32BE(4);
+  const bitDepth = header[8];
+  const colorType = header[9];
+  const compression = header[10];
+  const filter = header[11];
+  const interlace = header[12];
+  const channels = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 3 ? 1 : colorType === 4 ? 2 : colorType === 6 ? 4 : undefined;
+  const validDepths =
+    colorType === 0 ? [1, 2, 4, 8, 16] : colorType === 3 ? [1, 2, 4, 8] : colorType === 2 || colorType === 4 || colorType === 6 ? [8, 16] : [];
+  if (
+    width === 0 ||
+    height === 0 ||
+    channels === undefined ||
+    bitDepth === undefined ||
+    !validDepths.includes(bitDepth) ||
+    compression !== 0 ||
+    filter !== 0 ||
+    (interlace !== 0 && interlace !== 1)
+  ) {
+    throw new Error("PNG has an invalid IHDR");
+  }
+  const passBytes = (passWidth: number, passHeight: number): number =>
+    passWidth === 0 || passHeight === 0 ? 0 : passHeight * (1 + Math.ceil((passWidth * channels * bitDepth) / 8));
+  let expected: number;
+  if (interlace === 0) {
+    expected = passBytes(width, height);
+  } else {
+    const passes = [
+      [0, 0, 8, 8],
+      [4, 0, 8, 8],
+      [0, 4, 4, 8],
+      [2, 0, 4, 4],
+      [0, 2, 2, 4],
+      [1, 0, 2, 2],
+      [0, 1, 1, 2],
+    ] as const;
+    expected = passes.reduce((total, [startX, startY, stepX, stepY]) => {
+      const passWidth = width <= startX ? 0 : Math.ceil((width - startX) / stepX);
+      const passHeight = height <= startY ? 0 : Math.ceil((height - startY) / stepY);
+      return total + passBytes(passWidth, passHeight);
+    }, 0);
+  }
+  if (!Number.isSafeInteger(expected) || expected > maxDecodedBytes) throw new Error("PNG image data exceeds the 128 MiB decompression limit");
+  return expected;
+}
+
 function optimizePng(source: Buffer): Buffer {
   if (!source.subarray(0, 8).equals(pngSignature)) throw new Error("Image compressor currently supports PNG files only");
   const chunks: PngChunk[] = [];
@@ -64,32 +118,44 @@ function optimizePng(source: Buffer): Buffer {
   if (chunks.some(({ type }) => type === "acTL" || type === "fcTL" || type === "fdAT")) throw new Error("Animated PNG files are not supported");
   const idat = chunks.filter(({ type }) => type === "IDAT").map(({ data }) => data);
   if (idat.length === 0) throw new Error("PNG has no image data");
-  const compressed = deflateSync(inflateSync(Buffer.concat(idat)), { level: 9 });
-  const output = [
-    chunk("IHDR", header.data),
-    ...chunks.filter(({ type }) => type === "PLTE" || type === "tRNS").map((item) => chunk(item.type, item.data)),
-    chunk("IDAT", compressed),
-    chunk("IEND", Buffer.alloc(0)),
-  ];
+  const expectedBytes = expectedImageDataBytes(header.data);
+  let imageData: Buffer;
+  try {
+    imageData = inflateSync(Buffer.concat(idat), { maxOutputLength: expectedBytes });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE")
+      throw new Error("PNG image data exceeds its IHDR-declared scanline size", { cause: error });
+    throw error;
+  }
+  if (imageData.length !== expectedBytes) throw new Error("PNG image data does not match its IHDR-declared scanline size");
+  const compressed = deflateSync(imageData, { level: 9 });
+  let wroteImageData = false;
+  const output = chunks.flatMap((item): Buffer[] => {
+    if (item.type !== "IDAT") return [chunk(item.type, item.data)];
+    if (wroteImageData) return [];
+    wroteImageData = true;
+    return [chunk("IDAT", compressed)];
+  });
   return Buffer.concat([pngSignature, ...output]);
 }
 
 export default {
   name: "pi-image-compressor",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let last: CompressionReport | undefined;
     const compress = async (requestedPath: string, requestedOutput: string | undefined, confirm: boolean): Promise<CompressionReport> => {
       if (!confirm) throw new Error("Image compression writes a file and requires confirm=true");
       const root = await realpath(context.piHarnessLaunch.cwd);
       const input = await realpath(workspacePath(root, requestedPath));
-      if (!inside(root, input)) throw new Error("Image path must stay inside the current workspace");
+      if (!isImageCompressorPathInside(root, input)) throw new Error("Image path must stay inside the current workspace");
       const metadata = await stat(input);
       if (!metadata.isFile() || metadata.size > maxInputBytes) throw new Error("Input image must be a regular PNG file no larger than 32 MiB");
       const output = workspacePath(root, requestedOutput?.trim() || `${basename(input, extname(input))}.min.png`);
       const outputParent = dirname(output);
       await mkdir(outputParent, { recursive: true });
-      if (!inside(root, await realpath(outputParent))) throw new Error("Image output path must stay inside the current workspace");
+      if (!isImageCompressorPathInside(root, await realpath(outputParent))) throw new Error("Image output path must stay inside the current workspace");
       try {
         if ((await lstat(output)).isSymbolicLink()) throw new Error("Image output cannot be a symbolic link");
       } catch (error) {
@@ -97,7 +163,7 @@ export default {
       }
       const inputBytes = await readFile(input);
       const compressed = optimizePng(inputBytes);
-      await writeFile(output, compressed, { encoding: undefined, mode: 0o600 });
+      await atomicWriteFile(output, compressed, { mode: 0o600 });
       const report: CompressionReport = {
         inputPath: relative(root, input),
         outputPath: relative(root, output),
@@ -116,7 +182,8 @@ export default {
         label: "Compress image",
         description: "Losslessly recompress a PNG inside the current workspace and write a confirmed output file.",
         promptSnippet: "losslessly compress a workspace PNG",
-        parameters: Type.Object({ path: Type.String(), outputPath: Type.Optional(Type.String()), confirm: Type.Boolean() }),
+        parameters: Type.Object({ path: Type.String(), outputPath: Type.Optional(Type.String()), confirm: Type.Boolean() }, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<CompressionReport>> {
           const report = await compress(params.path, params.outputPath, params.confirm);
           return {
@@ -128,14 +195,20 @@ export default {
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "image-compressor-panel",
-      pluginId: "@pi-harness/core/plugins/image-compressor",
-      title: "Image Compressor",
-      description: "对工作区 PNG 做确认后的无损重压缩，减少上下文附件体积。",
-      icon: "▧",
-      read: () => ({ supported: ["png"], maxInputBytes, last: last ?? null }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "image-compressor-panel",
+        pluginId: "@pi-harness/core/plugins/image-compressor",
+        title: "Image Compressor",
+        description: "对工作区 PNG 做确认后的无损重压缩，减少上下文附件体积。",
+        icon: "▧",
+        read: () => ({ supported: ["png"], maxInputBytes, maxDecodedBytes, last: last ?? null }),
+      });
+    } catch (error) {
+      unregisterTool();
+      throw error;
+    }
     context.effect(() => () => {
       unregisterTool();
       disposePanel();

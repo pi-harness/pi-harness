@@ -2,6 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import z from "@deepseek-ai/schemastery";
+import { assertKnownConfigKeys } from "../config.js";
 
 type CompressionState = { enabled: boolean; thresholdPercent: number; compactions: number; lastUsagePercent: number | null; lastError: string | null };
 export interface HistoryCompressorPluginConfig {
@@ -15,6 +16,7 @@ export default {
   inject: ["piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: HistoryCompressorPluginConfig) {
+    assertKnownConfigKeys("history-compressor", config, ["enabled", "thresholdPercent"]);
     const enabled = config.enabled !== false;
     const thresholdPercent = Math.max(1, Math.min(100, config.thresholdPercent ?? 85));
     const state: CompressionState = { enabled, thresholdPercent, compactions: 0, lastUsagePercent: null, lastError: null };
@@ -32,7 +34,7 @@ export default {
         state.lastError = null;
         return { compacted: true, automatic };
       } catch (error) {
-        state.lastError = error instanceof Error ? error.message : String(error);
+        state.lastError = (error instanceof Error ? error.message : String(error)).replaceAll("\0", "�").slice(0, 2_000);
         throw error;
       } finally {
         inFlight = false;
@@ -40,12 +42,19 @@ export default {
     };
     const inspectAndMaybeCompact = (): void => {
       const service = runtime();
-      const usage = service?.session.getContextUsage();
+      let usage: { percent?: unknown } | undefined;
+      try {
+        usage = service?.session.getContextUsage();
+      } catch (error) {
+        state.lastError = (error instanceof Error ? error.message : String(error)).replaceAll("\0", "�").slice(0, 2_000);
+        return;
+      }
       state.lastUsagePercent = typeof usage?.percent === "number" ? usage.percent : null;
       if (enabled && state.lastUsagePercent !== null && state.lastUsagePercent >= thresholdPercent) void compact(true).catch(() => undefined);
     };
     const unsubscribe = context.on("pi/session-event", (event) => {
-      if ((event as { type?: string }).type === "agent_end") inspectAndMaybeCompact();
+      const descriptor = Object.getOwnPropertyDescriptor(event, "type");
+      if (descriptor !== undefined && "value" in descriptor && descriptor.value === "agent_end") inspectAndMaybeCompact();
     });
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -53,7 +62,8 @@ export default {
         label: "Compress history",
         description: "Compact the current Pi session after explicit confirmation.",
         promptSnippet: "compact the current conversation history",
-        parameters: Type.Object({ confirm: Type.Boolean({ description: "Must be true to compact history" }) }),
+        parameters: Type.Object({ confirm: Type.Boolean({ description: "Must be true to compact history" }) }, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<{ compacted: boolean; automatic: boolean }>> {
           if (params.confirm !== true) throw new Error("History compaction requires confirm=true");
           const result = await compact(false);
@@ -64,14 +74,21 @@ export default {
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "history-compressor-panel",
-      pluginId: "@pi-harness/core/plugins/history-compressor",
-      title: "History Compressor",
-      description: "在上下文接近阈值时自动压缩历史消息。",
-      icon: "↯",
-      read: () => ({ ...state }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "history-compressor-panel",
+        pluginId: "@pi-harness/core/plugins/history-compressor",
+        title: "History Compressor",
+        description: "在上下文接近阈值时自动压缩历史消息。",
+        icon: "↯",
+        read: () => ({ ...state }),
+      });
+    } catch (error) {
+      unregisterTool();
+      unsubscribe();
+      throw error;
+    }
     context.effect(() => () => {
       unsubscribe();
       unregisterTool();

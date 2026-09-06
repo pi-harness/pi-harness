@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/browser-session",
   "version": "0.1.12",
   "name": "Browser Session",
-  "description": "Inspect and control a local Chrome DevTools session through a bounded browser endpoint without embedding browser credentials.",
+  "description": "Control a loopback-only Chrome DevTools session with descriptor-safe commands, bounded discovery, cancellable operations, screenshot metadata protection, and validated fail-closed panel previews.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -11,12 +11,21 @@
   "status": "verified",
   "category": {
     "id": "web",
-    "label": "网页"
+    "label": "网页与研究"
   },
-  "capabilities": ["browser session", "DevTools", "page inspection"],
-  "hooks": ["browser endpoint", "plugin UI"],
+  "capabilities": [
+    "loopback-only CDP endpoint",
+    "bounded tab discovery",
+    "navigation read click and screenshot tools",
+    "cancellable request lifecycle",
+    "bounded panel previews",
+    "validated fail-closed panel reporting"
+  ],
+  "hooks": ["browser session tools", "Chrome DevTools Protocol", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/browser-session",
-    "config": {}
+    "config": {
+      "endpoint": "http://127.0.0.1:9222"
+    }
   }
 }

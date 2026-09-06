@@ -29,6 +29,16 @@ export async function resolveExistingWorkspacePath(root: string, requested: stri
   return { root: canonicalRoot, target, relativePath: relative(canonicalRoot, target) || "." };
 }
 
+export async function resolveWorkspaceFilePath(root: string, requested: string, message: string): Promise<WorkspacePath> {
+  const canonicalRoot = await realpath(resolve(root));
+  const lexicalTarget = resolve(canonicalRoot, requested);
+  assertInside(canonicalRoot, lexicalTarget, message);
+  const canonicalParent = await realpath(dirname(lexicalTarget));
+  assertInside(canonicalRoot, canonicalParent, message);
+  const target = join(canonicalParent, basename(lexicalTarget));
+  return { root: canonicalRoot, target, relativePath: relative(canonicalRoot, target) || "." };
+}
+
 export async function prepareWorkspaceFile(root: string, requested: string, message: string): Promise<WorkspaceFilePath> {
   const canonicalRoot = await realpath(resolve(root));
   const lexicalTarget = resolve(canonicalRoot, requested);

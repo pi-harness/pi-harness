@@ -1,6 +1,6 @@
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { describe, expect, test } from "vitest";
-import { PiHarnessStdioCancelledError } from "@pi-harness/core";
+import { MAX_STDIO_PROMPT_BYTES, PiHarnessStdioCancelledError } from "@pi-harness/core";
 import { NodeStdio } from "../src/node-stdio.js";
 
 type FakeTty = PassThrough & { isTTY?: boolean; setRawMode?: () => void };
@@ -72,6 +72,39 @@ describe("NodeStdio interactive prompt", () => {
     expect(drained).toBe(true);
   });
 
+  test("flush waits for an asynchronous write below the backpressure threshold", async () => {
+    const input: FakeTty = new PassThrough();
+    let completeWrite: (() => void) | undefined;
+    const output = new Writable({
+      highWaterMark: 64 * 1_024,
+      write(_chunk, _encoding, callback) {
+        completeWrite = callback;
+      },
+    });
+    const stdio = new NodeStdio(input, output, output);
+    stdio.writeOutput("pending");
+    let flushed = false;
+    const flush = stdio.flush().then(() => {
+      flushed = true;
+    });
+
+    expect(output.writableNeedDrain).toBe(false);
+    expect(completeWrite).toBeTypeOf("function");
+    expect(flushed).toBe(false);
+    completeWrite?.();
+    let expectationError: unknown;
+    try {
+      await expect.poll(() => flushed, { interval: 10, timeout: 200 }).toBe(true);
+    } catch (error) {
+      expectationError = error;
+    } finally {
+      output.destroy();
+      await flush;
+    }
+    if (expectationError !== undefined)
+      throw expectationError instanceof Error ? expectationError : new Error("Flush expectation failed", { cause: expectationError });
+  });
+
   test("flush resolves immediately when nothing is buffered", async () => {
     const input: FakeTty = new PassThrough();
     const output: FakeTty = new PassThrough();
@@ -92,5 +125,88 @@ describe("NodeStdio interactive prompt", () => {
     input.end("piped prompt\n");
 
     await expect(settle(read)).resolves.toBe("resolved:piped prompt");
+  });
+
+  test("accepts a piped prompt at the exact UTF-8 byte limit", async () => {
+    const input: FakeTty = new PassThrough();
+    const output: FakeTty = new PassThrough();
+    output.resume();
+    const stdio = new NodeStdio(input, output, output);
+    const read = stdio.readPrompt();
+    const prompt = `${"界".repeat(349_525)}a`;
+    expect(Buffer.byteLength(prompt, "utf8")).toBe(MAX_STDIO_PROMPT_BYTES);
+    input.end(prompt);
+
+    await expect(read).resolves.toBe(prompt);
+  });
+
+  test("removes temporary piped-input listeners after the read settles", async () => {
+    const input: FakeTty = new PassThrough();
+    const output: FakeTty = new PassThrough();
+    output.resume();
+    const stdio = new NodeStdio(input, output, output);
+    const baseline = {
+      data: input.listenerCount("data"),
+      end: input.listenerCount("end"),
+      error: input.listenerCount("error"),
+    };
+    const read = stdio.readPrompt();
+    input.end("done");
+
+    await expect(read).resolves.toBe("done");
+    expect(input.listenerCount("data")).toBe(baseline.data);
+    expect(input.listenerCount("end")).toBe(baseline.end);
+    expect(input.listenerCount("error")).toBe(baseline.error);
+  });
+
+  test("rejects piped input above the fixed prompt byte limit", async () => {
+    const input: FakeTty = new PassThrough();
+    const output: FakeTty = new PassThrough();
+    output.resume();
+    const stdio = new NodeStdio(input, output, output);
+    const read = stdio.readPrompt();
+    input.end("x".repeat(MAX_STDIO_PROMPT_BYTES + 1));
+
+    await expect(read).rejects.toThrow(`Prompt must be at most ${MAX_STDIO_PROMPT_BYTES} UTF-8 bytes`);
+    expect(input.isPaused()).toBe(true);
+  });
+
+  test("rejects interactive input above the fixed prompt byte limit", async () => {
+    const { input, stdio } = createTerminal();
+    const read = stdio.readPrompt();
+    input.write(`${"界".repeat(349_526)}\n`);
+
+    await expect(read).rejects.toThrow(`Prompt must be at most ${MAX_STDIO_PROMPT_BYTES} UTF-8 bytes`);
+    expect(input.isPaused()).toBe(true);
+  });
+
+  test("accepts an exact-limit interactive prompt whose UTF-8 character spans input chunks", async () => {
+    const { input, stdio } = createTerminal();
+    const read = stdio.readPrompt();
+    const prompt = `${"界".repeat(349_525)}a`;
+    const bytes = Buffer.from(prompt, "utf8");
+    expect(bytes).toHaveLength(MAX_STDIO_PROMPT_BYTES);
+
+    input.write(bytes.subarray(0, 1));
+    input.write(bytes.subarray(1));
+    input.write("\n");
+
+    await expect(read).resolves.toBe(prompt);
+  });
+
+  test("removes its temporary interactive byte-counting listener after the read settles", async () => {
+    const { input, stdio } = createTerminal();
+    const baseline = {
+      end: input.listenerCount("end"),
+      error: input.listenerCount("error"),
+    };
+    const read = stdio.readPrompt();
+    const readingDataListeners = input.listenerCount("data");
+    input.write("done\n");
+
+    await expect(read).resolves.toBe("done");
+    expect(input.listenerCount("data")).toBeLessThan(readingDataListeners);
+    expect(input.listenerCount("end")).toBe(baseline.end);
+    expect(input.listenerCount("error")).toBe(baseline.error);
   });
 });

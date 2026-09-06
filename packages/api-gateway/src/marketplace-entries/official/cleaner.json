@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/cleaner",
   "version": "0.1.12",
   "name": "Cleaner",
-  "description": "Remove bounded Pi Harness cache and transient files through an explicit, previewable cleanup operation.",
+  "description": "Strict descriptor-safe configuration and parameters, display-safe bounded Pi Harness Git capsule inventory, removal with explicit confirmation and retention controls, symlink and replacement defenses, cancellable serialization, and a fail-closed normalized panel.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,16 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": ["cache cleanup", "transient files", "preview"],
-  "hooks": ["agent directory", "plugin UI"],
+  "capabilities": [
+    "strict configuration and parameters",
+    "bounded capsule inventory",
+    "display-safe capsule filtering",
+    "confirmed retention cleanup",
+    "symlink and replacement defenses",
+    "cancellable serialized cleanup",
+    "fail-closed normalized panel"
+  ],
+  "hooks": ["capsule cleanup tool", "agent capsule directory", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/cleaner",
     "config": {}

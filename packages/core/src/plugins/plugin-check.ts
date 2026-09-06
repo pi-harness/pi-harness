@@ -1,14 +1,28 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { opendir, readdir, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
+import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { parse } from "yaml";
+import { BoundedFileSizeError, BoundedFileTypeError, readBoundedTextFile } from "../bounded-file.js";
+import { resolveExistingWorkspacePath } from "../workspace-path.js";
 
 const maxScanEntries = 50;
+const maxSourceEntries = 2_000;
+const maxSourceFiles = 500;
+const maxSourceFileBytes = 1024 * 1024;
+const maxSourceBytes = 8 * 1024 * 1024;
+const maxMetadataBytes = 1024 * 1024;
 const packageNamePattern = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/u;
 const coreRowIds = new Set(["tools", "session", "llm", "web", "permission", "agent"]);
 const ignoredScanDirectories = new Set([".git", "node_modules", ".pi", "dist", "build"]);
+
+export interface PluginCheckConfig {
+  scanLimit?: number;
+}
+
+export const Config: z<PluginCheckConfig> = z.object({ scanLimit: z.number().default(maxScanEntries) });
 
 export function isPluginRepositoryName(name: string): boolean {
   return (
@@ -31,6 +45,7 @@ const schemaChecks = [
   { code: "core-modification-required", label: "installation does not require changing host source" },
   { code: "no-build-script", label: "package declares a build script" },
   { code: "missing-ts-ext-imports", label: "TypeScript relative imports include extensions" },
+  { code: "source-scan-incomplete", label: "Source scan stayed within bounded resource limits" },
 ] as const;
 
 type CheckStatus = "passed" | "failed" | "warning";
@@ -44,6 +59,7 @@ export interface PluginCheckReport {
   errors: Array<{ code: string; message: string }>;
   warnings: Array<{ code: string; message: string }>;
   suggestions: string[];
+  sourceScan?: { checked: number; skipped: number; truncated: boolean };
 }
 export interface PluginCheckScanReport {
   root: string;
@@ -65,16 +81,70 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
+async function readBoundedText(path: string): Promise<string> {
+  return readBoundedTextFile(path, maxMetadataBytes, "Plugin metadata file");
+}
+
+async function scanTypeScriptSources(sourceDir: string): Promise<{ sources: string[]; checked: number; skipped: number; truncated: boolean }> {
+  const sources: string[] = [];
+  let checked = 0;
+  let skipped = 0;
+  let entries = 0;
+  let totalBytes = 0;
+  let truncated = false;
+  const directory = await opendir(sourceDir, { recursive: true });
+  for await (const entry of directory) {
+    entries += 1;
+    if (entries > maxSourceEntries) {
+      truncated = true;
+      break;
+    }
+    if (!/\.(?:ts|tsx)$/u.test(entry.name)) continue;
+    if (!entry.isFile()) {
+      skipped += 1;
+      continue;
+    }
+    if (checked >= maxSourceFiles) {
+      skipped += 1;
+      truncated = true;
+      continue;
+    }
+    const remaining = maxSourceBytes - totalBytes;
+    if (remaining <= 0) {
+      skipped += 1;
+      truncated = true;
+      continue;
+    }
+    try {
+      const source = await readBoundedTextFile(join(entry.parentPath, entry.name), Math.min(maxSourceFileBytes, remaining), "Plugin source file");
+      sources.push(source);
+      checked += 1;
+      totalBytes += Buffer.byteLength(source, "utf8");
+    } catch (error) {
+      if (!(error instanceof BoundedFileSizeError || error instanceof BoundedFileTypeError)) throw error;
+      skipped += 1;
+      if (remaining < maxSourceFileBytes) truncated = true;
+    }
+  }
+  return { sources, checked, skipped, truncated };
+}
+
 async function checkRepository(path: string, strict: boolean): Promise<PluginCheckReport> {
   const root = resolve(path);
   const checks: Check[] = [];
   const suggestions: string[] = [];
+  let sourceScan: PluginCheckReport["sourceScan"];
   let manifest: Record<string, unknown> | undefined;
   try {
-    const parsed = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as unknown;
+    const parsed = JSON.parse(await readBoundedText(join(root, "package.json"))) as unknown;
     manifest = asObject(parsed);
-  } catch {
-    addIssue(checks, "no-manifest", "failed", "package.json is missing or invalid JSON");
+  } catch (error) {
+    addIssue(
+      checks,
+      "no-manifest",
+      "failed",
+      error instanceof BoundedFileSizeError ? "package.json exceeds the 1 MiB metadata limit" : "package.json is missing or invalid JSON",
+    );
   }
   if (manifest !== undefined) checks.push({ code: "no-manifest", status: "passed", message: "package.json is readable" });
   const packageName = typeof manifest?.name === "string" ? manifest.name : "";
@@ -93,14 +163,14 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   else addIssue(checks, "no-build-script", "warning", "package has no build script");
   let readme: string;
   try {
-    readme = await readFile(join(root, "README.md"), "utf8");
+    readme = await readBoundedText(join(root, "README.md"));
   } catch {
     readme = "";
   }
   let patchSource: string | undefined;
   for (const filename of ["cordis.patch.yml", "dsh.bundle.patch"]) {
     try {
-      patchSource = await readFile(join(root, filename), "utf8");
+      patchSource = await readBoundedText(join(root, filename));
       break;
     } catch {
       // Try the next supported patch filename.
@@ -134,11 +204,15 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   else checks.push({ code: "core-modification-required", status: "passed", message: "README does not require host source changes" });
   if (await isDirectory(join(root, "src"))) {
     const sourceDir = join(root, "src");
-    const files = (await readdir(sourceDir, { recursive: true })).filter((entry): entry is string => typeof entry === "string" && /\.(?:ts|tsx)$/u.test(entry));
-    const sources = await Promise.all(files.map((file) => readFile(join(sourceDir, file), "utf8")));
+    const scan = await scanTypeScriptSources(sourceDir);
+    sourceScan = { checked: scan.checked, skipped: scan.skipped, truncated: scan.truncated };
+    const { sources } = scan;
     if (sources.some((source) => /from\s+["'][.][^"']*["']/u.test(source)))
       addIssue(checks, "missing-ts-ext-imports", "warning", "a TypeScript relative import omits its file extension");
     else checks.push({ code: "missing-ts-ext-imports", status: "passed", message: "relative imports include extensions or no source files were found" });
+    if (scan.skipped > 0 || scan.truncated)
+      addIssue(checks, "source-scan-incomplete", "warning", `source scan skipped ${scan.skipped} file(s)${scan.truncated ? " and was truncated" : ""}`);
+    else checks.push({ code: "source-scan-incomplete", status: "passed", message: "source scan completed within bounded resource limits" });
   }
   const errors = checks.filter((check) => check.status === "failed").map(({ code, message }) => ({ code, message }));
   const warnings = checks.filter((check) => check.status === "warning").map(({ code, message }) => ({ code, message }));
@@ -159,6 +233,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
     errors,
     warnings,
     suggestions,
+    ...(sourceScan === undefined ? {} : { sourceScan }),
   };
 }
 
@@ -169,7 +244,8 @@ function schemaReport(): { checks: Array<{ code: string; label: string }>; verdi
 export default {
   name: "pi-plugin-check",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
-  apply(context: Context, config: { scanLimit?: number }) {
+  Config,
+  apply(context: Context, config: PluginCheckConfig = {}) {
     const scanLimit = Math.max(1, Math.min(maxScanEntries, Math.trunc(config.scanLimit ?? maxScanEntries)));
     let latest: PluginCheckReport | PluginCheckScanReport | ReturnType<typeof schemaReport> | undefined;
     const run = async (action: "check" | "scan" | "schema", requestedPath: string | undefined, strict: boolean): Promise<unknown> => {
@@ -177,7 +253,11 @@ export default {
         latest = schemaReport();
         return latest;
       }
-      const target = resolve(context.piHarnessLaunch.cwd, requestedPath ?? ".");
+      const requested = requestedPath ?? ".";
+      const workspaceRequest = isAbsolute(requested) ? relative(resolve(context.piHarnessLaunch.cwd), resolve(requested)) || "." : requested;
+      const target = (
+        await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, workspaceRequest, "Plugin repository path must stay inside the current workspace")
+      ).target;
       if (action === "check") {
         latest = await checkRepository(target, strict);
         return latest;
@@ -197,11 +277,15 @@ export default {
         label: "Check plugins",
         description: "Read-only health checks for Pi Harness plugin repositories; never modifies or builds the inspected path.",
         promptSnippet: "check a Pi Harness plugin repository",
-        parameters: Type.Object({
-          action: Type.Union(["check", "scan", "schema"]),
-          path: Type.Optional(Type.String({ description: "Repository path for check, parent directory for scan" })),
-          strict: Type.Optional(Type.Boolean({ description: "Treat warnings as errors" })),
-        }),
+        parameters: Type.Object(
+          {
+            action: Type.Union(["check", "scan", "schema"]),
+            path: Type.Optional(Type.String({ description: "Repository path for check, parent directory for scan" })),
+            strict: Type.Optional(Type.Boolean({ description: "Treat warnings as errors" })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
           const action = params.action;
           if (action !== "check" && action !== "scan" && action !== "schema") throw new Error("plugin_check action must be check, scan, or schema");

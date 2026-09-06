@@ -43,11 +43,15 @@ describe("llm verifier", () => {
       await context.plugin(llmVerifierPlugin, {});
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "llm_verify");
       expect(tool).toBeDefined();
+      expect(tool!.executionMode).toBe("sequential");
+      expect(tool!.parameters).toMatchObject({ additionalProperties: false });
       await expect(
         tool!.execute("call-1", { claim: "The change is covered", evidence: "npx vitest run: 3 passed" }, undefined, undefined, {} as never),
       ).resolves.toMatchObject({ details: { verdict: "pass", model: { provider: "everyapi", id: "verifier-model" } } });
       const batchTool = tools.snapshot().customTools.find((candidate) => candidate.name === "llm_verify_batch");
       expect(batchTool).toBeDefined();
+      expect(batchTool!.executionMode).toBe("sequential");
+      expect(batchTool!.parameters).toMatchObject({ additionalProperties: false });
       await expect(
         batchTool!.execute(
           "call-2",

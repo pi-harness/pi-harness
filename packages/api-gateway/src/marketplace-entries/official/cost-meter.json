@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/cost-meter",
   "version": "0.1.12",
   "name": "Cost Meter",
-  "description": "Track current-session, daily, and persisted model costs with optional budget thresholds.",
+  "description": "Track runtime-reported costs as UTC daily increments in a bounded local ledger, with session snapshots and optional daily budget monitoring; no model prices are guessed.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,12 +13,13 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": ["cost", "budget", "usage"],
-  "hooks": ["agent end", "plugin UI"],
+  "capabilities": ["UTC daily cost ledger", "session cost snapshots", "daily budget monitoring", "bounded local persistence"],
+  "hooks": ["agent end", "cost report tool", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/cost-meter",
     "config": {
-      "dailyBudget": 0
+      "dailyBudget": 0,
+      "maxEntries": 365
     }
   }
 }

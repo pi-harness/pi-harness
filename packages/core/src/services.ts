@@ -81,6 +81,14 @@ export interface PiToolsLease extends PiToolsSnapshot {
 }
 
 const PI_BUILTIN_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+const MAX_PI_TOOL_NAMES = 256;
+const MAX_PI_TOOL_NAME_LENGTH = 128;
+const PI_TOOL_NAME_PATTERN = /^[^\s\p{Cc}]+$/u;
+
+function assertPiToolName(name: unknown): asserts name is string {
+  if (typeof name !== "string" || name.length === 0 || name.length > MAX_PI_TOOL_NAME_LENGTH || !PI_TOOL_NAME_PATTERN.test(name))
+    throw new Error(`Pi tool name must contain 1-${MAX_PI_TOOL_NAME_LENGTH} non-whitespace, non-control characters`);
+}
 
 export class PiToolRegistry {
   readonly #names: string[];
@@ -88,10 +96,21 @@ export class PiToolRegistry {
   #leases = 0;
 
   constructor(names: readonly string[] = []) {
-    this.#names = [...names];
+    const uncheckedNames: unknown = names;
+    if (!Array.isArray(uncheckedNames) || uncheckedNames.length > MAX_PI_TOOL_NAMES)
+      throw new Error(`Pi tool names must contain at most ${MAX_PI_TOOL_NAMES} entries`);
+    const validatedNames: string[] = [];
+    for (const name of uncheckedNames) {
+      const uncheckedName: unknown = name;
+      assertPiToolName(uncheckedName);
+      validatedNames.push(uncheckedName);
+    }
+    if (new Set(validatedNames).size !== validatedNames.length) throw new Error("Pi tool names must be unique");
+    this.#names = validatedNames;
   }
 
   register(tool: ToolDefinition): () => void {
+    assertPiToolName(tool.name);
     if (this.#leases > 0) throw new Error(`Pi tool registry is leased by pi-runtime; declare a Cordis injection that activates ${tool.name} before pi-runtime`);
     if (this.#names.includes(tool.name) || this.#customTools.has(tool.name)) throw new Error(`Pi tool is already registered: ${tool.name}`);
     if (PI_BUILTIN_TOOL_NAMES.includes(tool.name)) throw new Error(`Pi tool name is reserved by a built-in tool: ${tool.name}`);
@@ -160,13 +179,14 @@ export class PiPluginUiRegistry {
     for (const panel of this.#panels.values()) {
       if (panel.visible !== undefined && !(await panel.visible())) continue;
       try {
+        const data = await panel.read();
         snapshots.push({
           id: panel.id,
           pluginId: panel.pluginId,
           title: panel.title,
           ...(panel.description === undefined ? {} : { description: panel.description }),
           ...(panel.icon === undefined ? {} : { icon: panel.icon }),
-          data: await panel.read(),
+          data: structuredClone(data),
         });
       } catch (error) {
         snapshots.push({

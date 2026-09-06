@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/modlens",
   "version": "0.1.12",
   "name": "ModLens Vision Bridge",
-  "description": "Attach workspace images to the active model context with bounded metadata and preview support.",
+  "description": "Send bounded workspace images to native vision models or return schema-validated evidence from the bundled ModLens engine for text-only models.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "id": "multimodal",
     "label": "视觉与多模态"
   },
-  "capabilities": ["vision", "image context"],
+  "capabilities": ["native vision", "OCR/layout evidence"],
   "hooks": ["tool execution", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/modlens",

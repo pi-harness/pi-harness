@@ -7,6 +7,7 @@ import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agen
 
 const execFileAsync = promisify(execFile);
 const maxFiles = 512;
+const defaultTimeoutMs = 15_000;
 type ReviewFinding = { kind: "whitespace" | "secret" | "todo"; severity: "error" | "warning"; message: string; path?: string };
 type ReviewFile = { path: string; added: number; removed: number };
 type ReviewReport = {
@@ -20,8 +21,12 @@ type ReviewReport = {
 
 export interface ReviewerBotPluginConfig {
   maxDiffBytes?: number;
+  timeoutMs?: number;
 }
-export const Config: z<ReviewerBotPluginConfig> = z.object({ maxDiffBytes: z.number().default(1024 * 1024) });
+export const Config: z<ReviewerBotPluginConfig> = z.object({
+  maxDiffBytes: z.number().default(1024 * 1024),
+  timeoutMs: z.number().default(defaultTimeoutMs),
+});
 
 function outputOf(error: unknown, key: "stdout" | "stderr"): string {
   if (typeof error === "object" && error !== null && key in error) {
@@ -32,8 +37,8 @@ function outputOf(error: unknown, key: "stdout" | "stderr"): string {
   return "";
 }
 
-async function git(cwd: string, args: readonly string[], maxBuffer: number): Promise<string> {
-  const result = await execFileAsync("git", [...args], { cwd, maxBuffer });
+async function git(cwd: string, args: readonly string[], maxBuffer: number, timeoutMs: number): Promise<string> {
+  const result = await execFileAsync("git", [...args], { cwd, maxBuffer, timeout: timeoutMs });
   return result.stdout;
 }
 
@@ -43,6 +48,7 @@ export default {
   Config,
   apply(context: Context, config: ReviewerBotPluginConfig) {
     const maxDiffBytes = Math.max(16 * 1024, Math.min(8 * 1024 * 1024, Math.trunc(config.maxDiffBytes ?? 1024 * 1024)));
+    const timeoutMs = Math.max(100, Math.min(60_000, Math.trunc(config.timeoutMs ?? defaultTimeoutMs)));
     let latest: ReviewReport | undefined;
     const review = async (): Promise<ReviewReport> => {
       let diff: string;
@@ -50,12 +56,15 @@ export default {
       const findings: ReviewFinding[] = [];
       try {
         [diff, names] = await Promise.all([
-          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--no-ext-diff", "--unified=0"], maxDiffBytes),
-          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff"], maxDiffBytes),
+          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--no-ext-diff", "--unified=0"], maxDiffBytes, timeoutMs),
+          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff"], maxDiffBytes, timeoutMs),
         ]);
       } catch (error) {
+        const timedOut = typeof error === "object" && error !== null && "killed" in error && (error as { killed?: unknown }).killed === true;
         throw new Error(
-          `Git review requires a repository with a readable HEAD: ${outputOf(error, "stderr").trim() || (error instanceof Error ? error.message : String(error))}`,
+          timedOut
+            ? `Git review timed out after ${timeoutMs} ms`
+            : `Git review requires a repository with a readable HEAD: ${outputOf(error, "stderr").trim() || (error instanceof Error ? error.message : String(error))}`,
           { cause: error },
         );
       }
@@ -94,8 +103,10 @@ export default {
         }
       }
       try {
-        await git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--check"], maxDiffBytes);
+        await git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--check"], maxDiffBytes, timeoutMs);
       } catch (error) {
+        const timedOut = typeof error === "object" && error !== null && "killed" in error && (error as { killed?: unknown }).killed === true;
+        if (timedOut) throw new Error(`Git review timed out after ${timeoutMs} ms`, { cause: error });
         const output = `${outputOf(error, "stdout")}\n${outputOf(error, "stderr")}`.trim();
         findings.push({ kind: "whitespace", severity: "error", message: output || "git diff --check 检测到空白错误。" });
       }
@@ -115,7 +126,8 @@ export default {
         label: "Review changes",
         description: "Run a read-only Git diff review for whitespace, likely secrets, and TODO/FIXME findings.",
         promptSnippet: "review the current Git diff for release risks",
-        parameters: Type.Object({}),
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(): Promise<AgentToolResult<ReviewReport>> {
           latest = await review();
           return {
@@ -130,14 +142,20 @@ export default {
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "reviewer-bot-panel",
-      pluginId: "@pi-harness/core/plugins/reviewer-bot",
-      title: "Reviewer Bot",
-      description: "只读检查 Git 改动中的空白、凭据和遗留标记风险。",
-      icon: "✓",
-      read: () => ({ latest: latest ?? null, maxDiffBytes }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "reviewer-bot-panel",
+        pluginId: "@pi-harness/core/plugins/reviewer-bot",
+        title: "Reviewer Bot",
+        description: "只读检查 Git 改动中的空白、凭据和遗留标记风险。",
+        icon: "✓",
+        read: () => ({ latest: latest ?? null, maxDiffBytes, timeoutMs }),
+      });
+    } catch (error) {
+      unregisterTool();
+      throw error;
+    }
     context.effect(() => () => {
       unregisterTool();
       disposePanel();

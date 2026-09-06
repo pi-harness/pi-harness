@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { browserSessionTabs } from "../src/browser-session-view.js";
+import { browserSessionPanelView, browserSessionTabs } from "../src/browser-session-view.js";
+
+const defaults = { tabs: 20, textPreviewCharacters: 12_000, errorCharacters: 2_000 } as const;
 
 describe("browser session view", () => {
   it("keeps valid tabs bounded and preserves browser order", () => {
@@ -13,5 +15,101 @@ describe("browser session view", () => {
         1,
       ),
     ).toEqual([{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081" }]);
+  });
+
+  it("normalizes a complete browser session panel payload", () => {
+    expect(
+      browserSessionPanelView({
+        endpoint: "http://127.0.0.1:9222/",
+        connected: true,
+        error: null,
+        tabs: [{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081" }],
+        inventory: { total: 3, shown: 1, truncated: true },
+        limits: { tabs: 20, textPreviewCharacters: 12_000, errorCharacters: 2_000 },
+        latest: {
+          targetId: "one",
+          title: "Pi Harness",
+          url: "http://127.0.0.1:3081",
+          status: "read",
+          truncated: false,
+          previewTruncated: true,
+          text: "page text",
+          clicked: false,
+          screenshot: { bytes: 8, mimeType: "image/png" },
+        },
+      }),
+    ).toEqual({
+      endpoint: "http://127.0.0.1:9222/",
+      connected: true,
+      error: null,
+      tabs: [{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081" }],
+      inventory: { total: 3, shown: 1, truncated: true },
+      limits: { tabs: 20, textPreviewCharacters: 12_000, errorCharacters: 2_000 },
+      latest: {
+        targetId: "one",
+        title: "Pi Harness",
+        url: "http://127.0.0.1:3081",
+        status: "read",
+        truncated: false,
+        previewTruncated: true,
+        text: "page text",
+        clicked: false,
+        screenshot: { bytes: 8, mimeType: "image/png" },
+      },
+      malformed: false,
+    });
+  });
+
+  it("fails closed for malformed panel fields instead of inventing defaults", () => {
+    const long = "x".repeat(20_000);
+    const view = browserSessionPanelView({
+      endpoint: long,
+      connected: "yes",
+      error: long,
+      tabs: [
+        { targetId: "", title: "invalid", url: "https://invalid.example" },
+        ...Array.from({ length: 20 }, (_, index) => ({ targetId: `${index}-${long}`, title: long, url: long })),
+      ],
+      inventory: { total: 999, shown: 999, truncated: false },
+      limits: { tabs: -1, textPreviewCharacters: Number.POSITIVE_INFINITY, errorCharacters: 99_999 },
+      latest: {
+        targetId: long,
+        title: long,
+        url: long,
+        status: long,
+        truncated: "yes",
+        previewTruncated: false,
+        text: long,
+        clicked: "yes",
+        screenshot: { bytes: -1, mimeType: long, data: long },
+      },
+    });
+
+    expect(view).toMatchObject({ malformed: true, latest: null, tabs: [], connected: false });
+  });
+
+  it("fails closed for accessors and unknown root properties", () => {
+    let getterCalls = 0;
+    const accessor = Object.defineProperty({}, "latest", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return null;
+      },
+    });
+    expect(browserSessionPanelView(accessor).malformed).toBe(true);
+    expect(
+      browserSessionPanelView({
+        endpoint: "http://127.0.0.1:9222",
+        connected: false,
+        error: null,
+        tabs: [],
+        inventory: { total: 0, shown: 0, truncated: false },
+        limits: defaults,
+        latest: null,
+        extra: true,
+      }).malformed,
+    ).toBe(true);
+    expect(getterCalls).toBe(0);
   });
 });

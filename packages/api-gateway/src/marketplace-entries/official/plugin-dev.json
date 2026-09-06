@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/plugin-dev",
   "version": "0.1.12",
   "name": "Plugin Dev",
-  "description": "Reload the active Pi session through the development bridge with bounded, explicit reload operations.",
+  "description": "Defer Pi session resource reloads until the agent is settled, enforce a single active reload with bounded status, and expose the operation only for trusted local development.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,8 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": ["plugin reload", "development bridge", "hot iteration"],
-  "hooks": ["Pi runtime", "plugin UI"],
+  "capabilities": ["settled-session resource reload", "single-flight reload guard", "bounded reload status", "cancellable caller wait"],
+  "hooks": ["session resource reload tool", "Pi session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/plugin-dev",
     "config": {}

@@ -24,11 +24,40 @@ import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
 import { marketplaceCategoryTabs, marketplaceDetailPath, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
 import { loadMarketplaceCatalog } from "./marketplace-catalog.js";
-import { pluginStarsRows } from "./plugin-stars-view.js";
-import { browserSessionTabs } from "./browser-session-view.js";
+import { pluginStarsPanelView } from "./plugin-stars-view.js";
+import { pluginDevPanelView } from "./plugin-dev-view.js";
+import { atFilePanelView } from "./at-file-view.js";
+import { testHarnessPanelView } from "./test-harness-view.js";
+import { sessionInsightsPanelView } from "./session-insights-view.js";
+import { yamlValidatorPanelView } from "./yaml-validator-view.js";
+import { browserFetchPanelView } from "./browser-fetch-view.js";
+import { browserSessionPanelView } from "./browser-session-view.js";
+import { cleanerPanelView } from "./cleaner-view.js";
 import { matchesPluginQuery } from "./plugin-search.js";
 import { readInstalledPluginDetailId } from "./plugin-navigation.js";
 import { installedPluginCardContent } from "./plugin-card.js";
+import { costMeterPanelView } from "./cost-meter-view.js";
+import { dependencyCheckerPanelView } from "./dependency-checker-view.js";
+import { dockerSandboxPanelView } from "./docker-sandbox-view.js";
+import { failLoggerPanelView } from "./fail-logger-view.js";
+import { genUiPanelView } from "./genui-view.js";
+import { gitTimeCapsulePanelView } from "./git-time-capsule-view.js";
+import { graphMemoryPanelView } from "./graph-memory-view.js";
+import { i18nPairPanelView } from "./i18n-pair-view.js";
+import { mcpClientPanelView } from "./mcp-client-view.js";
+import { openPetsPanelView } from "./openpets-view.js";
+import { recallUnreadPanelView } from "./recall-unread-view.js";
+import { turnRewindPanelView } from "./turn-rewind-view.js";
+import { contextDoctorPanelView } from "./context-doctor-view.js";
+import { contextInsightsPanelView } from "./context-insights-view.js";
+import { tokenGuardPanelView } from "./token-guard-view.js";
+import { sessionBridgePanelView } from "./session-bridge-view.js";
+import { skillGuardPanelView } from "./skill-guard-view.js";
+import { sqlLensPanelView } from "./sql-lens-view.js";
+import { agentTeamsPanelView } from "./agent-teams-view.js";
+import { modlensPanelView } from "./modlens-view.js";
+import { visionToolkitPanelView } from "./vision-toolkit-view.js";
+import { readmeGenPanelView } from "./readme-gen-view.js";
 
 export type { ClientApi } from "./control-room.js";
 
@@ -987,8 +1016,26 @@ function pluginPanelValue(input: unknown): string {
   }
 }
 
-function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; inline?: boolean }) {
-  const data = panel.data !== null && typeof panel.data === "object" && !Array.isArray(panel.data) ? (panel.data as Record<string, unknown>) : undefined;
+function pluginPanelData(value: unknown): Record<string, unknown> | undefined {
+  try {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) return undefined;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string")) return undefined;
+    const output = Object.create(null) as Record<string, unknown>;
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (!("value" in descriptor)) return undefined;
+      output[key] = descriptor.value;
+    }
+    return output;
+  } catch {
+    return undefined;
+  }
+}
+
+export function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; inline?: boolean }) {
+  const data = pluginPanelData(panel.data);
   const entries = data ? Object.entries(data) : [["内容", panel.data] as const];
   const items = data && Array.isArray(data.items) ? data.items : [];
   const pluginEntries = data && Array.isArray(data.entries) ? data.entries : [];
@@ -1073,208 +1120,394 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </div>
         </div>
       ) : panel.id === "agent-teams-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="grid gap-2 sm:grid-cols-3">
-            {capabilities.length > 0
-              ? capabilities.map((capability, index) => (
-                  <span
-                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-center text-[10px] text-[#3565c5]"
-                    key={`${value(capability)}-${index}`}
-                  >
-                    {value(capability)}
-                  </span>
-                ))
-              : null}
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">成员</span>
-              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.members) ? data.members.length : 0)}</strong>
-            </div>
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">任务</span>
-              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(Array.isArray(data?.tasks) ? data.tasks.length : 0)}</strong>
-            </div>
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">未读消息</span>
-              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
-                {value(
-                  Array.isArray(data?.messages)
-                    ? data.messages.filter((message) => message !== null && typeof message === "object" && (message as Record<string, unknown>).read !== true)
-                        .length
-                    : 0,
-                )}
-              </strong>
-            </div>
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">可执行任务</span>
-              <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">
-                {value(Array.isArray(data?.readyTasks) ? data.readyTasks.length : 0)}
-              </strong>
-            </div>
-          </div>
-          {Array.isArray(data?.dependencyCycle) && data.dependencyCycle.length > 1 ? (
-            <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[11px] text-[#b42318]">
-              依赖循环：{data.dependencyCycle.map((item) => value(item)).join(" → ")}
-            </div>
-          ) : null}
-          <div className="grid gap-2">
-            {Array.isArray(data?.members) && data.members.length > 0 ? (
-              data.members.map((item, index) => {
-                const member = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                return (
-                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${value(member.id ?? "member")}-${index}`}>
-                    <span className="h-2 w-2 rounded-full bg-[#22c55e]"></span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[#30343b]">{value(member.name ?? "成员")}</span>
-                    <span className="text-[10px] text-[#687381]">{value(member.role ?? "协作成员")}</span>
-                    <span className="font-mono text-[10px] text-[#3565c5]">{value(member.status ?? "idle")}</span>
+        (() => {
+          const view = agentTeamsPanelView(data);
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid gap-2 sm:grid-cols-4">
+                {[
+                  ["成员", view.inventory.members.total],
+                  ["任务", view.inventory.tasks.total],
+                  ["未读消息", view.inventory.messages.unread],
+                  ["可执行任务", view.inventory.tasks.ready],
+                ].map(([label, item]) => (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
+                    <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
                   </div>
-                );
-              })
-            ) : (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无协作成员。</div>
-            )}
-          </div>
-          <div className="grid gap-2">
-            {Array.isArray(data?.tasks) && data.tasks.length > 0 ? (
-              data.tasks.map((item, index) => {
-                const task = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                return (
-                  <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={`${value(task.id ?? "task")}-${index}`}>
-                    <div className="min-w-0 flex-1">
-                      <span className="block truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</span>
-                      {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
-                        <span className="mt-0.5 block truncate font-mono text-[9px] text-[#687381]">依赖：{task.dependsOn.join(", ")}</span>
-                      ) : null}
+                ))}
+              </div>
+              {view.dependencyCycle !== null && view.dependencyCycle.length > 1 ? (
+                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[11px] text-[#b42318]">
+                  依赖循环：{view.dependencyCycle.join(" → ")}
+                </div>
+              ) : null}
+              <div className="grid gap-2">
+                {view.members.length > 0 ? (
+                  view.members.map((member) => (
+                    <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={member.id}>
+                      <span className={`h-2 w-2 rounded-full ${member.status === "working" ? "bg-[#22c55e]" : "bg-[#a0a8b2]"}`}></span>
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[#30343b]">{member.name}</span>
+                      <span className="truncate text-[10px] text-[#687381]">{member.role}</span>
+                      <span className="font-mono text-[10px] text-[#3565c5]">{member.status}</span>
                     </div>
-                    <span className="text-[10px] text-[#687381]">{value(task.assignee ?? "unassigned")}</span>
-                    <span
-                      className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[#fff4e5] text-[#8a5a00]" : task.status === "done" ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#edf3fe] text-[#3565c5]"}`}
-                    >
-                      {value(task.status ?? "todo")}
-                    </span>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">还没有任务。可让 Agent 使用 team_task 创建。</div>
-            )}
-          </div>
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-[#30343b]">团队消息</span>
-              <span className="font-mono text-[10px] text-[#687381]">durable mailbox</span>
-            </div>
-            {Array.isArray(data?.messages) && data.messages.length > 0 ? (
-              Array.from(data.messages as readonly unknown[])
-                .reverse()
-                .slice(0, 5)
-                .map((item, index) => {
-                  const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                  return (
+                  ))
+                ) : (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无协作角色。</div>
+                )}
+              </div>
+              <div className="grid gap-2">
+                {view.tasks.length > 0 ? (
+                  view.tasks.map((task) => (
+                    <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={task.id}>
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-[11px] text-[#30343b]">{task.title}</span>
+                        {task.dependsOn.length > 0 ? (
+                          <span className="mt-0.5 block truncate font-mono text-[9px] text-[#687381]">依赖：{task.dependsOn.join(", ")}</span>
+                        ) : null}
+                      </div>
+                      <span className="text-[10px] text-[#687381]">{task.assignee}</span>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[#fff4e5] text-[#8a5a00]" : task.status === "done" ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#edf3fe] text-[#3565c5]"}`}
+                      >
+                        {task.status}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">还没有任务。可让 Agent 使用 team_task 创建。</div>
+                )}
+              </div>
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[#30343b]">会话内邮箱备注</span>
+                  <span className="font-mono text-[10px] text-[#687381]">
+                    {view.inventory.messages.shown} / {view.inventory.messages.total}
+                  </span>
+                </div>
+                {view.messages.length > 0 ? (
+                  [...view.messages].reverse().map((message) => (
                     <div
-                      className={`rounded-lg border px-3 py-2 ${message.read === true ? "border-[#edf0f3] bg-white" : "border-[#cfe0ff] bg-[#f4f8ff]"}`}
-                      key={`${value(message.id ?? "message")}-${index}`}
+                      className={`rounded-lg border px-3 py-2 ${message.read ? "border-[#edf0f3] bg-white" : "border-[#cfe0ff] bg-[#f4f8ff]"}`}
+                      key={message.id}
                     >
                       <div className="flex items-center gap-2 text-[10px] text-[#687381]">
                         <span className="font-mono text-[#3565c5]">
-                          {value(message.from ?? "unknown")} → {value(message.to ?? "unknown")}
+                          {message.from} → {message.to}
                         </span>
-                        <span className="ml-auto">{message.read === true ? "已读" : "未读"}</span>
+                        <span className="ml-auto">{message.read ? "已读" : "未读"}</span>
                       </div>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-[#30343b]">{value(message.body ?? "")}</p>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-[#30343b]">{message.body}</p>
                     </div>
-                  );
-                })
-            ) : (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无团队消息。</div>
-            )}
-          </div>
-        </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无邮箱备注。</div>
+                )}
+              </div>
+              {view.truncated || view.inventory.members.truncated || view.inventory.tasks.truncated || view.inventory.messages.truncated ? (
+                <p className="text-[10px] leading-4 text-[#8a6200]">面板按固定安全上限展示；完整计数保留在上方。</p>
+              ) : null}
+              <p className="text-[10px] leading-4 text-[#687381]">这是当前 Pi 会话的协作账本，不会启动其他 Agent、创建进程或向外部发送消息。</p>
+            </div>
+          );
+        })()
       ) : panel.id === "modlens-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className={`rounded-lg border px-3 py-3 ${data?.attached === true ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#e3e7ee] bg-[#f6f8fa]"}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">{data?.attached === true ? "图片已附加" : "等待图片"}</span>
-              <span className="font-mono text-[10px] text-[#687381]">vision_inspect</span>
-            </div>
-            {data?.image !== null && data?.image !== undefined && typeof data.image === "object" ? (
-              <p className="mt-2 truncate text-[11px] text-[#65707b]">
-                {value((data.image as Record<string, unknown>).path ?? "图片")} · {value((data.image as Record<string, unknown>).bytes ?? 0)} bytes
+        (() => {
+          const view = modlensPanelView(panel.data);
+          const stateLabel =
+            view.status.state === "running"
+              ? "正在读取视觉内容"
+              : view.status.state === "failed"
+                ? "视觉检查失败"
+                : view.status.state === "cancelled"
+                  ? "视觉检查已取消"
+                  : view.status.state === "completed"
+                    ? "视觉检查完成"
+                    : "等待图片";
+          const mode = view.status.state === "idle" ? view.image?.mode : view.status.mode;
+          const path = view.status.state === "idle" ? view.image?.path : view.status.path;
+          const stateStyle =
+            view.status.state === "failed"
+              ? "border-[#f4caca] bg-[#fff5f5]"
+              : view.status.state === "cancelled"
+                ? "border-[#f1d7a8] bg-[#fff9ed]"
+                : view.status.state === "running"
+                  ? "border-[#c9d9f7] bg-[#f4f8ff]"
+                  : view.attached
+                    ? "border-[#b9e6c9] bg-[#f0fbf4]"
+                    : "border-[#e3e7ee] bg-[#f6f8fa]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className={`rounded-lg border px-3 py-3 ${stateStyle}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold text-[#30343b]">{stateLabel}</span>
+                  <span className="rounded-full border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[9px] text-[#3565c5]">
+                    {mode === "native" ? "原生直传" : mode === "evidence" ? "ModLens 证据" : "vision_inspect"}
+                  </span>
+                </div>
+                {path !== undefined ? <p className="mt-2 truncate font-mono text-[10px] text-[#65707b]">{path}</p> : null}
+                {view.image !== null ? (
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#687381]">
+                    <span>{view.image.mimeType}</span>
+                    <span>{view.image.bytes.toLocaleString()} bytes</span>
+                    {view.image.cached ? <span className="font-semibold text-[#14733f]">缓存命中</span> : null}
+                  </div>
+                ) : view.status.state === "idle" ? (
+                  <p className="mt-2 text-[11px] text-[#687381]">让 Agent 调用 vision_inspect，并提供工作区内的图片路径。</p>
+                ) : null}
+                {view.status.state === "failed" || view.status.state === "cancelled" ? (
+                  <p className="mt-2 break-words text-[10px] leading-4 text-[#9b2c24]">{view.status.error}</p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {view.supportedTypes.map((type) => (
+                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={type}>
+                    {type}
+                  </span>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2 font-mono text-[9px] text-[#687381]">
+                <span>image:{Math.round(view.limits.imageBytes / 1_048_576)}MiB</span>
+                <span>evidence:{Math.round(view.limits.evidenceBytes / 1_024)}KiB</span>
+                <span>timeout:{Math.round(view.limits.timeoutMs / 1_000)}s</span>
+                <span>cache:{view.limits.cacheEntries}</span>
+              </div>
+              {view.truncated ? <p className="text-[10px] leading-4 text-[#8a6200]">异常面板数据已按固定安全边界丢弃或截断。</p> : null}
+              <p className="rounded-lg border border-[#dce5f5] bg-[#f7f9fd] px-3 py-2 text-[10px] leading-4 text-[#566273]">
+                纯文本模型会启动外部 ModLens 引擎，可能使用网络和 provider 配额并产生费用。视觉证据是不可信数据，不构成指令或用户授权。
               </p>
-            ) : (
-              <p className="mt-2 text-[11px] text-[#687381]">调用 vision_inspect 并提供工作区内图片路径。</p>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {capabilities.map((capability, index) => (
-              <span
-                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
-                key={`${value(capability)}-${index}`}
-              >
-                {value(capability)}
-              </span>
-            ))}
-          </div>
-        </div>
+            </div>
+          );
+        })()
+      ) : panel.id === "vision-toolkit-panel" ? (
+        (() => {
+          const view = visionToolkitPanelView(panel.data);
+          const report = view.report;
+          const stateLabel =
+            view.status.state === "running"
+              ? view.status.operation === "catalog"
+                ? "正在盘点视觉素材"
+                : "正在读取图片元数据"
+              : view.status.state === "failed"
+                ? "视觉素材检查失败"
+                : view.status.state === "cancelled"
+                  ? "视觉素材检查已取消"
+                  : view.status.state === "completed"
+                    ? "视觉素材检查完成"
+                    : "等待检查";
+          const stateStyle =
+            view.status.state === "failed"
+              ? "border-[#f4caca] bg-[#fff5f5]"
+              : view.status.state === "cancelled"
+                ? "border-[#f1d7a8] bg-[#fff9ed]"
+                : view.status.state === "running"
+                  ? "border-[#c9d9f7] bg-[#f4f8ff]"
+                  : view.status.state === "completed"
+                    ? "border-[#b9e6c9] bg-[#f0fbf4]"
+                    : "border-[#e3e7ee] bg-[#f6f8fa]";
+          const shownAssets = report?.assets.slice(0, 20) ?? [];
+          const shownIssues = report?.issues.slice(0, 10) ?? [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className={`rounded-lg border px-3 py-3 ${stateStyle}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold text-[#30343b]">{stateLabel}</span>
+                  <span className="rounded-full border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[9px] text-[#3565c5]">
+                    {view.status.state === "idle" ? "vision_catalog" : view.status.operation === "catalog" ? "catalog" : "image info"}
+                  </span>
+                </div>
+                {view.status.state !== "idle" && view.status.path !== undefined ? (
+                  <p className="mt-2 truncate font-mono text-[10px] text-[#65707b]">{view.status.path}</p>
+                ) : null}
+                {view.status.state === "failed" || view.status.state === "cancelled" ? (
+                  <p className="mt-2 break-words text-[10px] leading-4 text-[#9b2c24]">{view.status.error}</p>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  ["已扫描", report?.scannedEntries ?? 0],
+                  ["候选图片", report?.inspectedCandidates ?? 0],
+                  ["有效素材", report?.assets.length ?? 0],
+                  ["问题", report?.issues.length ?? 0],
+                ].map(([label, count]) => (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={label}>
+                    <span className="block text-[10px] text-[#687381]">{label}</span>
+                    <strong className="mt-1 block font-mono text-[16px] text-[#30343b]">{count}</strong>
+                  </div>
+                ))}
+              </div>
+              {shownAssets.length > 0 ? (
+                <div className="max-h-52 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd]">
+                  {shownAssets.map((asset, index) => (
+                    <div className="border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${asset.path}-${index}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate font-mono text-[10px] text-[#30343b]" title={asset.path}>
+                          {asset.path}
+                        </span>
+                        <span className="shrink-0 font-mono text-[9px] text-[#3565c5]">{asset.width === null ? "?×?" : `${asset.width}×${asset.height}`}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 text-[9px] text-[#687381]">
+                        <span>{asset.mimeType}</span>
+                        <span>{asset.bytes.toLocaleString()} B</span>
+                        {asset.headerTruncated ? <span className="text-[#8a6200]">仅扫描前 256 KiB</span> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  {report === null ? "让 Agent 调用 vision_catalog 盘点工作区图片，或调用 vision_image_info 检查单张图片。" : "未发现有效的受支持图片。"}
+                </div>
+              )}
+              {shownIssues.length > 0 ? (
+                <div className="rounded-lg border border-[#f1d7a8] bg-[#fff9ed] px-3 py-3">
+                  <p className="text-[10px] font-semibold text-[#8a6200]">图片问题（显示 {shownIssues.length} 条）</p>
+                  <div className="mt-2 grid gap-1.5">
+                    {shownIssues.map((issue, index) => (
+                      <p className="break-words font-mono text-[9px] leading-4 text-[#6f5730]" key={`${issue.path}-${index}`}>
+                        {issue.path}: {issue.reason}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {view.supportedTypes.map((type) => (
+                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[9px] text-[#3565c5]" key={type}>
+                    {type}
+                  </span>
+                ))}
+                <span className="rounded-md border border-[#e3e7ee] bg-[#f6f8fa] px-2 py-1 font-mono text-[9px] text-[#687381]">
+                  file≤{Math.round(view.limits.imageBytes / 1_048_576)}MiB
+                </span>
+                <span className="rounded-md border border-[#e3e7ee] bg-[#f6f8fa] px-2 py-1 font-mono text-[9px] text-[#687381]">
+                  assets≤{view.limits.assets}
+                </span>
+              </div>
+              {view.truncated ||
+              report?.truncated === true ||
+              report?.issuesTruncated === true ||
+              (report !== null && (report.assets.length > shownAssets.length || report.issues.length > shownIssues.length)) ? (
+                <p className="text-[10px] leading-4 text-[#8a6200]">面板或扫描结果已按固定安全上限截断；计数与警告会保留可见。</p>
+              ) : null}
+              <p className="rounded-lg border border-[#dce5f5] bg-[#f7f9fd] px-3 py-2 text-[10px] leading-4 text-[#566273]">
+                仅在当前 workspace 内本地读取图片头部，不上传图片、不调用外部视觉服务；这里展示的是元数据，不是完整图像解码结果。
+              </p>
+            </div>
+          );
+        })()
       ) : panel.id === "at-file-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">最近附加</span>
-              <span className="font-mono text-[10px] text-[#687381]">file_context</span>
+        (() => {
+          const view = atFilePanelView(panel.data);
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold text-[#30343b]">最近附加</span>
+                  <span className="font-mono text-[10px] text-[#687381]">file_context</span>
+                </div>
+                {view.lastFile !== null ? (
+                  <p className="mt-2 min-w-0 whitespace-normal break-all text-[11px] leading-4 text-[#65707b]">
+                    {view.lastFile.path} · {view.lastFile.bytes} bytes
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[11px] text-[#687381]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-[#687381]">
+                <span>单文件上限</span>
+                <strong className="font-mono text-[#3565c5]">{view.maxBytes} bytes</strong>
+              </div>
+              {view.truncated ? <p className="text-[10px] leading-4 text-[#8a6200]">面板数据不完整或已按固定安全上限调整。</p> : null}
             </div>
-            {data?.lastFile !== null && data?.lastFile !== undefined && typeof data.lastFile === "object" ? (
-              <p className="mt-2 truncate text-[11px] text-[#65707b]">
-                {value((data.lastFile as Record<string, unknown>).path ?? "文件")} · {value((data.lastFile as Record<string, unknown>).bytes ?? 0)} bytes
-              </p>
-            ) : (
-              <p className="mt-2 text-[11px] text-[#687381]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
-            )}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-[#687381]">
-            <span>单文件上限</span>
-            <strong className="font-mono text-[#3565c5]">{value(data?.maxBytes ?? 0)} bytes</strong>
-          </div>
-        </div>
+          );
+        })()
       ) : panel.id === "git-time-capsule-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">最近快照</span>
-              <span className="font-mono text-[10px] text-[#687381]">git_snapshot</span>
-            </div>
-            {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-              <p className="mt-2 truncate text-[11px] text-[#65707b]">
-                {value((data.latest as Record<string, unknown>).name ?? "snapshot")} · {value((data.latest as Record<string, unknown>).files ?? 0)} 个文件
-                {(data.latest as Record<string, unknown>).restored === true ? " · 已恢复" : ""}
+        (() => {
+          const report = gitTimeCapsulePanelView(data);
+          const latest = report.latest;
+          const statusLabel = latest?.status === "completed" ? "已完成" : latest?.status === "cancelled" ? "已取消" : "失败";
+          const statusStyle =
+            latest?.status === "completed"
+              ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#147a43]"
+              : latest?.status === "cancelled"
+                ? "border-[#f1ddb1] bg-[#fff9eb] text-[#996515]"
+                : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className={`rounded-lg border px-3 py-3 ${latest === null ? "border-[#e3e7ee] bg-[#f6f8fa]" : statusStyle}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold text-[#30343b]">{latest?.action === "restore" ? "最近撤销" : "最近捕获"}</span>
+                  {latest === null ? (
+                    <span className="font-mono text-[10px] text-[#687381]">git_snapshot</span>
+                  ) : (
+                    <span className="rounded-full border border-current px-2 py-0.5 text-[9px] font-semibold">{statusLabel}</span>
+                  )}
+                </div>
+                {latest === null ? (
+                  <p className="mt-2 text-[11px] leading-4 text-[#687381]">当前没有撤销胶囊。先产生 unstaged tracked 改动，再让 Agent 调用 git_snapshot。</p>
+                ) : (
+                  <div className="mt-2 grid gap-1 text-[11px] text-[#65707b]">
+                    {latest.name !== null ? <p className="truncate font-mono text-[10px] text-[#30343b]">{latest.name}</p> : null}
+                    <p>
+                      {latest.files} 个文件 · {latest.bytes} bytes · <time dateTime={latest.at}>{latest.at.replace("T", " ")}</time>
+                    </p>
+                    {latest.error !== null ? <p className="break-words text-[#b42318]">{latest.error}</p> : null}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold text-[#30343b]">最近胶囊</span>
+                  <span className="font-mono text-[10px] text-[#3565c5]">
+                    {report.inventory.shown} / {report.inventory.total}
+                  </span>
+                </div>
+                {report.capsules.length > 0 ? (
+                  <div className="mt-2 max-h-44 overflow-y-auto border-l-2 border-[#cbd8ef] pl-3">
+                    {report.capsules.map((capsule) => (
+                      <div className="flex min-w-0 items-center gap-2 border-b border-[#eef1f5] py-1.5 last:border-b-0" key={capsule.name}>
+                        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[#30343b]">{capsule.name}</span>
+                        <span className="shrink-0 font-mono text-[9px] text-[#687381]">{capsule.bytes} B</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[11px] text-[#687381]">尚未保存 tracked diff。</p>
+                )}
+                {report.inventory.truncated || report.truncated ? (
+                  <p className="mt-2 text-[10px] text-[#996515]">列表已按安全上限截断，仅展示最近 {report.inventory.displayLimit} 条有效记录。</p>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px] text-[#687381]">
+                <span className="rounded-md bg-[#f6f8fa] px-2 py-1.5">Git 超时：{report.timeoutMs} ms</span>
+                <span className="rounded-md bg-[#f6f8fa] px-2 py-1.5">单胶囊：{report.limits.capsuleBytes} B</span>
+              </div>
+              <p className="text-[10px] leading-4 text-[#687381]">
+                git_snapshot 捕获当前 unstaged tracked 改动；git_restore 会反向应用该 patch。staged 与未跟踪文件不包含在内，恢复必须传入 confirm=true。
               </p>
-            ) : (
-              <p className="mt-2 text-[11px] text-[#687381]">还没有快照。修改代码前让 Agent 调用 git_snapshot。</p>
-            )}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-[#687381]">
-            <span>保留快照</span>
-            <strong className="font-mono text-[#3565c5]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} / 20</strong>
-          </div>
-          <p className="text-[10px] leading-4 text-[#687381]">恢复会反向应用选中的 patch，必须显式传入 confirm=true。</p>
-        </div>
+            </div>
+          );
+        })()
       ) : panel.id === "dependency-checker-panel" ? (
         <div className="mt-3 grid gap-3">
           {(() => {
-            const report = data?.report !== null && typeof data?.report === "object" ? (data.report as Record<string, unknown>) : {};
-            const missing: unknown[] = Array.isArray(report.missing) ? report.missing : [];
-            const invalid: unknown[] = Array.isArray(report.invalid) ? report.invalid : [];
-            const conflicts: unknown[] = Array.isArray(report.conflicts) ? report.conflicts : [];
+            const report = dependencyCheckerPanelView(data);
+            const hasProblems = report.missingCount > 0 || report.invalidCount > 0 || report.conflictCount > 0;
+            const isIndeterminate = report.unresolvedCount > 0 || report.truncated;
             return (
               <>
                 <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                  <span className="text-[#65707b]">清单类型</span>
-                  <strong className="font-mono uppercase text-[#315fb8]">{value(report.ecosystem ?? "npm")}</strong>
+                  <span className="min-w-0 truncate font-mono text-[#65707b]">{report.manifest}</span>
+                  <strong className="shrink-0 font-mono uppercase text-[#315fb8]">{report.ecosystem}</strong>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   {[
-                    ["声明", report.declared ?? 0],
-                    ["已安装", report.installed ?? 0],
-                    ["缺失", missing.length + invalid.length],
+                    ["声明", report.declared],
+                    ["已安装", report.installed],
+                    ["问题", report.missingCount + report.invalidCount],
+                    ["可选缺席", report.optionalMissingCount],
+                    ["未决", report.unresolvedCount],
                   ].map(([label, item]) => (
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
                       <span className="block text-[10px] text-[#687381]">{value(label)}</span>
@@ -1283,165 +1516,310 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   ))}
                 </div>
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${missing.length || invalid.length || conflicts.length ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+                  className={`min-w-0 break-words rounded-lg border px-3 py-3 text-[11px] [overflow-wrap:anywhere] ${hasProblems ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : isIndeterminate ? "border-[#f3dfab] bg-[#fffaf0] text-[#8a6200]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                 >
-                  {missing.length || invalid.length
-                    ? `缺失或无效：${[...missing, ...invalid].map((item) => value(item)).join(", ")}`
-                    : "依赖声明与本地安装一致。"}
+                  {report.missingCount || report.invalidCount
+                    ? `缺失 ${report.missingCount}、无效 ${report.invalidCount}：${[...report.missing, ...report.invalid].join(", ")}`
+                    : report.conflictCount
+                      ? `本地安装存在 ${report.conflictCount} 组声明约束冲突。`
+                      : report.unresolvedCount
+                        ? `${report.unresolvedCount} 组声明约束无法离线判定。`
+                        : report.truncated
+                          ? "报告不完整，无法确认依赖状态。"
+                          : "依赖声明与本地安装一致。"}
                 </div>
-                {conflicts.length > 0 ? (
+                {report.optionalMissingCount > 0 ? (
+                  <div className="min-w-0 break-words rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a6200] [overflow-wrap:anywhere]">
+                    可选依赖未安装（{report.optionalMissingCount}）：{report.optionalMissing.join(", ")}
+                  </div>
+                ) : null}
+                {report.conflicts.length > 0 ? (
                   <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-3 text-[11px] text-[#8a6200]">
                     <strong>版本冲突</strong>
                     <ul className="mt-1 grid gap-1 pl-4">
-                      {conflicts.slice(0, 6).map((item, index) => {
-                        const conflict = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                        const constraints = Array.isArray(conflict.constraints) ? conflict.constraints.map((constraint) => value(constraint)).join(" · ") : "—";
-                        return (
-                          <li key={`${value(conflict.name ?? "dependency")}-${index}`}>
-                            <code>{value(conflict.name ?? "dependency")}</code>：{constraints}
-                          </li>
-                        );
-                      })}
+                      {report.conflicts.map((conflict, index) => (
+                        <li className="min-w-0 break-words [overflow-wrap:anywhere]" key={`${conflict.name}-${index}`}>
+                          <code>{conflict.name}</code>：{conflict.constraints.join(" · ") || "—"}
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 ) : null}
+                {report.unresolved.length > 0 ? (
+                  <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-3 text-[11px] text-[#8a6200]">
+                    <strong>未决约束</strong>
+                    <ul className="mt-1 grid gap-1 pl-4">
+                      {report.unresolved.map((constraint, index) => (
+                        <li className="min-w-0 break-words [overflow-wrap:anywhere]" key={`${constraint.name}-${index}`}>
+                          <code>{constraint.name}</code>：{constraint.constraints.join(" · ") || "—"}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <div className="flex items-center justify-between text-[10px] text-[#687381]">
+                  <span>本地只读扫描 · 上限 {report.scanLimit} 项</span>
+                  {report.truncated ? <span>面板明细已截断</span> : null}
+                </div>
               </>
             );
           })()}
         </div>
       ) : panel.id === "token-guard-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className={`rounded-lg border px-3 py-3 ${data?.exceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
-                <strong className="font-mono text-[12px] text-[#315fb8]">
-                  {value(data?.percent ?? "—")}% / {value(data?.maxPercent ?? "—")}%
-                </strong>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
-                <div
-                  className={`h-full rounded-full ${data?.exceeded === true ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
-                  style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
-                />
-              </div>
-              <p className="mt-2 text-[11px] text-[#5d6d82]">
-                {data?.exceeded === true ? "已达到阈值，运行会被自动停止。" : `自动停止次数：${value(data?.aborts ?? 0)}`}
-              </p>
-            </div>
-            <div className={`rounded-lg border px-3 py-3 ${data?.runExceeded === true ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[11px] font-semibold text-[#30343b]">单次任务</span>
-                <strong className="font-mono text-[12px] text-[#315fb8]">
-                  {value(data?.runTokens ?? "—")} / {value(data?.maxRunTokens || "—")}
-                </strong>
-              </div>
-              <p className="mt-2 text-[11px] text-[#5d6d82]">{data?.maxRunTokens ? "按 agent_start 后累计 token 熔断。" : "未启用绝对 Token 上限。"}</p>
-            </div>
-          </div>
-        </div>
-      ) : panel.id === "test-harness-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-            (() => {
-              const run = data.latest as Record<string, unknown>;
-              return (
-                <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
+        (() => {
+          const view = tokenGuardPanelView(data);
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className={`rounded-lg border px-3 py-3 ${view.exceeded ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-[11px] font-semibold text-[#30343b]">{value(run.command ?? "npm run test")}</span>
-                    <strong className={`text-[12px] ${run.exitCode === 0 ? "text-[#14733f]" : "text-[#b42318]"}`}>exit {value(run.exitCode ?? "—")}</strong>
+                    <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
+                    <strong className="font-mono text-[12px] text-[#315fb8]">
+                      {view.percent === null ? "—" : view.percent}% / {view.maxPercent}%
+                    </strong>
                   </div>
-                  <p className="mt-2 text-[11px] text-[#65707b]">耗时 {value(run.durationMs ?? 0)} ms</p>
-                </div>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              还没有执行验证脚本。可让 Agent 调用 run_project_tests。
-            </div>
-          )}
-          <div className="flex flex-wrap gap-2">
-            {Array.isArray(data?.allowedScripts)
-              ? data.allowedScripts.map((script, index) => (
-                  <span
-                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
-                    key={`${value(script)}-${index}`}
-                  >
-                    {value(script)}
-                  </span>
-                ))
-              : null}
-          </div>
-        </div>
-      ) : panel.id === "session-insights-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {(() => {
-            const tokens = data?.tokens !== null && typeof data?.tokens === "object" ? (data.tokens as Record<string, unknown>) : {};
-            const usage = data?.contextUsage !== null && typeof data?.contextUsage === "object" ? (data.contextUsage as Record<string, unknown>) : {};
-            return (
-              <>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    ["消息", data?.totalMessages ?? 0],
-                    ["工具调用", data?.toolCalls ?? 0],
-                    ["成本", `$${Number(data?.cost ?? 0).toFixed(4)}`],
-                  ].map(([label, item]) => (
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
-                    </div>
-                  ))}
-                </div>
-                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-[#30343b]">上下文</span>
-                    <strong className="font-mono text-[12px] text-[#315fb8]">{value(usage.percent ?? "—")}%</strong>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+                    <div
+                      className={`h-full rounded-full ${view.exceeded ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
+                      style={{ width: `${Math.min(100, view.percent ?? 0)}%` }}
+                    />
                   </div>
                   <p className="mt-2 text-[11px] text-[#5d6d82]">
-                    {value(tokens.total ?? 0)} tracked tokens · 输入 {value(tokens.input ?? 0)} · 输出 {value(tokens.output ?? 0)}
+                    {view.tokens === null ? "上下文 token 未知" : `${view.tokens.toLocaleString()} / ${view.contextWindow?.toLocaleString() ?? "—"} tokens`}
+                    {` · 已请求停止 ${view.aborts} 次`}
                   </p>
                 </div>
-              </>
+                <div className={`rounded-lg border px-3 py-3 ${view.runExceeded ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[11px] font-semibold text-[#30343b]">单次任务</span>
+                    <strong className="font-mono text-[12px] text-[#315fb8]">
+                      {view.runTokens === null ? "—" : view.runTokens.toLocaleString()} / {view.maxRunTokens === 0 ? "—" : view.maxRunTokens.toLocaleString()}
+                    </strong>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#5d6d82]">
+                    {view.maxRunTokens > 0 ? "按 agent_start 后新增的已结算 token 熔断。" : "未启用绝对 Token 上限。"}
+                  </p>
+                </div>
+              </div>
+              {view.lastError === null ? null : (
+                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">
+                  保护器错误：{view.lastError}
+                </div>
+              )}
+            </div>
+          );
+        })()
+      ) : panel.id === "test-harness-panel" ? (
+        (() => {
+          const view = testHarnessPanelView(panel.data);
+          const run = view.latest;
+          const statusLabel =
+            run?.status === "passed"
+              ? "验证通过"
+              : run?.status === "failed"
+                ? "验证失败"
+                : run?.status === "timed-out"
+                  ? "验证超时"
+                  : run?.status === "cancelled"
+                    ? "验证已取消"
+                    : "等待验证";
+          const statusStyle =
+            run?.status === "passed"
+              ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
+              : run?.status === "failed"
+                ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"
+                : run?.status === "timed-out" || run?.status === "cancelled"
+                  ? "border-[#f1d7a8] bg-[#fff9ed] text-[#8a6200]"
+                  : "border-[#e3e7ee] bg-[#f6f8fa] text-[#687381]";
+          return (
+            <div className="mt-3 grid min-w-0 gap-3">
+              <div className={`min-w-0 rounded-lg border px-3 py-3 ${statusStyle}`}>
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <span className="break-all font-mono text-[11px] font-semibold text-[#30343b]">{run?.command ?? "npm run test"}</span>
+                  <span className="rounded-full border border-current px-2 py-0.5 text-[9px] font-semibold">{statusLabel}</span>
+                </div>
+                {run === null ? (
+                  <p className="mt-2 text-[11px] leading-4 text-[#687381]">还没有执行验证脚本。可让 Agent 调用 run_project_tests。</p>
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#65707b]">
+                    <span>exit {run.exitCode ?? "—"}</span>
+                    {run.signal === null ? null : <span>{run.signal}</span>}
+                    <span>{run.durationMs} ms</span>
+                    <span>{run.outputBytes.toLocaleString()} output bytes</span>
+                  </div>
+                )}
+              </div>
+              {run !== null && run.output !== "" ? (
+                <div className="min-w-0 rounded-lg border border-[#e3e7ee] bg-[#111318] p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[9px] text-[#9ba6b2]">
+                    <span className="font-semibold uppercase tracking-[0.08em]">输出末尾</span>
+                    <span>最多 {view.limits.outputBytes} bytes</span>
+                  </div>
+                  <pre className="max-h-52 min-w-0 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] leading-4 text-[#e6edf3]">
+                    {run.output}
+                  </pre>
+                </div>
+              ) : null}
+              {run?.outputTruncated || run?.outputSanitized ? (
+                <p className="text-[10px] leading-4 text-[#8a6200]">
+                  {run.outputTruncated ? "输出只保留最后 12 KiB。" : ""}
+                  {run.outputSanitized ? "终端控制字符已清理。" : ""}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {view.allowedScripts.map((script) => (
+                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={script}>
+                    {script}
+                  </span>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[9px] text-[#687381]">
+                <span>timeout {view.limits.timeoutMs} ms</span>
+                <span>output {view.limits.outputBytes} bytes</span>
+              </div>
+              {view.truncated ? <p className="text-[10px] leading-4 text-[#8a6200]">面板数据不完整或已按固定安全上限调整。</p> : null}
+              <p className="rounded-lg border border-[#f1d7a8] bg-[#fff9ed] px-3 py-2 text-[10px] leading-4 text-[#6f5730]">
+                npm scripts 会执行当前项目定义的代码；仅在可信 workspace 中使用。Test Harness 不是沙箱，也不会把脚本输出当作用户授权。
+              </p>
+            </div>
+          );
+        })()
+      ) : panel.id === "session-insights-panel" ? (
+        (() => {
+          const view = sessionInsightsPanelView(panel.data);
+          const report = view.report;
+          if (report === null)
+            return (
+              <div className="mt-3 rounded-lg border border-[#f3c4c4] bg-[#fff4f4] px-3 py-3 text-[11px] leading-5 text-[#a23b3b]">
+                会话统计数据无效，已停止展示指标，避免把损坏数据误报为健康状态。
+              </div>
             );
-          })()}
-        </div>
+          const contextUsage = report.contextUsage;
+          const compactionLabels = {
+            idle: "尚未请求压缩",
+            queued: "等待 Agent 空闲",
+            running: "正在压缩",
+            completed: "压缩已完成",
+            failed: "压缩失败",
+            cancelled: "压缩已取消",
+            unknown: "压缩状态数据无效",
+          } as const;
+          const compactionStyles = {
+            idle: "border-[#e3e7ee] bg-[#f6f8fa] text-[#687381]",
+            queued: "border-[#f1d7a8] bg-[#fff9ed] text-[#8a6200]",
+            running: "border-[#cbdaf6] bg-[#f3f7ff] text-[#315fb8]",
+            completed: "border-[#bfe4cb] bg-[#f1fbf4] text-[#287a43]",
+            failed: "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]",
+            cancelled: "border-[#f1d7a8] bg-[#fff9ed] text-[#8a6200]",
+            unknown: "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]",
+          } as const;
+          return (
+            <div className="mt-3 grid min-w-0 gap-3">
+              <div className="min-w-0 rounded-lg border border-[#e3e7ee] bg-white px-3 py-2">
+                <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-[#7a8490]">Session</span>
+                <p className="mt-1 min-w-0 break-all font-mono text-[10px] leading-4 text-[#3d4650]">{report.sessionId}</p>
+              </div>
+              <div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-3">
+                {[
+                  ["消息", report.totalMessages.toLocaleString("en-US")],
+                  ["工具调用 / 结果", `${report.toolCalls.toLocaleString("en-US")} / ${report.toolResults.toLocaleString("en-US")}`],
+                  ["成本", `$${report.cost.toFixed(4)}`],
+                ].map(([label, item]) => (
+                  <div className="min-w-0 rounded-lg bg-[#f6f8fa] px-3 py-2" key={label}>
+                    <span className="block text-[10px] text-[#687381]">{label}</span>
+                    <strong className="mt-1 block break-all text-[16px] font-semibold text-[#30343b]">{item}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="min-w-0 rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-[#30343b]">累计 token</span>
+                  <strong className="break-all font-mono text-[14px] text-[#315fb8]">{report.tokens.total.toLocaleString("en-US")}</strong>
+                </div>
+                <div className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4 text-[#5d6d82]">
+                  <span>输入 {report.tokens.input.toLocaleString("en-US")}</span>
+                  <span>输出 {report.tokens.output.toLocaleString("en-US")}</span>
+                  <span>缓存读取 {report.tokens.cacheRead.toLocaleString("en-US")}</span>
+                  <span>缓存写入 {report.tokens.cacheWrite.toLocaleString("en-US")}</span>
+                </div>
+              </div>
+              <div className="min-w-0 rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-[#30343b]">当前上下文</span>
+                  {contextUsage === null ? null : contextUsage.percent === null ? (
+                    <strong className="text-[11px] font-semibold text-[#8a6200]">待下一次模型响应</strong>
+                  ) : (
+                    <strong className="font-mono text-[12px] text-[#315fb8]">{contextUsage.percent.toFixed(1)}%</strong>
+                  )}
+                </div>
+                {contextUsage === null ? (
+                  <p className="mt-2 text-[10px] leading-4 text-[#687381]">当前模型未提供上下文窗口。</p>
+                ) : contextUsage.tokens === null ? (
+                  <p className="mt-2 text-[10px] leading-4 text-[#687381]">
+                    压缩后 token 暂不可估算 · 上下文窗口 {contextUsage.contextWindow.toLocaleString("en-US")}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[10px] leading-4 text-[#687381]">
+                    {contextUsage.tokens.toLocaleString("en-US")} / {contextUsage.contextWindow.toLocaleString("en-US")} tokens
+                  </p>
+                )}
+              </div>
+              <div className={`min-w-0 rounded-lg border px-3 py-3 ${compactionStyles[view.compaction.status]}`}>
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">会话压缩</span>
+                  <strong className="text-[11px] font-semibold">{compactionLabels[view.compaction.status]}</strong>
+                </div>
+                {view.compaction.error === null ? null : <p className="mt-2 break-words text-[10px] leading-4">{view.compaction.error}</p>}
+              </div>
+              {view.malformed && view.compaction.status !== "unknown" ? <p className="text-[10px] leading-4 text-[#a23b3b]">面板数据不完整或不一致。</p> : null}
+            </div>
+          );
+        })()
       ) : panel.id === "session-bridge-panel" ? (
         <div className="mt-3 grid gap-3">
           {(() => {
-            const latestPreview =
-              data?.latestPreview !== null && typeof data?.latestPreview === "object"
-                ? ((data.latestPreview as Record<string, unknown>).preview as Record<string, unknown> | undefined)
-                : undefined;
-            const preview =
-              latestPreview ??
-              (data?.currentPreview !== null && typeof data?.currentPreview === "object" ? (data.currentPreview as Record<string, unknown>) : {});
-            const sections: readonly [string, unknown][] = [
-              ["目标", preview.goal],
-              ["当前状态", preview.currentState],
-              ["下一步", preview.nextStep],
+            const view = sessionBridgePanelView(data);
+            const sections: readonly [string, string][] = [
+              ["目标", view.preview.goal],
+              ["当前状态", view.preview.currentState],
+              ["下一步", view.preview.nextStep],
+            ];
+            const lists: readonly (readonly [string, readonly string[]])[] = [
+              ["关键决策", view.preview.decisions],
+              ["关键文件", view.preview.keyFiles],
             ];
             return (
               <>
                 <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px] leading-5 text-[#315fb8]">
                   预览不会创建目标会话，也不会修改源会话。
                 </div>
+                {view.status.state === "failed" || view.status.state === "cancelled" ? (
+                  <div
+                    className={`rounded-lg border px-3 py-3 text-[11px] leading-5 ${
+                      view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
+                    }`}
+                  >
+                    {view.status.operation === "import" ? "导入" : view.status.operation === "export" ? "导出" : "预览"}
+                    {view.status.state === "failed" ? "失败" : "已取消"}
+                    {view.status.error === null ? "" : `：${view.status.error}`}
+                  </div>
+                ) : null}
                 {sections.map(([label, item]) => (
                   <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={label}>
                     <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{label}</span>
-                    <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-[#30343b]">{value(item)}</p>
+                    <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-[#30343b]">{item || "暂无"}</p>
                   </div>
                 ))}
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {[
-                    ["关键决策", preview.decisions],
-                    ["关键文件", preview.keyFiles],
-                  ].map(([label, items]) => (
+                  {lists.map(([label, items]) => (
                     <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
                       <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{value(label)}</span>
-                      {Array.isArray(items) && items.length > 0 ? (
+                      {items.length > 0 ? (
                         <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
-                          {items.slice(0, 8).map((item, index) => (
-                            <li key={`${value(item)}-${index}`}>{value(item)}</li>
+                          {items.map((item, index) => (
+                            <li className="break-words" key={`${item}-${index}`}>
+                              {item}
+                            </li>
                           ))}
                         </ul>
                       ) : (
@@ -1449,6 +1827,14 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       )}
                     </div>
                   ))}
+                </div>
+                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                  <span>格式 v{view.formatVersion}</span>
+                  <span>最多 {view.limits.messages} 条消息</span>
+                  <span>正文 {view.limits.totalMessageCharacters} 字符</span>
+                  <span>附件标记 {view.limits.attachments} 个</span>
+                  {view.source !== null ? <span className="max-w-full truncate">来源 {view.source.sessionId}</span> : null}
+                  {view.latest !== null ? <span>{view.latest.direction === "import" ? "最近导入" : "最近导出"}</span> : null}
                 </div>
               </>
             );
@@ -1562,32 +1948,81 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           )}
         </div>
       ) : panel.id === "context-doctor-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div
-            className={`rounded-lg border px-3 py-3 text-[11px] ${data?.status === "warning" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
-          >
-            {data?.status === "warning" ? "需要关注上下文风险。" : "上下文状态正常。"}
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              ["占用", `${value(data?.usagePercent ?? "—")}%`],
-              ["超大消息", data?.oversizedMessages ?? 0],
-              ["工具错误", data?.toolErrors ?? 0],
-            ].map(([label, item]) => (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                <strong className="mt-1 block text-[17px] text-[#30343b]">{value(item)}</strong>
+        (() => {
+          const view = contextDoctorPanelView(data);
+          const compactionLabel = {
+            idle: "尚未请求",
+            queued: "已排队",
+            running: "压缩中",
+            completed: "已完成",
+            failed: "失败",
+            cancelled: "已取消",
+            unknown: "未知",
+          } as const;
+          const compactionTone =
+            view.compaction.status === "completed"
+              ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
+              : view.compaction.status === "failed"
+                ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]"
+                : view.compaction.status === "cancelled"
+                  ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
+                  : "border-[#dce5f5] bg-[#f6f8ff] text-[#3565c5]";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div
+                className={`rounded-lg border px-3 py-3 text-[11px] ${
+                  view.status === "warning"
+                    ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"
+                    : view.status === "ok"
+                      ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
+                      : "border-[#e3e7ee] bg-[#f6f8fa] text-[#687381]"
+                }`}
+              >
+                {view.status === "warning" ? "需要关注上下文风险。" : view.status === "ok" ? "上下文状态正常。" : "上下文状态不可用。"}
               </div>
-            ))}
-          </div>
-          {Array.isArray(data?.recommendations) && data.recommendations.length > 0 ? (
-            <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
-              {data.recommendations.slice(0, 4).map((item, index) => (
-                <li key={`${value(item)}-${index}`}>{value(item)}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  ["占用", view.usagePercent === null ? "—" : `${view.usagePercent}%`],
+                  ["超限/不可测", view.oversizedMessages],
+                  ["无法安全检查", view.uninspectableMessages],
+                  ["工具错误", view.toolErrors],
+                ].map(([label, item]) => (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
+                    <span className="block text-[10px] text-[#687381]">{label}</span>
+                    <strong className="mt-1 block text-[17px] text-[#30343b]">{item}</strong>
+                  </div>
+                ))}
+              </div>
+              {view.compaction.status === "idle" || view.compaction.status === "unknown" ? null : (
+                <div className={`rounded-lg border px-3 py-3 text-[11px] ${compactionTone}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>最近压缩</span>
+                    <strong>{compactionLabel[view.compaction.status]}</strong>
+                  </div>
+                  {view.compaction.error === null ? null : <p className="mt-2 break-words text-[10px] leading-4">{view.compaction.error}</p>}
+                </div>
+              )}
+              {view.recommendations.length > 0 ? (
+                <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+                  {view.recommendations.map((item, index) => (
+                    <li key={`${item}-${index}`}>{item}</li>
+                  ))}
+                  {view.recommendationsTruncated ? <li>部分建议因浏览器显示上限被省略。</li> : null}
+                </ul>
+              ) : null}
+              <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">
+                  扫描 {view.scannedMessages} / {view.messageCount} 条消息{view.messagesTruncated ? "（已截断）" : ""}
+                </span>
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">告警阈值 {view.warnPercent}%</span>
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">大消息阈值 {view.maxMessageBytes}B</span>
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">
+                  结构预算 {view.limits.jsonNodesPerAudit} 节点 / 深度 {view.limits.jsonDepth}
+                </span>
+              </div>
+            </div>
+          );
+        })()
       ) : panel.id === "history-compressor-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
@@ -1947,6 +2382,26 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                       ))}
                     </div>
                   ) : null}
+                  {constraints.length > 0 ? (
+                    <div className="rounded-lg border border-[#edf0f3] bg-[#fffaf0] px-3 py-2">
+                      <strong className="text-[10px] text-[#9a6700]">约束</strong>
+                      <ul className="mt-1 grid gap-1 text-[10px] text-[#65707b]">
+                        {constraints.slice(0, 8).map((constraint, index) => (
+                          <li key={`${constraint}-${index}`}>• {constraint}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {acceptance.length > 0 ? (
+                    <div className="rounded-lg border border-[#edf0f3] bg-[#f0fbf4] px-3 py-2">
+                      <strong className="text-[10px] text-[#14733f]">验收条件</strong>
+                      <ul className="mt-1 grid gap-1 text-[10px] text-[#65707b]">
+                        {acceptance.slice(0, 8).map((criterion, index) => (
+                          <li key={`${criterion}-${index}`}>• {criterion}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
                     <span>约束 {constraints.length} 条</span>
                     <span>验收 {acceptance.length} 条</span>
@@ -2100,35 +2555,31 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           )}
         </div>
       ) : panel.id === "plugin-stars-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">社区排行榜</span>
-            <span className="font-mono text-[#65707b]">上限 {value(data?.limit ?? "—")}</span>
-          </div>
-          {data?.latest && typeof data.latest === "object" ? (
-            (() => {
-              const latest = data.latest as Record<string, unknown>;
-              const entries = Array.isArray(latest.results)
-                ? latest.results.flatMap((entry): Array<{ fullName: string; name: string; stars: number; htmlUrl: string; updatedAt: string }> => {
-                    if (entry === null || typeof entry !== "object") return [];
-                    const item = entry as Record<string, unknown>;
-                    if (
-                      typeof item.fullName !== "string" ||
-                      typeof item.name !== "string" ||
-                      typeof item.stars !== "number" ||
-                      typeof item.htmlUrl !== "string" ||
-                      typeof item.updatedAt !== "string"
-                    )
-                      return [];
-                    return [{ fullName: item.fullName, name: item.name, stars: item.stars, htmlUrl: item.htmlUrl, updatedAt: item.updatedAt }];
-                  })
-                : [];
-              const rows = pluginStarsRows(entries, 8);
-              return (
+        (() => {
+          const view = pluginStarsPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+                <strong className="block text-[12px]">Plugin Stars 面板数据异常</strong>
+                <span className="mt-1 block">面板数据不完整或不可信，请重新加载排行榜。</span>
+              </div>
+            );
+          }
+          const latest = view.latest;
+          const rows = latest?.results ?? [];
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
+                <span className="font-medium text-[#30343b]">社区排行榜</span>
+                <span className="font-mono text-[#65707b]">结果上限 {view.limit}</span>
+              </div>
+              {latest !== null ? (
                 <>
                   <div className="flex items-center justify-between text-[11px] text-[#65707b]">
-                    <span>查询：{value(latest.query, "全部")}</span>
-                    <strong className="font-mono text-[#3565c5]">{value(latest.total ?? rows.length)} 个结果</strong>
+                    <span>查询：{latest.query || "全部"}</span>
+                    <strong className="font-mono text-[#3565c5]">
+                      显示 {view.inventory.shown}/{view.inventory.total}
+                    </strong>
                   </div>
                   {rows.length > 0 ? (
                     <ol className="grid gap-1.5">
@@ -2153,16 +2604,16 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   ) : (
                     <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的社区插件。</div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#687381]">来源：{value(latest.source, "dsh-plugin-stars")} · 仅展示公开仓库信息，不会自动安装。</p>
+                  <p className="text-[10px] leading-4 text-[#687381]">来源：{latest.source || "dsh-plugin-stars"} · 仅展示公开仓库信息，不会自动安装。</p>
                 </>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "plugin-finder-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
@@ -2228,9 +2679,10 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         </div>
       ) : panel.id === "graph-memory-panel" ? (
         (() => {
-          const kinds = data?.kinds !== null && typeof data?.kinds === "object" ? (data.kinds as Record<string, unknown>) : {};
-          const recent = Array.isArray(data?.recent) ? data.recent : [];
-          const recentRelations = Array.isArray(data?.recentRelations) ? data.recentRelations : [];
+          const report = graphMemoryPanelView(data);
+          const kinds = report.kinds;
+          const recent = report.recent;
+          const recentRelations = report.recentRelations;
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
@@ -2251,13 +2703,13 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
                 <span className="text-[#65707b]">本地关系图</span>
                 <span className="font-mono text-[#3565c5]">
-                  {value(data?.nodes ?? 0)} 节点 · {value(data?.relations ?? 0)} 关系
+                  {report.nodes} 节点 · {report.relations} 关系
                 </span>
               </div>
               {recent.length > 0 ? (
                 <ul className="grid gap-1.5">
                   <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
-                    最近节点 {Math.min(recent.length, 5)} / {value(data?.nodes ?? recent.length)}
+                    最近节点 {Math.min(recent.length, 5)} / {report.nodes}
                   </li>
                   {recent.slice(0, 5).map((entry, index) => {
                     const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
@@ -2291,7 +2743,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               {recentRelations.length > 0 ? (
                 <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-2">
                   <span className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
-                    最近关系 {Math.min(recentRelations.length, 3)} / {value(data?.relations ?? recentRelations.length)}
+                    最近关系 {Math.min(recentRelations.length, 3)} / {report.relations}
                   </span>
                   {recentRelations.slice(0, 3).map((entry, index) => {
                     const relation = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
@@ -2308,6 +2760,20 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   })}
                 </div>
               ) : null}
+              {report.lastSearch !== null ? (
+                <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
+                  <span className="min-w-0 truncate text-[#65707b]">最近搜索：{report.lastSearch.query}</span>
+                  <span className="shrink-0 font-mono text-[#3565c5]">
+                    {report.lastSearch.shown} / {report.lastSearch.total}
+                  </span>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2 font-mono text-[9px] text-[#687381]">
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">节点 ≤ {report.limits.nodes}</span>
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">关系 ≤ {report.limits.relations}</span>
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">文件 ≤ {report.limits.fileBytes} B</span>
+              </div>
+              {report.truncated ? <p className="text-[10px] text-[#996515]">面板内容已按安全显示上限截断。</p> : null}
             </div>
           );
         })()
@@ -2463,7 +2929,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         (() => {
           const budget = typeof data?.budget === "number" ? data.budget : null;
           const budgetPercent = typeof data?.budgetPercent === "number" ? data.budgetPercent : null;
-          const entries = Array.isArray(data?.entries) ? data.entries : [];
+          const meterView = costMeterPanelView(data);
           const budgetClass =
             budgetPercent !== null && budgetPercent >= 100
               ? "text-[#b42318]"
@@ -2474,7 +2940,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  ["今日", `$${Number(data?.todayCost ?? 0).toFixed(4)}`],
+                  ["今日（UTC）", `$${Number(data?.todayCost ?? 0).toFixed(4)}`],
                   ["当前会话", `$${Number(data?.sessionCost ?? 0).toFixed(4)}`],
                   ["累计", `$${Number(data?.lifetimeCost ?? 0).toFixed(4)}`],
                 ].map(([label, item]) => (
@@ -2486,7 +2952,7 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
               </div>
               <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#65707b]">每日预算</span>
+                  <span className="text-[#65707b]">每日预算（UTC）</span>
                   <strong className={budgetClass}>{budget === null ? "未设置" : `$${budget.toFixed(4)} · ${budgetPercent?.toFixed(2) ?? "0.00"}%`}</strong>
                 </div>
                 {budget !== null ? (
@@ -2498,20 +2964,29 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                   </div>
                 ) : null}
               </div>
-              {entries.length > 0 ? (
+              <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">{meterView.dayBasis} 日账本</span>
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">账本上限 {meterView.entryLimit ?? "—"} 条</span>
+              </div>
+              {meterView.lastError !== null ? (
+                <div className="rounded-lg border border-[#f0c8c4] bg-[#fff5f4] px-3 py-2 text-[10px] text-[#b42318]">最近写入错误：{meterView.lastError}</div>
+              ) : null}
+              {meterView.entries.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  {entries.slice(0, 5).map((entry, index) => {
-                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
-                    return (
-                      <li
-                        className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
-                        key={`${value(item.sessionId ?? "session")}-${index}`}
-                      >
-                        <span className="truncate font-mono text-[#65707b]">{value(item.sessionId ?? "未知会话")}</span>
-                        <strong className="font-mono text-[#30343b]">${Number(item.cost ?? 0).toFixed(4)}</strong>
-                      </li>
-                    );
-                  })}
+                  {meterView.entries.map((entry, index) => (
+                    <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]" key={`${entry.sessionId}-${entry.utcDate}-${index}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate font-mono text-[#65707b]">{entry.sessionId}</span>
+                        <strong className="shrink-0 font-mono text-[#30343b]">${entry.dailyCost.toFixed(4)} 当日增量</strong>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[#7a8490]">
+                        <span>UTC {entry.utcDate}</span>
+                        <span>会话累计 ${entry.sessionCost.toFixed(4)}</span>
+                        <span>{entry.tokens} tokens</span>
+                        <span>{entry.messages} 消息</span>
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               ) : (
                 <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
@@ -3059,122 +3534,164 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           )}
         </div>
       ) : panel.id === "recall-unread-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">未回答会话</span>
-            <strong className="font-mono text-[#3565c5]">{value(data?.total ?? 0)} 个</strong>
-          </div>
-          {Array.isArray(data?.items) && data.items.length > 0 ? (
-            <div className="grid gap-2">
-              {data.items.slice(0, 8).map((item, index) => {
-                const session = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                return (
-                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(session.id ?? "session")}-${index}`}>
-                    <strong className="block truncate text-[11px] text-[#30343b]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
-                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(session.message ?? "")}</p>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有以未回答用户消息结束的会话。</div>
-          )}
-        </div>
-      ) : panel.id === "turn-rewind-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {data?.latest && typeof data.latest === "object" ? (
-            (() => {
-              const latest = data.latest as Record<string, unknown>;
-              const target = latest.target !== null && typeof latest.target === "object" ? (latest.target as Record<string, unknown>) : {};
-              const cancelled = latest.cancelled === true;
-              return (
-                <div className={`rounded-lg border px-3 py-3 ${cancelled ? "border-[#f4dfb0] bg-[#fffaf0]" : "border-[#dce5f5] bg-[#f6f8ff]"}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">最近操作</span>
-                    <span
-                      className={`rounded-full px-2 py-1 text-[10px] font-semibold ${cancelled ? "bg-[#fff0c7] text-[#9a6700]" : "bg-[#e8f8ee] text-[#14733f]"}`}
-                    >
-                      {cancelled ? "已取消" : "已回退"}
-                    </span>
-                  </div>
-                  <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#30343b]">{value(target.text ?? "未命名轮次")}</p>
+        (() => {
+          const view = recallUnreadPanelView(data);
+          const visible = view.items.slice(0, 8);
+          return (
+            <div className="mt-3 grid gap-3">
+              {view.status.state === "failed" || view.status.state === "cancelled" ? (
+                <div
+                  className={`rounded-lg border px-3 py-3 text-[11px] leading-5 ${
+                    view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
+                  }`}
+                >
+                  扫描{view.status.state === "failed" ? "失败" : "已取消"}
+                  {view.status.error === null ? "" : `：${view.status.error}`}
                 </div>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有执行回退操作。</div>
-          )}
-          <div className="grid gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">可回退轮次</span>
-            {(() => {
-              const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
-              return candidates.length > 0 ? (
-                candidates.slice(-8).map((item, index) => {
-                  const candidate = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                  return (
-                    <div
-                      className="flex items-start gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2"
-                      key={`${value(candidate.entryId ?? "turn")}-${index}`}
-                    >
-                      <span className="mt-0.5 font-mono text-[10px] text-[#3565c5]">{candidates.length - index}</span>
-                      <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-[#65707b]">{value(candidate.text ?? "未命名轮次")}</span>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3 text-[11px] text-[#687381]">当前会话还没有可回退的用户轮次。</div>
-              );
-            })()}
-          </div>
-        </div>
-      ) : panel.id === "skill-guard-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              ["已扫描", data?.total ?? 0],
-              ["高风险", data?.blocked ?? 0],
-              ["待复核", data?.review ?? 0],
-            ].map(([label, item]) => (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
-              </div>
-            ))}
-          </div>
-          <div className="grid gap-2">
-            {Array.isArray(data?.reports) && data.reports.length > 0 ? (
-              data.reports.slice(0, 8).map((item, index) => {
-                const report = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                const risk = report.risk;
-                const findings = Array.isArray(report.findings) ? report.findings : [];
-                return (
-                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(report.name ?? "skill")}-${index}`}>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`h-2 w-2 rounded-full ${risk === "blocked" ? "bg-[#d64545]" : risk === "review" ? "bg-[#e0a11a]" : "bg-[#22a06b]"}`}
-                      ></span>
-                      <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(report.name ?? "unknown")}</strong>
-                      <span className="text-[10px] text-[#687381]">{risk === "blocked" ? "阻断" : risk === "review" ? "复核" : "安全"}</span>
-                    </div>
-                    {findings.length > 0 ? (
-                      <p className="mt-1 truncate text-[10px] text-[#65707b]">
-                        {findings
-                          .map((finding) =>
-                            finding !== null && typeof finding === "object" ? value((finding as Record<string, unknown>).code ?? "finding") : value(finding),
-                          )
-                          .join(" · ")}
-                      </p>
-                    ) : null}
+              ) : null}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["候选", view.inventory.candidates],
+                  ["已扫描", view.inventory.scanned],
+                  ["未回答", view.total],
+                ].map(([label, item]) => (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(item)}</strong>
                   </div>
-                );
-              })
-            ) : (
-              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-                暂无 Skill 扫描结果，可让 Agent 调用 skill_guard_scan。
+                ))}
               </div>
-            )}
-          </div>
-        </div>
+              {visible.length > 0 ? (
+                <div className="grid gap-2">
+                  {visible.map((session, index) => (
+                    <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${session.id}-${index}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{session.name}</strong>
+                        <span className="shrink-0 font-mono text-[9px] text-[#687381]">{session.messageCount} 条消息</span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[10px] leading-4 text-[#65707b]">{session.message}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有以未回答用户消息结束的会话。</div>
+              )}
+              <p className="text-[10px] leading-4 text-[#687381]">
+                已扫描 {view.inventory.scanned}/{view.inventory.available} 个会话文件，界面显示 {visible.length}/{view.inventory.unread}{" "}
+                个；只读扫描，不会修改会话。
+                {view.inventory.truncated ? " 部分结果因发现、扫描或展示上限被截断。" : ""}
+              </p>
+            </div>
+          );
+        })()
+      ) : panel.id === "turn-rewind-panel" ? (
+        (() => {
+          const view = turnRewindPanelView(data);
+          const statusLabel = {
+            queued: "已排队",
+            running: "执行中",
+            completed: "已回退",
+            failed: "失败",
+            cancelled: "已取消",
+          } as const;
+          const statusTone = {
+            queued: "border-[#dce5f5] bg-[#f6f8ff] text-[#3565c5]",
+            running: "border-[#dce5f5] bg-[#f6f8ff] text-[#3565c5]",
+            completed: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]",
+            failed: "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]",
+            cancelled: "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]",
+          } as const;
+          return (
+            <div className="mt-3 grid gap-3">
+              {view.latest === null ? (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有执行回退操作。</div>
+              ) : (
+                <div className={`rounded-lg border px-3 py-3 ${statusTone[view.latest.status]}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">最近操作</span>
+                    <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold">{statusLabel[view.latest.status]}</span>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#30343b]">{view.latest.target.text}</p>
+                  {view.latest.error === null ? null : <p className="mt-2 break-words text-[10px] leading-4">{view.latest.error}</p>}
+                  {view.latest.summarized ? <p className="mt-2 text-[10px] leading-4">已请求分支摘要；该选项可能调用模型并产生费用。</p> : null}
+                </div>
+              )}
+              <div className="grid gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">可回退轮次</span>
+                {view.candidates.length > 0 ? (
+                  view.candidates.map((candidate, index) => (
+                    <div className="flex items-start gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${candidate.entryId}-${index}`}>
+                      <span className="mt-0.5 font-mono text-[10px] text-[#3565c5]">{view.candidates.length - index}</span>
+                      <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-[#65707b]">{candidate.text}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3 text-[11px] text-[#687381]">当前会话还没有可回退的用户轮次。</div>
+                )}
+              </div>
+              <p className="text-[10px] leading-4 text-[#687381]">
+                已检查当前分支 {view.inventory.scannedEntries} 个条目；后端保留 {view.inventory.shown} 个候选，界面显示 {view.candidates.length} 个。
+                {view.inventory.truncated ? " 部分结果因扫描、候选或显示上限被截断。" : ""}
+              </p>
+            </div>
+          );
+        })()
+      ) : panel.id === "skill-guard-panel" ? (
+        (() => {
+          const view = skillGuardPanelView(data);
+          return (
+            <div className="mt-3 grid gap-3">
+              {view.status.state === "failed" || view.status.state === "cancelled" ? (
+                <div
+                  className={`rounded-lg border px-3 py-3 text-[11px] leading-5 ${
+                    view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
+                  }`}
+                >
+                  扫描{view.status.state === "failed" ? "失败" : "已取消"}
+                  {view.status.error === null ? "" : `：${view.status.error}`}
+                </div>
+              ) : null}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["已扫描", view.total],
+                  ["高风险", view.blocked],
+                  ["待复核", view.review],
+                ].map(([label, item]) => (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
+                    <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-2">
+                {view.reports.length > 0 ? (
+                  view.reports.slice(0, 8).map((report, index) => (
+                    <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${report.name}-${index}`}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`h-2 w-2 rounded-full ${report.risk === "blocked" ? "bg-[#d64545]" : report.risk === "review" ? "bg-[#e0a11a]" : "bg-[#22a06b]"}`}
+                        ></span>
+                        <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{report.name}</strong>
+                        <span className="text-[10px] text-[#687381]">{report.risk === "blocked" ? "高风险" : report.risk === "review" ? "复核" : "安全"}</span>
+                      </div>
+                      {report.findings.length > 0 ? (
+                        <p className="mt-1 truncate text-[10px] text-[#65707b]">{report.findings.map((finding) => finding.code).join(" · ")}</p>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                    暂无 Skill 扫描结果，可让 Agent 调用 skill_guard_scan。
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-[#687381]">
+                已扫描 {view.inventory.scanned}/{view.inventory.available} 个入口，面板显示 {Math.min(view.reports.length, 8)} 个；风险等级仅供审计，不会禁用
+                Skill。
+              </p>
+            </div>
+          );
+        })()
       ) : panel.id === "prompt-guard-panel" ? (
         <div className="mt-3 grid gap-3">
           <div
@@ -3231,56 +3748,61 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         </div>
       ) : panel.id === "genui-panel" ? (
         <div className="mt-3 grid gap-3">
-          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-            (() => {
-              const report = data.latest as Record<string, unknown>;
-              const blocks = Array.isArray(report.blocks) ? report.blocks : [];
-              const toneClass: Record<string, string> = {
-                neutral: "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]",
-                info: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]",
-                success: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]",
-                warning: "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]",
-                danger: "border-[#f4caca] bg-[#fff5f5] text-[#b42318]",
-              };
-              return (
-                <div className="grid gap-2">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <strong className="text-[#30343b]">{value(report.title ?? "结构化卡片")}</strong>
-                    <span className="font-mono text-[#687381]">{value(data.rendered ?? 0)} 次</span>
-                  </div>
-                  {blocks.map((block, index) => {
-                    const item = block && typeof block === "object" ? (block as Record<string, unknown>) : {};
-                    const tone = value(item.tone ?? "neutral");
-                    const blockValue = item.value;
-                    return item.type === "progress" ? (
-                      <div className={`rounded-lg border px-3 py-2 ${toneClass[tone] ?? toneClass.neutral}`} key={`${value(item.label)}-${index}`}>
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span>{value(item.label ?? "进度")}</span>
-                          <strong>{value(blockValue ?? 0)}%</strong>
-                        </div>
-                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/70">
-                          <div className="h-full rounded-full bg-current" style={{ width: `${Math.max(0, Math.min(100, Number(blockValue) || 0))}%` }} />
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className={`flex items-center justify-between rounded-lg border px-3 py-2 text-[11px] ${toneClass[tone] ?? toneClass.neutral}`}
-                        key={`${value(item.label)}-${index}`}
-                      >
-                        <span className="text-[#65707b]">{value(item.label, "")}</span>
-                        <strong>{value(blockValue, "")}</strong>
-                      </div>
-                    );
-                  })}
+          {(() => {
+            const view = genUiPanelView(data);
+            const toneClass: Record<string, string> = {
+              neutral: "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]",
+              info: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]",
+              success: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]",
+              warning: "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]",
+              danger: "border-[#f4caca] bg-[#fff5f5] text-[#b42318]",
+            };
+            return view.latest !== null ? (
+              <div className="grid gap-2">
+                <div className="flex items-start justify-between gap-3 text-[11px]">
+                  <strong className="min-w-0 break-words text-[#30343b]">{view.latest.title}</strong>
+                  <span className="shrink-0 font-mono text-[10px] text-[#687381]">{view.rendered} 次</span>
                 </div>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              还没有结构化卡片。可让 Agent 调用 genui_render。
-            </div>
-          )}
-          <p className="text-[10px] text-[#687381]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本处理。</p>
+                {view.latest.blocks.map((block, index) =>
+                  block.type === "progress" ? (
+                    <div className={`rounded-lg border px-3 py-2 ${toneClass[block.tone]}`} key={`${block.label}-${index}`}>
+                      <div className="flex items-center justify-between gap-2 text-[10px]">
+                        <span className="min-w-0 break-words">{block.label}</span>
+                        <strong className="shrink-0">{block.value}%</strong>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/70">
+                        <div className="h-full rounded-full bg-current" style={{ width: `${block.value}%` }} />
+                      </div>
+                    </div>
+                  ) : block.type === "text" ? (
+                    <div className={`rounded-lg border px-3 py-2 text-[11px] ${toneClass[block.tone]}`} key={`${block.label}-${index}`}>
+                      <strong className="block text-[10px]">{block.label}</strong>
+                      <p className="mt-1 whitespace-pre-wrap break-words leading-4">{block.value}</p>
+                    </div>
+                  ) : (
+                    <div
+                      className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[11px] ${toneClass[block.tone]}`}
+                      key={`${block.label}-${index}`}
+                    >
+                      <span className="min-w-0 break-words">{block.label}</span>
+                      <strong className="min-w-0 break-words text-right">{block.value}</strong>
+                    </div>
+                  ),
+                )}
+                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                  <span>最多 {view.limits.blocks} 块</span>
+                  <span>总文本上限 {view.limits.totalText} 字符</span>
+                  {view.latest.renderedAt !== null ? <span>{view.latest.renderedAt.slice(11, 19)} UTC</span> : null}
+                  {view.latest.truncated ? <span>面板明细已截断</span> : null}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                还没有结构化卡片。可让 Agent 调用 genui_render。
+              </div>
+            );
+          })()}
+          <p className="text-[10px] text-[#687381]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本显示。</p>
         </div>
       ) : panel.id === "anchored-standard-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -3330,34 +3852,73 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         </div>
       ) : panel.id === "plugin-dev-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div
-            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.status === "reloaded" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : data?.status === "failed" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]"}`}
-          >
-            <span>{data?.status === "reloaded" ? "插件已重载" : data?.status === "failed" ? "插件重载失败" : "等待重载"}</span>
-            <strong className="font-mono">{value(data?.status ?? "idle")}</strong>
-          </div>
-          <p className="text-[10px] text-[#687381]">{value(data?.reason ?? "修改本地扩展后调用 plugin_dev_reload")}</p>
-          {data?.error ? <p className="rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{value(data.error)}</p> : null}
+          {(() => {
+            const view = pluginDevPanelView(data);
+            const presentation = {
+              idle: { label: "等待重载", style: "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]" },
+              queued: { label: "等待当前运行结束", style: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]" },
+              running: { label: "正在重载会话资源", style: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]" },
+              reloaded: { label: "会话资源已重载", style: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" },
+              failed: { label: "会话资源重载失败", style: "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" },
+              cancelled: { label: "会话资源重载已取消", style: "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" },
+            }[view.status];
+            return (
+              <>
+                <div className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${presentation.style}`}>
+                  <span>{presentation.label}</span>
+                  <strong className="font-mono">{view.status}</strong>
+                </div>
+                <p className="break-words text-[10px] text-[#687381]">{view.reason || "修改本地扩展后调用 plugin_dev_reload"}</p>
+                {view.error !== null ? <p className="break-words rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{view.error}</p> : null}
+                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                  <span>原因上限 {view.limits.reasonCharacters} 字符</span>
+                  <span>错误上限 {view.limits.errorCharacters} 字符</span>
+                  {view.reloadedAt !== null ? <span>{view.reloadedAt.slice(11, 19)} UTC</span> : null}
+                </div>
+              </>
+            );
+          })()}
         </div>
       ) : panel.id === "openpets-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center gap-3 rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#dceaff] text-[20px] text-[#3565c5]">◉</span>
-            <div className="min-w-0 flex-1">
-              <strong className="block truncate text-[13px] text-[#30343b]">{value(data?.name ?? "Pi")}</strong>
-              <span className="text-[10px] text-[#687381]">{value(data?.lastEvent ?? "session_start")}</span>
-            </div>
-            <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#3565c5]">{value(data?.mood ?? "idle")}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              能量 <strong className="ml-1 text-[#30343b]">{value(data?.energy ?? 0)}%</strong>
-            </div>
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              互动 <strong className="ml-1 text-[#30343b]">{value(data?.interactions ?? 0)}</strong>
-            </div>
-          </div>
-          <p className="text-[10px] text-[#687381]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
+          {(() => {
+            const view = openPetsPanelView(data);
+            const moodLabel = { idle: "休息", focused: "专注", happy: "开心", concerned: "担心" }[view.mood];
+            return (
+              <>
+                <div className="flex items-center gap-3 rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#dceaff] text-[20px] text-[#3565c5]">◉</span>
+                  <div className="min-w-0 flex-1">
+                    <strong className="block truncate text-[13px] text-[#30343b]">{view.name}</strong>
+                    <span className="text-[10px] text-[#687381]">{view.lastEvent}</span>
+                  </div>
+                  <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#3565c5]">{moodLabel}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                    能量 <strong className="ml-1 text-[#30343b]">{view.energy}%</strong>
+                  </div>
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
+                    互动 <strong className="ml-1 text-[#30343b]">{view.interactions}</strong>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                  <span>
+                    恢复扫描 {view.recovery.scanned} / {view.recovery.sessionEntries}
+                  </span>
+                  <span>{view.recovery.restored ? "已恢复状态" : "使用初始状态"}</span>
+                  <span>
+                    持久化 {view.persistence.attempts - view.persistence.failures} / {view.persistence.attempts}
+                  </span>
+                  {view.updatedAt !== null ? <span>{view.updatedAt.slice(11, 19)} UTC</span> : null}
+                </div>
+                {view.persistence.lastError !== null ? (
+                  <p className="break-words rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{view.persistence.lastError}</p>
+                ) : null}
+                <p className="text-[10px] text-[#687381]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
+              </>
+            );
+          })()}
         </div>
       ) : panel.id === "change-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -3394,51 +3955,140 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           <p className="text-[10px] text-[#687381]">复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {data?.generated === true ? (
-            <>
-              <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#14733f]">
-                已生成 {value(data.name ?? "项目")} 的 README 概览：{value(data.scripts ?? 0)} 个脚本，{value(data.plugins ?? 0)} 个运行时插件。
+        (() => {
+          const view = readmeGenPanelView(data);
+          if (view.malformed)
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] leading-5 text-[#b42318]">
+                README 面板数据无效，暂不展示生成或写入结果。
               </div>
-              {data.lastWrite && typeof data.lastWrite === "object" ? (
-                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[11px] text-[#315fb8]">
-                  已写入 {value((data.lastWrite as Record<string, unknown>).path ?? "README.generated.md")} ·{" "}
-                  {value((data.lastWrite as Record<string, unknown>).bytes ?? 0)} bytes
-                  {(data.lastWrite as Record<string, unknown>).overwritten === true ? " · 已覆盖" : " · 新文件"}
+            );
+          const statusLabel =
+            view.status.state === "idle"
+              ? "等待生成"
+              : view.status.state === "running"
+                ? view.status.operation === "write"
+                  ? "正在写入"
+                  : "正在生成"
+                : view.status.state === "completed"
+                  ? view.status.operation === "write"
+                    ? "写入已完成"
+                    : "草稿已生成"
+                  : view.status.state === "failed"
+                    ? view.status.operation === "write"
+                      ? "写入失败"
+                      : "生成失败"
+                    : view.status.operation === "write"
+                      ? "写入已取消"
+                      : "生成已取消";
+          const statusTone =
+            view.status.state === "failed" || view.status.state === "cancelled"
+              ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"
+              : view.status.state === "completed"
+                ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
+                : "border-[#dce5f5] bg-[#f6f8ff] text-[#315fb8]";
+          return (
+            <div className="mt-3 grid min-w-0 gap-3">
+              <div className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[10px] ${statusTone}`}>
+                <strong className="font-semibold">{statusLabel}</strong>
+                {view.status.at !== null ? <time className="shrink-0 font-mono">{view.status.at.slice(11, 19)} UTC</time> : null}
+              </div>
+              {view.generated === null ? (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] leading-5 text-[#687381]">
+                  还没有生成 README 草稿。让 Agent 调用 <code className="font-mono text-[#3565c5]">readme_report</code> 先检查内容。
+                </div>
+              ) : (
+                <div className="min-w-0 border-l-2 border-[#7aa2e8] bg-[#f8faff] px-3 py-3">
+                  <p className="break-all text-[12px] font-semibold leading-5 text-[#20252b]">{view.generated.name}</p>
+                  <p className="mt-1 text-[10px] text-[#687381]">
+                    {view.generated.scripts} 个脚本 · {view.generated.plugins} 个运行时插件
+                  </p>
+                </div>
+              )}
+              {view.lastWrite !== null ? (
+                <div className="min-w-0 rounded-lg border border-[#dce5f5] bg-white px-3 py-2 text-[#315fb8]">
+                  <p className="break-all font-mono text-[10px] leading-4">{view.lastWrite.path}</p>
+                  <p className="mt-1 text-[10px] text-[#687381]">
+                    {new Intl.NumberFormat("en-US").format(view.lastWrite.bytes)} bytes · {view.lastWrite.overwritten ? "已覆盖" : "新文件"}
+                  </p>
                 </div>
               ) : null}
-              <p className="text-[10px] leading-4 text-[#687381]">需要落盘时调用 readme_write，并显式传入 confirm=true；默认写入 README.generated.md。</p>
-            </>
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              还没有生成文档。让 Agent 调用 readme_report 获取 Markdown 草稿，或调用 readme_write 写入确认后的文件。
+              {view.status.error !== null ? (
+                <p className="break-words rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">{view.status.error}</p>
+              ) : null}
+              <p className="text-[10px] leading-4 text-[#687381]">
+                写入需要 <code className="font-mono">confirm=true</code>；覆盖已有 README 还需要 <code className="font-mono">overwrite=true</code>。
+              </p>
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "sql-lens-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-            (() => {
-              const report = data.latest as Record<string, unknown>;
-              const rows = Array.isArray(report.rows) ? report.rows : [];
-              return (
+        (() => {
+          const view = sqlLensPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+                <strong className="block text-[12px]">SQL Lens 面板数据异常</strong>
+                <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再查询。</span>
+              </div>
+            );
+          }
+          const report = view.latest;
+          const statusLabel =
+            view.status.state === "running"
+              ? "查询中"
+              : view.status.state === "completed"
+                ? "已完成"
+                : view.status.state === "failed"
+                  ? "查询失败"
+                  : view.status.state === "cancelled"
+                    ? "已取消"
+                    : "等待查询";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between gap-3 text-[10px] text-[#687381]">
+                <span className="rounded-full border border-[#dce5f5] bg-[#f6f8fa] px-2 py-1 font-semibold text-[#3565c5]">{statusLabel}</span>
+                {view.status.at !== null ? <time className="font-mono">{new Date(view.status.at).toLocaleString()}</time> : null}
+              </div>
+              {view.status.error !== null ? (
+                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">{view.status.error}</div>
+              ) : null}
+              {report !== null ? (
                 <>
-                  <div className="flex items-center justify-between rounded-lg bg-[#f6f8fa] px-3 py-3">
-                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(report.database ?? "database")}</span>
-                    <strong className="font-mono text-[12px] text-[#3565c5]">{value(rows.length)} rows</strong>
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate font-mono text-[11px] text-[#30343b]" title={report.database}>
+                        {report.database}
+                      </span>
+                      <strong className="shrink-0 font-mono text-[12px] text-[#3565c5]">{report.rowInventory.returned} rows</strong>
+                    </div>
+                    <code className="mt-2 block max-h-16 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-[#687381]">
+                      {report.query}
+                    </code>
                   </div>
-                  <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
-                    {JSON.stringify(rows, null, 2)}
+                  <pre className="max-h-56 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                    {JSON.stringify(report.rows, null, 2)}
                   </pre>
+                  {report.rowInventory.truncated ? (
+                    <p className="text-[10px] text-[#9a6700]">
+                      面板显示 {report.rowInventory.shown} / {report.rowInventory.returned} 行；查询共扫描 {report.rowInventory.scanned}{" "}
+                      行，结果已按安全边界截断。
+                    </p>
+                  ) : null}
                 </>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              还没有查询数据库。可让 Agent 调用 sql_readonly。
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  还没有查询数据库。可让 Agent 调用 sql_readonly。
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2 font-mono text-[10px] text-[#3565c5]">
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">timeout:{view.timeoutMs}ms</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">rows:{view.limits.rows}</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">result:{Math.round(view.limits.resultBytes / 1_024)}KiB</span>
+              </div>
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "theme-studio-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
@@ -3507,103 +4157,134 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         </div>
       ) : panel.id === "docker-sandbox-panel" ? (
         <div className="mt-3 grid gap-3">
-          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-            (() => {
-              const run = data.latest as Record<string, unknown>;
+          {(() => {
+            const view = dockerSandboxPanelView(data);
+            if (view.malformed) {
               return (
-                <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(run.image ?? "image")}</span>
-                    <strong className="font-mono text-[12px] text-[#14733f]">exit {value(run.exitCode ?? "—")}</strong>
-                  </div>
-                  <p className="mt-2 text-[11px] text-[#65707b]">
-                    {Array.isArray(run.command) ? run.command.map((argument) => value(argument)).join(" ") : "argv"}
-                  </p>
+                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+                  <strong className="block text-[12px]">Docker Sandbox 面板数据异常</strong>
+                  <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再运行。</span>
                 </div>
               );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有沙箱运行。默认无网络、工作区只读。</div>
-          )}
-          <div className="flex flex-wrap gap-2">
-            {data?.defaults !== null && typeof data?.defaults === "object"
-              ? Object.entries(data.defaults as Record<string, unknown>).map(([key, entryValue]) => (
-                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={key}>
-                    {key}:{value(entryValue)}
-                  </span>
-                ))
-              : null}
-          </div>
+            }
+            const run = view.latest;
+            const successful = run?.status === "completed" && run.exitCode === 0;
+            return (
+              <>
+                {run !== null ? (
+                  <div className={`rounded-lg border px-3 py-3 ${successful ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate font-mono text-[11px] text-[#30343b]">{run.image}</span>
+                      <strong className={`shrink-0 font-mono text-[12px] ${successful ? "text-[#14733f]" : "text-[#b42318]"}`}>
+                        {run.status === "timed_out" ? "超时" : `exit ${run.exitCode}`}
+                      </strong>
+                    </div>
+                    <p className="mt-2 break-all font-mono text-[10px] leading-4 text-[#65707b]">
+                      {run.command.map((argument) => JSON.stringify(argument)).join(" ")}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                      <span>{run.write ? "工作区可写（已确认）" : "工作区只读"}</span>
+                      <span>{run.commandCount} 个 argv 参数</span>
+                      {run.truncated ? <span>面板明细已截断</span> : null}
+                    </div>
+                    {run.output ? (
+                      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-white/70 px-2 py-2 text-[10px] leading-4 text-[#4c5663]">
+                        {run.output}
+                      </pre>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                    还没有沙箱运行。仅使用本地镜像，默认无网络、工作区只读。
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    [`image:${view.defaults.image}`, "image"],
+                    [`pull:${view.defaults.pull}`, "pull"],
+                    [`network:${view.defaults.network}`, "network"],
+                    [`rootfs:${view.defaults.rootFilesystem}`, "rootfs"],
+                    [`workspace:${view.defaults.workspace}`, "workspace"],
+                    [`memory:${view.defaults.memory}`, "memory"],
+                    [`cpus:${view.defaults.cpus}`, "cpus"],
+                    [`pids:${view.defaults.pids}`, "pids"],
+                    [`timeout:${view.defaults.timeoutMs}ms`, "timeout"],
+                  ].map(([label, key]) => (
+                    <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={key}>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
       ) : panel.id === "yaml-validator-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-            (() => {
-              const report = data.latest as Record<string, unknown>;
-              const errors = Array.isArray(report.errors) ? report.errors : [];
-              const warnings = Array.isArray(report.warnings) ? report.warnings : [];
-              const valid = report.valid === true;
-              return (
+        (() => {
+          const view = yamlValidatorPanelView(data);
+          const report = view.latest;
+          return (
+            <div className="mt-3 grid gap-3">
+              {view.status.state === "failed" || view.status.state === "cancelled" ? (
+                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[11px] text-[#b42318]">
+                  最近一次校验{view.status.state === "cancelled" ? "已取消" : "失败"}。{view.status.error ?? ""}
+                </div>
+              ) : null}
+              {report !== null ? (
                 <>
                   <div
-                    className={`rounded-lg border px-3 py-3 text-[11px] ${valid ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${report.valid ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
                   >
-                    {valid ? "YAML 语法有效。" : `发现 ${errors.length} 个语法错误。`}
+                    {report.valid ? "YAML 语法有效。" : `发现 ${report.errorCount} 个语法错误。`}
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      ["文档", report.documents ?? 0],
-                      ["错误", errors.length],
-                      ["警告", warnings.length],
+                      ["文档", report.documents],
+                      ["错误", report.errorCount],
+                      ["警告", report.warningCount],
                     ].map(([label, entryValue]) => (
-                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                        <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                        <strong className="mt-1 block text-[17px] text-[#30343b]">{value(entryValue)}</strong>
+                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={label}>
+                        <span className="block text-[10px] text-[#687381]">{label}</span>
+                        <strong className="mt-1 block text-[17px] text-[#30343b]">{entryValue}</strong>
                       </div>
                     ))}
                   </div>
-                  {!valid && errors.length > 0 ? (
-                    <pre className="max-h-32 overflow-auto rounded-lg border border-[#f4caca] bg-[#fffafa] p-3 text-[10px] leading-4 text-[#b42318]">
-                      {errors
-                        .map((error) =>
-                          typeof error === "object" && error !== null
-                            ? `${value((error as Record<string, unknown>).line ?? "?")}:${value((error as Record<string, unknown>).column ?? "?")} ${value((error as Record<string, unknown>).message, "")}`
-                            : value(error),
-                        )
-                        .join("\n")}
+                  {!report.valid && report.errors.length > 0 ? (
+                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[#f4caca] bg-[#fffafa] p-3 text-[10px] leading-4 text-[#b42318]">
+                      {report.errors.map((error) => `${error.line ?? "?"}:${error.column ?? "?"} ${error.message}`).join("\n")}
                     </pre>
                   ) : null}
+                  {report.diagnosticsTruncated ? <p className="text-[10px] text-[#8a5a00]">诊断预览已截断，完整计数保留在摘要中。</p> : null}
                 </>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              还没有校验 YAML。可让 Agent 调用 yaml_validate。
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  还没有校验 YAML。可让 Agent 调用 yaml_validate。
+                </div>
+              )}
+              <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                max:{Math.round(view.limits.fileBytes / 1024)}KiB · read-only
+              </span>
             </div>
-          )}
-          <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">max:512KiB · read-only</span>
-        </div>
+          );
+        })()
       ) : panel.id === "browser-session-panel" ? (
         (() => {
-          const tabs = Array.isArray(data?.tabs)
-            ? browserSessionTabs(
-                data.tabs.flatMap((tab): Array<{ targetId: string; title: string; url: string }> => {
-                  if (tab === null || typeof tab !== "object") return [];
-                  const item = tab as Record<string, unknown>;
-                  return typeof item.targetId === "string" && typeof item.url === "string"
-                    ? [{ targetId: item.targetId, title: typeof item.title === "string" ? item.title : "", url: item.url }]
-                    : [];
-                }),
-                8,
-              )
-            : [];
-          const latest =
-            data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
+          const view = browserSessionPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+                <strong className="block text-[12px]">Browser Session 面板数据异常</strong>
+                <span className="mt-1 block">面板数据不完整或不可信，请重新连接后再试。</span>
+              </div>
+            );
+          }
+          const tabs = view.tabs;
+          const latest = view.latest;
           const latestAction = latest?.screenshot
             ? "已截图"
             : latest?.clicked === true
               ? "已点击"
-              : latest?.text
+              : latest?.status === "read" || typeof latest?.text === "string"
                 ? "已读取"
                 : latest?.status === "navigated"
                   ? "已导航"
@@ -3612,22 +4293,33 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
             <div className="mt-3 grid gap-3">
               <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.endpoint ?? "本地浏览器未连接")}</span>
+                  <span className="truncate font-mono text-[11px] text-[#30343b]">{view.endpoint || "本地浏览器未连接"}</span>
                   <span
-                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.connected === true ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#fff4e5] text-[#8a5a00]"}`}
+                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${view.connected ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#fff4e5] text-[#8a5a00]"}`}
                   >
-                    {data?.connected === true ? "已连接" : "未连接"}
+                    {view.connected ? "已连接" : "未连接"}
                   </span>
                 </div>
-                <p className="mt-2 text-[11px] text-[#687381]">Chrome DevTools Protocol · {tabs.length} 个可调试页面</p>
-                {data?.connected === false ? (
-                  <p className="mt-2 text-[11px] text-[#b42318]">请使用 remote-debugging-port 启动 Chrome。{value(data.error, "")}</p>
-                ) : null}
+                <p className="mt-2 text-[11px] text-[#687381]">
+                  Chrome DevTools Protocol · 显示 {view.inventory.shown}/{view.inventory.total} 个可调试页面
+                </p>
+                {!view.connected ? <p className="mt-2 text-[11px] text-[#b42318]">请使用 remote-debugging-port 启动 Chrome。{view.error ?? ""}</p> : null}
               </div>
               {latestAction ? (
                 <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[11px]">
                   <span className="text-[#65707b]">最近动作</span>
                   <strong className="font-mono text-[#315fb8]">{latestAction}</strong>
+                </div>
+              ) : null}
+              {latest?.text !== undefined ? (
+                <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-[#4c5663]">{latest.text}</pre>
+                  {latest.previewTruncated ? <p className="mt-2 text-[10px] text-[#8a5a00]">面板正文预览已截断。</p> : null}
+                </div>
+              ) : null}
+              {latest?.screenshot !== undefined ? (
+                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[10px] text-[#315fb8]">
+                  截图元数据：{latest.screenshot.mimeType} · {latest.screenshot.bytes.toLocaleString()} bytes
                 </div>
               ) : null}
               {tabs.length > 0 ? (
@@ -3652,90 +4344,92 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           );
         })()
       ) : panel.id === "mcp-client-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="truncate font-mono text-[11px] text-[#30343b]">{value(data?.server ?? "尚未连接 MCP 服务器")}</span>
-              <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[#3565c5]">
-                <span>{value(Array.isArray(data?.tools) ? data.tools.length : 0)} 工具</span>
-                <span className="text-[#687381]">·</span>
-                <span>{value(Array.isArray(data?.resources) ? data.resources.length : 0)} 资源</span>
-                <span className="text-[#687381]">·</span>
-                <span>{value(Array.isArray(data?.prompts) ? data.prompts.length : 0)} 提示</span>
-              </div>
-            </div>
-            <p className="mt-2 text-[11px] text-[#687381]">
-              {data?.lastCall === null || data?.lastCall === undefined ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${value(data.lastCall)}`}
-            </p>
-          </div>
-          {Array.isArray(data?.tools) && data.tools.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {data.tools.slice(0, 12).map((tool, index) => {
-                const item = typeof tool === "object" && tool !== null ? (tool as Record<string, unknown>) : {};
-                return (
-                  <span
-                    className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
-                    key={`${value(item.name ?? "tool")}-${index}`}
-                  >
-                    {value(item.name ?? "tool")}
-                  </span>
-                );
-              })}
-            </div>
-          ) : null}
-          {Array.isArray(data?.resources) && data.resources.length > 0 ? (
-            <div className="grid gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">资源</span>
-              <div className="flex flex-wrap gap-2">
-                {data.resources.slice(0, 8).map((resource, index) => {
-                  const item = typeof resource === "object" && resource !== null ? (resource as Record<string, unknown>) : {};
-                  return (
-                    <span
-                      className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
-                      key={`${value(item.uri ?? "resource")}-${index}`}
-                    >
-                      {value(item.name ?? item.uri ?? "resource")}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-          {Array.isArray(data?.prompts) && data.prompts.length > 0 ? (
-            <div className="grid gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">提示模板</span>
-              <div className="flex flex-wrap gap-2">
-                {data.prompts.slice(0, 8).map((prompt, index) => {
-                  const item = typeof prompt === "object" && prompt !== null ? (prompt as Record<string, unknown>) : {};
-                  return (
-                    <span
-                      className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
-                      key={`${value(item.name ?? "prompt")}-${index}`}
-                    >
-                      {value(item.name ?? "prompt")}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-          {Array.isArray(data?.servers) && data.servers.length > 0 ? (
-            <div className="grid gap-2">
-              {data.servers.map((server, index) => {
-                const item = typeof server === "object" && server !== null ? (server as Record<string, unknown>) : {};
-                return (
-                  <div
-                    className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]"
-                    key={`${value(item.id ?? "server")}-${index}`}
-                  >
-                    <span className="font-mono text-[#30343b]">{value(item.id ?? "server")}</span>
-                    <span className="text-[#14733f]">{value(item.status ?? "unknown")}</span>
+        (() => {
+          const view = mcpClientPanelView(data);
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate font-mono text-[11px] text-[#30343b]">{value(view.server ?? "尚未连接 MCP 服务器")}</span>
+                  <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[#3565c5]">
+                    <span>{view.inventory.tools.total} 工具</span>
+                    <span className="text-[#687381]">·</span>
+                    <span>{view.inventory.resources.total} 资源</span>
+                    <span className="text-[#687381]">·</span>
+                    <span>{view.inventory.prompts.total} 提示</span>
                   </div>
-                );
-              })}
+                </div>
+                <p className="mt-2 text-[11px] text-[#687381]">
+                  {view.lastCall === null ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${view.lastCall}`}
+                </p>
+              </div>
+              {view.tools.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {view.tools.map((tool, index) => (
+                    <span
+                      className="max-w-full truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
+                      key={`${tool.name}-${index}`}
+                      title={tool.description}
+                    >
+                      {tool.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {view.resources.length > 0 ? (
+                <div className="grid gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">资源</span>
+                  <div className="flex flex-wrap gap-2">
+                    {view.resources.map((resource, index) => (
+                      <span
+                        className="max-w-full truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
+                        key={`${resource.uri}-${index}`}
+                        title={resource.uri}
+                      >
+                        {resource.name ?? resource.uri}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {view.prompts.length > 0 ? (
+                <div className="grid gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">提示模板</span>
+                  <div className="flex flex-wrap gap-2">
+                    {view.prompts.map((prompt, index) => (
+                      <span
+                        className="max-w-full truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
+                        key={`${prompt.name}-${index}`}
+                        title={prompt.description}
+                      >
+                        {prompt.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {view.servers.length > 0 ? (
+                <div className="grid gap-2">
+                  {view.servers.map((server, index) => (
+                    <div
+                      className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]"
+                      key={`${server.id}-${index}`}
+                    >
+                      <span className="truncate font-mono text-[#30343b]">{server.id}</span>
+                      <span className={server.status === "running" ? "text-[#14733f]" : "text-[#687381]"}>{server.status}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {view.inventory.tools.truncated || view.inventory.resources.truncated || view.inventory.prompts.truncated || view.inventory.servers.truncated ? (
+                <p className="text-[10px] text-[#687381]">面板仅显示受限预览；完整清单请使用对应 MCP 列表工具。</p>
+              ) : null}
+              <p className="font-mono text-[9px] text-[#8a94a1]">
+                响应上限 {Math.round(view.limits.responseBytes / 1024)} KiB · 请求超时 {Math.round(view.limits.requestTimeoutMs / 1000)} 秒
+              </p>
             </div>
-          ) : null}
-        </div>
+          );
+        })()
       ) : panel.id === "mcp-panel" ? (
         (() => {
           const servers = Array.isArray(data?.servers) ? data.servers : [];
@@ -3786,7 +4480,9 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
             <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "已启用" : "已停用"}</span>
-            <span className="font-mono text-[10px] text-[#687381]">{value(data?.platform ?? "unknown")}</span>
+            <span className="font-mono text-[10px] text-[#687381]">
+              {value(data?.platform ?? "unknown")} · {value(data?.timeoutMs ?? 10_000)}ms
+            </span>
           </div>
           {Array.isArray(data?.notifications) && data.notifications.length > 0 ? (
             <div className="grid gap-2">
@@ -3794,8 +4490,12 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
                 const item = typeof notification === "object" && notification !== null ? (notification as Record<string, unknown>) : {};
                 return (
                   <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]" key={`${value(item.time ?? "notification")}-${index}`}>
-                    <strong className="block text-[#30343b]">{value(item.title ?? "Pi Harness")}</strong>
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="text-[#30343b]">{value(item.title ?? "Pi Harness")}</strong>
+                      <span className={item.delivered === true ? "text-[#14733f]" : "text-[#b42318]"}>{item.delivered === true ? "已送达" : "未送达"}</span>
+                    </div>
                     <span className="mt-1 block text-[#65707b]">{value(item.message, "")}</span>
+                    {item.delivered !== true && item.reason ? <span className="mt-1 block break-words text-[#b42318]">{value(item.reason)}</span> : null}
                   </div>
                 );
               })}
@@ -3866,188 +4566,358 @@ function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; 
           </p>
         </div>
       ) : panel.id === "browser-fetch-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-            (() => {
-              const result = data.latest as Record<string, unknown>;
-              return (
+        (() => {
+          const view = browserFetchPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+                <strong className="block text-[12px]">Browser Fetch 面板数据异常</strong>
+                <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再抓取。</span>
+              </div>
+            );
+          }
+          const result = view.latest;
+          return (
+            <div className="mt-3 grid gap-3">
+              {result === null ? (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  还没有抓取网页。默认阻止本地和私有网络目标。
+                </div>
+              ) : (
                 <>
                   <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
-                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(result.finalUrl ?? result.url ?? "page")}</span>
-                    <strong className="font-mono text-[12px] text-[#14733f]">HTTP {value(result.status ?? "—")}</strong>
+                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(result.finalUrl || result.url || "page")}</span>
+                    <strong className="font-mono text-[12px] text-[#14733f]">HTTP {value(result.status || "—")}</strong>
                   </div>
                   <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
                     {value(result.text, "")}
                   </pre>
+                  {result.previewTruncated || result.truncated ? (
+                    <p className="text-[10px] text-[#9a6700]">
+                      {result.truncated ? "响应正文已达到抓取上限；" : ""}
+                      {result.previewTruncated ? "面板仅显示有界预览。" : ""}
+                    </p>
+                  ) : null}
                 </>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              还没有抓取网页。默认阻止本地和私有网络目标。
+              )}
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                  max:{value(Math.round(view.limits.responseBytes / 1024))}KiB
+                </span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                  timeout:{value(view.limits.timeoutMs)}ms
+                </span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                  redirects:{value(view.limits.redirects)}
+                </span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">scripts:disabled</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                  private:{value(view.allowPrivate ? "allowed" : "blocked")}
+                </span>
+              </div>
             </div>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">max:512KiB</span>
-            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">scripts:disabled</span>
-            <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
-              private:{value(data?.allowPrivate === true ? "allowed" : "blocked")}
-            </span>
-          </div>
-        </div>
+          );
+        })()
       ) : panel.id === "i18n-pair-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {data?.report !== null && data?.report !== undefined && typeof data.report === "object" ? (
-            (() => {
-              const report = data.report as Record<string, unknown>;
-              const missing = Array.isArray(report.missing) ? report.missing : [];
-              const extra = Array.isArray(report.extra) ? report.extra : [];
-              const healthy = missing.length === 0 && extra.length === 0;
-              return (
+        (() => {
+          const view = i18nPairPanelView(data);
+          const report = view.report;
+          const healthy = report !== null && report.missingTotal === 0 && report.extraTotal === 0;
+          const statusLabel =
+            view.status.state === "unknown"
+              ? "数据异常"
+              : view.status.state === "running"
+                ? "检查中"
+                : view.status.state === "failed"
+                  ? "检查失败"
+                  : view.status.state === "cancelled"
+                    ? "已取消"
+                    : view.status.state === "completed"
+                      ? "已完成"
+                      : "等待检查";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between gap-3 text-[10px] text-[#687381]">
+                <span className="rounded-full border border-[#dce5f5] bg-[#f6f8fa] px-2 py-1 font-semibold text-[#3565c5]">{statusLabel}</span>
+                {view.status.at !== null ? <time className="font-mono">{new Date(view.status.at).toLocaleString()}</time> : null}
+              </div>
+              {view.status.error !== null ? (
+                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">{view.status.error}</div>
+              ) : null}
+              {view.malformed ? (
+                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">
+                  面板数据不完整或不可信，未显示语言包统计。
+                </div>
+              ) : null}
+              {report !== null ? (
                 <>
                   <div
                     className={`rounded-lg border px-3 py-3 text-[11px] ${healthy ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
                   >
-                    {healthy ? "语言包键完全一致。" : `缺失 ${missing.length} 个，额外 ${extra.length} 个。`}
+                    {healthy ? "语言包键完全一致。" : `缺失 ${report.missingTotal} 个，额外 ${report.extraTotal} 个。`}
+                  </div>
+                  <div className="grid gap-2 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-3 font-mono text-[10px]">
+                    <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
+                      <span className="text-[#687381]">基准</span>
+                      <span className="truncate text-[#30343b]" title={report.base}>
+                        {report.base}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
+                      <span className="text-[#687381]">目标</span>
+                      <span className="truncate text-[#30343b]" title={report.target}>
+                        {report.target}
+                      </span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
                       <span className="block text-[10px] text-[#687381]">基准键</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(report.baseKeys ?? 0)}</strong>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{report.baseKeys}</strong>
                     </div>
                     <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
                       <span className="block text-[10px] text-[#687381]">目标键</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(report.targetKeys ?? 0)}</strong>
+                      <strong className="mt-1 block text-[17px] text-[#30343b]">{report.targetKeys}</strong>
                     </div>
                   </div>
+                  {report.missing.length > 0 || report.extra.length > 0 ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        { label: `缺失 · ${report.missingTotal}`, keys: report.missing, tone: "text-[#b42318]" },
+                        { label: `额外 · ${report.extraTotal}`, keys: report.extra, tone: "text-[#9a6700]" },
+                      ].map((group) => (
+                        <div className="min-w-0 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3" key={group.label}>
+                          <strong className={`text-[10px] ${group.tone}`}>{group.label}</strong>
+                          <ul className="mt-2 max-h-36 space-y-1 overflow-auto font-mono text-[10px] text-[#30343b]">
+                            {group.keys.map((key, index) => (
+                              <li className="truncate" key={`${key}-${index}`} title={key}>
+                                {key}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {report.truncated ? <p className="text-[10px] text-[#9a6700]">面板仅显示有界键列表；完整结果保留在工具调用详情中。</p> : null}
                 </>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              还没有检查语言包。可让 Agent 调用 i18n_check。
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  还没有检查语言包。可让 Agent 调用 i18n_check。
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2 font-mono text-[10px] text-[#3565c5]">
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">file:{Math.round(view.limits.fileBytes / 1_048_576)}MiB</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">depth:{view.limits.depth}</span>
+                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">keys:{view.limits.keysPerFile}</span>
+              </div>
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "cleaner-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">快照清理</span>
-              <strong className="font-mono text-[12px] text-[#3565c5]">{value(Array.isArray(data?.capsules) ? data.capsules.length : 0)} 个</strong>
+        (() => {
+          const view = cleanerPanelView(data);
+          if (view.malformed || view.inventory === null) {
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+                <strong className="block text-[12px]">Cleaner 面板数据异常</strong>
+                <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再执行清理。</span>
+              </div>
+            );
+          }
+          const inventory = view.inventory;
+          const activity = view.lastCleanup;
+          const statusLabel =
+            activity?.status === "running"
+              ? "清理中"
+              : activity?.status === "completed"
+                ? "已完成"
+                : activity?.status === "cancelled"
+                  ? "已取消"
+                  : activity?.status === "failed"
+                    ? "清理失败"
+                    : "尚未清理";
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold text-[#30343b]">Git 胶囊库存</span>
+                  <strong className="font-mono text-[12px] text-[#3565c5]">{inventory.total} 个</strong>
+                </div>
+                <p className="mt-2 text-[11px] text-[#687381]">仅清理 agent 数据目录中的 .patch 胶囊，必须显式 confirm=true。</p>
+                <div className="mt-3 flex flex-wrap gap-2 font-mono text-[10px] text-[#3565c5]">
+                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">capsules:{view.limits.capsules}</span>
+                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">scan:{view.limits.directoryEntries}</span>
+                </div>
+              </div>
+              {activity !== null ? (
+                <div className="rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-3">
+                  <div className="flex items-center justify-between gap-3 text-[10px]">
+                    <strong className={activity.status === "failed" ? "text-[#b42318]" : "text-[#30343b]"}>{statusLabel}</strong>
+                    {activity.at !== null ? <time className="font-mono text-[#687381]">{new Date(activity.at).toLocaleString()}</time> : null}
+                  </div>
+                  <div className="mt-2 flex gap-4 text-[11px] text-[#687381]">
+                    <span>
+                      已删 <strong className="font-mono text-[#30343b]">{activity.removed}</strong>
+                    </span>
+                    <span>
+                      保留 <strong className="font-mono text-[#30343b]">{activity.kept ?? "—"}</strong>
+                    </span>
+                    <span>
+                      请求保留 <strong className="font-mono text-[#30343b]">{activity.requestedKeep}</strong>
+                    </span>
+                  </div>
+                  {activity.error !== null ? <p className="mt-2 break-words text-[10px] leading-4 text-[#b42318]">{activity.error}</p> : null}
+                </div>
+              ) : null}
+              {view.capsules.length > 0 ? (
+                <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd]">
+                  {view.capsules.map((capsule, index) => (
+                    <div
+                      className="flex items-center justify-between gap-3 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
+                      key={`${capsule.name}-${index}`}
+                    >
+                      <span className="truncate font-mono text-[10px] text-[#30343b]" title={capsule.name}>
+                        {capsule.name}
+                      </span>
+                      <span className="shrink-0 font-mono text-[9px] text-[#687381]">{capsule.bytes.toLocaleString()} B</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前没有可清理的 Git 胶囊。</div>
+              )}
+              {inventory.truncated ? (
+                <p className="text-[10px] text-[#9a6700]">
+                  面板显示 {inventory.shown} / {inventory.total} 个条目；清理工具仍按完整的有界库存执行。
+                </p>
+              ) : null}
             </div>
-            <p className="mt-2 text-[11px] text-[#687381]">仅清理 agent 数据目录中的 .patch 快照，必须显式 confirm=true。</p>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-[#687381]">
-            <span>上次清理</span>
-            <strong className="font-mono text-[#3565c5]">{value(data?.lastRemoved ?? 0)} 个</strong>
-          </div>
-        </div>
+          );
+        })()
       ) : panel.id === "fail-logger-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg bg-[#fff5f5] px-3 py-3">
-            <span className="text-[11px] font-semibold text-[#7f1d1d]">去重后的失败记录</span>
-            <strong className="font-mono text-[17px] text-[#b42318]">{value(data?.total ?? 0)}</strong>
-          </div>
-          <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3]">
-            {Array.isArray(data?.failures) && data.failures.length > 0 ? (
-              data.failures.map((item, index) => {
-                const failure = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                return (
-                  <div
-                    className="grid grid-cols-[auto_1fr] gap-2 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
-                    key={`${value(failure.time ?? "failure")}-${index}`}
-                  >
-                    <span className="font-mono text-[10px] text-[#b42318]">{value(failure.source ?? "runtime")}</span>
-                    <span className="break-words text-[11px] leading-4 text-[#65707b]">{value(failure.message ?? "未知错误")}</span>
+          {(() => {
+            const view = failLoggerPanelView(data);
+            return (
+              <>
+                <div className="rounded-lg bg-[#fff5f5] px-3 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-[#7f1d1d]">聚合后的失败记录</span>
+                    <strong className="font-mono text-[17px] text-[#b42318]">{view.total}</strong>
                   </div>
-                );
-              })
-            ) : (
-              <div className="px-3 py-4 text-[12px] text-[#687381]">暂无失败记录。</div>
-            )}
-          </div>
+                  <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-[#8b4a4a]">
+                    <span>观测 {view.observed} 次</span>
+                    <span>
+                      容量 {view.total} / {view.capacity}
+                    </span>
+                    {view.dropped > 0 ? <span>已淘汰 {view.dropped} 条旧记录</span> : null}
+                    {view.truncated ? <span>面板明细已截断</span> : null}
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-auto rounded-lg border border-[#edf0f3]">
+                  {view.failures.length > 0 ? (
+                    view.failures.map((failure, index) => (
+                      <div className="border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${failure.time ?? "failure"}-${index}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-[10px] text-[#b42318]">{failure.source}</span>
+                          <span className="flex shrink-0 items-center gap-2 font-mono text-[9px] text-[#8a94a0]">
+                            {failure.occurrences > 1 ? <strong className="text-[#b42318]">×{failure.occurrences}</strong> : null}
+                            {failure.time === null ? "时间未知" : `${failure.time.slice(11, 19)} UTC`}
+                          </span>
+                        </div>
+                        <p className="mt-1 break-words text-[11px] leading-4 text-[#65707b]">{failure.message}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-[12px] text-[#687381]">暂无失败记录。</div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
       ) : panel.id === "context-insight-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#5d6d82]">上下文占用</span>
-              <strong className="text-[13px] font-semibold text-[#315fb8]">
-                {data?.percent === null || data?.percent === undefined ? "—" : `${value(data.percent)}%`}
-              </strong>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
-              <div
-                className="h-full rounded-full bg-[#5d8bea] transition-[width] duration-300"
-                style={{ width: `${Math.max(0, Math.min(100, typeof data?.percent === "number" ? data.percent : 0))}%` }}
-              />
-            </div>
-            <p className="mt-2 text-[11px] text-[#5d6d82]">
-              {data?.tokens === null || data?.tokens === undefined ? "令牌数未知" : `${value(data.tokens)} tokens`}
-              {data?.contextWindow === null || data?.contextWindow === undefined ? "" : ` / ${value(data.contextWindow)} 上限`}
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              ["消息", data?.messages ?? 0],
-              ["事件", data?.events ?? 0],
-              ["压缩", data?.compactions ?? 0],
-            ].map(([label, item]) => (
-              <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
-              </div>
-            ))}
-          </div>
-          <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-[#30343b]">消息组成</span>
-              <span className="text-[10px] text-[#687381]">按角色统计</span>
-            </div>
-            <div className="mt-2 grid grid-cols-5 gap-1.5">
-              {[
-                ["用户", (data?.composition as Record<string, unknown> | undefined)?.user ?? 0],
-                ["助手", (data?.composition as Record<string, unknown> | undefined)?.assistant ?? 0],
-                ["工具", (data?.composition as Record<string, unknown> | undefined)?.toolResult ?? 0],
-                ["系统", (data?.composition as Record<string, unknown> | undefined)?.system ?? 0],
-                ["其他", (data?.composition as Record<string, unknown> | undefined)?.other ?? 0],
-              ].map(([label, item]) => (
-                <div className="rounded bg-[#f6f8fa] px-2 py-1.5 text-center" key={value(label)}>
-                  <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                  <strong className="mt-0.5 block font-mono text-[13px] text-[#30343b]">{value(item)}</strong>
+        (() => {
+          const view = contextInsightsPanelView(data);
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#5d6d82]">上下文占用</span>
+                  <strong className="text-[13px] font-semibold text-[#315fb8]">{view.percent === null ? "—" : `${view.percent}%`}</strong>
                 </div>
-              ))}
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+                  <div className="h-full rounded-full bg-[#5d8bea] transition-[width] duration-300" style={{ width: `${Math.min(100, view.percent ?? 0)}%` }} />
+                </div>
+                <p className="mt-2 text-[11px] text-[#5d6d82]">
+                  {view.tokens === null ? "令牌数未知" : `${view.tokens.toLocaleString()} tokens`}
+                  {view.contextWindow === null ? "" : ` / ${view.contextWindow.toLocaleString()} 上限`}
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["消息", view.messages],
+                  ["事件", view.events],
+                  ["压缩", view.compactions],
+                ].map(([label, item]) => (
+                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
+                    <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[#30343b]">消息组成</span>
+                  <span className="text-[10px] text-[#687381]">
+                    {view.messagesTruncated ? `最近 ${view.scannedMessages} / ${view.messages} 条` : `全部 ${view.scannedMessages} 条`}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-5 gap-1.5">
+                  {[
+                    ["用户", view.composition.user],
+                    ["助手", view.composition.assistant],
+                    ["工具", view.composition.toolResult],
+                    ["系统", view.composition.system],
+                    ["其他", view.composition.other],
+                  ].map(([label, item]) => (
+                    <div className="rounded bg-[#f6f8fa] px-2 py-1.5 text-center" key={value(label)}>
+                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
+                      <strong className="mt-0.5 block font-mono text-[13px] text-[#30343b]">{value(item)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[#30343b]">最近上下文事件</span>
+                  <span className="text-[10px] text-[#687381]">
+                    显示 {view.limits.displayedEvents} / 保留 {view.limits.retainedEvents} 条
+                  </span>
+                </div>
+                <div className="mt-2 max-h-28 overflow-auto">
+                  {view.recentEvents.length > 0 ? (
+                    view.recentEvents.map((event, index) => {
+                      return (
+                        <div
+                          className="flex items-center justify-between border-b border-[#f0f2f5] py-1.5 last:border-b-0"
+                          key={`${event.type}-${event.at ?? "unknown"}-${index}`}
+                        >
+                          <span className="font-mono text-[10px] text-[#5d6d82]">{event.type}</span>
+                          <span className="text-[10px] text-[#687381]">{event.at === null ? "—" : new Date(event.at).toLocaleTimeString()}</span>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="py-2 text-[11px] text-[#687381]">暂无上下文事件。</div>
+                  )}
+                </div>
+                {view.recentEventsTruncated ? <p className="mt-2 text-[10px] text-[#687381]">更早事件已按浏览器显示上限省略。</p> : null}
+              </div>
             </div>
-          </div>
-          <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-[#30343b]">最近上下文事件</span>
-              <span className="text-[10px] text-[#687381]">最多保留 50 条</span>
-            </div>
-            <div className="mt-2 max-h-28 overflow-auto">
-              {Array.isArray(data?.recentEvents) && data.recentEvents.length > 0 ? (
-                data.recentEvents
-                  .slice(-6)
-                  .reverse()
-                  .map((item, index) => {
-                    const event = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                    return (
-                      <div
-                        className="flex items-center justify-between border-b border-[#f0f2f5] py-1.5 last:border-b-0"
-                        key={`${value(event.type)}-${value(event.at)}-${index}`}
-                      >
-                        <span className="font-mono text-[10px] text-[#5d6d82]">{value(event.type, "unknown")}</span>
-                        <span className="text-[10px] text-[#687381]">{typeof event.at === "number" ? new Date(event.at).toLocaleTimeString() : "—"}</span>
-                      </div>
-                    );
-                  })
-              ) : (
-                <div className="py-2 text-[11px] text-[#687381]">暂无上下文事件。</div>
-              )}
-            </div>
-          </div>
-        </div>
+          );
+        })()
       ) : (
         <div className="mt-3 grid gap-2">
           {entries.map(([key, item]) => (

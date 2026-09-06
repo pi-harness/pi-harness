@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/context-doctor",
   "version": "0.1.12",
   "name": "Context Doctor",
-  "description": "Audit context pressure, oversized messages, and tool errors before a long task runs out of context.",
+  "description": "Descriptor-safe bounded context audits detect pressure, oversized or uninspectable messages, and tool errors. Compaction requests are queued until the agent has settled; confirmed model-backed compaction may incur cost and provides cancellable waits with dedicated cancellation.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,15 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": ["context audit", "compaction guidance", "tool error detection"],
-  "hooks": ["session messages", "context usage", "plugin UI"],
+  "capabilities": [
+    "descriptor-safe bounded context audit",
+    "pressure oversized uninspectable and tool-error diagnostics",
+    "confirmed settled-session compaction",
+    "dedicated compaction cancellation",
+    "single-flight bounded operation status",
+    "cached normalized panel"
+  ],
+  "hooks": ["context doctor tool", "session messages and usage", "Pi session lifecycle", "manual compaction", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/context-doctor",
     "config": {}

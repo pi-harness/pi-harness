@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, parseSessionEntries, SessionManager, type AgentToolResult, type SessionInfo } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig } from "../config.js";
 
 const maxQueryLength = 120;
 const maxPreviewLength = 500;
@@ -79,6 +80,7 @@ async function searchSessions(sessions: readonly SessionInfo[], query: string): 
 export default {
   name: "pi-session-search",
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let latest: { query: string; total: number; items: SessionSearchItem[] } | undefined;
     const search = async (query: string): Promise<SessionSearchItem[]> => {
@@ -95,7 +97,8 @@ export default {
         label: "Search sessions",
         description: "Search persisted Pi JSONL sessions for a bounded text query without modifying session files.",
         promptSnippet: "search previous Pi sessions for a phrase",
-        parameters: Type.Object({ query: Type.String({ description: "Text to search for, 1-120 characters" }) }),
+        parameters: Type.Object({ query: Type.String({ description: "Text to search for, 1-120 characters" }) }, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<{ query: string; total: number; items: SessionSearchItem[] }>> {
           const items = await search(params.query);
           return {

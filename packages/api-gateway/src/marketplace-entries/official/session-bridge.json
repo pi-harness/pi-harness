@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/session-bridge",
   "version": "0.1.12",
   "name": "Session Bridge",
-  "description": "Preview, export, and import bounded five-part session handoffs without modifying the source session.",
+  "description": "Preview and export handoffs, then require confirmed import of a strictly validated, bounded package into the active LLM context with duplicate protection.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,16 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["session handoff", "five-part preview", "import/export"],
-  "hooks": ["session manager", "plugin UI", "agent tool"],
+  "capabilities": [
+    "strict bounded handoff format",
+    "five-part review preview",
+    "confirmed context import",
+    "active-session targeting",
+    "duplicate import protection",
+    "bounded operation status",
+    "bounded normalized panel"
+  ],
+  "hooks": ["session bridge tools", "active session manager", "custom context messages", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/session-bridge",
     "config": {}

@@ -2,10 +2,12 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
 import runtimePlugin from "../src/plugins/runtime.js";
-import { createTestRuntimeContext } from "./runtime-fixture.js";
+import { PiRuntime } from "../src/runtime.js";
+import { PiToolRegistry } from "../src/services.js";
+import { createTestRuntimeContext, createTestRuntimeServices } from "./runtime-fixture.js";
 
 const contexts: Context[] = [];
 
@@ -122,6 +124,73 @@ describe("Pi runtime plugin", () => {
     expect(order).toEqual(["teardown:start", "teardown:end", "second-session:created"]);
   }, 20_000);
 
+  test("releases the SessionManager gate when initial runtime creation fails", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-gate-recovery-"));
+    const { context } = await createTestRuntimeServices([], [], { noExtensions: false, agentDir });
+    contexts.push(context);
+    context.piResources.resourceLoader.getExtensions().errors.push({ path: "reload-broken.js", error: "gate creation failure" });
+
+    await expect(context.plugin(runtimePlugin, { thinkingLevel: "off" })).rejects.toThrow(/gate creation failure/iu);
+    const unregisterProbe = context.piTools.register({ name: "gate-recovery-probe" } as never);
+    unregisterProbe();
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+    let recoveryError: unknown;
+    const activation = context.plugin(runtimePlugin, { thinkingLevel: "off" }).then(
+      () => {
+        outcome = "resolved";
+      },
+      (error: unknown) => {
+        outcome = "rejected";
+        recoveryError = error;
+      },
+    );
+
+    await vi.waitFor(() => expect(outcome).not.toBe("pending"), { timeout: 1_000, interval: 10 });
+    expect(recoveryError).toBeInstanceOf(Error);
+    expect((recoveryError as Error).message).toMatch(/gate creation failure/iu);
+    expect(outcome).toBe("rejected");
+    await activation;
+  });
+
+  test("releases the SessionManager gate when runtime binding fails", async () => {
+    const { context } = await createRuntimeContext();
+    const shared = {
+      piHarnessLaunch: context.get("piHarnessLaunch"),
+      piModelRuntime: context.get("piModelRuntime"),
+      piModels: context.get("piModels"),
+      piResources: context.get("piResources"),
+      piSession: context.get("piSession"),
+    };
+    await context.fiber.dispose();
+
+    const failing = new Context();
+    contexts.push(failing);
+    for (const [service, value] of Object.entries(shared)) failing.provide(service as keyof typeof shared, value as never);
+    failing.provide("piTools", new PiToolRegistry(["not-a-pi-tool"]));
+    await expect(failing.plugin(runtimePlugin, { thinkingLevel: "off" })).rejects.toThrow(/not-a-pi-tool/iu);
+
+    const recovery = new Context();
+    contexts.push(recovery);
+    for (const [service, value] of Object.entries(shared)) recovery.provide(service as keyof typeof shared, value as never);
+    recovery.provide("piTools", new PiToolRegistry());
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+    let recoveryError: unknown;
+    const activation = recovery.plugin(runtimePlugin, { thinkingLevel: "off" }).then(
+      () => {
+        outcome = "resolved";
+      },
+      (error: unknown) => {
+        outcome = "rejected";
+        recoveryError = error;
+      },
+    );
+
+    await vi.waitFor(() => expect(outcome).not.toBe("pending"), { timeout: 1_000, interval: 10 });
+    expect(recoveryError).toBeUndefined();
+    expect(outcome).toBe("resolved");
+    await activation;
+  });
+
   test("disposes the Pi session even when the in-flight abort rejects", async () => {
     const { context } = await createRuntimeContext();
     const runtime = context.piRuntime;
@@ -141,6 +210,37 @@ describe("Pi runtime plugin", () => {
     await expect(runtime.prompt("too late")).rejects.toThrow(/disposed/);
   });
 
+  test("makes concurrent disposal callers wait for the same teardown", async () => {
+    let resolveAbort: (() => void) | undefined;
+    let runtimeDisposals = 0;
+    const runtime = new PiRuntime({
+      session: {
+        isIdle: false,
+        abort: () =>
+          new Promise<void>((resolve) => {
+            resolveAbort = resolve;
+          }),
+      },
+      dispose: () => {
+        runtimeDisposals += 1;
+        return Promise.resolve();
+      },
+    } as never);
+
+    const first = runtime.dispose();
+    await vi.waitFor(() => expect(resolveAbort).toBeDefined());
+    let secondSettled = false;
+    const second = runtime.dispose().then(() => {
+      secondSettled = true;
+    });
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
+
+    resolveAbort?.();
+    await Promise.all([first, second]);
+    expect(runtimeDisposals).toBe(1);
+  });
+
   test("keeps the agent run alive when a pi/session-event listener throws", async () => {
     const { context, responseText, callCount } = await createRuntimeContext();
     const extensionErrors: string[] = [];
@@ -156,5 +256,58 @@ describe("Pi runtime plugin", () => {
     expect(responseText.join("")).toBe("deterministic response");
     expect(callCount()).toBe(1);
     expect(extensionErrors).toContain("listener boom");
+  });
+
+  test("bounds listener failures without executing hostile error accessors", async () => {
+    const { context, responseText, callCount } = await createRuntimeContext();
+    const extensionErrors: string[] = [];
+    let accessed = false;
+    let events = 0;
+    const hostile = new Error();
+    Object.defineProperty(hostile, "message", {
+      get() {
+        accessed = true;
+        throw new Error("hostile error getter executed");
+      },
+    });
+    context.on("pi/extension-error", (error) => {
+      extensionErrors.push(error.error);
+    });
+    context.on("pi/session-event", () => {
+      events += 1;
+      throw events === 1 ? new Error("x".repeat(3_000)) : hostile;
+    });
+
+    await context.piRuntime.prompt("respond once");
+
+    expect(responseText.join("")).toBe("deterministic response");
+    expect(callCount()).toBe(1);
+    expect(events).toBeGreaterThan(1);
+    expect(extensionErrors[0]).toHaveLength(2_000);
+    expect(extensionErrors).toContain("Unknown pi/session-event listener error");
+    expect(accessed).toBe(false);
+  });
+
+  test("keeps extension-error observers from interrupting the agent run", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-extension-error-observer-"));
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    await writeFile(
+      join(agentDir, "extensions", "probe.js"),
+      `export default function (pi) { pi.on("turn_start", () => { throw new Error("extension turn failure"); }); }`,
+      "utf8",
+    );
+    const { context, faux } = await createTestRuntimeContext([fauxAssistantMessage("response survived")], [], { noExtensions: false, agentDir });
+    contexts.push(context);
+    let observed = 0;
+    context.on("pi/extension-error", () => {
+      observed += 1;
+      throw new Error("extension error observer failed");
+    });
+
+    await context.piRuntime.prompt("respond once");
+
+    expect(observed).toBeGreaterThan(0);
+    expect(faux.state.callCount).toBe(1);
+    expect(context.piRuntime.session.messages.some((message) => message.role === "assistant")).toBe(true);
   });
 });

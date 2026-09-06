@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/context",
   "version": "0.1.12",
   "name": "Context Insights",
-  "description": "Expose bounded runtime context diagnostics so agents can reason about loaded resources and session state.",
+  "description": "Inspect context usage and descriptor-safe bounded message composition with cached active-session lifecycle counters and a fixed-limit normalized browser panel.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,14 @@
     "id": "context",
     "label": "上下文管理"
   },
-  "capabilities": ["context", "diagnostics"],
-  "hooks": ["session event", "plugin UI"],
+  "capabilities": [
+    "descriptor-safe bounded message composition",
+    "resilient context usage inspection",
+    "active-session lifecycle counters",
+    "cached session-aware panel",
+    "bounded normalized browser view"
+  ],
+  "hooks": ["context inspection tool", "active runtime session", "Pi session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/context",
     "config": {}

@@ -1,0 +1,244 @@
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { Context } from "@deepseek-ai/cordis";
+import { afterEach, describe, expect, test } from "vitest";
+import sqlLensPlugin, { Config } from "../src/plugins/sql-lens.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+async function createFixture(config?: { timeoutMs?: number }) {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-harness-sql-lens-workspace-"));
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-sql-lens-agent-"));
+  temporaryDirectories.push(cwd, agentDir);
+  const databasePath = join(cwd, "data.db");
+  const database = new DatabaseSync(databasePath);
+  database.exec("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, content TEXT, payload BLOB); INSERT INTO users(id, name) VALUES (1, 'Ada');");
+  database.close();
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  context.provide("piHarnessLaunch", { cwd, agentDir, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(sqlLensPlugin, config);
+  const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "sql_readonly");
+  if (tool === undefined) throw new Error("sql_readonly was not registered");
+  return { context, cwd, databasePath, panels, tool };
+}
+
+describe("SQL Lens production boundaries", () => {
+  test("exports strict config and a sequential strict-schema tool", async () => {
+    expect(Config).toBeDefined();
+    const fixture = await createFixture();
+    try {
+      expect(fixture.tool).toMatchObject({
+        executionMode: "sequential",
+        parameters: {
+          additionalProperties: false,
+          properties: {
+            database: { type: "string" },
+            query: { type: "string" },
+          },
+        },
+      });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects hostile config and rolls back registration when the panel conflicts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-sql-lens-config-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-sql-lens-agent-"));
+    temporaryDirectories.push(cwd, agentDir);
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piHarnessLaunch", { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    panels.register({ id: "sql-lens-panel", pluginId: "fixture", title: "Fixture", read: () => ({}) });
+    try {
+      await expect(context.plugin(sqlLensPlugin, { unexpected: true } as never)).rejects.toThrow(/unknown.*config|unexpected/iu);
+      expect(tools.snapshot().customTools).toEqual([]);
+      await expect(context.plugin(sqlLensPlugin)).rejects.toThrow(/already registered.*sql-lens-panel/iu);
+      expect(tools.snapshot().customTools).toEqual([]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+  test("allows comments, comparisons, and mutation words inside string literals", async () => {
+    const fixture = await createFixture();
+    const query = "-- update is data, not syntax\nSELECT id, 'delete; x = y' AS note FROM users WHERE id = 1; -- trailing comment";
+    try {
+      await expect(fixture.tool.execute("legal", { database: "data.db", query }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { columns: ["id", "note"], rows: [{ id: 1, note: "delete; x = y" }], truncated: false, scannedRows: 1 },
+      });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects additional SQL statements and non-result mutations", async () => {
+    const fixture = await createFixture();
+    try {
+      await expect(fixture.tool.execute("multiple", { database: "data.db", query: "SELECT 1; SELECT 2" }, undefined, undefined, {} as never)).rejects.toThrow(
+        /single.*statement|multiple.*statement/iu,
+      );
+      await expect(
+        fixture.tool.execute(
+          "cte-delete",
+          { database: "data.db", query: "WITH doomed AS (SELECT id FROM users) DELETE FROM users WHERE id IN (SELECT id FROM doomed)" },
+          undefined,
+          undefined,
+          {} as never,
+        ),
+      ).rejects.toThrow(/read-only|result.*query|denied/iu);
+      const database = new DatabaseSync(fixture.databasePath, { readOnly: true });
+      expect(database.prepare("SELECT COUNT(*) AS total FROM users").get()).toMatchObject({ total: 1 });
+      database.close();
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("strictly validates raw parameters without invoking accessors", async () => {
+    const fixture = await createFixture();
+    let accessed = false;
+    const accessor = { database: "data.db" } as { database: string; query?: string };
+    Object.defineProperty(accessor, "query", {
+      enumerable: true,
+      get() {
+        accessed = true;
+        throw new Error("SQL accessor executed");
+      },
+    });
+    try {
+      await expect(fixture.tool.execute("accessor", accessor, undefined, undefined, {} as never)).rejects.toThrow(/parameters.*data properties/iu);
+      expect(accessed).toBe(false);
+      await expect(fixture.tool.execute("unknown", { database: "data.db", extra: true }, undefined, undefined, {} as never)).rejects.toThrow(
+        /unknown property/iu,
+      );
+      await expect(fixture.tool.execute("null", { database: null }, undefined, undefined, {} as never)).rejects.toThrow(/database.*string/iu);
+      await expect(fixture.tool.execute("nul", { query: "SELECT 1\0" }, undefined, undefined, {} as never)).rejects.toThrow(/query.*NUL/iu);
+      const inherited = Object.create({ database: "data.db" }) as Record<string, unknown>;
+      await expect(fixture.tool.execute("inherited", inherited, undefined, undefined, {} as never)).rejects.toThrow(/plain object/iu);
+      const revoked = Proxy.revocable({}, {});
+      revoked.revoke();
+      await expect(fixture.tool.execute("revoked", revoked.proxy, undefined, undefined, {} as never)).rejects.toThrow(/accessible plain object/iu);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("bounds rows and large cell values before returning them", async () => {
+    const fixture = await createFixture();
+    const database = new DatabaseSync(fixture.databasePath);
+    database.prepare("UPDATE users SET content = ?, payload = ? WHERE id = 1").run("x".repeat(20_000), Buffer.alloc(70_000, 0xab));
+    database.close();
+    try {
+      const large = await fixture.tool.execute(
+        "large",
+        { database: "data.db", query: "SELECT content, payload FROM users" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      const row = (large.details as { rows: Array<{ content: string; payload: unknown }> }).rows[0];
+      expect(row?.content).toBe("x".repeat(16_384) + "…");
+      expect(row?.payload).toMatchObject({ type: "blob", bytes: 70_000, truncated: true });
+
+      const many = await fixture.tool.execute(
+        "many",
+        {
+          database: "data.db",
+          query: "WITH RECURSIVE count(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM count WHERE x < 1000) SELECT x FROM count",
+        },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect((many.details as { rows: unknown[] }).rows).toHaveLength(100);
+      expect(many.details).toMatchObject({ truncated: true, scannedRows: 101 });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("honors caller and plugin lifecycle cancellation", async () => {
+    const callerFixture = await createFixture();
+    const controller = new AbortController();
+    controller.abort(new Error("SQL caller cancelled"));
+    try {
+      await expect(callerFixture.tool.execute("caller", {}, controller.signal, undefined, {} as never)).rejects.toThrow("SQL caller cancelled");
+    } finally {
+      await callerFixture.context.fiber.dispose();
+    }
+
+    const lifecycleFixture = await createFixture();
+    await lifecycleFixture.context.fiber.dispose();
+    await expect(lifecycleFixture.tool.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow("SQL Lens plugin disposed");
+  });
+
+  test("publishes detached bounded panel state and operational limits", async () => {
+    const fixture = await createFixture({ timeoutMs: 1_500 });
+    try {
+      const result = await fixture.tool.execute("panel", { database: "data.db", query: "SELECT id, name FROM users" }, undefined, undefined, {} as never);
+      (result.details as { rows: Array<{ name: string }> }).rows[0]!.name = "mutated through tool";
+      const first = await fixture.panels.snapshot();
+      expect(first).toMatchObject([
+        {
+          id: "sql-lens-panel",
+          data: {
+            status: { state: "completed" },
+            latest: { database: "data.db", columns: ["id", "name"], rows: [{ id: 1, name: "Ada" }], scannedRows: 1 },
+            limits: { queryLength: 65_536, databaseBytes: 268_435_456, rows: 100, columns: 128, stringLength: 16_384, resultBytes: 1_048_576 },
+            timeoutMs: 1_500,
+          },
+        },
+      ]);
+      const firstData = first[0]?.data as { latest: { rows: Array<{ name: string }> } };
+      firstData.latest.rows[0]!.name = "mutated through panel";
+      const second = await fixture.panels.snapshot();
+      expect((second[0]?.data as { latest: { rows: Array<{ name: string }> } }).latest.rows[0]?.name).toBe("Ada");
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("terminates an expensive aggregate when the configured timeout expires", async () => {
+    const fixture = await createFixture({ timeoutMs: 100 });
+    const query = "WITH RECURSIVE count(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM count WHERE x < 100000000) SELECT sum(x) AS total FROM count";
+    try {
+      await expect(fixture.tool.execute("timeout", { database: "data.db", query }, undefined, undefined, {} as never)).rejects.toThrow(
+        /timed out after 100ms/iu,
+      );
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([
+        { data: { status: { state: "failed", error: "SQL Lens query timed out after 100ms" }, timeoutMs: 100 } },
+      ]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects symbolic-link SQLite sidecar files", async () => {
+    if (process.platform === "win32") return;
+    const fixture = await createFixture();
+    const outside = join(fixture.cwd, "outside-wal");
+    await writeFile(outside, "outside", "utf8");
+    await symlink(outside, fixture.databasePath + "-wal");
+    try {
+      await expect(fixture.tool.execute("sidecar", { database: "data.db", query: "SELECT id FROM users" }, undefined, undefined, {} as never)).rejects.toThrow(
+        /sidecar.*symbolic link/iu,
+      );
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+});

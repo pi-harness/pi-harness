@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/plugin-stars",
   "version": "0.1.12",
   "name": "Plugin Stars",
-  "description": "Browse the public dsh-plugin-stars ranking with bounded metadata and source links.",
+  "description": "Search a curated raw.githubusercontent.com plugin snapshot through descriptor-safe inputs, strict bounded validation, a cancellable lifecycle, and fail-closed panel reporting.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,10 +13,21 @@
     "id": "discovery",
     "label": "发现与生态"
   },
-  "capabilities": ["ranking", "search", "ecosystem"],
-  "hooks": ["network fetch", "plugin UI"],
+  "capabilities": [
+    "curated GitHub ranking search",
+    "strict bounded snapshot validation",
+    "redirect-free source fetch",
+    "cancellable request lifecycle",
+    "bounded panel inventory",
+    "validated fail-closed panel reporting"
+  ],
+  "hooks": ["ranking search tool", "raw GitHub snapshot", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/plugin-stars",
-    "config": {}
+    "config": {
+      "sourceUrl": "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json",
+      "limit": 10,
+      "timeoutMs": 15000
+    }
   }
 }

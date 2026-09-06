@@ -75,19 +75,26 @@ export default {
         if (!response.hasHeader("content-type")) response.setHeader("content-type", "text/plain; charset=utf-8");
         response.end(route.body ?? "");
       });
-      await new Promise<void>((resolve, reject) => {
-        const onError = (error: Error): void => {
-          server?.off("listening", onListening);
-          reject(error);
-        };
-        const onListening = (): void => {
-          server?.off("error", onError);
-          resolve();
-        };
-        server!.once("error", onError);
-        server!.once("listening", onListening);
-        server!.listen(port, "127.0.0.1");
-      });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (error: Error): void => {
+            server?.off("listening", onListening);
+            reject(error);
+          };
+          const onListening = (): void => {
+            server?.off("error", onError);
+            resolve();
+          };
+          server!.once("error", onError);
+          server!.once("listening", onListening);
+          server!.listen(port, "127.0.0.1");
+        });
+      } catch (error) {
+        const failed = server;
+        server = undefined;
+        failed?.close();
+        throw error;
+      }
       const address = server.address();
       if (address === null || typeof address === "string") throw new Error("Mock server did not expose a TCP address");
       state = { ...state, running: true, url: `http://127.0.0.1:${address.port}` };
@@ -101,58 +108,82 @@ export default {
       state = { ...state, running: false, url: null };
       return true;
     };
-    const unregisterStart = context.piTools.register(
-      defineTool({
-        name: "mock_server_start",
-        label: "Mock server start",
-        description: "Start a local deterministic HTTP mock server from configured routes.",
-        promptSnippet: "start the local mock HTTP server",
-        parameters: Type.Object({ port: Type.Optional(Type.Number({ description: "Bind port; 0 selects a free local port" })) }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<MockServerState>> {
-          const result = await start(params.port);
-          return { content: [{ type: "text", text: `Mock server listening at ${result.url}` }], details: result };
-        },
-      }),
-    );
-    const unregisterStop = context.piTools.register(
-      defineTool({
-        name: "mock_server_stop",
-        label: "Mock server stop",
-        description: "Stop the local HTTP mock server.",
-        promptSnippet: "stop the local mock HTTP server",
-        parameters: Type.Object({}),
-        async execute(): Promise<AgentToolResult<{ stopped: boolean }>> {
-          const stopped = await stop();
-          return { content: [{ type: "text", text: stopped ? "Mock server stopped." : "Mock server was not running." }], details: { stopped } };
-        },
-      }),
-    );
-    const unregisterStatus = context.piTools.register(
-      defineTool({
-        name: "mock_server_status",
-        label: "Mock server status",
-        description: "Show local HTTP mock server status and route count.",
-        promptSnippet: "check the local mock server status",
-        parameters: Type.Object({}),
-        execute(): Promise<AgentToolResult<MockServerState>> {
-          return Promise.resolve({ content: [{ type: "text", text: `${state.running ? "running" : "stopped"} ${state.url ?? ""}`.trim() }], details: state });
-        },
-      }),
-    );
-    const disposePanel = context.piPluginUi.register({
-      id: "mock-server-panel",
-      pluginId: "@pi-harness/core/plugins/mock-server",
-      title: "Mock Server",
-      description: "在本机回环地址提供可控的 HTTP mock 路由。",
-      icon: "⇄",
-      read: () => state,
-    });
+    let unregisterStart: () => void = () => {};
+    let unregisterStop: () => void = () => {};
+    let unregisterStatus: () => void = () => {};
+    try {
+      unregisterStart = context.piTools.register(
+        defineTool({
+          name: "mock_server_start",
+          label: "Mock server start",
+          description: "Start a local deterministic HTTP mock server from configured routes.",
+          promptSnippet: "start the local mock HTTP server",
+          parameters: Type.Object(
+            { port: Type.Optional(Type.Number({ description: "Bind port; 0 selects a free local port" })) },
+            { additionalProperties: false },
+          ),
+          executionMode: "sequential",
+          async execute(_toolCallId, params): Promise<AgentToolResult<MockServerState>> {
+            const result = await start(params.port);
+            return { content: [{ type: "text", text: `Mock server listening at ${result.url}` }], details: result };
+          },
+        }),
+      );
+      unregisterStop = context.piTools.register(
+        defineTool({
+          name: "mock_server_stop",
+          label: "Mock server stop",
+          description: "Stop the local HTTP mock server.",
+          promptSnippet: "stop the local mock HTTP server",
+          parameters: Type.Object({}, { additionalProperties: false }),
+          executionMode: "sequential",
+          async execute(): Promise<AgentToolResult<{ stopped: boolean }>> {
+            const stopped = await stop();
+            return { content: [{ type: "text", text: stopped ? "Mock server stopped." : "Mock server was not running." }], details: { stopped } };
+          },
+        }),
+      );
+      unregisterStatus = context.piTools.register(
+        defineTool({
+          name: "mock_server_status",
+          label: "Mock server status",
+          description: "Show local HTTP mock server status and route count.",
+          promptSnippet: "check the local mock server status",
+          parameters: Type.Object({}, { additionalProperties: false }),
+          executionMode: "sequential",
+          execute(): Promise<AgentToolResult<MockServerState>> {
+            return Promise.resolve({ content: [{ type: "text", text: `${state.running ? "running" : "stopped"} ${state.url ?? ""}`.trim() }], details: state });
+          },
+        }),
+      );
+    } catch (error) {
+      unregisterStart();
+      unregisterStop();
+      unregisterStatus();
+      throw error;
+    }
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "mock-server-panel",
+        pluginId: "@pi-harness/core/plugins/mock-server",
+        title: "Mock Server",
+        description: "在本机回环地址提供可控的 HTTP mock 路由。",
+        icon: "⇄",
+        read: () => state,
+      });
+    } catch (error) {
+      unregisterStart();
+      unregisterStop();
+      unregisterStatus();
+      throw error;
+    }
     context.effect(() => () => {
       unregisterStart();
       unregisterStop();
       unregisterStatus();
       disposePanel();
-      void stop();
+      void stop().catch(() => undefined);
     });
   },
 };

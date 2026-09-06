@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { lstat, mkdir, open } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { basename, dirname, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
@@ -127,6 +127,23 @@ function withTransaction<T>(database: DatabaseSync, operation: () => T): T {
   }
 }
 
+async function prepareDatabasePath(filePath: string): Promise<{ dev: number; ino: number }> {
+  try {
+    const handle = await open(filePath, "wx", 0o600);
+    try {
+      const metadata = await handle.stat();
+      return { dev: metadata.dev, ino: metadata.ino };
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (!(typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "EEXIST")) throw error;
+    const metadata = await lstat(filePath);
+    if (!metadata.isFile()) throw new Error("Taskboard database must be a regular file and cannot be a symbolic link", { cause: error });
+    return { dev: metadata.dev, ino: metadata.ino };
+  }
+}
+
 export default {
   name: "pi-taskboard",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
@@ -139,25 +156,29 @@ export default {
 
     const withDatabase = async <T>(operation: (database: DatabaseSync) => T): Promise<T> => {
       await mkdir(dirname(filePath), { recursive: true });
+      const expected = await prepareDatabasePath(filePath);
       const database = new DatabaseSync(filePath);
-      database.exec(`
-        CREATE TABLE IF NOT EXISTS tasks (
-          id TEXT PRIMARY KEY,
-          task_key TEXT NOT NULL UNIQUE,
-          workspace TEXT NOT NULL,
-          title TEXT NOT NULL,
-          description TEXT NOT NULL DEFAULT '',
-          status TEXT NOT NULL CHECK (status IN ('backlog','todo','in_progress','in_review','blocked','canceled','done')),
-          priority TEXT NOT NULL CHECK (priority IN ('low','medium','high','urgent')),
-          due_date TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          version INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS tasks_workspace_updated ON tasks(workspace, updated_at DESC);
-        CREATE INDEX IF NOT EXISTS tasks_workspace_status ON tasks(workspace, status);
-      `);
       try {
+        const actual = await lstat(filePath);
+        if (!actual.isFile() || actual.dev !== expected.dev || actual.ino !== expected.ino)
+          throw new Error("Taskboard database must remain the same regular file while opening");
+        database.exec(`
+          CREATE TABLE IF NOT EXISTS tasks (
+            id TEXT PRIMARY KEY,
+            task_key TEXT NOT NULL UNIQUE,
+            workspace TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK (status IN ('backlog','todo','in_progress','in_review','blocked','canceled','done')),
+            priority TEXT NOT NULL CHECK (priority IN ('low','medium','high','urgent')),
+            due_date TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            version INTEGER NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS tasks_workspace_updated ON tasks(workspace, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS tasks_workspace_status ON tasks(workspace, status);
+        `);
         return operation(database);
       } finally {
         database.close();
@@ -184,12 +205,16 @@ export default {
       label: "Create taskboard task",
       description: "Create a local project task with a stable readable key and an explicit priority.",
       promptSnippet: "create a taskboard task for this workspace",
-      parameters: Type.Object({
-        title: Type.String(),
-        description: Type.Optional(Type.String()),
-        priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("urgent")])),
-        dueDate: Type.Optional(Type.String()),
-      }),
+      parameters: Type.Object(
+        {
+          title: Type.String(),
+          description: Type.Optional(Type.String()),
+          priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("urgent")])),
+          dueDate: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+      executionMode: "sequential",
       async execute(_toolCallId, params): Promise<AgentToolResult<Task>> {
         const title = normalizeText(params.title, "Taskboard title", maxTitleLength);
         const description = normalizeDescription(params.description);
@@ -244,13 +269,17 @@ export default {
       label: "List taskboard tasks",
       description: "List bounded local tasks for this workspace, optionally filtered by status or text.",
       promptSnippet: "list taskboard tasks for this workspace",
-      parameters: Type.Object({
-        status: Type.Optional(
-          Type.Union(statuses.map((status) => Type.Literal(status)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]),
-        ),
-        query: Type.Optional(Type.String()),
-        limit: Type.Optional(Type.Number()),
-      }),
+      parameters: Type.Object(
+        {
+          status: Type.Optional(
+            Type.Union(statuses.map((status) => Type.Literal(status)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]),
+          ),
+          query: Type.Optional(Type.String()),
+          limit: Type.Optional(Type.Number()),
+        },
+        { additionalProperties: false },
+      ),
+      executionMode: "sequential",
       async execute(_toolCallId, params): Promise<AgentToolResult<TaskReport>> {
         const query = params.query === undefined ? undefined : normalizeText(params.query, "Taskboard query", maxQueryLength);
         const limit = Math.max(1, Math.min(maxTasksPerList, Math.trunc(params.limit ?? 20)));
@@ -291,22 +320,26 @@ export default {
       label: "Update taskboard task",
       description: "Update task details or move a task through the agent-owned workflow; completion requires taskboard_accept.",
       promptSnippet: "update a taskboard task without bypassing completion review",
-      parameters: Type.Object({
-        key: Type.String(),
-        title: Type.Optional(Type.String()),
-        description: Type.Optional(Type.String()),
-        status: Type.Optional(
-          Type.Union(
-            statuses.filter((status) => status !== "done").map((status) => Type.Literal(status)) as [
-              ReturnType<typeof Type.Literal>,
-              ...ReturnType<typeof Type.Literal>[],
-            ],
+      parameters: Type.Object(
+        {
+          key: Type.String(),
+          title: Type.Optional(Type.String()),
+          description: Type.Optional(Type.String()),
+          status: Type.Optional(
+            Type.Union(
+              statuses.filter((status) => status !== "done").map((status) => Type.Literal(status)) as [
+                ReturnType<typeof Type.Literal>,
+                ...ReturnType<typeof Type.Literal>[],
+              ],
+            ),
           ),
-        ),
-        priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("urgent")])),
-        dueDate: Type.Optional(Type.String()),
-        clearDueDate: Type.Optional(Type.Boolean()),
-      }),
+          priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("urgent")])),
+          dueDate: Type.Optional(Type.String()),
+          clearDueDate: Type.Optional(Type.Boolean()),
+        },
+        { additionalProperties: false },
+      ),
+      executionMode: "sequential",
       async execute(_toolCallId, params): Promise<AgentToolResult<Task>> {
         const key = normalizeText(params.key, "Taskboard key", 32).toUpperCase();
         if (params.status === "done") throw new Error("Taskboard tasks must reach in_review before taskboard_accept can mark them done");
@@ -354,7 +387,8 @@ export default {
       label: "Accept taskboard task",
       description: "Accept a task in review as done after explicit confirmation.",
       promptSnippet: "accept a reviewed taskboard task as done",
-      parameters: Type.Object({ key: Type.String(), confirm: Type.Boolean() }),
+      parameters: Type.Object({ key: Type.String(), confirm: Type.Boolean() }, { additionalProperties: false }),
+      executionMode: "sequential",
       async execute(_toolCallId, params): Promise<AgentToolResult<Task>> {
         const key = normalizeText(params.key, "Taskboard key", 32).toUpperCase();
         if (params.confirm !== true) throw new Error("Accepting a task requires confirm=true");

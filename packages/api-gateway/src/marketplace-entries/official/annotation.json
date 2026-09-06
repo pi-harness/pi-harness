@@ -14,7 +14,7 @@
     "label": "上下文管理"
   },
   "capabilities": ["annotations", "context"],
-  "hooks": ["session event", "plugin UI"],
+  "hooks": ["plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/annotation",
     "config": {}

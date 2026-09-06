@@ -9,6 +9,7 @@ import resourcesPlugin from "../src/plugins/resources.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 import { Config as ModelsConfig } from "../src/plugins/models.js";
+import { EmptyConfig } from "../src/config.js";
 
 const contexts: Context[] = [];
 
@@ -26,6 +27,13 @@ async function createContext(): Promise<{ context: Context; cwd: string; agentDi
 }
 
 describe("plugin configuration validation", () => {
+  test("rejects non-plain and symbol-keyed empty plugin configuration", () => {
+    expect(() => EmptyConfig([] as never)).toThrow(/object/iu);
+    expect(() => EmptyConfig(Object.create({ inherited: true }))).toThrow(/plain object/iu);
+    const symbolConfig = { [Symbol("unexpected")]: true };
+    expect(() => EmptyConfig(symbolConfig)).toThrow(/unknown config keys/iu);
+  });
+
   test("rejects an unknown key instead of silently restoring the default toolset", async () => {
     const { context } = await createContext();
 

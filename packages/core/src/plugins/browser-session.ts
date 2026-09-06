@@ -11,22 +11,61 @@ type BrowserSessionResult = {
   title: string;
   status?: string;
   truncated?: boolean;
+  previewTruncated?: boolean;
   text?: string;
   clicked?: boolean;
-  screenshot?: { data: string; mimeType: string };
+  screenshot?: { bytes: number; mimeType: string };
 };
 
 const requestTimeoutMs = 15_000;
+const maxTabListBytes = 1024 * 1024;
+const maxTabItems = 256;
+const maxCdpResponseBytes = 12 * 1024 * 1024;
+const maxScreenshotBytes = 8 * 1024 * 1024;
 const maxTextBytes = 128 * 1024;
+const maxEndpointLength = 2_048;
 const maxSelectorLength = 512;
+const maxTargetIdLength = 512;
+const maxNavigationUrlLength = 8_192;
+const maxTabTitleLength = 4_096;
+const maxTabTypeLength = 64;
+const maxDebuggerUrlLength = 2_048;
+const maxTabSummaryBytes = 128 * 1024;
+const maxPanelTabs = 20;
+const maxPanelTextChars = 12_000;
+const maxPanelErrorChars = 2_000;
+const noParameterNames = new Set<string>();
+const targetParameterNames = new Set(["targetId"]);
+const navigationParameterNames = new Set(["targetId", "url"]);
+const clickParameterNames = new Set(["targetId", "selector"]);
 
-function endpointUrl(raw: string): URL {
+function inspectParameters(value: unknown, allowed: ReadonlySet<string>): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Browser session parameters must be an object");
+  let descriptors: PropertyDescriptorMap;
+  try {
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("Browser session parameters must be a plain object");
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Browser session parameters must be a plain object") throw error;
+    throw new Error("Browser session parameters must be an accessible plain object", { cause: error });
+  }
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !allowed.has(key)))
+    throw new Error("Browser session parameters contain an unknown property");
+  if (Object.values(descriptors).some((descriptor) => !("value" in descriptor))) throw new Error("Browser session parameters must use data properties");
+  return Object.fromEntries(Object.entries(descriptors).map(([key, descriptor]) => [key, descriptor.value as unknown]));
+}
+
+function endpointUrl(raw: unknown): URL {
+  if (typeof raw !== "string") throw new Error("Browser session endpoint must be a string");
+  if (raw.length === 0 || raw.length > maxEndpointLength) throw new Error(`Browser session endpoint must be between 1 and ${maxEndpointLength} characters`);
   let endpoint: URL;
   try {
     endpoint = new URL(raw);
   } catch {
     throw new Error("Browser session endpoint is invalid");
   }
+  if (endpoint.username !== "" || endpoint.password !== "") throw new Error("Browser session endpoint must not contain credentials");
   const host = endpoint.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (endpoint.protocol !== "http:" || (host !== "localhost" && host !== "127.0.0.1" && host !== "::1"))
     throw new Error("Browser session endpoint must be a local http://localhost, 127.0.0.1, or ::1 address");
@@ -34,81 +73,252 @@ function endpointUrl(raw: string): URL {
   return endpoint;
 }
 
-async function tabs(endpoint: URL): Promise<BrowserTab[]> {
-  const response = await fetch(new URL("/json/list", endpoint));
-  if (!response.ok) throw new Error(`Chrome DevTools returned HTTP ${response.status}`);
-  const payload = (await response.json()) as unknown;
-  if (!Array.isArray(payload)) throw new Error("Chrome DevTools returned an invalid tab list");
-  return payload
-    .filter((tab): tab is BrowserTab => typeof tab === "object" && tab !== null && typeof (tab as JsonObject).id === "string")
-    .map((tab) => {
-      const item = tab as JsonObject;
-      return {
-        targetId: String(item.id),
-        title: typeof item.title === "string" ? item.title : "",
-        url: typeof item.url === "string" ? item.url : "",
-        type: typeof item.type === "string" ? item.type : "",
-        ...(typeof item.webSocketDebuggerUrl === "string" ? { webSocketDebuggerUrl: item.webSocketDebuggerUrl } : {}),
-      };
-    });
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel?.();
+  } catch {
+    // Response cleanup is best effort while preserving the original protocol error.
+  }
 }
 
-async function target(endpoint: URL, targetId: string): Promise<BrowserTab> {
-  const tab = (await tabs(endpoint)).find((item) => item.targetId === targetId);
+async function readTabList(response: Response): Promise<unknown> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxTabListBytes) {
+    await cancelResponseBody(response);
+    throw new Error("Chrome DevTools tab list exceeded the 1 MiB limit");
+  }
+  if (response.body === null) throw new Error("Chrome DevTools returned an empty tab list");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      bytes += next.value.byteLength;
+      if (bytes > maxTabListBytes) {
+        await reader.cancel();
+        throw new Error("Chrome DevTools tab list exceeded the 1 MiB limit");
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+  } catch (error) {
+    throw new Error("Chrome DevTools tab list must contain valid UTF-8", { cause: error });
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    throw new Error(`Chrome DevTools returned an invalid tab list: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+}
+
+function cancelledError(scope: string, reason: unknown): Error {
+  return new Error(`${scope} was cancelled`, { cause: reason });
+}
+
+function tabString(raw: unknown, index: number, field: string, maxLength: number, allowEmpty = true): string {
+  if (typeof raw !== "string") throw new Error(`Chrome DevTools tab ${index} ${field} must be a string`);
+  const minimum = allowEmpty ? 0 : 1;
+  if (raw.length < minimum || raw.length > maxLength)
+    throw new Error(`Chrome DevTools tab ${index} ${field} must be between ${minimum} and ${maxLength} characters`);
+  if (raw.includes("\0")) throw new Error(`Chrome DevTools tab ${index} ${field} must not contain NUL characters`);
+  return raw;
+}
+
+function browserTab(raw: unknown, index: number): BrowserTab {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error(`Chrome DevTools tab ${index} must be an object`);
+  const item = raw as JsonObject;
+  const webSocketDebuggerUrl =
+    item.webSocketDebuggerUrl === undefined ? undefined : tabString(item.webSocketDebuggerUrl, index, "WebSocket URL", maxDebuggerUrlLength, false);
+  return {
+    targetId: tabString(item.id, index, "target ID", maxTargetIdLength, false),
+    title: tabString(item.title, index, "title", maxTabTitleLength),
+    url: tabString(item.url, index, "URL", maxNavigationUrlLength),
+    type: tabString(item.type, index, "type", maxTabTypeLength, false),
+    ...(webSocketDebuggerUrl === undefined ? {} : { webSocketDebuggerUrl }),
+  };
+}
+
+async function tabs(endpoint: URL, signal?: AbortSignal): Promise<BrowserTab[]> {
+  if (signal?.aborted === true) throw cancelledError("Chrome DevTools discovery", signal.reason);
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = (): void => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, requestTimeoutMs);
+  timer.unref();
+  let payload: unknown;
+  try {
+    const response = await fetch(new URL("/json/list", endpoint), { signal: controller.signal, redirect: "error" });
+    if (!response.ok) {
+      await cancelResponseBody(response);
+      throw new Error(`Chrome DevTools returned HTTP ${response.status}`);
+    }
+    payload = await readTabList(response);
+  } catch (error) {
+    if (timedOut) throw new Error(`Chrome DevTools discovery timed out after ${requestTimeoutMs} ms`, { cause: error });
+    if (controller.signal.aborted) throw cancelledError("Chrome DevTools discovery", error);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
+  if (!Array.isArray(payload)) throw new Error("Chrome DevTools returned an invalid tab list");
+  if (payload.length > maxTabItems) throw new Error(`Chrome DevTools tab inventory cannot exceed ${maxTabItems} items`);
+  return payload.map((tab, index) => browserTab(tab, index + 1));
+}
+
+function localDebuggerUrl(endpoint: URL, raw: string): string {
+  let debuggerUrl: URL;
+  try {
+    debuggerUrl = new URL(raw);
+  } catch {
+    throw new Error("Chrome DevTools returned an invalid WebSocket URL");
+  }
+  const host = debuggerUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const endpointPort = endpoint.port || "80";
+  const debuggerPort = debuggerUrl.port || "80";
+  if (
+    debuggerUrl.protocol !== "ws:" ||
+    (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") ||
+    debuggerPort !== endpointPort ||
+    debuggerUrl.username !== "" ||
+    debuggerUrl.password !== ""
+  )
+    throw new Error("Chrome DevTools WebSocket URL must stay on the configured local endpoint");
+  return debuggerUrl.toString();
+}
+
+async function target(endpoint: URL, targetId: string, signal?: AbortSignal): Promise<BrowserTab> {
+  const tab = (await tabs(endpoint, signal)).find((item) => item.targetId === targetId);
   if (tab === undefined) throw new Error(`Browser tab was not found: ${targetId}`);
   if (tab.webSocketDebuggerUrl === undefined) throw new Error(`Browser tab is not debuggable: ${targetId}`);
-  return tab;
+  return { ...tab, webSocketDebuggerUrl: localDebuggerUrl(endpoint, tab.webSocketDebuggerUrl) };
 }
 
-async function cdp(tab: BrowserTab, method: string, params?: JsonObject): Promise<JsonObject> {
+async function cdp(tab: BrowserTab, method: string, params?: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
   if (tab.webSocketDebuggerUrl === undefined) throw new Error(`Browser tab is not debuggable: ${tab.targetId}`);
+  if (signal?.aborted === true) throw cancelledError("Chrome DevTools request", signal.reason);
   const socket = new WebSocket(tab.webSocketDebuggerUrl);
   return new Promise((resolve, reject) => {
     const id = 1;
+    const closeSocket = (): void => {
+      try {
+        socket.close();
+      } catch {
+        // Closing is best effort after the request has already failed.
+      }
+    };
     const timer = setTimeout(() => {
       cleanup();
-      socket.close();
+      closeSocket();
       reject(new Error(`Chrome DevTools request timed out: ${method}`));
     }, requestTimeoutMs);
+    timer.unref();
     const cleanup = (): void => {
       clearTimeout(timer);
       socket.removeEventListener("open", onOpen);
       socket.removeEventListener("message", onMessage);
       socket.removeEventListener("error", onError);
       socket.removeEventListener("close", onClose);
+      signal?.removeEventListener("abort", onAbort);
     };
     const onOpen = (): void => {
-      socket.send(JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) }));
+      try {
+        socket.send(JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) }));
+      } catch (error) {
+        cleanup();
+        closeSocket();
+        reject(error instanceof Error ? error : new Error("Could not send the Chrome DevTools request", { cause: error }));
+      }
     };
     const onMessage = (event: MessageEvent): void => {
-      let message: unknown;
-      try {
-        message = JSON.parse(typeof event.data === "string" ? event.data : String(event.data));
-      } catch {
+      if (typeof event.data !== "string") {
+        cleanup();
+        closeSocket();
+        reject(new Error("Chrome DevTools returned a non-text response"));
         return;
       }
-      if (typeof message !== "object" || message === null || (message as JsonObject).id !== id) return;
-      cleanup();
-      socket.close();
+      if (Buffer.byteLength(event.data, "utf8") > maxCdpResponseBytes) {
+        cleanup();
+        closeSocket();
+        reject(new Error("Chrome DevTools response exceeded the 12 MiB limit"));
+        return;
+      }
+      let message: unknown;
+      try {
+        message = JSON.parse(event.data);
+      } catch (error) {
+        cleanup();
+        closeSocket();
+        reject(new Error("Chrome DevTools returned invalid JSON", { cause: error }));
+        return;
+      }
+      if (typeof message !== "object" || message === null || Array.isArray(message)) {
+        cleanup();
+        closeSocket();
+        reject(new Error("Chrome DevTools returned an invalid response envelope"));
+        return;
+      }
       const payload = message as JsonObject;
-      if (typeof payload.error === "object" && payload.error !== null) {
+      if (payload.id === undefined) return;
+      if (payload.id !== id) return;
+      cleanup();
+      closeSocket();
+      const hasResult = Object.prototype.hasOwnProperty.call(payload, "result");
+      const hasError = Object.prototype.hasOwnProperty.call(payload, "error");
+      if (hasResult === hasError) {
+        reject(new Error("Chrome DevTools returned an invalid response envelope"));
+        return;
+      }
+      if (hasError) {
+        if (typeof payload.error !== "object" || payload.error === null || Array.isArray(payload.error)) {
+          reject(new Error("Chrome DevTools returned an invalid error response"));
+          return;
+        }
         const errorMessage = (payload.error as JsonObject).message;
-        reject(new Error(typeof errorMessage === "string" ? errorMessage : "Chrome DevTools request failed"));
-      } else if (typeof payload.result === "object" && payload.result !== null) resolve(payload.result as JsonObject);
-      else reject(new Error("Chrome DevTools returned an invalid response"));
+        if (typeof errorMessage !== "string" || errorMessage.length === 0 || errorMessage.length > maxPanelErrorChars || errorMessage.includes("\0")) {
+          reject(new Error("Chrome DevTools returned an invalid error response"));
+          return;
+        }
+        reject(new Error(errorMessage));
+        return;
+      }
+      if (typeof payload.result !== "object" || payload.result === null || Array.isArray(payload.result)) {
+        reject(new Error("Chrome DevTools returned an invalid result response"));
+        return;
+      }
+      resolve(payload.result as JsonObject);
     };
     const onError = (): void => {
       cleanup();
+      closeSocket();
       reject(new Error("Could not connect to the Chrome DevTools tab"));
     };
     const onClose = (): void => {
       cleanup();
       reject(new Error("Chrome DevTools tab connection closed before responding"));
     };
+    const onAbort = (): void => {
+      cleanup();
+      closeSocket();
+      reject(cancelledError(`Chrome DevTools request ${method}`, signal?.reason));
+    };
     socket.addEventListener("open", onOpen);
     socket.addEventListener("message", onMessage);
     socket.addEventListener("error", onError);
     socket.addEventListener("close", onClose);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted === true) onAbort();
   });
 }
 
@@ -123,13 +333,14 @@ function resultValue(result: JsonObject): unknown {
   return (value as JsonObject).value;
 }
 
-async function ready(endpoint: URL, tab: BrowserTab): Promise<void> {
+async function ready(tab: BrowserTab, signal?: AbortSignal): Promise<void> {
   const deadline = Date.now() + requestTimeoutMs;
   while (Date.now() < deadline) {
     try {
-      const result = await cdp(tab, "Runtime.evaluate", { expression: "document.readyState", returnByValue: true });
+      const result = await cdp(tab, "Runtime.evaluate", { expression: "document.readyState", returnByValue: true }, signal);
       if (resultValue(result) === "complete" || resultValue(result) === "interactive") return;
-    } catch {
+    } catch (error) {
+      if (signal?.aborted === true) throw cancelledError("Browser navigation", error);
       // The navigation may replace the target briefly; poll until it is ready or the deadline expires.
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -137,16 +348,61 @@ async function ready(endpoint: URL, tab: BrowserTab): Promise<void> {
   throw new Error("Browser navigation did not become ready within 15 seconds");
 }
 
-async function evaluate(tab: BrowserTab, expression: string): Promise<unknown> {
-  const result = await cdp(tab, "Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+async function evaluate(tab: BrowserTab, expression: string, signal?: AbortSignal): Promise<unknown> {
+  const result = await cdp(tab, "Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, signal);
   return resultValue(result);
+}
+
+function browserTargetId(raw: unknown): string {
+  if (typeof raw !== "string") throw new Error("Browser target ID must be a string");
+  if (raw.length === 0 || raw.length > maxTargetIdLength) throw new Error(`Browser target ID must be between 1 and ${maxTargetIdLength} characters`);
+  return raw;
+}
+
+function browserSelector(raw: unknown): string {
+  if (typeof raw !== "string") throw new Error("Browser selector must be a string");
+  if (raw.length === 0 || raw.length > maxSelectorLength) throw new Error(`Browser selector must be between 1 and ${maxSelectorLength} characters`);
+  return raw;
+}
+
+function navigationUrl(raw: unknown): URL {
+  if (typeof raw !== "string") throw new Error("Browser navigation URL must be a string");
+  if (raw.length === 0 || raw.length > maxNavigationUrlLength)
+    throw new Error(`Browser navigation URL must be between 1 and ${maxNavigationUrlLength} characters`);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("Browser navigation URL is invalid");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Browser navigation only supports http and https URLs");
+  if (url.username !== "" || url.password !== "") throw new Error("Browser navigation URL must be HTTP or HTTPS without credentials");
+  return url;
+}
+
+function boundedUtf8(text: string, maxBytes: number): { text: string; truncated: boolean } {
+  const encoded = Buffer.from(text, "utf8");
+  if (encoded.byteLength <= maxBytes) return { text, truncated: false };
+  let end = maxBytes;
+  while (end > 0 && (encoded[end]! & 0xc0) === 0x80) end -= 1;
+  return { text: encoded.subarray(0, end).toString("utf8"), truncated: true };
+}
+
+function tabSummary(items: readonly BrowserTab[]): string {
+  if (items.length === 0) return "No browser pages are open.";
+  const summary = items.map((tab) => `${tab.targetId} ${tab.title} ${tab.url}`).join("\n");
+  const bounded = boundedUtf8(summary, maxTabSummaryBytes);
+  if (!bounded.truncated) return bounded.text;
+  const notice = `\n… Browser tab summary truncated; ${items.length} tabs are available in details.`;
+  const availableBytes = maxTabSummaryBytes - Buffer.byteLength(notice, "utf8");
+  return boundedUtf8(summary, availableBytes).text + notice;
 }
 
 export interface BrowserSessionPluginConfig {
   endpoint?: string;
 }
 
-export const Config: z<BrowserSessionPluginConfig> = z.object({ endpoint: z.string().default("http://127.0.0.1:9222") });
+export const Config: z<BrowserSessionPluginConfig> = z.object({ endpoint: z.string().min(1).max(maxEndpointLength).default("http://127.0.0.1:9222") });
 
 export default {
   name: "pi-browser-session",
@@ -154,20 +410,34 @@ export default {
   Config,
   apply(context: Context, config: BrowserSessionPluginConfig) {
     const endpoint = endpointUrl(config.endpoint ?? "http://127.0.0.1:9222");
+    const lifecycle = new AbortController();
+    const executionSignal = (signal?: AbortSignal): AbortSignal => (signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]));
     let latest: BrowserSessionResult | undefined;
-    const listTabs = async (): Promise<BrowserTab[]> => tabs(endpoint);
-    const getTab = async (targetId: string): Promise<BrowserTab> => target(endpoint, targetId);
+    const panelLatest = (): BrowserSessionResult | null => {
+      if (latest === undefined) return null;
+      if (latest.text === undefined) return structuredClone(latest);
+      return {
+        ...structuredClone(latest),
+        text: latest.text.slice(0, maxPanelTextChars),
+        previewTruncated: latest.text.length > maxPanelTextChars,
+      };
+    };
+    const panelLimits = { tabs: maxPanelTabs, textPreviewCharacters: maxPanelTextChars, errorCharacters: maxPanelErrorChars };
+    const listTabs = async (signal?: AbortSignal): Promise<BrowserTab[]> => tabs(endpoint, signal);
+    const getTab = async (targetId: string, signal?: AbortSignal): Promise<BrowserTab> => target(endpoint, targetId, signal);
     const unregisterTabs = context.piTools.register(
       defineTool({
         name: "browser_tabs",
         label: "Browser tabs",
         description: "List pages in an already-running local Chrome DevTools session.",
         promptSnippet: "list tabs in the connected local browser",
-        parameters: Type.Object({}),
-        async execute(): Promise<AgentToolResult<{ tabs: BrowserTab[] }>> {
-          const items = (await listTabs()).filter((tab) => tab.type === "page");
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ tabs: BrowserTab[] }>> {
+          inspectParameters(params, noParameterNames);
+          const items = (await listTabs(executionSignal(signal))).filter((tab) => tab.type === "page");
           return {
-            content: [{ type: "text", text: items.map((tab) => `${tab.targetId} ${tab.title} ${tab.url}`).join("\n") || "No browser pages are open." }],
+            content: [{ type: "text", text: tabSummary(items) }],
             details: { tabs: items },
           };
         },
@@ -179,16 +449,26 @@ export default {
         label: "Browser navigate",
         description: "Navigate a connected browser tab to an HTTP or HTTPS URL.",
         promptSnippet: "navigate the connected browser tab",
-        parameters: Type.Object({ targetId: Type.String(), url: Type.String() }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<BrowserSessionResult>> {
-          const url = new URL(params.url);
-          if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Browser navigation only supports http and https URLs");
-          const tab = await getTab(params.targetId);
-          await cdp(tab, "Page.enable");
-          await cdp(tab, "Page.navigate", { url: url.toString() });
-          await ready(endpoint, { ...tab, url: url.toString() });
-          latest = { targetId: tab.targetId, url: url.toString(), title: tab.title };
-          return { content: [{ type: "text", text: `Navigated to ${url.toString()}` }], details: { ...latest, status: "navigated" } };
+        parameters: Type.Object(
+          {
+            targetId: Type.String({ minLength: 1, maxLength: maxTargetIdLength }),
+            url: Type.String({ minLength: 1, maxLength: maxNavigationUrlLength }),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<BrowserSessionResult>> {
+          const actionSignal = executionSignal(signal);
+          const raw = inspectParameters(params, navigationParameterNames);
+          const targetId = browserTargetId(raw.targetId);
+          const url = navigationUrl(raw.url);
+          const tab = await getTab(targetId, actionSignal);
+          await cdp(tab, "Page.enable", undefined, actionSignal);
+          const navigation = await cdp(tab, "Page.navigate", { url: url.toString() }, actionSignal);
+          if (typeof navigation.errorText === "string" && navigation.errorText !== "") throw new Error(`Browser navigation failed: ${navigation.errorText}`);
+          await ready({ ...tab, url: url.toString() }, actionSignal);
+          latest = { targetId: tab.targetId, url: url.toString(), title: tab.title, status: "navigated" };
+          return { content: [{ type: "text", text: `Navigated to ${url.toString()}` }], details: structuredClone(latest) };
         },
       }),
     );
@@ -198,15 +478,18 @@ export default {
         label: "Browser read",
         description: "Read bounded visible text from a connected browser tab.",
         promptSnippet: "read visible text from the connected browser tab",
-        parameters: Type.Object({ targetId: Type.String() }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<BrowserSessionResult>> {
-          const tab = await getTab(params.targetId);
-          const value = await evaluate(tab, "document.body?.innerText ?? ''");
+        parameters: Type.Object({ targetId: Type.String({ minLength: 1, maxLength: maxTargetIdLength }) }, { additionalProperties: false }),
+        executionMode: "sequential",
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<BrowserSessionResult>> {
+          const actionSignal = executionSignal(signal);
+          const raw = inspectParameters(params, targetParameterNames);
+          const targetId = browserTargetId(raw.targetId);
+          const tab = await getTab(targetId, actionSignal);
+          const value = await evaluate(tab, "document.body?.innerText ?? ''", actionSignal);
           const text = typeof value === "string" ? value : "";
-          const bytes = Buffer.byteLength(text, "utf8");
-          const bounded = Buffer.from(text, "utf8").subarray(0, maxTextBytes).toString("utf8");
-          latest = { targetId: tab.targetId, url: tab.url, title: tab.title, text: bounded };
-          return { content: [{ type: "text", text: bounded }], details: { ...latest, truncated: bytes > maxTextBytes } };
+          const bounded = boundedUtf8(text, maxTextBytes);
+          latest = { targetId: tab.targetId, url: tab.url, title: tab.title, status: "read", ...bounded };
+          return { content: [{ type: "text", text: bounded.text }], details: structuredClone(latest) };
         },
       }),
     );
@@ -216,19 +499,29 @@ export default {
         label: "Browser click",
         description: "Click one visible HTML element in a connected browser tab by CSS selector.",
         promptSnippet: "click a page element in the connected browser",
-        parameters: Type.Object({ targetId: Type.String(), selector: Type.String() }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<BrowserSessionResult>> {
-          if (params.selector.length === 0 || params.selector.length > maxSelectorLength)
-            throw new Error("Browser selector must be between 1 and 512 characters");
-          const tab = await getTab(params.targetId);
-          const selector = JSON.stringify(params.selector);
+        parameters: Type.Object(
+          {
+            targetId: Type.String({ minLength: 1, maxLength: maxTargetIdLength }),
+            selector: Type.String({ minLength: 1, maxLength: maxSelectorLength }),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<BrowserSessionResult>> {
+          const actionSignal = executionSignal(signal);
+          const raw = inspectParameters(params, clickParameterNames);
+          const targetId = browserTargetId(raw.targetId);
+          const rawSelector = browserSelector(raw.selector);
+          const tab = await getTab(targetId, actionSignal);
+          const selector = JSON.stringify(rawSelector);
           const value = await evaluate(
             tab,
             `(() => { const element = document.querySelector(${selector}); if (!(element instanceof HTMLElement)) throw new Error('Element was not found'); element.click(); return true; })()`,
+            actionSignal,
           );
           if (value !== true) throw new Error("Browser click did not complete");
           latest = { targetId: tab.targetId, url: tab.url, title: tab.title, clicked: true };
-          return { content: [{ type: "text", text: `Clicked ${params.selector}` }], details: latest };
+          return { content: [{ type: "text", text: `Clicked ${rawSelector}` }], details: structuredClone(latest) };
         },
       }),
     );
@@ -238,44 +531,70 @@ export default {
         label: "Browser screenshot",
         description: "Capture the visible viewport of a connected browser tab as PNG.",
         promptSnippet: "capture a screenshot of the connected browser tab",
-        parameters: Type.Object({ targetId: Type.String() }),
-        async execute(_toolCallId, params): Promise<AgentToolResult<BrowserSessionResult>> {
-          const tab = await getTab(params.targetId);
-          const result = await cdp(tab, "Page.captureScreenshot", { format: "png" });
+        parameters: Type.Object({ targetId: Type.String({ minLength: 1, maxLength: maxTargetIdLength }) }, { additionalProperties: false }),
+        executionMode: "sequential",
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<BrowserSessionResult>> {
+          const actionSignal = executionSignal(signal);
+          const raw = inspectParameters(params, targetParameterNames);
+          const targetId = browserTargetId(raw.targetId);
+          const tab = await getTab(targetId, actionSignal);
+          const result = await cdp(tab, "Page.captureScreenshot", { format: "png" }, actionSignal);
           const data = typeof result.data === "string" ? result.data : "";
           if (data === "") throw new Error("Chrome DevTools returned an empty screenshot");
-          latest = { targetId: tab.targetId, url: tab.url, title: tab.title, screenshot: { data, mimeType: "image/png" } };
-          return { content: [{ type: "image", data, mimeType: "image/png" }], details: latest };
+          const screenshotBytes = Buffer.byteLength(data, "base64");
+          if (screenshotBytes > maxScreenshotBytes) throw new Error("Chrome DevTools screenshot exceeded the 8 MiB limit");
+          if (data.length % 4 !== 0 || !/^[a-z0-9+/]*={0,2}$/iu.test(data)) throw new Error("Chrome DevTools returned invalid base64 screenshot data");
+          latest = { targetId: tab.targetId, url: tab.url, title: tab.title, screenshot: { bytes: screenshotBytes, mimeType: "image/png" } };
+          return { content: [{ type: "image", data, mimeType: "image/png" }], details: structuredClone(latest) };
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "browser-session-panel",
-      pluginId: "@pi-harness/core/plugins/browser-session",
-      title: "Browser Session",
-      description: "通过 Chrome DevTools Protocol 连接已启动的本地浏览器。",
-      icon: "◉",
-      read: async () => {
-        try {
-          return {
-            endpoint: endpoint.toString(),
-            tabs: (await listTabs()).filter((tab) => tab.type === "page").map((tab) => ({ targetId: tab.targetId, title: tab.title, url: tab.url })),
-            latest: latest ?? null,
-            connected: true,
-            error: null,
-          };
-        } catch (error) {
-          return {
-            endpoint: endpoint.toString(),
-            tabs: [],
-            latest: latest ?? null,
-            connected: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      },
-    });
+    let disposePanel: () => void = () => undefined;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "browser-session-panel",
+        pluginId: "@pi-harness/core/plugins/browser-session",
+        title: "Browser Session",
+        description: "通过 Chrome DevTools Protocol 连接已启动的本地浏览器。",
+        icon: "◉",
+        read: async () => {
+          try {
+            const pages = (await listTabs(lifecycle.signal)).filter((tab) => tab.type === "page");
+            const panelTabs = pages.slice(0, maxPanelTabs).map((tab) => ({ targetId: tab.targetId, title: tab.title, url: tab.url }));
+            return {
+              endpoint: endpoint.toString(),
+              tabs: panelTabs,
+              inventory: { total: pages.length, shown: panelTabs.length, truncated: pages.length > panelTabs.length },
+              limits: panelLimits,
+              latest: panelLatest(),
+              connected: true,
+              error: null,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return {
+              endpoint: endpoint.toString(),
+              tabs: [],
+              inventory: { total: 0, shown: 0, truncated: false },
+              limits: panelLimits,
+              latest: panelLatest(),
+              connected: false,
+              error: message.slice(0, maxPanelErrorChars),
+            };
+          }
+        },
+      });
+    } catch (error) {
+      unregisterTabs();
+      unregisterNavigate();
+      unregisterRead();
+      unregisterClick();
+      unregisterScreenshot();
+      lifecycle.abort(new Error("Browser session plugin registration failed"));
+      throw error;
+    }
     context.effect(() => () => {
+      lifecycle.abort(new Error("Browser session plugin disposed"));
       unregisterTabs();
       unregisterNavigate();
       unregisterRead();

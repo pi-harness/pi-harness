@@ -1,6 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig } from "../config.js";
 
 const customType = "pi-harness/prompt-library";
 const maxTitleLength = 120;
@@ -88,6 +89,7 @@ function filterTemplates(state: PromptLibraryState, query: string | undefined): 
 export default {
   name: "pi-prompt-library",
   inject: ["piSession", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let sequence = 0;
     let latest = readState(context);
@@ -97,14 +99,18 @@ export default {
         label: "Prompt library",
         description: "Save, search, update, and delete reusable prompt templates in the current Pi session.",
         promptSnippet: "manage reusable prompts for the current project",
-        parameters: Type.Object({
-          action: Type.Union([Type.Literal("save"), Type.Literal("list"), Type.Literal("delete")]),
-          id: Type.Optional(Type.String()),
-          title: Type.Optional(Type.String()),
-          prompt: Type.Optional(Type.String()),
-          tags: Type.Optional(Type.Array(Type.String())),
-          query: Type.Optional(Type.String()),
-        }),
+        parameters: Type.Object(
+          {
+            action: Type.Union([Type.Literal("save"), Type.Literal("list"), Type.Literal("delete")]),
+            id: Type.Optional(Type.String()),
+            title: Type.Optional(Type.String()),
+            prompt: Type.Optional(Type.String()),
+            tags: Type.Optional(Type.Array(Type.String())),
+            query: Type.Optional(Type.String()),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         execute(_toolCallId, params): Promise<AgentToolResult<PromptLibraryState & { selected?: PromptTemplate }>> {
           return Promise.resolve().then(() => {
             const state = readState(context);
