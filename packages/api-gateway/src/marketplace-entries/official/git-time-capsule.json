@@ -1,7 +1,7 @@
 {
   "id": "git-time-capsule",
   "packageName": "@pi-harness/core/plugins/git-time-capsule",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "name": "Git Time Capsule",
   "description": "Capture the current unstaged tracked Git diff as a byte-exact, validated undo capsule without external diff or textconv helpers, then reverse-apply it only after explicit confirmation.",
   "author": "Pi Harness",
