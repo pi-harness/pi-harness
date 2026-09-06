@@ -13,14 +13,8 @@
     "id": "security",
     "label": "安全防护"
   },
-  "capabilities": [
-    "prompt safety",
-    "injection detection"
-  ],
-  "hooks": [
-    "session event",
-    "plugin UI"
-  ],
+  "capabilities": ["prompt safety", "injection detection"],
+  "hooks": ["session event", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/prompt-guard",
     "config": {}

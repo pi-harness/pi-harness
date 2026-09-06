@@ -13,16 +13,8 @@
     "id": "tools",
     "label": "工具"
   },
-  "capabilities": [
-    "virtual terminal",
-    "CLI bridge",
-    "workspace execution"
-  ],
-  "hooks": [
-    "Mirage CLI",
-    "argv execution",
-    "plugin UI"
-  ],
+  "capabilities": ["virtual terminal", "CLI bridge", "workspace execution"],
+  "hooks": ["Mirage CLI", "argv execution", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/mirage-bridge",
     "config": {

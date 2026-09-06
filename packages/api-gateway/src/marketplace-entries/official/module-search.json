@@ -13,16 +13,8 @@
     "id": "discovery",
     "label": "发现与生态"
   },
-  "capabilities": [
-    "module discovery",
-    "symbol lookup",
-    "source navigation"
-  ],
-  "hooks": [
-    "workspace files",
-    "source scanning",
-    "plugin UI"
-  ],
+  "capabilities": ["module discovery", "symbol lookup", "source navigation"],
+  "hooks": ["workspace files", "source scanning", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/module-search",
     "config": {}

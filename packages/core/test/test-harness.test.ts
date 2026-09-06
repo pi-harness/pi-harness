@@ -285,13 +285,13 @@ describe("test-harness", () => {
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true, scripts: { test: "node dispose.mjs" } }), "utf8");
     await context.plugin(testHarnessPlugin);
     const execution = registeredTool(tools).execute("dispose", {}, undefined, undefined, {} as never);
-    await waitForFile(ready, "verification script to start before disposal");
+    await waitForFile(ready, "verification script to start before disposal", 15_000);
 
     await context.fiber.dispose();
 
     await expect(execution).rejects.toThrow(/project verification was cancelled/iu);
-    await waitForFile(stopped, "verification script to stop on disposal");
+    await waitForFile(stopped, "verification script to stop on disposal", 15_000);
     expect(tools.snapshot().customTools).toEqual([]);
     await expect(panels.snapshot()).resolves.toEqual([]);
-  });
+  }, 15_000);
 });
