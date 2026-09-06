@@ -1,7 +1,7 @@
 {
   "id": "web-research",
   "packageName": "@pi-harness/core/plugins/web-research",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "name": "Web Research",
   "description": "Search the public web through a configurable provider and return bounded, cited source evidence.",
   "author": "Pi Harness",
@@ -13,8 +13,15 @@
     "id": "web",
     "label": "网页与研究"
   },
-  "capabilities": ["web search", "citations", "research"],
-  "hooks": ["network request", "plugin UI"],
+  "capabilities": [
+    "web search",
+    "citations",
+    "research"
+  ],
+  "hooks": [
+    "network request",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/web-research",
     "config": {}

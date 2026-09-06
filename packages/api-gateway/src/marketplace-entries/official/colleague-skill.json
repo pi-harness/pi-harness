@@ -1,7 +1,7 @@
 {
   "id": "colleague-skill",
   "packageName": "@pi-harness/core/plugins/colleague-skill",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "name": "Colleague Skill",
   "description": "Create durable, structured handoff packets for another role without hidden agents or external message delivery.",
   "author": "Pi Harness",
@@ -13,8 +13,15 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["role handoff", "acceptance criteria", "durable session context"],
-  "hooks": ["session storage", "plugin UI"],
+  "capabilities": [
+    "role handoff",
+    "acceptance criteria",
+    "durable session context"
+  ],
+  "hooks": [
+    "session storage",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/colleague-skill",
     "config": {}

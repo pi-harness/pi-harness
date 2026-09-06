@@ -1,7 +1,7 @@
 {
   "id": "telemetry-blocker",
   "packageName": "@pi-harness/core/plugins/telemetry-blocker",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "name": "Telemetry Blocker",
   "description": "Block configured outbound telemetry destinations and report blocked attempts without collecting payload contents.",
   "author": "Pi Harness",
@@ -13,8 +13,15 @@
     "id": "security",
     "label": "安全"
   },
-  "capabilities": ["telemetry policy", "outbound blocking", "privacy"],
-  "hooks": ["network policy", "plugin UI"],
+  "capabilities": [
+    "telemetry policy",
+    "outbound blocking",
+    "privacy"
+  ],
+  "hooks": [
+    "network policy",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/telemetry-blocker",
     "config": {}
