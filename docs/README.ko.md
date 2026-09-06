@@ -2,7 +2,7 @@
 
 Pi Harness는 DeepSeek Cordis로 구축된 [Pi](https://github.com/earendil-works/pi)용 플러그인 중심 웹 호스트입니다. 브라우저 콘솔, HTTP API, CLI를 제공합니다.
 
-언어: [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Русский](README.ru.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
+언어: [English](../README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Português](README.pt-BR.md) · [Русский](README.ru.md) · [Italiano](README.it.md) · [العربية](README.ar.md)
 
 ## 설치
 
