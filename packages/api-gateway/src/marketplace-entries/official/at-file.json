@@ -1,7 +1,7 @@
 {
   "id": "at-file",
   "packageName": "@pi-harness/core/plugins/at-file",
-  "version": "0.1.15",
+  "version": "0.1.18",
   "name": "@file Context",
   "description": "Attach a bounded 256 KiB strict UTF-8 workspace file using canonical workspace path confinement and no-follow regular-file reads, framing it as offline, read-only, untrusted model context with closing-tag neutralization and cancellable sequential execution.",
   "author": "Pi Harness",
@@ -22,7 +22,11 @@
     "cancellable sequential execution",
     "descriptor-safe normalized panel"
   ],
-  "hooks": ["file context tool", "workspace file read", "plugin UI"],
+  "hooks": [
+    "file context tool",
+    "workspace file read",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/at-file",
     "config": {}
