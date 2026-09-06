@@ -21,12 +21,7 @@
     "safe diagnostic summaries",
     "capacity visibility"
   ],
-  "hooks": [
-    "extension error",
-    "agent end",
-    "compaction end",
-    "plugin UI"
-  ],
+  "hooks": ["extension error", "agent end", "compaction end", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/fail-logger",
     "config": {}

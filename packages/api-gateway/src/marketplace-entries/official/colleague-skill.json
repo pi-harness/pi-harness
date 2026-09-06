@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "role handoff",
-    "acceptance criteria",
-    "durable session context"
-  ],
-  "hooks": [
-    "session storage",
-    "plugin UI"
-  ],
+  "capabilities": ["role handoff", "acceptance criteria", "durable session context"],
+  "hooks": ["session storage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/colleague-skill",
     "config": {}
