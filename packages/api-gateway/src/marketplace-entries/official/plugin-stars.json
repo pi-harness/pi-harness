@@ -1,7 +1,7 @@
 {
   "id": "plugin-stars",
   "packageName": "@pi-harness/core/plugins/plugin-stars",
-  "version": "0.1.12",
+  "version": "0.1.14",
   "name": "Plugin Stars",
   "description": "Search a curated raw.githubusercontent.com plugin snapshot through descriptor-safe inputs, strict bounded validation, a cancellable lifecycle, and fail-closed panel reporting.",
   "author": "Pi Harness",
@@ -21,7 +21,11 @@
     "bounded panel inventory",
     "validated fail-closed panel reporting"
   ],
-  "hooks": ["ranking search tool", "raw GitHub snapshot", "plugin UI"],
+  "hooks": [
+    "ranking search tool",
+    "raw GitHub snapshot",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/plugin-stars",
     "config": {

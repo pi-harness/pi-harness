@@ -1,7 +1,7 @@
 {
   "id": "browser-session",
   "packageName": "@pi-harness/core/plugins/browser-session",
-  "version": "0.1.12",
+  "version": "0.1.14",
   "name": "Browser Session",
   "description": "Control a loopback-only Chrome DevTools session with descriptor-safe commands, bounded discovery, cancellable operations, screenshot metadata protection, and validated fail-closed panel previews.",
   "author": "Pi Harness",
@@ -21,7 +21,11 @@
     "bounded panel previews",
     "validated fail-closed panel reporting"
   ],
-  "hooks": ["browser session tools", "Chrome DevTools Protocol", "plugin UI"],
+  "hooks": [
+    "browser session tools",
+    "Chrome DevTools Protocol",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/browser-session",
     "config": {
