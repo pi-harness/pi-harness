@@ -26,6 +26,8 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
+On normal startup, Pi Harness performs a best-effort, non-blocking check for a newer compatible `@pi-harness/core` release. If one is available, it prints the update command to stderr; network failures are ignored and startup continues normally. Set `PI_HARNESS_DISABLE_UPDATE_CHECK=1` to disable the check (useful for offline or restricted environments).
+
 ## Run the web console
 
 ```sh

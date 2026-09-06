@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { coreUpdateNotice } from "@pi-harness/core";
 import { runCli, type CliEnvironment } from "./main.js";
 import { shouldRelaunchForDevelopmentProfile, superviseDevelopmentProcess } from "./relaunch.js";
 
@@ -21,6 +22,7 @@ const environment: CliEnvironment = {
   stdout: process.stdout,
   stderr: process.stderr,
   shutdownTimeoutMs: 5_000,
+  ...(process.env.PI_HARNESS_DISABLE_UPDATE_CHECK === "1" ? {} : { checkForUpdates: () => coreUpdateNotice() }),
   forceExit(code) {
     process.exit(code);
   },
