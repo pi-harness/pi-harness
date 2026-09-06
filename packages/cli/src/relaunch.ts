@@ -20,8 +20,12 @@ export async function superviseDevelopmentProcess(command: string, args: readonl
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       const child = spawn(command, [...args], options);
       const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+      // The child inherits stdio and stays in the terminal's foreground process group, so on POSIX it already receives SIGINT and SIGHUP directly; forwarding them would make it count one Ctrl-C as a repeated signal and skip its graceful shutdown. Listeners are still registered for every signal so the supervisor stays alive to collect the child's exit code. SIGTERM is addressed to this pid alone and is the only one relayed.
+      const forwarded = new Set<NodeJS.Signals>(process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGTERM"]);
       const handlers = signals.map((signal) => {
-        const handler = () => child.kill(signal);
+        const handler = () => {
+          if (forwarded.has(signal)) child.kill(signal);
+        };
         process.on(signal, handler);
         return { signal, handler };
       });

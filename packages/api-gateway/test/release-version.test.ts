@@ -37,10 +37,9 @@ describe("release version preparation", () => {
         "packages/api-gateway": { name: "@pi-harness/api-gateway", version: "0.1.2" },
       },
     });
-    await writeJson(fixture, "packages/api-gateway/src/marketplace-entries/official/internal.json", {
-      packageName: "@pi-harness/core/plugins/example",
-      version: "0.1.2",
-    });
+    const formattedInternalEntry = `{\n  "packageName": "@pi-harness/core/plugins/example",\n  "version": "0.1.2",\n  "hooks": ["tool", "panel"],\n  "profile": { "config": { "version": "keep-me" } }\n}\n`;
+    await mkdir(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official"), { recursive: true });
+    await writeFile(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official/internal.json"), formattedInternalEntry);
     await writeJson(fixture, "packages/api-gateway/src/marketplace-entries/official/external.json", { packageName: "external-plugin", version: "4.5.6" });
 
     await execFileAsync(process.execPath, [resolve(repositoryRoot, "scripts/set-release-version.mjs"), "0.1.3"], { cwd: fixture });
@@ -72,6 +71,9 @@ describe("release version preparation", () => {
       },
     });
     expect(internalEntry.version).toBe("0.1.3");
+    expect(await readFile(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official/internal.json"), "utf8")).toBe(
+      formattedInternalEntry.replace('"version": "0.1.2"', '"version": "0.1.3"'),
+    );
     expect(externalEntry.version).toBe("4.5.6");
     expect(packedInternalEntry.version).toBe("0.1.3");
     expect(packedExternalEntry.version).toBe("4.5.6");

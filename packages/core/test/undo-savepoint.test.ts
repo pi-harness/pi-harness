@@ -90,6 +90,31 @@ describe("undo savepoint", () => {
     await expect(panels.snapshot()).resolves.toHaveLength(0);
   });
 
+  test("excludes common credential files from a whole-workspace savepoint", async () => {
+    const { root, tool } = await fixture({
+      config: { trackedPaths: ["."] },
+      async prepare(root) {
+        await mkdir(join(root, "deploy"));
+        await Promise.all([
+          writeFile(join(root, ".env.development"), "DATABASE_URL=postgres://user:pass@localhost/db\n"),
+          writeFile(join(root, ".env.test"), "SECRET=test\n"),
+          writeFile(join(root, ".envrc"), "export TOKEN=abc\n"),
+          writeFile(join(root, ".npmrc"), "//registry.npmjs.org/:_authToken=npm_example\n"),
+          writeFile(join(root, ".netrc"), "machine example.test login user password pass\n"),
+          writeFile(join(root, "deploy", "id_ed25519"), "-----BEGIN OPENSSH PRIVATE KEY-----\n"),
+          writeFile(join(root, "deploy", "id_rsa"), "-----BEGIN RSA PRIVATE KEY-----\n"),
+          writeFile(join(root, "safe.txt"), "safe\n"),
+        ]);
+      },
+    });
+
+    const saved = await tool.execute("save", { action: "save" }, undefined, undefined, {} as never);
+    expect(saved.details).toMatchObject({ fileCount: 2 });
+    const id = (saved.details as { id: string }).id;
+    const manifest = JSON.parse(await readFile(join(root, "savepoints", `${id}.json`), "utf8")) as { files: { path: string }[] };
+    expect(manifest.files.map((file) => file.path)).toEqual(["safe.txt", "tracked.txt"]);
+  });
+
   test("caps the total decoded content stored in one savepoint", async () => {
     const { tool } = await fixture({
       config: { trackedPaths: ["many"], maxFiles: 20, maxFileBytes: 2 * 1024 * 1024 },
@@ -212,6 +237,8 @@ describe("undo savepoint", () => {
     ["decoded content length", () => [savepointFile({ bytes: 5 })]],
     ["content hash", () => [savepointFile({ sha256: "0".repeat(64) })]],
     ["relative path", () => [savepointFile({ path: "../outside.txt" })]],
+    ["sensitive path", () => [savepointFile({ path: ".npmrc" })]],
+    ["sensitive nested key path", () => [savepointFile({ path: "deploy/id_ed25519" })]],
   ])("rejects a manifest with an invalid %s", async (_label, files) => {
     const { root, tool } = await fixture();
     const id = manifestId();

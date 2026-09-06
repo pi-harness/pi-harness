@@ -131,7 +131,7 @@ export default {
         name: "hol_guard_scan",
         label: "HOL Guard scan",
         description:
-          "Preflight text or tool arguments for destructive commands, sensitive paths, credentials, remote exfiltration, and package-install risks without retaining the source.",
+          "Scan text or tool arguments for destructive commands, sensitive paths, credentials, remote exfiltration, and package-install risks without retaining the source. Advisory only: returns a risk label (safe, review, blocked) and never prevents a tool call from running.",
         promptSnippet: "scan a command or tool payload through the local security guard",
         parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }, { additionalProperties: false }),
         executionMode: "sequential",
@@ -153,7 +153,7 @@ export default {
         id: "hol-guard-panel",
         pluginId: "@pi-harness/core/plugins/hol-guard",
         title: "HOL Guard",
-        description: "本地预检和工具调用审计；只保存风险摘要，不保存原始输入。",
+        description: "本地风险扫描和工具调用审计，仅提供建议，不会阻止任何工具执行；只保存风险摘要，不保存原始输入。",
         icon: "⬢",
         read: () => ({ mode: "audit", events, blocked, review, safe, latest: latest ?? null, receipts: receipts.slice(0, 8) }),
       });

@@ -210,3 +210,46 @@ describe("NodeStdio interactive prompt", () => {
     expect(input.listenerCount("error")).toBe(baseline.error);
   });
 });
+
+describe("NodeStdio interactive prompt marker placement", () => {
+  function collect(stream: PassThrough): () => string {
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    return () => Buffer.concat(chunks).toString("utf8");
+  }
+
+  test("writes the marker to a TTY stderr instead of a redirected stdout", async () => {
+    const input: FakeTty = new PassThrough();
+    input.isTTY = true;
+    input.setRawMode = () => {};
+    const output: FakeTty = new PassThrough();
+    const error: FakeTty = new PassThrough();
+    error.isTTY = true;
+    const written = collect(output);
+    const shown = collect(error);
+    const stdio = new NodeStdio(input, output, error);
+    const read = stdio.readPrompt();
+    input.write("hello\n");
+
+    await expect(settle(read)).resolves.toBe("resolved:hello");
+    expect(written()).toBe("");
+    expect(shown()).toContain("> ");
+  });
+
+  test("writes no marker at all when neither stdout nor stderr is a terminal", async () => {
+    const input: FakeTty = new PassThrough();
+    input.isTTY = true;
+    input.setRawMode = () => {};
+    const output: FakeTty = new PassThrough();
+    const error: FakeTty = new PassThrough();
+    const written = collect(output);
+    const shown = collect(error);
+    const stdio = new NodeStdio(input, output, error);
+    const read = stdio.readPrompt();
+    input.write("hello\n");
+
+    await expect(settle(read)).resolves.toBe("resolved:hello");
+    expect(written()).toBe("");
+    expect(shown()).toBe("");
+  });
+});

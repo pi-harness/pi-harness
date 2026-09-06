@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -78,7 +78,7 @@ describe("better sidebar", () => {
     expect(report.truncated).toBe(true);
   });
 
-  test("refreshes live Git state while reusing the bounded workspace tree", async () => {
+  test("refreshes live Git state while reusing the bounded workspace tree within the cache window", async () => {
     let treeReads = 0;
     let gitReads = 0;
     const inspect = createSidebarInspector({
@@ -148,7 +148,7 @@ describe("better sidebar", () => {
     expect(treeReads).toBe(2);
   });
 
-  test("reuses a successful workspace scan when only Git refresh fails", async () => {
+  test("reuses a fresh workspace scan when only Git refresh fails", async () => {
     let treeReads = 0;
     let gitReads = 0;
     const inspect = createSidebarInspector({
@@ -170,6 +170,53 @@ describe("better sidebar", () => {
     await expect(inspect()).resolves.toMatchObject({ branch: "main", directoryCount: 1, fileCount: 2 });
     expect(treeReads).toBe(1);
     expect(gitReads).toBe(2);
+  });
+
+  test("rescans the workspace tree once the cache window has elapsed", async () => {
+    let treeReads = 0;
+    let clock = 1_000;
+    const inspect = createSidebarInspector({
+      cwd: "/workspace/project",
+      getSessionId: () => "session",
+      now: () => clock,
+      listNodes() {
+        treeReads += 1;
+        return Promise.resolve(
+          treeReads === 1 ? { nodes: [], directoryCount: 1, fileCount: 3, truncated: false } : { nodes: [], directoryCount: 7, fileCount: 43, truncated: true },
+        );
+      },
+      readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [] }),
+    });
+
+    await expect(inspect()).resolves.toMatchObject({ directoryCount: 1, fileCount: 3, truncated: false });
+    clock += 4_999;
+    await expect(inspect()).resolves.toMatchObject({ directoryCount: 1, fileCount: 3, truncated: false });
+    expect(treeReads).toBe(1);
+    clock += 1;
+    await expect(inspect()).resolves.toMatchObject({ directoryCount: 7, fileCount: 43, truncated: true });
+    expect(treeReads).toBe(2);
+  });
+
+  test("reports files added to the workspace after the cache window", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-better-sidebar-"));
+    let clock = 0;
+    try {
+      await writeFile(join(root, "README.md"), "# workspace\n", "utf8");
+      const inspect = createSidebarInspector({
+        cwd: root,
+        getSessionId: () => "session",
+        now: () => clock,
+        readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [] }),
+      });
+      await expect(inspect()).resolves.toMatchObject({ directoryCount: 0, fileCount: 1 });
+
+      await mkdir(join(root, "src"));
+      await writeFile(join(root, "src", "index.ts"), "export {};\n", "utf8");
+      clock += 5_000;
+      await expect(inspect()).resolves.toMatchObject({ directoryCount: 1, fileCount: 2 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("registers the overview tool and panel for the current session", async () => {

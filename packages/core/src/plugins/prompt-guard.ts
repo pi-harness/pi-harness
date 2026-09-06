@@ -42,6 +42,13 @@ const patterns: readonly Pattern[] = [
   },
 ];
 
+const riskRank: Record<Risk, number> = { safe: 0, review: 1, blocked: 2 };
+
+function truncateToBytes(text: string, maxBytes: number): string {
+  const encoded = Buffer.from(text, "utf8");
+  return encoded.byteLength <= maxBytes ? text : encoded.subarray(0, maxBytes).toString("utf8");
+}
+
 function inspect(text: string, source: string): PromptGuardReport {
   if (Buffer.byteLength(text, "utf8") > maxPromptBytes) throw new Error(`Prompt guard input must be at most ${maxPromptBytes} bytes`);
   const findings = patterns.filter((item) => item.pattern.test(text)).map(({ code, severity, message }) => ({ code, severity, message }));
@@ -104,23 +111,35 @@ export default {
   apply(context: Context) {
     let scans = 0;
     let latest: PromptGuardReport | undefined;
+    let highest: PromptGuardReport | undefined;
+    const record = (report: PromptGuardReport): void => {
+      latest = report;
+      if (highest === undefined || riskRank[report.risk] >= riskRank[highest.risk]) highest = report;
+      scans += 1;
+    };
     const onSessionEvent = context.on("pi/session-event", (event) => {
       if (dataProperty(event, "type") !== "message_start") return;
       const message = dataProperty(event, "message");
-      if (dataProperty(message, "role") !== "user") return;
-      try {
-        latest = inspect(messageText(message), "message_start");
-        scans += 1;
-      } catch {
-        latest = {
-          source: "message_start",
-          risk: "review",
-          score: 0,
-          scannedChars: 0,
-          findings: [{ code: "input_limit", severity: "medium", message: "输入超过 Prompt Guard 扫描上限。" }],
-        };
-        scans += 1;
+      const role = dataProperty(message, "role");
+      if (role === "user") {
+        try {
+          record(inspect(messageText(message), "message_start"));
+        } catch {
+          record({
+            source: "message_start",
+            risk: "review",
+            score: 0,
+            scannedChars: 0,
+            findings: [{ code: "input_limit", severity: "medium", message: "输入超过 Prompt Guard 扫描上限。" }],
+          });
+        }
+        return;
       }
+      if (role !== "toolResult") return;
+      // Tool output is the channel injections actually arrive on. The guard's own result text would be rescanned as safe and overwrite the verdict it just produced, so it is excluded. Tool results routinely exceed the on-demand limit, so the prefix is scanned instead of reporting an input_limit finding.
+      const toolName = dataProperty(message, "toolName");
+      if (toolName === "prompt_guard_scan") return;
+      record(inspect(truncateToBytes(messageText(message), maxPromptBytes), `tool:${typeof toolName === "string" ? toolName : "unknown"}`));
     });
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -134,8 +153,7 @@ export default {
           return Promise.resolve().then(() => {
             const parsed = scanParameters(params);
             const report = inspect(parsed.text, parsed.source);
-            latest = report;
-            scans += 1;
+            record(report);
             return {
               content: [{ type: "text" as const, text: `${report.risk}: ${report.findings.length} finding(s), score ${report.score}.` }],
               details: report,
@@ -150,7 +168,7 @@ export default {
       title: "Prompt Guard",
       description: "扫描潜在提示词注入和秘密外传风险，只保留摘要，不保存原文。",
       icon: "⊘",
-      read: () => ({ scans, risk: latest?.risk ?? "safe", latest: latest ?? null }),
+      read: () => ({ scans, risk: latest?.risk ?? "safe", latest: latest ?? null, highest: highest ?? null }),
     });
     context.effect(() => () => {
       onSessionEvent();

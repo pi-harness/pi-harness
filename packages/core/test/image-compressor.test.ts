@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { win32 } from "node:path";
@@ -55,5 +55,29 @@ describe("image compressor", () => {
     await context.fiber.dispose();
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
+  });
+  test("writes the default output next to the input and refuses to replace an existing derived file", async () => {
+    const { root, tool } = await fixture();
+    await mkdir(join(root, "assets", "icons"), { recursive: true });
+    await mkdir(join(root, "docs", "img"), { recursive: true });
+    await writeFile(join(root, "assets", "icons", "logo.png"), onePixelPng);
+    await writeFile(join(root, "docs", "img", "logo.png"), onePixelPng);
+
+    const first = await tool.execute("first", { path: "assets/icons/logo.png", confirm: true }, undefined, undefined, {} as never);
+    expect(first.details).toMatchObject({ inputPath: join("assets", "icons", "logo.png"), outputPath: join("assets", "icons", "logo.min.png") });
+    expect((await stat(join(root, "assets", "icons", "logo.min.png"))).isFile()).toBe(true);
+    await expect(stat(join(root, "logo.min.png"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const second = await tool.execute("second", { path: "docs/img/logo.png", confirm: true }, undefined, undefined, {} as never);
+    expect(second.details).toMatchObject({ outputPath: join("docs", "img", "logo.min.png") });
+    expect((await stat(join(root, "docs", "img", "logo.min.png"))).isFile()).toBe(true);
+    expect((await stat(join(root, "assets", "icons", "logo.min.png"))).isFile()).toBe(true);
+
+    await expect(tool.execute("again", { path: "assets/icons/logo.png", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /already exists.*assets\/icons\/logo\.min\.png.*outputPath/iu,
+    );
+    await expect(
+      tool.execute("explicit", { path: "assets/icons/logo.png", outputPath: "assets/icons/logo.min.png", confirm: true }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { outputPath: join("assets", "icons", "logo.min.png") } });
   });
 });

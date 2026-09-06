@@ -48,6 +48,46 @@ describe("tab manager", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { tabs: [], activeId: null } }]);
   });
 
+  test("pins another session by its requested path without touching the active session's tab", async () => {
+    const { root, tool } = await fixture();
+    const otherPath = join(root, "session-2.jsonl");
+    await expect(
+      tool.execute("pin-other", { action: "pin", sessionPath: otherPath, label: "Other" }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { id: "session-2", label: "Other", sessionPath: otherPath, pinned: true },
+    });
+    await expect(tool.execute("pin-active", { action: "pin", label: "Mine" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { id: "session-1", label: "Mine", sessionPath: join(root, "session-1.jsonl"), pinned: true },
+    });
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: {
+        activeId: "session-1",
+        tabs: [
+          { id: "session-1", label: "Mine" },
+          { id: "session-2", label: "Other" },
+        ],
+      },
+    });
+    await expect(tool.execute("activate", { action: "activate", sessionPath: otherPath }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      content: [{ type: "text", text: "Active session tab: Other" }],
+      details: { activeId: "session-2" },
+    });
+    await expect(tool.execute("remove", { action: "remove", sessionPath: otherPath }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { activeId: "session-1", tabs: [{ id: "session-1", label: "Mine" }] },
+    });
+  });
+
+  test("rejects pinning a second session whose file name collides with an existing tab id", async () => {
+    const { root, tool } = await fixture();
+    await tool.execute("pin-first", { action: "pin", sessionPath: join(root, "a", "shared.jsonl") }, undefined, undefined, {} as never);
+    await expect(
+      tool.execute("pin-second", { action: "pin", sessionPath: join(root, "b", "shared.jsonl") }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/already exists/iu);
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { tabs: [{ id: "shared", sessionPath: join(root, "a", "shared.jsonl") }] },
+    });
+  });
+
   test("rejects invalid labels and disposes its registry entries", async () => {
     const { context, tool, tools, panels } = await fixture();
     await expect(tool.execute("rename", { action: "rename", label: "" }, undefined, undefined, {} as never)).rejects.toThrow(/label/iu);

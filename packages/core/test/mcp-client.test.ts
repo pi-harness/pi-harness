@@ -818,7 +818,7 @@ process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline 
         undefined,
         {} as never,
       );
-      (started.details as { command: string[] }).command[0] = "mutated";
+      (started.details as { executable: string }).executable = "mutated";
       const status = await tool(fixture.tools, "mcp_server_status").execute("status", {}, undefined, undefined, {} as never);
       expect((status.details as { servers: Array<{ executable: string }> }).servers[0]?.executable).toBe(process.execPath.split("/").pop());
       (status.details as { servers: Array<{ executable: string }> }).servers[0]!.executable = "mutated-again";
@@ -901,6 +901,29 @@ process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline 
       const status = await tool(fixture.tools, "mcp_server_status").execute("status", {}, undefined, undefined, {} as never);
       expect(JSON.stringify(status)).not.toContain(secret);
       expect(status).toMatchObject({ details: { servers: [{ id: "private", executable: process.execPath.split("/").pop(), argumentCount: 1 }] } });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("does not expose command arguments in the mcp_server_start result", async () => {
+    const secret = "ghp_secret-token-argument";
+    const fixture = await createFixture();
+    const server = await writeServer(
+      fixture.cwd,
+      `let buffer = ""; const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n"); process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline = buffer.indexOf("\\n"); if (newline < 0) break; const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line.trim()) continue; const message = JSON.parse(line); if (message.method === "initialize") send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "private-start", version: "1" } } }); } });`,
+    );
+    try {
+      const started = await tool(fixture.tools, "mcp_server_start").execute(
+        "start",
+        { command: [process.execPath, server, "--token", secret], serverId: "private-start" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(JSON.stringify(started)).not.toContain(secret);
+      expect(JSON.stringify(started)).not.toContain(server);
+      expect(started.details).toEqual({ serverId: "private-start", executable: process.execPath.split("/").pop(), argumentCount: 3, status: "running" });
     } finally {
       await fixture.context.fiber.dispose();
     }

@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Pi Harness marketplace entry",
+  "description": "Structural contract for one JSON file under packages/api-gateway/src/marketplace-entries. It mirrors isMarketplacePlugin in packages/api-gateway/src/marketplace.ts, which is the authoritative validator and runs when the API gateway module is imported. One rule cannot be expressed here and is enforced only at runtime: profile.name must equal packageName.",
   "type": "object",
   "required": [
     "id",
@@ -13,6 +14,7 @@
     "license",
     "source",
     "status",
+    "category",
     "capabilities",
     "hooks",
     "profile"
@@ -20,22 +22,40 @@
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-    "packageName": { "type": "string", "pattern": "^(?:@[a-z0-9._~-]+/)?[a-z0-9._~-]+$" },
+    "packageName": { "type": "string", "pattern": "^(?:@[a-z0-9._~-]+/)?[a-z0-9._~-]+(?:/[a-z0-9._~-]+)*$" },
     "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" },
-    "name": { "type": "string", "minLength": 1 },
-    "description": { "type": "string", "minLength": 1 },
-    "author": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "pattern": "\\S" },
+    "description": { "type": "string", "pattern": "\\S" },
+    "author": { "type": "string", "pattern": "\\S" },
     "repository": { "type": "string", "pattern": "^https://" },
-    "license": { "type": "string", "minLength": 1 },
+    "license": { "type": "string", "pattern": "\\S" },
     "source": { "enum": ["official", "community"] },
     "status": { "enum": ["verified", "experimental"] },
-    "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
-    "hooks": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "category": {
+      "type": "object",
+      "required": ["id", "label"],
+      "additionalProperties": false,
+      "properties": { "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }, "label": { "type": "string", "pattern": "\\S" } }
+    },
+    "capabilities": { "type": "array", "items": { "type": "string", "pattern": "\\S" }, "minItems": 1, "uniqueItems": true },
+    "hooks": { "type": "array", "items": { "type": "string", "pattern": "\\S" }, "minItems": 1, "uniqueItems": true },
     "profile": {
       "type": "object",
       "required": ["name", "config"],
       "additionalProperties": false,
-      "properties": { "name": { "type": "string", "minLength": 1 }, "config": { "type": "object" } }
+      "properties": { "name": { "type": "string", "pattern": "\\S" }, "group": { "type": "boolean" }, "config": { "type": ["object", "array"] } },
+      "if": { "properties": { "group": { "const": true } }, "required": ["group"] },
+      "then": { "properties": { "config": { "type": "array" } } },
+      "else": { "properties": { "config": { "type": "object" } } }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "downloads30d": { "type": "integer", "minimum": 0 },
+        "quality": { "type": "number", "minimum": 0, "maximum": 1 },
+        "updatedAt": { "type": "string", "pattern": "\\S" }
+      }
     }
   }
 }

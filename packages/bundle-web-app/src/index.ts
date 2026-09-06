@@ -1,6 +1,6 @@
 import { createReadStream, existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep, type PlatformPath } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -23,10 +23,18 @@ function contentType(path: string): string {
   return MIME_TYPES[extension] ?? "application/octet-stream";
 }
 
+type ContainmentPath = Pick<PlatformPath, "isAbsolute" | "relative" | "sep">;
+const platformPath: ContainmentPath = { isAbsolute, relative, sep };
+
+// Containment is decided with path.relative instead of a "/"-prefixed string compare so backslash-separated Windows paths and other drives are handled; the pathApi parameter exists so tests can exercise path.win32 on any host.
+export function isInsideStaticRoot(root: string, candidate: string, pathApi: ContainmentPath = platformPath): boolean {
+  const remainder = pathApi.relative(root, candidate);
+  return remainder === "" || (remainder !== ".." && !remainder.startsWith(".." + pathApi.sep) && !pathApi.isAbsolute(remainder));
+}
+
 function safePath(root: string, pathname: string): string | undefined {
   const candidate = resolve(root, "." + pathname);
-  const rootWithSlash = root.endsWith("/") ? root : root + "/";
-  if (candidate !== root && !candidate.startsWith(rootWithSlash)) return undefined;
+  if (!isInsideStaticRoot(root, candidate)) return undefined;
   return candidate;
 }
 
@@ -39,8 +47,7 @@ async function sendFile(path: string, response: ServerResponse): Promise<void> {
 
 async function sendSafeFile(root: string, path: string, response: ServerResponse): Promise<void> {
   const [rootReal, pathReal] = await Promise.all([realpath(root), realpath(path)]);
-  const rootWithSlash = rootReal.endsWith("/") ? rootReal : rootReal + "/";
-  if (pathReal !== rootReal && !pathReal.startsWith(rootWithSlash)) throw new Error("Static file escapes web root");
+  if (!isInsideStaticRoot(rootReal, pathReal)) throw new Error("Static file escapes web root");
   await sendFile(pathReal, response);
 }
 

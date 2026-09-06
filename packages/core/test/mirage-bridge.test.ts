@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Context } from "@deepseek-ai/cordis";
@@ -7,6 +7,55 @@ import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
 import mirageBridgePlugin from "../src/plugins/mirage-bridge.js";
 
 const temporaryDirectories: string[] = [];
+
+async function waitForFile(path: string): Promise<void> {
+  const started = Date.now();
+  for (;;) {
+    try {
+      await access(path);
+      return;
+    } catch {
+      if (Date.now() - started > 5_000) throw new Error(`Timed out waiting for ${path}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+}
+
+// A Mirage stub whose execute subcommand signals readiness, then idles until it is terminated or gives up after five seconds.
+async function longRunningFixture() {
+  const directory = await mkdtemp(join(tmpdir(), "pi-harness-mirage-"));
+  temporaryDirectories.push(directory);
+  const executable = join(directory, "mirage-stub.mjs");
+  await writeFile(
+    executable,
+    `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+if (process.argv[2] === "--version") {
+  console.log("mirage 0.9.0");
+} else {
+  process.on("SIGTERM", () => {
+    writeFileSync("terminated", "");
+    process.exit(0);
+  });
+  writeFileSync("ready", "");
+  setInterval(() => {}, 100);
+  setTimeout(() => process.exit(2), 5_000);
+}
+`,
+    "utf8",
+  );
+  await chmod(executable, 0o755);
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory } as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(mirageBridgePlugin, { executable, workspaceId: "review-sandbox", timeoutMs: 30_000 });
+  const execute = tools.snapshot().customTools.find((tool) => tool.name === "mirage_execute");
+  if (execute === undefined) throw new Error("mirage_execute was not registered");
+  return { directory, context, panels, execute };
+}
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -51,6 +100,37 @@ else console.log(JSON.stringify(process.argv.slice(2)));
       await expect(panels.snapshot()).resolves.toMatchObject([
         { id: "mirage-bridge-panel", data: { available: true, workspaceId: "review-sandbox", lastRun: { exitCode: 0 } } },
       ]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+  test("kills the Mirage child and rejects when the tool call is cancelled", async () => {
+    const { directory, context, panels, execute } = await longRunningFixture();
+    try {
+      const caller = new AbortController();
+      const execution = execute.execute("run-cancel", { command: "sleep forever" }, caller.signal, undefined, {} as never);
+      await waitForFile(join(directory, "ready"));
+
+      caller.abort(new Error("cancelled by test"));
+
+      await expect(execution).rejects.toThrow(/cancelled by test/iu);
+      await waitForFile(join(directory, "terminated"));
+      await expect(panels.snapshot()).resolves.toMatchObject([{ id: "mirage-bridge-panel", data: { lastRun: null } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("kills the Mirage child when the plugin is disposed", async () => {
+    const { directory, context, execute } = await longRunningFixture();
+    try {
+      const execution = execute.execute("run-dispose", { command: "sleep forever" }, undefined, undefined, {} as never);
+      await waitForFile(join(directory, "ready"));
+
+      await context.fiber.dispose();
+
+      await expect(execution).rejects.toThrow(/disposed/iu);
+      await waitForFile(join(directory, "terminated"));
     } finally {
       await context.fiber.dispose();
     }
