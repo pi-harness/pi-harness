@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "session tabs",
-    "session switching",
-    "workspace context"
-  ],
-  "hooks": [
-    "session registry",
-    "plugin UI"
-  ],
+  "capabilities": ["session tabs", "session switching", "workspace context"],
+  "hooks": ["session registry", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/tab-manager",
     "config": {}

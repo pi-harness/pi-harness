@@ -20,11 +20,7 @@
     "persistent server lifecycle",
     "cancellable queued requests"
   ],
-  "hooks": [
-    "MCP stdio tools",
-    "managed server lifecycle",
-    "plugin UI"
-  ],
+  "hooks": ["MCP stdio tools", "managed server lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/mcp-client",
     "config": {

@@ -13,16 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "desktop notification",
-    "completion notice",
-    "failure and abort notice"
-  ],
-  "hooks": [
-    "agent end",
-    "compaction error",
-    "plugin UI"
-  ],
+  "capabilities": ["desktop notification", "completion notice", "failure and abort notice"],
+  "hooks": ["agent end", "compaction error", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/cli-notifier",
     "config": {}

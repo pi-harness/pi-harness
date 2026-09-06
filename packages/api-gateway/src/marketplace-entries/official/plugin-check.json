@@ -13,15 +13,8 @@
     "id": "security",
     "label": "安全"
   },
-  "capabilities": [
-    "plugin audit",
-    "manifest validation",
-    "compatibility check"
-  ],
-  "hooks": [
-    "plugin loader",
-    "plugin UI"
-  ],
+  "capabilities": ["plugin audit", "manifest validation", "compatibility check"],
+  "hooks": ["plugin loader", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/plugin-check",
     "config": {}

@@ -20,11 +20,7 @@
     "cancellable bounded traversal",
     "bounded normalized panel"
   ],
-  "hooks": [
-    "image metadata tools",
-    "workspace access",
-    "plugin UI"
-  ],
+  "hooks": ["image metadata tools", "workspace access", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/vision-toolkit",
     "config": {}

@@ -22,11 +22,7 @@
     "strict panel reporting",
     "cancellation cleanup"
   ],
-  "hooks": [
-    "sandbox execution tool",
-    "Docker CLI",
-    "plugin UI"
-  ],
+  "hooks": ["sandbox execution tool", "Docker CLI", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/docker-sandbox",
     "config": {}

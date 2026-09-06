@@ -21,12 +21,7 @@
     "descriptor-safe cancellable queries",
     "bounded normalized panel"
   ],
-  "hooks": [
-    "recall unread tool",
-    "native session storage",
-    "active session manager",
-    "plugin UI"
-  ],
+  "hooks": ["recall unread tool", "native session storage", "active session manager", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/recall-unread",
     "config": {}
