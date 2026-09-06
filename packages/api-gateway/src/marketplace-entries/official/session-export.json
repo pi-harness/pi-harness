@@ -1,7 +1,7 @@
 {
   "id": "session-export",
   "packageName": "@pi-harness/core/plugins/session-export",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "name": "Session Export",
   "description": "Export the current Pi conversation to a bounded Markdown file inside the workspace without changing session history.",
   "author": "Pi Harness",

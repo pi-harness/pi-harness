@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/pi-harness",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
   "bugs": {
     "url": "https://github.com/pi-harness/pi-harness/issues"
@@ -55,11 +55,11 @@
     "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4",
     "@liustack/modlens": "3.25.4",
-    "@pi-harness/api-gateway": "0.1.22",
-    "@pi-harness/cli": "0.1.22",
-    "@pi-harness/core": "^0.1.22",
-    "@pi-harness/host-webserver": "0.1.22",
-    "@pi-harness/web-app": "0.1.22",
+    "@pi-harness/api-gateway": "0.1.23",
+    "@pi-harness/cli": "0.1.23",
+    "@pi-harness/core": "^0.1.23",
+    "@pi-harness/host-webserver": "0.1.23",
+    "@pi-harness/web-app": "0.1.23",
     "semver": "7.8.5",
     "undici": "8.9.0",
     "yaml": "2.9.0"

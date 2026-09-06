@@ -1,7 +1,7 @@
 {
   "id": "plugin-check",
   "packageName": "@pi-harness/core/plugins/plugin-check",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "name": "Plugin Check",
   "description": "Inspect installed plugin manifests and report unsafe, malformed, or incompatible extension metadata before loading it.",
   "author": "Pi Harness",

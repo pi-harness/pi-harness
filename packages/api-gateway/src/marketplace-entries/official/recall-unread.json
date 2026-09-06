@@ -1,7 +1,7 @@
 {
   "id": "recall-unread",
   "packageName": "@pi-harness/core/plugins/recall-unread",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "name": "Recall Unread",
   "description": "Read-only bounded discovery with strict UTF-8 session reads finds current workspace conversations ending in an unanswered user message, uses cached startup inventory, and rescans only on explicit tool calls.",
   "author": "Pi Harness",
