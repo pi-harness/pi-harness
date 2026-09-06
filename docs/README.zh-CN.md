@@ -28,9 +28,9 @@ npm run web
 
 启动时会后台检查兼容的 `@pi-harness/core` 更新，不阻塞启动。发现更新时会输出命令；网络失败会被忽略。运行 `npm update --global @pi-harness/pi-harness` 更新，或设置 `PI_HARNESS_DISABLE_UPDATE_CHECK=1` 关闭检查。
 
-常用环境变量：`PI_HARNESS_HOST`、`PI_HARNESS_PORT`、`PI_AGENT_DIR`。默认地址为 `http://127.0.0.1:3141`，默认 Pi 数据目录为 `~/.pi/agent`。非回环地址必须显式设置 `PI_HARNESS_ALLOW_REMOTE=1`。
+常用环境变量：`PI_HARNESS_HOST`、`PI_HARNESS_PORT`、`PI_AGENT_DIR`、`PI_HARNESS_PROVIDER`、`PI_HARNESS_MODEL`。默认地址为 `http://127.0.0.1:3141`，默认 Pi 数据目录为 `~/.pi/agent`。非回环地址必须显式设置 `PI_HARNESS_ALLOW_REMOTE=1`。
 
-如果安装了 EveryAPI CLI，可运行 `everyapi use pi-harness`，使用隔离的 Pi agent 目录启动。
+Web 控制台的 profile（[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)）默认选择 `everyapi/deepseek-v4-flash`，而模型选择是 fail-closed 的：当前 `PI_AGENT_DIR` 里没有注册该 provider 时，启动会直接以 `Pi model is not registered: <provider>/<model>` 失败，而不会回退到别的 provider。所以全新安装后要先准备好模型目录：安装了 EveryAPI CLI 就运行 `everyapi use pi-harness`，它会用隔离的 Pi agent 目录写入 EveryAPI provider 目录并启动；或者把 `PI_HARNESS_PROVIDER` 和 `PI_HARNESS_MODEL` 指向该 agent 目录里已经注册的模型。CLI 内置的 `default` profile 选择的则是 `deepseek/deepseek-v4-flash`。
 
 ## CLI
 
@@ -62,7 +62,7 @@ npm run build
 
 主包和独立的 `@pi-harness/core` 都可发布。只修复内置插件时，发布兼容的 core patch 版本即可；主包通过 `^0.1.x` 依赖获取更新。
 
-完整插件目录、配置示例、API 路由、资源限制和安全边界请参阅 [英文完整参考](README.reference.md)。
+节选的插件目录、配置示例、全部 HTTP API 路由、资源限制和安全边界请参阅 [英文完整参考](README.reference.md)。core 附带的插件比该目录收录的更多：[`packages/core/src/plugins`](../packages/core/src/plugins) 是完整集合，[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) 是 Web 控制台默认启用的清单。
 
 ## 许可证
 

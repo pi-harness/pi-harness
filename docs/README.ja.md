@@ -27,7 +27,9 @@ npm run web
 
 起動時に互換性のある `@pi-harness/core` の更新をバックグラウンドで確認します。起動をブロックせず、更新があればコマンドを表示し、ネットワーク障害は無視します。`npm update --global @pi-harness/pi-harness` で更新し、`PI_HARNESS_DISABLE_UPDATE_CHECK=1` で確認を無効化できます。
 
-主な環境変数は `PI_HARNESS_HOST`、`PI_HARNESS_PORT`、`PI_AGENT_DIR` です。既定の URL は `http://127.0.0.1:3141` です。
+主な環境変数は `PI_HARNESS_HOST`、`PI_HARNESS_PORT`、`PI_AGENT_DIR`、`PI_HARNESS_PROVIDER`、`PI_HARNESS_MODEL` です。既定の URL は `http://127.0.0.1:3141` です。
+
+Web コンソールの profile（[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)）は既定で `everyapi/deepseek-v4-flash` を選択します。モデル選択は fail-closed で、その provider が現在の `PI_AGENT_DIR` に登録されていない場合は別の provider にフォールバックせず `Pi model is not registered: <provider>/<model>` で起動が中断します。新規インストール直後はまずモデルカタログを用意してください。EveryAPI CLI があれば `everyapi use pi-harness` を実行すると、EveryAPI の provider カタログを含む独立した Pi agent ディレクトリを用意して起動します。あるいは `PI_HARNESS_PROVIDER` と `PI_HARNESS_MODEL` に、その agent ディレクトリへ登録済みのモデルを指定します。CLI 組み込みの `default` profile が選択するのは `deepseek/deepseek-v4-flash` です。
 
 ## CLI
 
@@ -52,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-完全なプラグイン一覧、設定、API、制限事項、セキュリティ境界は [英語の完全リファレンス](README.reference.md) を参照してください。
+抜粋されたプラグインカタログ、設定、すべての HTTP API ルート、制限事項、セキュリティ境界は [英語の完全リファレンス](README.reference.md) を参照してください。core にはカタログが説明するより多くのプラグインが同梱されています。完全な一覧は [`packages/core/src/plugins`](../packages/core/src/plugins)、Web コンソールが既定で有効化するものは [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) です。
 
 ## ライセンス
 

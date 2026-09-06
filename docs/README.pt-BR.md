@@ -27,7 +27,9 @@ npm run web
 
 Na inicialização, o Pi Harness verifica em segundo plano se existe uma versão compatível mais nova de `@pi-harness/core`. A inicialização não é bloqueada; uma atualização exibe o comando correspondente e falhas de rede são ignoradas. Use `npm update --global @pi-harness/pi-harness` para atualizar ou `PI_HARNESS_DISABLE_UPDATE_CHECK=1` para desativar a verificação.
 
-As variáveis mais usadas são `PI_HARNESS_HOST`, `PI_HARNESS_PORT` e `PI_AGENT_DIR`. O endereço padrão é `http://127.0.0.1:3141`.
+As variáveis mais usadas são `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` e `PI_HARNESS_MODEL`. O endereço padrão é `http://127.0.0.1:3141`.
+
+O profile do console web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) seleciona `everyapi/deepseek-v4-flash` por padrão. A seleção de modelo é fail-closed: se esse provedor não estiver registrado no `PI_AGENT_DIR` ativo, a inicialização é abortada com `Pi model is not registered: <provider>/<model>` em vez de recorrer a outro provedor. Por isso, depois de uma instalação nova prepare primeiro o catálogo de modelos: execute `everyapi use pi-harness` se a CLI do EveryAPI estiver instalada — ela prepara um diretório de agente Pi isolado com o catálogo de provedores do EveryAPI e inicia o Pi Harness — ou aponte `PI_HARNESS_PROVIDER` e `PI_HARNESS_MODEL` para um modelo já registrado nesse diretório. O profile `default` embutido na CLI seleciona `deepseek/deepseek-v4-flash`.
 
 ## CLI
 
@@ -52,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Veja a [referência completa em inglês](README.reference.md) para o catálogo de plugins, configuração, API, limites e segurança.
+Veja a [referência em inglês](README.reference.md) para o catálogo selecionado de plugins, a configuração, todas as rotas da API HTTP, os limites e a segurança. O core traz mais plugins do que esse catálogo descreve: [`packages/core/src/plugins`](../packages/core/src/plugins) é o conjunto completo e [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) é o que o console web habilita por padrão.
 
 ## Licença
 

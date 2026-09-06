@@ -27,7 +27,9 @@ npm run web
 
 Au démarrage, Pi Harness vérifie en arrière-plan les nouvelles versions compatibles de `@pi-harness/core`. Cette vérification ne bloque pas le démarrage, affiche une commande si une mise à jour est disponible et ignore les erreurs réseau. Utilisez `npm update --global @pi-harness/pi-harness` pour mettre à jour ou `PI_HARNESS_DISABLE_UPDATE_CHECK=1` pour désactiver la vérification.
 
-Variables courantes : `PI_HARNESS_HOST`, `PI_HARNESS_PORT` et `PI_AGENT_DIR`. L’adresse par défaut est `http://127.0.0.1:3141`.
+Variables courantes : `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` et `PI_HARNESS_MODEL`. L’adresse par défaut est `http://127.0.0.1:3141`.
+
+Le profile de la console web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) sélectionne `everyapi/deepseek-v4-flash` par défaut. La sélection du modèle est fail-closed : si ce fournisseur n’est pas enregistré dans le `PI_AGENT_DIR` actif, le démarrage échoue avec `Pi model is not registered: <provider>/<model>` au lieu de basculer vers un autre fournisseur. Après une installation neuve, préparez donc d’abord le catalogue de modèles : exécutez `everyapi use pi-harness` si la CLI EveryAPI est installée — elle prépare un répertoire d’agent Pi isolé contenant le catalogue de fournisseurs EveryAPI et le démarre — ou pointez `PI_HARNESS_PROVIDER` et `PI_HARNESS_MODEL` vers un modèle déjà enregistré dans ce répertoire. Le profile `default` intégré à la CLI sélectionne quant à lui `deepseek/deepseek-v4-flash`.
 
 ## CLI
 
@@ -52,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Consultez la [référence complète en anglais](README.reference.md) pour le catalogue des plugins, la configuration, l’API, les limites et la sécurité.
+Consultez la [référence en anglais](README.reference.md) pour le catalogue sélectionné de plugins, la configuration, toutes les routes de l’API HTTP, les limites et la sécurité. Core embarque plus de plugins que ce catalogue n’en décrit : [`packages/core/src/plugins`](../packages/core/src/plugins) constitue l’ensemble complet et [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) liste ceux que la console web active par défaut.
 
 ## Licence
 

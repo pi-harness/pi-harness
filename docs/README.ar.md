@@ -27,7 +27,9 @@ npm run web
 
 عند التشغيل، يتحقق Pi Harness في الخلفية من وجود إصدار متوافق أحدث من `@pi-harness/core`. لا يؤخر ذلك بدء التشغيل، ويعرض الأمر عند توفر تحديث ويتجاهل أخطاء الشبكة. للتحديث شغّل `npm update --global @pi-harness/pi-harness`، أو عطّل التحقق باستخدام `PI_HARNESS_DISABLE_UPDATE_CHECK=1`.
 
-أهم متغيرات البيئة هي `PI_HARNESS_HOST` و`PI_HARNESS_PORT` و`PI_AGENT_DIR`. العنوان الافتراضي هو `http://127.0.0.1:3141`.
+أهم متغيرات البيئة هي `PI_HARNESS_HOST` و`PI_HARNESS_PORT` و`PI_AGENT_DIR` و`PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL`. العنوان الافتراضي هو `http://127.0.0.1:3141`.
+
+يختار profile وحدة تحكم الويب ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) النموذج `everyapi/deepseek-v4-flash` افتراضياً. واختيار النموذج fail-closed: إذا لم يكن ذلك المزوّد مسجّلاً في `PI_AGENT_DIR` النشط، يتوقف التشغيل بالخطأ `Pi model is not registered: <provider>/<model>` بدلاً من التحوّل إلى مزوّد آخر. لذلك جهّز كتالوج النماذج أولاً بعد التثبيت الجديد: شغّل `everyapi use pi-harness` إن كانت أداة EveryAPI CLI مثبّتة، فهي تُهيّئ مجلد Pi agent معزولاً يحتوي كتالوج مزوّدي EveryAPI ثم تُشغّل Pi Harness، أو وجّه `PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL` إلى نموذج مسجّل مسبقاً في ذلك المجلد. أما profile الافتراضي `default` المضمّن في CLI فيختار `deepseek/deepseek-v4-flash`.
 
 ## CLI
 
@@ -52,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-للاطلاع على كتالوج الإضافات الكامل والإعدادات وواجهة API والحدود الأمنية، راجع [المرجع الكامل بالإنجليزية](README.reference.md).
+للاطلاع على كتالوج الإضافات المنتقى والإعدادات وجميع مسارات واجهة HTTP API والحدود الأمنية، راجع [المرجع بالإنجليزية](README.reference.md). ويضم core إضافات أكثر مما يصفه ذلك الكتالوج: المجموعة الكاملة في [`packages/core/src/plugins`](../packages/core/src/plugins)، وما تُفعّله وحدة تحكم الويب افتراضياً مذكور في [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml).
 
 ## الترخيص
 

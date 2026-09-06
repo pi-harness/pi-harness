@@ -27,7 +27,9 @@ npm run web
 
 Beim Start prüft Pi Harness im Hintergrund auf eine kompatible neue Version von `@pi-harness/core`. Der Start wird nicht blockiert; bei einem Update wird ein Befehl ausgegeben, Netzwerkfehler werden ignoriert. Aktualisieren Sie mit `npm update --global @pi-harness/pi-harness` oder deaktivieren Sie die Prüfung mit `PI_HARNESS_DISABLE_UPDATE_CHECK=1`.
 
-Wichtige Umgebungsvariablen sind `PI_HARNESS_HOST`, `PI_HARNESS_PORT` und `PI_AGENT_DIR`. Die Standardadresse lautet `http://127.0.0.1:3141`.
+Wichtige Umgebungsvariablen sind `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` und `PI_HARNESS_MODEL`. Die Standardadresse lautet `http://127.0.0.1:3141`.
+
+Das Profile der Web-Konsole ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) wählt standardmäßig `everyapi/deepseek-v4-flash`. Die Modellauswahl ist fail-closed: Ist dieser Anbieter im aktiven `PI_AGENT_DIR` nicht registriert, bricht der Start mit `Pi model is not registered: <provider>/<model>` ab, statt auf einen anderen Anbieter auszuweichen. Nach einer frischen Installation muss der Modellkatalog deshalb zuerst bereitstehen: Führen Sie `everyapi use pi-harness` aus, wenn die EveryAPI-CLI installiert ist — sie legt ein isoliertes Pi-Agent-Verzeichnis mit dem EveryAPI-Anbieterkatalog an und startet damit —, oder setzen Sie `PI_HARNESS_PROVIDER` und `PI_HARNESS_MODEL` auf ein Modell, das in diesem Verzeichnis bereits registriert ist. Das in der CLI eingebaute Profile `default` wählt dagegen `deepseek/deepseek-v4-flash`.
 
 ## CLI
 
@@ -52,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Der vollständige Plugin-Katalog sowie Konfiguration, API, Limits und Sicherheitsgrenzen stehen in der [vollständigen englischen Referenz](README.reference.md).
+Der ausgewählte Plugin-Katalog sowie Konfiguration, sämtliche HTTP-API-Routen, Limits und Sicherheitsgrenzen stehen in der [englischen Referenz](README.reference.md). Core liefert mehr Plugins aus, als dieser Katalog beschreibt: [`packages/core/src/plugins`](../packages/core/src/plugins) ist die vollständige Menge, und [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) listet die von der Web-Konsole standardmäßig aktivierten Plugins.
 
 ## Lizenz
 
