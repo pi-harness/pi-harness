@@ -34,7 +34,7 @@
     "test:package": "node scripts/test-packed-package.mjs",
     "clean": "npm run clean --workspaces --if-present",
     "lint": "npm run build && npm run lint:check",
-    "lint:check": "eslint .",
+    "lint:check": "node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js .",
     "test": "npm run build && vitest run",
     "typecheck": "npm run build && npm run typecheck:workspaces",
     "typecheck:workspaces": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
