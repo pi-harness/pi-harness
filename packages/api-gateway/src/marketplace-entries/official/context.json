@@ -20,12 +20,7 @@
     "cached session-aware panel",
     "bounded normalized browser view"
   ],
-  "hooks": [
-    "context inspection tool",
-    "active runtime session",
-    "Pi session lifecycle",
-    "plugin UI"
-  ],
+  "hooks": ["context inspection tool", "active runtime session", "Pi session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/context",
     "config": {}

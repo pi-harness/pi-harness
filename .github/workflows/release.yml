@@ -68,6 +68,9 @@ jobs:
           fi
 
           node scripts/set-release-version.mjs "$version"
+          # set-release-version rewrites JSON with JSON.stringify; normalize the
+          # generated files with the repository formatter before committing them.
+          npm run format
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
