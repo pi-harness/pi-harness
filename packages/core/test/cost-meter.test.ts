@@ -276,6 +276,24 @@ describe("cost meter production boundaries", () => {
     await expect(tool.execute("over-limit", {}, undefined, undefined, {} as never)).rejects.toThrow(/2000-entry limit/iu);
   });
 
+  test("truncates a ledger holding more entries than the configured limit instead of failing", async () => {
+    const { costPath, tool } = await setup(stats(), { maxEntries: 2 });
+    const entry = (index: number) => ({
+      sessionId: `session-${index}`,
+      cost: 1,
+      sessionCost: 1,
+      tokens: 1,
+      messages: 1,
+      recordedAt: `2026-01-0${index + 1}T00:00:00.000Z`,
+    });
+    await writeFile(costPath, JSON.stringify({ version: 2, entries: Array.from({ length: 5 }, (_, index) => entry(index)) }), "utf8");
+
+    const report = await tool.execute("lowered-limit", {}, undefined, undefined, {} as never);
+    expect((report.details as { entries: Array<{ sessionId: string }> }).entries.map((item) => item.sessionId)).toEqual(["session-0", "session-1"]);
+
+    await expect(tool.execute("record", { refresh: true }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { entryLimit: 2 } });
+  });
+
   test("rejects duplicate version-two session and UTC-day keys", async () => {
     const { costPath, tool } = await setup();
     await writeFile(

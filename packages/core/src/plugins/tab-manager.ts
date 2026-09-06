@@ -4,7 +4,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedTextFile } from "../bounded-file.js";
+import { BoundedFileSizeError, BoundedFileTypeError, readBoundedTextFile } from "../bounded-file.js";
 import { EmptyConfig } from "../config.js";
 
 const storageFile = "session-tabs.json";
@@ -196,7 +196,11 @@ export default {
   Config: EmptyConfig,
   async apply(context: Context) {
     const path = join(context.piHarnessLaunch.agentDir, storageFile);
-    let state = await readState(path);
+    // A corrupt or stale store must not fail activation: the harness would otherwise abort entirely over one unusable cache file. Size and type failures still propagate because they signal a containment problem rather than stale content, and mutations keep going through readState so they fail loudly instead of silently discarding tabs.
+    let state = await readState(path).catch((error: unknown) => {
+      if (error instanceof BoundedFileSizeError || error instanceof BoundedFileTypeError) throw error;
+      return emptyState();
+    });
     let mutationQueue = Promise.resolve();
     let writes = 0;
     const activeSession = (): { id: string; sessionPath: string } => ({
@@ -263,6 +267,7 @@ export default {
         async execute(_toolCallId, params): Promise<AgentToolResult<TabState | Tab>> {
           const active = activeSession();
           const targetPath = params.sessionPath?.trim() || active.sessionPath;
+          if (targetPath.length === 0 || targetPath.length > 4_096) throw new Error("Session path must be 1 to 4096 characters");
           if (params.label !== undefined && params.label.trim().length > 120) throw new Error("Tab label must be 1 to 120 characters");
           if (params.action === "list") {
             state = await readState(path);
@@ -297,7 +302,8 @@ export default {
             });
           } else if (params.action === "pin") {
             // Only the active session is keyed by its session id; other sessions are keyed by their file name so the tab describes the requested path.
-            const id = targetPath === active.sessionPath ? active.id : basename(targetPath, extname(targetPath));
+            const id = targetPath === active.sessionPath ? active.id : basename(targetPath, extname(targetPath)).trim();
+            if (id.length === 0 || id.length > 512) throw new Error("Session tab path must name a session file");
             const tab = await mutate((current) => upsert(current, id, targetPath, params.label, true));
             return { content: [{ type: "text", text: `Pinned session tab: ${tab.label}` }], details: tab };
           } else if (params.action === "unpin") {

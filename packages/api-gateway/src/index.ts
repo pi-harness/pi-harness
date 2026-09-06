@@ -1,7 +1,7 @@
 import { execFile, type ExecFileException } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
@@ -42,6 +42,8 @@ const IMPORT_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
 // Retained trajectory events are replayed to every SSE client and returned by /api/session, so the array must stay bounded.
 const MAX_RETAINED_EVENTS = 2000;
 const GIT_TIMEOUT_MS = 15_000;
+// Mutating commands run user hooks (pre-commit, lint-staged, test suites) and may stage large trees; killing them part-way leaves index.lock and a half-finished operation behind, so they get a far more generous bound than read-only queries.
+const GIT_MUTATION_TIMEOUT_MS = 120_000;
 
 class PayloadTooLargeError extends Error {
   constructor() {
@@ -166,7 +168,7 @@ interface MetadataLogger {
   warn(message: string): void;
 }
 
-// A missing file is the normal first-run state. Any other read or parse failure means the file exists but is unusable; it is renamed aside so the wreckage survives for recovery and the next write cannot silently replace the only copy.
+// A missing file is the normal first-run state. A parse or shape failure means the file exists but is unusable; it is renamed aside so the wreckage survives for recovery and the next write cannot silently replace the only copy. Any other read error (EMFILE, EBUSY, EISDIR, permissions) says nothing about the content, so it propagates and the caller's write is skipped instead of replacing a valid map with an empty one.
 async function readSessionMetadata(manager: SessionManager, logger: MetadataLogger): Promise<SessionMetadataMap> {
   const file = sessionMetadataFile(manager);
   let raw: string;
@@ -174,8 +176,7 @@ async function readSessionMetadata(manager: SessionManager, logger: MetadataLogg
     raw = await readFile(file, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    await quarantineSessionMetadata(file, logger, error);
-    return {};
+    throw error;
   }
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -202,27 +203,38 @@ async function writeSessionMetadata(manager: SessionManager, metadata: SessionMe
   await atomicWriteFile(sessionMetadataFile(manager), JSON.stringify(metadata, null, 2) + "\n", { encoding: "utf8" });
 }
 
-// Every read-modify-write of the metadata file runs through this chain so concurrent requests cannot interleave and drop each other's updates.
+// Every access to the metadata file runs through this chain so concurrent requests cannot interleave and drop each other's updates. Plain reads take the lock too: a read that finds corrupt bytes quarantines the file, and doing that outside the lock could rename away a valid map that a concurrent mutation had just written.
 let sessionMetadataQueue: Promise<unknown> = Promise.resolve();
 
+function withSessionMetadataLock<T>(operation: () => Promise<T>): Promise<T> {
+  const next = sessionMetadataQueue.catch(() => undefined).then(operation);
+  sessionMetadataQueue = next;
+  return next;
+}
+
+function readSessionMetadataLocked(manager: SessionManager, logger: MetadataLogger): Promise<SessionMetadataMap> {
+  return withSessionMetadataLock(() => readSessionMetadata(manager, logger));
+}
+
 function mutateSessionMetadata<T>(manager: SessionManager, logger: MetadataLogger, mutate: (metadata: SessionMetadataMap) => Promise<T> | T): Promise<T> {
-  const operation = sessionMetadataQueue
-    .catch(() => undefined)
-    .then(async () => {
-      const metadata = await readSessionMetadata(manager, logger);
-      const result = await mutate(metadata);
-      await writeSessionMetadata(manager, metadata);
-      return result;
-    });
-  sessionMetadataQueue = operation;
-  return operation;
+  return withSessionMetadataLock(async () => {
+    const metadata = await readSessionMetadata(manager, logger);
+    const result = await mutate(metadata);
+    await writeSessionMetadata(manager, metadata);
+    return result;
+  });
+}
+
+// True when a path.relative() result points outside the directory it was computed from. All containment checks share this predicate so they agree on every platform separator.
+function escapesRoot(relativePath: string): boolean {
+  return isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(".." + sep);
 }
 
 function sessionPathInDirectory(path: string, manager: SessionManager): boolean {
   const root = resolve(manager.getSessionDir());
   const target = resolve(path);
   const relativePath = relative(root, target);
-  return relativePath !== "" && !isAbsolute(relativePath) && relativePath !== ".." && !relativePath.startsWith(".." + sep) && target.endsWith(".jsonl");
+  return relativePath !== "" && !escapesRoot(relativePath) && target.endsWith(".jsonl");
 }
 
 const webSessionUi = {
@@ -529,38 +541,69 @@ function gitTermination(error: ExecFileException | null): GitTermination | undef
   return undefined;
 }
 
-function gitTerminationMessage(command: string, termination: GitTermination): string {
+function gitTerminationMessage(command: string, termination: GitTermination, timeoutMs = GIT_TIMEOUT_MS): string {
   return termination === "timeout"
-    ? `git ${command} timed out after ${GIT_TIMEOUT_MS / 1000} seconds`
+    ? `git ${command} timed out after ${timeoutMs / 1000} seconds`
     : `git ${command} produced more output than the buffer limit allows`;
 }
 
+interface GitStatusEntry {
+  readonly path: string;
+  readonly status: string;
+}
+
 interface GitStatusResult {
-  readonly output: string;
+  readonly entries: readonly GitStatusEntry[];
   readonly truncated: boolean;
 }
 
-// `-z` is what makes the paths usable: without it git wraps any path holding a space, a quote or a non-ASCII byte in C-style quoting, and the quoted form is not a pathspec git will accept back on diff, add or ls-files.
-function gitStatus(cwd: string): Promise<GitStatusResult> {
+// `-z` output is NUL-separated and never C-quoted, so non-ASCII names arrive verbatim and a rename carries its original path as the following field instead of an `old -> new` pair. The paths are relative to the repository root regardless of cwd, so they are rebased onto the cwd prefix to keep the contract with /api/files/diff, /api/files/commit and /api/files/revert, which resolve paths against the same cwd.
+function parseGitStatus(output: string, prefix: string): GitStatusEntry[] {
+  const fields = output.split("\0");
+  const entries: GitStatusEntry[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index] ?? "";
+    if (field.length < 4) continue;
+    const code = field.slice(0, 2);
+    const path = field.slice(3);
+    if (code.startsWith("R") || code.startsWith("C")) index += 1;
+    entries.push({ path: prefix === "" ? path : posix.relative("/" + prefix, "/" + path), status: code.trim() || "??" });
+  }
+  return entries;
+}
+
+function gitStatusOutput(cwd: string): Promise<{ output: string; truncated: boolean }> {
   return new Promise((resolveStatus, rejectStatus) => {
-    execFile("git", ["status", "--short", "-z", "--untracked-files=all"], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 512 * 1024 }, (error, stdout, stderr) => {
-      if (error === null) {
-        resolveStatus({ output: stdout, truncated: false });
-        return;
-      }
-      const termination = gitTermination(error);
-      if (termination === "output-limit") {
-        // Keep the complete records that arrived before the kill; the final one may have been cut mid-path.
-        resolveStatus({ output: stdout.slice(0, stdout.lastIndexOf("\0") + 1), truncated: true });
-        return;
-      }
-      if (termination === undefined && error.code === 128 && /not a git repository/i.test(stderr)) {
-        resolveStatus({ output: "", truncated: false });
-        return;
-      }
-      rejectStatus(new Error(termination ? gitTerminationMessage("status", termination) : stderr.trim() || error.message, { cause: error }));
-    });
+    execFile(
+      "git",
+      ["status", "--porcelain", "-z", "--untracked-files=all"],
+      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 512 * 1024 },
+      (error, stdout, stderr) => {
+        if (error === null) {
+          resolveStatus({ output: stdout, truncated: false });
+          return;
+        }
+        const termination = gitTermination(error);
+        if (termination === "output-limit") {
+          // Keep the complete entries that arrived before the kill; the final entry may have been cut mid-path.
+          resolveStatus({ output: stdout.slice(0, stdout.lastIndexOf("\0") + 1), truncated: true });
+          return;
+        }
+        if (termination === undefined && error.code === 128 && /not a git repository/i.test(stderr)) {
+          resolveStatus({ output: "", truncated: false });
+          return;
+        }
+        rejectStatus(new Error(termination ? gitTerminationMessage("status", termination) : stderr.trim() || error.message, { cause: error }));
+      },
+    );
   });
+}
+
+async function gitStatus(cwd: string): Promise<GitStatusResult> {
+  const { output, truncated } = await gitStatusOutput(cwd);
+  if (output === "") return { entries: [], truncated };
+  const prefix = await gitCommand(cwd, ["rev-parse", "--show-prefix"]);
+  return { entries: parseGitStatus(output, prefix.code === 0 ? prefix.stdout.trim() : ""), truncated };
 }
 
 function gitDiff(cwd: string, path: string): Promise<string> {
@@ -578,9 +621,9 @@ interface GitCommandResult {
   readonly terminated: GitTermination | undefined;
 }
 
-function gitCommand(cwd: string, args: readonly string[]): Promise<GitCommandResult> {
+function gitCommand(cwd: string, args: readonly string[], timeoutMs = GIT_TIMEOUT_MS): Promise<GitCommandResult> {
   return new Promise((resolveResult) => {
-    execFile("git", [...args], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile("git", [...args], { cwd, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
       const code = error && typeof error.code === "number" ? error.code : error ? 1 : 0;
       resolveResult({ stdout, stderr, code, terminated: gitTermination(error) });
     });
@@ -668,7 +711,7 @@ function workspacePaths(root: string, paths: unknown): string[] | Error {
     const requested = path as string;
     const absolute = resolve(root, requested);
     const relativePath = relative(root, absolute);
-    if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith("../")) return new Error("path must stay inside the workspace");
+    if (escapesRoot(relativePath)) return new Error("path must stay inside the workspace");
     normalized.push(relativePath);
   }
   return [...new Set(normalized)];
@@ -821,8 +864,8 @@ export default {
             sendJson(response, 400, { error: "settings source must contain a JSON object" });
             return;
           }
-          const path = join(services.launch.agentDir, "settings.json");
-          // Replace the file atomically so an interrupted write never leaves a truncated settings.json behind; keep the existing permission bits.
+          // Replace the file atomically so an interrupted write never leaves a truncated settings.json behind; keep the existing permission bits. The rename must land on the resolved target, otherwise a symlinked settings.json (dotfiles repositories) would be replaced by a detached regular file.
+          const path = await realpath(join(services.launch.agentDir, "settings.json")).catch(() => join(services.launch.agentDir, "settings.json"));
           const mode = await stat(path).then(
             (info) => info.mode & 0o777,
             () => 0o644,
@@ -1347,20 +1390,11 @@ export default {
           sendJson(response, 500, { error: errorText(error) });
           return;
         }
-        const records = status.output.split("\0");
-        const items: { path: string; status: string; label: string }[] = [];
-        for (let index = 0; index < records.length; index += 1) {
-          const record = records[index] ?? "";
-          if (record.length < 4) continue;
-          const code = record.slice(0, 2).trim() || "??";
-          // Rename and copy records carry the original path in a second NUL-terminated field, which is not a workspace change of its own.
-          if (code.startsWith("R") || code.startsWith("C")) index += 1;
-          items.push({
-            path: record.slice(3),
-            status: code,
-            label: code === "??" ? "untracked" : code.includes("D") ? "deleted" : code.includes("A") ? "added" : "modified",
-          });
-        }
+        const items = status.entries.map((entry) => ({
+          path: entry.path,
+          status: entry.status,
+          label: entry.status === "??" ? "untracked" : entry.status.includes("D") ? "deleted" : entry.status.includes("A") ? "added" : "modified",
+        }));
         sendJson(response, 200, { items, ...(status.truncated ? { truncated: true } : {}) });
       },
     });
@@ -1380,7 +1414,7 @@ export default {
         const root = resolve(activeCwd(services));
         const absolute = resolve(root, requested);
         const relativePath = relative(root, absolute);
-        if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(".." + sep)) {
+        if (escapesRoot(relativePath)) {
           sendJson(response, 400, { error: "path must stay inside the workspace" });
           return;
         }
@@ -1406,18 +1440,18 @@ export default {
             return;
           }
           const root = resolve(activeCwd(services));
-          const add = await gitCommand(root, ["add", "-A", "--", ...paths]);
+          const add = await gitCommand(root, ["add", "-A", "--", ...paths], GIT_MUTATION_TIMEOUT_MS);
           if (add.terminated) {
-            sendJson(response, 500, { error: gitTerminationMessage("add", add.terminated) });
+            sendJson(response, 500, { error: gitTerminationMessage("add", add.terminated, GIT_MUTATION_TIMEOUT_MS) });
             return;
           }
           if (add.code !== 0) {
             sendJson(response, 409, { error: add.stderr.trim() || "Unable to stage workspace files" });
             return;
           }
-          const commit = await gitCommand(root, ["commit", "-m", payload.message.trim(), "--", ...paths]);
+          const commit = await gitCommand(root, ["commit", "-m", payload.message.trim(), "--", ...paths], GIT_MUTATION_TIMEOUT_MS);
           if (commit.terminated) {
-            sendJson(response, 500, { error: gitTerminationMessage("commit", commit.terminated) });
+            sendJson(response, 500, { error: gitTerminationMessage("commit", commit.terminated, GIT_MUTATION_TIMEOUT_MS) });
             return;
           }
           if (commit.code !== 0) {
@@ -1469,9 +1503,9 @@ export default {
             return;
           }
           if (trackedPaths.length > 0) {
-            const restore = await gitCommand(root, ["restore", "--worktree", "--staged", "--", ...trackedPaths]);
+            const restore = await gitCommand(root, ["restore", "--worktree", "--staged", "--", ...trackedPaths], GIT_MUTATION_TIMEOUT_MS);
             if (restore.terminated) {
-              sendJson(response, 500, { error: gitTerminationMessage("restore", restore.terminated) });
+              sendJson(response, 500, { error: gitTerminationMessage("restore", restore.terminated, GIT_MUTATION_TIMEOUT_MS) });
               return;
             }
             if (restore.code !== 0) {
@@ -2019,7 +2053,7 @@ export default {
           const page = Math.max(0, Number.parseInt(url.searchParams.get("page") ?? "0", 10) || 0);
           const pageSize = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("pageSize") ?? "50", 10) || 50));
           const includeArchived = url.searchParams.get("includeArchived") === "true";
-          const metadata = await readSessionMetadata(manager, context.logger);
+          const metadata = await readSessionMetadataLocked(manager, context.logger);
           const items =
             typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(services.launch.cwd, manager.getSessionDir()) : [];
           const filtered = items.filter((item) => includeArchived || metadata[item.path]?.archived !== true);

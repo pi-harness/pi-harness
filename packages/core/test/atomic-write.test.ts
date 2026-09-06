@@ -8,19 +8,27 @@ import type * as FsPromises from "node:fs/promises";
 const temporaryDirectories: string[] = [];
 
 // Records the order of fsync and rename calls made through node:fs/promises so the tests can prove the temporary file reaches stable storage before it replaces the target.
-const durability = vi.hoisted(() => ({ sequence: [] as string[], failSync: false }));
+const durability = vi.hoisted(() => ({ sequence: [] as string[], failSync: false, failDirectoryOpen: false, failDirectorySync: false }));
+
+function errno(message: string, code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(message), { code });
+}
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof FsPromises>();
   return {
     ...actual,
     async open(...args: Parameters<typeof actual.open>) {
+      // Only the post-rename directory fsync opens with the "r" flag; the temporary file uses "wx".
+      const directoryOpen = args[1] === "r";
+      if (directoryOpen && durability.failDirectoryOpen) throw errno("permission denied, open directory", "EACCES");
       const handle = await actual.open(...args);
       const path = String(args[0]);
       const originalSync = handle.sync.bind(handle);
       Object.defineProperty(handle, "sync", {
         value: async () => {
           durability.sequence.push(`sync:${path}`);
+          if (directoryOpen && durability.failDirectorySync) throw errno("input/output error, fsync", "EIO");
           if (durability.failSync) throw new Error("sync failed");
           await originalSync();
         },
@@ -37,6 +45,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 afterEach(async () => {
   durability.sequence.length = 0;
   durability.failSync = false;
+  durability.failDirectoryOpen = false;
+  durability.failDirectorySync = false;
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -123,6 +133,24 @@ describe("atomicWriteFile", () => {
     expect(fileSync).toBeGreaterThanOrEqual(0);
     expect(rename).toBeGreaterThan(fileSync);
     expect(directorySync).toBeGreaterThan(rename);
+  });
+
+  test("keeps a committed write successful when the directory cannot be opened or fsynced", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-atomic-write-"));
+    temporaryDirectories.push(root);
+    const unopenable = join(root, "unopenable.txt");
+    durability.failDirectoryOpen = true;
+
+    await expect(atomicWriteFile(unopenable, "committed", { encoding: "utf8" })).resolves.toBeUndefined();
+    await expect(readFile(unopenable, "utf8")).resolves.toBe("committed");
+
+    durability.failDirectoryOpen = false;
+    durability.failDirectorySync = true;
+    const unsyncable = join(root, "unsyncable.txt");
+
+    await expect(atomicWriteFile(unsyncable, "committed", { encoding: "utf8" })).resolves.toBeUndefined();
+    await expect(readFile(unsyncable, "utf8")).resolves.toBe("committed");
+    expect((await readdir(root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
   test("rejects and removes the temporary file when fsync fails", async () => {

@@ -134,4 +134,31 @@ describe("plugin stars view", () => {
     expect(pluginStarsPanelView(accessor).malformed).toBe(true);
     expect(getterCalls).toBe(0);
   });
+
+  it("accepts a search whose panel results exceed the visible ranking slice", () => {
+    const results = Array.from({ length: 12 }, (_, index) => ({
+      fullName: `owner/repository-${index}`,
+      name: `repository-${index}`,
+      stars: 120 - index,
+      htmlUrl: `https://github.com/owner/repository-${index}`,
+      updatedAt: "2026-09-05",
+    }));
+    const payload = {
+      source: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json",
+      limit: 20,
+      timeoutMs: 15_000,
+      latest: { source: "fixture", generatedAt: "2026-09-05T00:00:00Z", total: 12, query: "vision", fetchedAt: "2026-09-05T00:01:00Z", results },
+      inventory: { total: 12, shown: 12, truncated: false },
+      limits: { responseBytes: 2_097_152, sourceItems: 1_000, resultItems: 20, panelItems: 20, queryCharacters: 120, timeoutMs: 15_000 },
+    };
+    const view = pluginStarsPanelView(payload);
+
+    expect(view.malformed).toBe(false);
+    expect(view.latest?.results).toHaveLength(8);
+    expect(view.latest?.results[0]).toMatchObject({ rank: 1, fullName: "owner/repository-0", stars: 120 });
+    expect(view.inventory).toEqual({ total: 12, shown: 8, truncated: true });
+    expect(pluginStarsPanelView({ ...payload, inventory: { ...payload.inventory, shown: 11 } }).malformed).toBe(true);
+    expect(pluginStarsPanelView({ ...payload, inventory: { total: 11, shown: 12, truncated: false } }).malformed).toBe(true);
+    expect(pluginStarsPanelView({ ...payload, latest: { ...payload.latest, total: 11 } }).malformed).toBe(true);
+  });
 });

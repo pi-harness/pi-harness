@@ -35,12 +35,12 @@ type NamedMatch = { kind: ModuleMatchKind; name: string; index: number; order: n
 type BindingName = { name: string; offset: number };
 type SourceRange = { start: number; end: number };
 
-// Import and export statements are matched against the whole source so that brace lists spanning several lines and the TypeScript `type` modifier are recognised.
-const importBindings = /\bimport\b\s*(?:type\b\s*)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}/gu;
+// Import and export statements are matched against the whole source so that brace lists spanning several lines and the TypeScript `type` modifier are recognised. The brace list excludes `{` and `}` and the statement tail is required so an unbalanced `import {` inside a comment or string cannot swallow the code that follows it.
+const importBindings = /\bimport\b\s*(?:type\b\s*)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}(?=\s*from\s*["'])/gu;
 const importDefaults = /\bimport\b\s*(?:type\b\s*)?([A-Za-z_$][\w$]*)\s*(?:,|\bfrom\b)/gu;
 const importNamespaces = /\bimport\b\s*(?:type\b\s*)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\*\s*as\s+([A-Za-z_$][\w$]*)/gu;
 const exportDeclarations = /\bexport\s+(?:async\s+)?(?:function|class|const|let|var|type|interface|enum)\s+([A-Za-z_$][\w$]*)/gu;
-const exportBindings = /\bexport\b\s*(?:type\b\s*)?\{([^}]*)\}/gu;
+const exportBindings = /\bexport\b\s*(?:type\b\s*)?\{([^{}]*)\}(?=\s*(?:from\s*["']|;|$))/gmu;
 const symbolDeclarations = /\b(?:async\s+)?(?:function|class|const|let|var|type|interface|enum)\s+([A-Za-z_$][\w$]*)/gu;
 
 function bindingNames(match: RegExpMatchArray, side: "local" | "exported"): BindingName[] {

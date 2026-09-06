@@ -173,6 +173,7 @@ describe("web server plugin", () => {
   test("accepts only this machine's own names on a wildcard bind so DNS rebinding still fails", async () => {
     const wildcard = await startServer({ host: "0.0.0.0", port: 0 });
     const health = registerHealth(wildcard);
+    expect(wildcard.url).toBe("http://127.0.0.1:" + wildcard.port);
 
     await expect(rawRequest(wildcard, { host: "attacker.example:" + wildcard.port })).resolves.toEqual({
       status: 400,
@@ -197,6 +198,27 @@ describe("web server plugin", () => {
       status: 200,
     });
     await expect(rawRequest(proxied, { host: "other.lan:" + proxied.port })).resolves.toMatchObject({ status: 400 });
+  });
+
+  test("canonicalizes configured hostnames the same way as the Host header", async () => {
+    // WHATWG URL compresses the IPv6 literal in the Host header, so a bind address or allowlist entry written out in full has to go through the same parser or it can never match.
+    const server = await startServer({ host: "127.0.0.1", port: 0, allowedHosts: ["2001:db8:0:0:0:0:0:1", "WORKSTATION.LAN"] });
+    registerHealth(server);
+
+    await expect(rawRequest(server, { host: "[2001:db8::1]:" + server.port })).resolves.toMatchObject({ status: 200 });
+    await expect(rawRequest(server, { host: "workstation.lan:" + server.port })).resolves.toMatchObject({ status: 200 });
+    await expect(rawRequest(server, { host: "[2001:db8::2]:" + server.port })).resolves.toMatchObject({ status: 400 });
+  });
+
+  test("serves an empty configured host, which listen() treats as a wildcard bind", async () => {
+    // "http://" + "" is not a parsable URL base, so resolving the request path against the raw configured host threw a TypeError out of the request listener and killed the process on the very first request.
+    const server = await startServer({ host: "", port: 0 });
+    const health = registerHealth(server);
+
+    expect(server.url).toBe("http://127.0.0.1:" + server.port);
+    await expect(rawRequest(server, { host: "127.0.0.1:" + server.port })).resolves.toMatchObject({ status: 200, body: "ok" });
+    await expect(rawRequest(server, { host: "evil.example:" + server.port })).resolves.toMatchObject({ status: 400 });
+    expect(health.calls).toBe(1);
   });
 
   test("serves an IPv6 bind at its bracketed URL", async () => {

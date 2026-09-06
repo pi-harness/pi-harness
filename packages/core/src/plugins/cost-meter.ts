@@ -170,14 +170,15 @@ async function readCostEntries(filePath: string, entryLimit: number): Promise<Co
   }
   if (!isRecord(parsed) || (parsed.version !== 1 && parsed.version !== 2) || !Array.isArray(parsed.entries))
     throw new Error("Cost meter file has an unsupported format");
-  if (parsed.entries.length > entryLimit) throw new Error(`Cost meter file exceeds its ${entryLimit}-entry limit`);
+  // maxFileEntries is the hard file ceiling used to detect corruption; the configured entryLimit only bounds the output, so lowering it cannot make an existing file unreadable.
+  if (parsed.entries.length > maxFileEntries) throw new Error(`Cost meter file exceeds its ${maxFileEntries}-entry limit`);
   const legacy = parsed.version === 1;
   const entries = parsed.entries.map((entry) => parseCostEntry(entry, legacy));
   if (entries.some((entry) => entry === undefined)) throw new Error("Cost meter file contains invalid entries");
   const valid = entries as CostEntry[];
   const keys = valid.map((entry) => (legacy ? entry.sessionId : `${entry.sessionId}\0${todayKey(new Date(entry.recordedAt))}`));
   if (new Set(keys).size !== keys.length) throw new Error("Cost meter file contains duplicate entries");
-  return valid;
+  return valid.slice(0, entryLimit);
 }
 
 function snapshotSessionStats(value: unknown): CostSnapshot {

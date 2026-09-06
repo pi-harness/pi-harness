@@ -19,6 +19,7 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
   const tools = new PiToolRegistry();
   const navigations: Array<{ entryId: string; summarize: boolean }> = [];
   const rawNavigations: Array<{ entryId: string; summarize: boolean }> = [];
+  const commandContextNavigations: Array<{ entryId: string; summarize: boolean }> = [];
   let candidateScans = 0;
   const entries = new Map<string, unknown>([
     ["u1", { type: "message", id: "u1", parentId: null, message: { role: "user", content: "第一轮" } }],
@@ -38,6 +39,7 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
       extensionRunner: {
         createCommandContext: () => ({
           navigateTree: async (entryId: string, options: { summarize: boolean }) => {
+            commandContextNavigations.push({ entryId, summarize: options.summarize });
             navigations.push({ entryId, summarize: options.summarize });
             return (await navigate?.()) ?? { cancelled: false, editorText: "第二轮" };
           },
@@ -55,7 +57,7 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
   await context.plugin(turnRewindPlugin);
   const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_rewind");
   if (tool === undefined) throw new Error("Turn Rewind tool was not registered");
-  return { context, panels, tool, navigations, rawNavigations, candidateScans: () => candidateScans };
+  return { context, panels, tool, navigations, rawNavigations, commandContextNavigations, candidateScans: () => candidateScans };
 }
 
 describe("turn rewind", () => {
@@ -452,12 +454,14 @@ describe("turn rewind", () => {
     }
   });
 
-  test("uses Pi's UI-aware command navigation path instead of mutating only the raw session leaf", async () => {
+  // The harness never passes commandContextActions to bindExtensions, so the extension command context installs a no-op navigateTree that reports success without moving the session leaf. The rewind must therefore go through the session operation itself.
+  test("navigates through the session operation rather than the unbound extension command context", async () => {
     const fixture = await createTurnRewind(false);
     try {
       await fixture.tool.execute("ui-aware", { turns: 1 }, undefined, undefined, {} as never);
       expect(fixture.navigations).toEqual([{ entryId: "u2", summarize: false }]);
-      expect(fixture.rawNavigations).toEqual([]);
+      expect(fixture.rawNavigations).toEqual([{ entryId: "u2", summarize: false }]);
+      expect(fixture.commandContextNavigations).toEqual([]);
     } finally {
       await fixture.context.fiber.dispose();
     }

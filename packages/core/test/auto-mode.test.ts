@@ -1472,6 +1472,37 @@ describe("auto-mode", () => {
     }
   });
 
+  // The option allowlist above is exercised on the spellings that name a program directly; these three name a transport helper or a lookup path instead, and each one is a program git would run.
+  test("requires confirmation for Git transport and exec-path options", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    try {
+      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec");
+      if (tool === undefined) throw new Error("auto_mode_exec was not registered");
+      const escapes = [
+        ["git", "rev-parse", "--exec-path=/tmp"],
+        ["git", "ls-tree", "--upload-pack=sh", "HEAD"],
+        ["git", "ls-files", "--receive-pack=sh"],
+      ];
+
+      for (const command of escapes) {
+        await expect(tool.execute("execute", { command }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/iu);
+      }
+
+      await expect(tool.execute("execute", { command: ["git", "--version"] }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { allowed: true, confirmed: false },
+      });
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("requires confirmation for direct filesystem mutation commands", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
     const context = new Context();

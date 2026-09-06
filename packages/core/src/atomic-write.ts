@@ -12,22 +12,27 @@ export interface AtomicWriteOptions {
 
 const writeQueues = new Map<string, Promise<void>>();
 
+// Only operating-system failures are tolerated below; a programmer error (TypeError and friends) carries no errno and must still surface.
+function isErrno(error: unknown): boolean {
+  return error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string";
+}
+
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted !== true) return;
   throw signal.reason instanceof Error ? signal.reason : new Error("Atomic write was cancelled", { cause: signal.reason });
 }
 
-// Directory fsync makes the rename itself durable. Windows has no directory handles to sync, and some filesystems reject fsync on a directory descriptor; those cases degrade to the file-level guarantee instead of failing a write that already completed.
+// Directory fsync makes the rename itself durable. Windows has no directory handles to sync, and some filesystems reject opening or fsyncing a directory descriptor; every such case degrades to the file-level guarantee instead of failing a write that already committed.
 async function syncDirectory(path: string): Promise<void> {
   if (process.platform === "win32") return;
-  const handle = await open(path, "r");
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
+    handle = await open(path, "r");
     await handle.sync();
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EINVAL" && code !== "ENOTSUP" && code !== "EPERM" && code !== "EBADF") throw error;
+    if (!isErrno(error)) throw error;
   } finally {
-    await handle.close();
+    await handle?.close().catch(() => undefined);
   }
 }
 

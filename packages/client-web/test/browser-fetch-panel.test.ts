@@ -41,4 +41,24 @@ describe("Browser Fetch panel", () => {
     expect(html).toContain("面板数据不完整或不可信");
     expect(html).not.toContain("还没有抓取网页");
   });
+
+  test("renders a multi-line page preview instead of failing closed", () => {
+    const html = renderPanel({
+      latest: {
+        url: "https://example.com/",
+        finalUrl: "https://example.com/",
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        bytes: 1_256,
+        truncated: false,
+        previewTruncated: false,
+        text: "Example Domain\n\nThis domain is for use in illustrative examples.\n\tMore information...\r\n",
+      },
+      allowPrivate: false,
+      ...limits,
+    });
+    expect(html).toContain("Example Domain");
+    expect(html).toContain("More information...");
+    expect(html).not.toContain("面板数据异常");
+  });
 });

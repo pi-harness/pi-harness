@@ -134,13 +134,15 @@ export default {
     const host = config.host ?? "127.0.0.1";
     const port = config.port ?? DEFAULT_WEB_SERVER_PORT;
     const allowedHosts = config.allowedHosts ?? [];
+    // A wildcard bind (including the empty host, which listen() accepts) has no hostname of its own, and "http://" + "" is not a parsable URL base, so resolving a request path against it threw out of the request listener. Loopback is the address such a bind always answers on, so it stands in both as the base for request URLs and as the advertised URL.
+    const urlHost = WILDCARD_HOSTS.has(host) ? "127.0.0.1" : hostForUrl(host);
     const routes = new Map<string, WebRoute["handler"]>();
     let fallback: WebRoute["handler"] | undefined;
     // Assigned once listen() completes; tests bind port 0 so the configured port is not the one clients address.
     let boundPort = 0;
     const server = createServer((request, response) => {
       if (rejectForeignRequest(request, response, host, boundPort, allowedHosts)) return;
-      const path = new URL(request.url ?? "/", "http://" + hostForUrl(host)).pathname;
+      const path = new URL(request.url ?? "/", "http://" + urlHost).pathname;
       const handler = routes.get(path) ?? fallback;
       if (handler === undefined) {
         notFound(response);
@@ -169,7 +171,7 @@ export default {
     const service: WebServer = {
       host,
       port: address.port,
-      url: "http://" + hostForUrl(host) + ":" + address.port,
+      url: "http://" + urlHost + ":" + address.port,
       register(route) {
         const path = normalizePath(route.path);
         if (routes.has(path)) throw new Error("Web route already registered: " + path);

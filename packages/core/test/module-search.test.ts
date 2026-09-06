@@ -56,6 +56,21 @@ describe("module search", () => {
     ]);
   });
 
+  test("does not let an unbalanced brace list in a comment swallow the declarations that follow it", () => {
+    const source = "// re-export via import {\nfunction alpha() {\n  const beta = 1;\n  return beta;\n}\nclass Gamma {}\n";
+    expect(extractModuleMatches(source, "comment.ts", "a", "all")).toEqual([
+      { kind: "symbol", name: "alpha", path: "comment.ts", line: 2, text: "function alpha() {" },
+      { kind: "symbol", name: "beta", path: "comment.ts", line: 3, text: "  const beta = 1;" },
+      { kind: "symbol", name: "Gamma", path: "comment.ts", line: 6, text: "class Gamma {}" },
+    ]);
+    expect(extractModuleMatches(source, "comment.ts", "import", "all")).toEqual([]);
+    const exported = "// a stray export {\nexport const delta = 1;\nexport { delta };\n";
+    expect(extractModuleMatches(exported, "stray.ts", "delta", "all")).toEqual([
+      { kind: "export", name: "delta", path: "stray.ts", line: 2, text: "export const delta = 1;" },
+      { kind: "export", name: "delta", path: "stray.ts", line: 3, text: "export { delta };" },
+    ]);
+  });
+
   test("searches source files without traversing dependency directories", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-module-search-"));
     await writeFile(join(cwd, "module.ts"), 'import { readFile } from "node:fs";\nexport const readConfig = readFile;\n', "utf8");

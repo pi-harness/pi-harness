@@ -140,4 +140,43 @@ describe("browser session view", () => {
     ).toBe(true);
     expect(getterCalls).toBe(0);
   });
+
+  it("keeps line breaks and tabs in the extracted page text while tab identifiers stay strict", () => {
+    const pageText = "Pi Harness\n\nSection\tvalue\r\nEnd";
+    const payload = {
+      endpoint: "http://127.0.0.1:9222/",
+      connected: true,
+      error: null,
+      tabs: [{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081" }],
+      inventory: { total: 1, shown: 1, truncated: false },
+      limits: { ...defaults },
+      latest: {
+        targetId: "one",
+        title: "Pi Harness",
+        url: "http://127.0.0.1:3081",
+        status: "read",
+        truncated: false,
+        previewTruncated: false,
+        text: pageText,
+        clicked: false,
+      },
+    };
+
+    expect(browserSessionPanelView(payload)).toMatchObject({ malformed: false, latest: { text: pageText, previewTruncated: false } });
+    expect(browserSessionPanelView({ ...payload, latest: { ...payload.latest, text: "page\u0000break" } })).toMatchObject({
+      malformed: false,
+      latest: { text: "page\uFFFDbreak" },
+    });
+    expect(browserSessionPanelView({ ...payload, latest: { ...payload.latest, text: "page\u2029break" } })).toMatchObject({
+      malformed: false,
+      latest: { text: "page\uFFFDbreak" },
+    });
+    expect(browserSessionPanelView({ ...payload, latest: { ...payload.latest, title: "Pi\nHarness" } })).toMatchObject({
+      malformed: false,
+      latest: { title: "Pi\uFFFDHarness" },
+    });
+    expect(browserSessionPanelView({ ...payload, latest: { ...payload.latest, url: "http://127.0.0.1:3081\n" } }).malformed).toBe(true);
+    expect(browserSessionPanelView({ ...payload, latest: { ...payload.latest, targetId: "one\ntwo" } }).malformed).toBe(true);
+    expect(browserSessionPanelView({ ...payload, tabs: [{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081\n" }] }).malformed).toBe(true);
+  });
 });

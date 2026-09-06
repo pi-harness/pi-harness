@@ -135,6 +135,19 @@ describe("reviewer bot", () => {
     });
   });
 
+  test("does not mistake a removed line that starts with `-- a/` for a file header", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "notes.md"), "keep\n-- a/phantom.txt\nTODO: real finding\n");
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-qm", "add notes"], { cwd: root });
+    await writeFile(join(root, "notes.md"), "keep\n");
+    const result = await tool.execute("review", {}, undefined, undefined, {} as never);
+    const details = result.details as { files: Array<{ path: string; added: number; removed: number }>; findings: Array<{ kind: string; path?: string }> };
+    expect(details.files).toEqual([{ path: "notes.md", added: 0, removed: 2 }]);
+    expect(details.files.map((file) => file.path)).not.toContain("phantom.txt");
+    expect(details).toMatchObject({ removedLines: 2, addedLines: 0 });
+  });
+
   test("cleans up registrations on disposal", async () => {
     const { context, tools, panels } = await fixture();
     await context.fiber.dispose();

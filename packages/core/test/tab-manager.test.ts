@@ -194,6 +194,34 @@ describe("tab manager", () => {
     });
   });
 
+  test("rejects a session path whose file name yields an empty tab id and leaves the store untouched", async () => {
+    const { root, tool } = await fixture();
+    await tool.execute("pin-active", { action: "pin", label: "Mine" }, undefined, undefined, {} as never);
+    const before = await readFile(join(root, "session-tabs.json"), "utf8");
+    await expect(tool.execute("pin-root", { action: "pin", sessionPath: "/" }, undefined, undefined, {} as never)).rejects.toThrow(/session file/iu);
+    await expect(readFile(join(root, "session-tabs.json"), "utf8")).resolves.toBe(before);
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { activeId: "session-1", tabs: [{ id: "session-1", label: "Mine" }] },
+    });
+  });
+
+  test("recovers from a corrupt store at activation instead of failing the plugin fiber", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-tabs-"));
+    await writeFile(join(root, "session-tabs.json"), '{"tabs":[{"id":"","label":"","sessionPath":"/","pinned":true,"updatedAt":"nope"}],"activeId"', "utf8");
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piSession", { manager: { getSessionId: () => "session-1", getSessionFile: () => join(root, "session-1.jsonl") } } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await expect(context.plugin(tabManagerPlugin)).resolves.toBeDefined();
+    contexts.push(context);
+    const tool = tools.snapshot().customTools.find((item) => item.name === "session_tab_manage");
+    if (tool === undefined) throw new Error("session_tab_manage was not registered");
+    await expect(tool.execute("pin", { action: "pin", label: "Fresh" }, undefined, undefined, {} as never)).rejects.toThrow(/invalid JSON/iu);
+  });
+
   test("rejects invalid labels and disposes its registry entries", async () => {
     const { context, tool, tools, panels } = await fixture();
     await expect(tool.execute("rename", { action: "rename", label: "" }, undefined, undefined, {} as never)).rejects.toThrow(/label/iu);

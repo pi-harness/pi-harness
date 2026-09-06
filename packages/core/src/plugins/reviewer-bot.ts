@@ -123,8 +123,18 @@ export default {
       let addedLines = 0;
       let removedLines = 0;
       let currentPath: string | undefined;
+      // Header parsing only applies between a `diff --git` line and the first `@@` of that file: inside a hunk a removed line whose content starts with `-- a/` is rendered as `--- a/...`, which would otherwise be mistaken for a file header and misattribute the rest of the hunk to a phantom path.
+      let inHunk = false;
       for (const line of diff.split("\n")) {
-        if (line.startsWith("+++ ")) {
+        if (line.startsWith("diff --git ")) {
+          inHunk = false;
+          continue;
+        }
+        if (line.startsWith("@@")) {
+          inHunk = true;
+          continue;
+        }
+        if (!inHunk && line.startsWith("+++ ")) {
           const path = headerPath(line, "b/");
           if (path !== undefined) {
             currentPath = path;
@@ -133,7 +143,7 @@ export default {
           continue;
         }
         // A deleted file only carries a `--- a/` header (its `+++` side is /dev/null), so the removed lines must be attributed from here.
-        if (line.startsWith("--- ")) {
+        if (!inHunk && line.startsWith("--- ")) {
           const path = headerPath(line, "a/");
           if (path !== undefined) {
             currentPath = path;
@@ -142,7 +152,7 @@ export default {
           continue;
         }
         if (line.startsWith("+")) {
-          if (line.startsWith("+++")) continue;
+          if (!inHunk && line.startsWith("+++")) continue;
           addedLines += 1;
           if (currentPath !== undefined) fileMap.set(currentPath, { ...fileMap.get(currentPath)!, added: fileMap.get(currentPath)!.added + 1 });
           if (/(?:api[_-]?key|secret|token|password)\s*[:=]\s*["'][^"']{12,}/iu.test(line))
@@ -155,7 +165,7 @@ export default {
               ...(currentPath === undefined ? {} : { path: currentPath }),
             });
         } else if (line.startsWith("-")) {
-          if (line.startsWith("---")) continue;
+          if (!inHunk && line.startsWith("---")) continue;
           removedLines += 1;
           if (currentPath !== undefined) fileMap.set(currentPath, { ...fileMap.get(currentPath)!, removed: fileMap.get(currentPath)!.removed + 1 });
         }

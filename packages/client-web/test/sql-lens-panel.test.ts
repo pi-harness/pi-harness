@@ -49,4 +49,22 @@ describe("SQL Lens panel", () => {
     expect(html).not.toContain("0 rows");
     expect(html).not.toContain("还没有查询数据库");
   });
+
+  test("renders a result set larger than the panel row cap and multi-line TEXT cells", () => {
+    const html = renderPanel({
+      ...valid,
+      latest: {
+        database: "data.db",
+        query: "SELECT id, note FROM notes",
+        columns: ["id", "note"],
+        rows: Array.from({ length: 20 }, (_, index) => ({ id: index + 1, note: `note ${index + 1}\nsecond line` })),
+        truncated: false,
+        scannedRows: 25,
+        rowInventory: { scanned: 25, returned: 25, shown: 20, truncated: true, displayLimit: 20 },
+      },
+    });
+    expect(html).toContain("25 rows");
+    expect(html).toContain("second line");
+    expect(html).not.toContain("SQL Lens 面板数据异常");
+  });
 });

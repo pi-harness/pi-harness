@@ -55,7 +55,12 @@ describe("bounded file reads", () => {
     const pipe = join(root, "pipe");
     await execFileAsync("mkfifo", [pipe]);
 
-    await expect(readBoundedFile(pipe, 100, "Input file")).rejects.toThrow(/regular file/iu);
+    await expect(
+      Promise.race([
+        readBoundedFile(pipe, 100, "Input file"),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("open blocked on a missing writer")), 2_000)),
+      ]),
+    ).rejects.toThrow(/regular file/iu);
   }, 5_000);
 
   test("rejects invalid UTF-8 instead of returning replacement characters", async () => {

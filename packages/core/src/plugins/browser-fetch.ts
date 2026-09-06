@@ -326,8 +326,8 @@ export function untrustedEnvelope({ tagName, header, attributes = {}, body }: Un
   return [
     header,
     `<${tagName}${attributeText} untrusted="true">`,
-    // The tag name is interpolated into a pattern, so it is escaped: an unescaped metacharacter would either make the neutralization regex reject the whole call or let it match the wrong span, leaving a forged closing tag in the body.
-    body.replace(new RegExp(`</${escapeRegExp(tagName)}(?=\\s*>)`, "giu"), `<\\/${tagName}`),
+    // The tag name is interpolated into a pattern, so it is escaped: an unescaped metacharacter would either make the neutralization regex reject the whole call or let it match the wrong span, leaving a forged closing tag in the body. Every `</tagName` prefix is neutralised rather than only the ones followed by `>`, because an end tag may carry attributes the parser ignores - `</web-page id=x>` closes the element just as `</web-page>` does - and escaping a superset is harmless while the raw body stays in details and in the panel.
+    body.replace(new RegExp(`</${escapeRegExp(tagName)}`, "giu"), `<\\/${tagName}`),
     `</${tagName}>`,
   ].join("\n");
 }

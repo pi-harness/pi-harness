@@ -3189,23 +3189,19 @@ describe("Pi domain plugins", () => {
     ]);
   });
 
-  test("rejects a corrupted session tab store instead of replacing it", async () => {
+  test("activates with an empty view on a corrupted session tab store without replacing it", async () => {
     const { context, agentDir } = await createContext();
     await writeFile(join(agentDir, "session-tabs.json"), "{not-json", "utf8");
     const tools = new PiToolRegistry();
     context.provide("piSession", { manager: { getSessionId: () => "session-a", getSessionFile: () => join(agentDir, "session-a.jsonl") } } as never);
     context.provide("piPluginUi", new PiPluginUiRegistry());
     context.provide("piTools", tools);
-    let activationError: unknown;
 
-    try {
-      await context.plugin(tabManagerPlugin);
-    } catch (error) {
-      activationError = error;
-    }
-    expect(activationError).toBeInstanceOf(Error);
-    if (!(activationError instanceof Error)) throw new Error("Expected corrupt tab store rejection");
-    expect(activationError.message).toMatch(/session tab store.*invalid JSON/iu);
+    // A corrupt cache file must not abort the whole harness boot, but it must not be silently rewritten either: activation recovers to an empty view and the next mutation still fails loudly against the untouched file.
+    await expect(context.plugin(tabManagerPlugin)).resolves.toBeDefined();
+    await expect(namedTool(tools, "session_tab_manage").execute("pin", { action: "pin", label: "Fresh" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /session tab store.*invalid JSON/iu,
+    );
     await expect(readFile(join(agentDir, "session-tabs.json"), "utf8")).resolves.toBe("{not-json");
   });
 
