@@ -124,6 +124,16 @@ describe("runCli", () => {
     await expect(readFile(join(profile.directory, "marker.txt"), "utf8")).resolves.toBe("started:run:disposed");
   });
 
+  test("prints an available update notice without delaying application startup", async () => {
+    const profile = await createApplicationProfile(`export default { apply(ctx) { ctx.provide("piApplication", { async run() { return 0; } }); } };`);
+    const environment = Object.assign(createEnvironment(profile.directory), { checkForUpdates: () => Promise.resolve("update notice\n") });
+
+    const exitCode = await runCli(["--config", profile.configPath], environment);
+
+    expect(exitCode).toBe(0);
+    expect(environment.errors.join("")).toContain("update notice");
+  });
+
   test("aborts and disposes a running application on SIGINT", async () => {
     const profile = await createApplicationProfile(
       `import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run(signal) { appendFileSync(config.markerPath, ":run"); await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true })); appendFileSync(config.markerPath, ":aborted"); return 0; } }); } };`,

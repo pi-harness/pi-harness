@@ -3,7 +3,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bootHarness, provideLaunchContext } from "@pi-harness/core";
+import { bootHarness, coreUpdateNotice, provideLaunchContext } from "@pi-harness/core";
 import "@pi-harness/host-webserver";
 import type { WebServer } from "@pi-harness/host-webserver";
 
@@ -24,6 +24,14 @@ const profilePath = fileURLToPath(new URL("../profile/cordis.yml", import.meta.u
 process.env.PI_HARNESS_WEB_DIST = staticDir;
 process.env.PI_HARNESS_HOST = host;
 process.env.PI_HARNESS_PORT = String(port);
+if (process.env.PI_HARNESS_DISABLE_UPDATE_CHECK !== "1") {
+  void coreUpdateNotice().then(
+    (notice) => {
+      if (notice !== undefined) process.stderr.write(notice);
+    },
+    () => undefined,
+  );
+}
 const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
 const startupAbort = new AbortController();
 let shuttingDown = false;

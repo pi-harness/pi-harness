@@ -13,6 +13,7 @@ export interface CliEnvironment {
   readonly stdout: Writable;
   readonly stderr: Writable;
   readonly shutdownTimeoutMs: number;
+  readonly checkForUpdates?: () => Promise<string | undefined>;
   readonly supervised?: boolean;
   forceExit(code: number): void;
   onSignal(listener: (signal: NodeJS.Signals) => void): () => void;
@@ -78,6 +79,14 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     if (invocation.dumpConfig) {
       environment.stdout.write(await readFile(configPath, "utf8"));
       return 0;
+    }
+    if (environment.checkForUpdates !== undefined) {
+      void Promise.resolve()
+        .then(() => environment.checkForUpdates?.())
+        .then((notice) => {
+          if (notice !== undefined) environment.stderr.write(notice);
+        })
+        .catch(() => undefined);
     }
   } catch (error) {
     environment.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
