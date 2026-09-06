@@ -101,9 +101,9 @@ Bare module specifiers resolve from the directory containing the profile, so a p
 
 Pi Harness reads and hot-refreshes profile files but does not persist Loader mutations back into them. This prevents an activation rollback from rewriting a source profile; edit the YAML directly to make changes.
 
-## Selected bundled production plugins
+## Selected core production plugins
 
-Pi Harness ships the production-oriented plugins below. The built-in `default` profile enables the entries listed in [`packages/core/profiles/default/cordis.yml`](packages/core/profiles/default/cordis.yml); other bundled plugins, such as Graph Memory, can be added to a project-owned profile when needed. Plugin panels expose the latest bounded result and the limits applied by the backend.
+Pi Harness ships the production-oriented plugins below. The built-in `default` profile enables the entries listed in [`packages/core/profiles/default/cordis.yml`](packages/core/profiles/default/cordis.yml); other core plugins, such as Graph Memory, can be added to a project-owned profile when needed. Plugin panels expose the latest bounded result and the limits applied by the backend.
 
 | Plugin             | Tools                                                                                     | Purpose                                                                                                             |
 | ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -840,9 +840,11 @@ npm run build
 
 ## Release
 
-Publishing is triggered by a push to `main` (including a merged pull request), or manually with `workflow_dispatch`. The `Release packages` workflow runs the complete test, lint, and diff gate, publishes the user-facing `@pi-harness/pi-harness` package and its six public implementation workspaces to npm, skips package versions that already exist, and creates a matching GitHub Release tag. Users install only `@pi-harness/pi-harness`; the web app and example plugin workspaces are private and are never published.
+Publishing is triggered by a push to `main` (including a merged pull request), or manually with `workflow_dispatch`. The `Release packages` workflow runs the complete test, lint, and diff gate, publishes the user-facing `@pi-harness/pi-harness` package and the independently installable `@pi-harness/core` package, skips package versions that already exist, and creates a matching GitHub Release tag. Users normally install only `@pi-harness/pi-harness`; its `@pi-harness/core` dependency is intentionally not bundled, so core plugins can receive a compatible patch release without republishing the launcher. The web app and remaining implementation workspaces are private and are never published.
 
-Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and publishes to npm without provenance because this repository is private and npm rejects provenance attestations from private GitHub sources. The token must be allowed to publish the entry package and six implementation package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. Bump all published package versions together and update their internal `@pi-harness/*` dependency versions before merging to `main`; the merge then publishes and creates the matching GitHub Release automatically.
+Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and publishes to npm without provenance because this repository is private and npm rejects provenance attestations from private GitHub sources. The token must be allowed to publish both package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. A bug fix in a built-in plugin should be released as a new compatible `@pi-harness/core` patch version; a launcher release is only needed when launcher, web, or API behavior changes. The release workflow keeps the repository's coordinated version metadata and publishes both artifacts for normal releases, while the standalone core package can also be published independently when a plugin-only hotfix is required.
+
+For a plugin-only hotfix, bump `packages/core/package.json`, run `npm run build -w @pi-harness/core`, and publish that workspace with `npm publish --workspace @pi-harness/core --access public`. The launcher accepts any compatible `0.1.x` core release through its caret dependency, so users can update `@pi-harness/core` without reinstalling the launcher.
 
 ## Workspace layout
 

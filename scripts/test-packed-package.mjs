@@ -28,13 +28,23 @@ const runNpm = (...args) =>
   });
 
 try {
+  const coreFilename = runNpm("pack", "--workspace", "@pi-harness/core", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
+  if (coreFilename.length === 0) throw new Error("npm pack did not return a core tarball filename");
   const filename = runNpm("pack", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
   if (filename.length === 0) throw new Error("npm pack did not return a tarball filename");
 
   // Reproduce npm's global-install collision: users may already have the Pi CLI
   // installed at a different version when they install Pi Harness.
-  runNpm("install", "--global", "--ignore-scripts", "--prefix", installPrefix, "@earendil-works/pi-coding-agent@0.84.3");
-  runNpm("install", "--global", "--ignore-scripts", "--prefix", installPrefix, join(temporaryRoot, filename));
+  runNpm(
+    "install",
+    "--global",
+    "--ignore-scripts",
+    "--prefix",
+    installPrefix,
+    "@earendil-works/pi-coding-agent@0.84.3",
+    join(temporaryRoot, coreFilename),
+    join(temporaryRoot, filename),
+  );
 
   const harnessRoot = join(installPrefix, "lib", "node_modules", "@pi-harness", "pi-harness");
   const agentRoot = join(harnessRoot, "node_modules", "@earendil-works", "pi-coding-agent");

@@ -62,11 +62,11 @@ describe("release version preparation", () => {
       await readFile(resolve(fixture, "packages/api-gateway/dist/marketplace-entries/official/external.json"), "utf8"),
     ) as Record<string, unknown>;
 
-    expect(rootManifest).toMatchObject({ version: "0.1.3", dependencies: { "@pi-harness/core": "0.1.3" } });
+    expect(rootManifest).toMatchObject({ version: "0.1.3", dependencies: { "@pi-harness/core": "^0.1.3" } });
     expect(packageLock).toMatchObject({
       version: "0.1.3",
       packages: {
-        "": { version: "0.1.3", dependencies: { "@pi-harness/core": "0.1.3" } },
+        "": { version: "0.1.3", dependencies: { "@pi-harness/core": "^0.1.3" } },
         "packages/core": { version: "0.1.3" },
         "packages/api-gateway": { version: "0.1.3" },
       },

@@ -23,6 +23,9 @@ describe("global package install contract", () => {
     expect(gitignore).not.toContain("package.json");
     expect(packageJson.private).not.toBe(true);
     expect(packageJson.scripts?.prepack).toBe("npm run build:web");
-    expect(packageJson.files).toEqual(expect.arrayContaining(["apps/web", "packages"]));
+    expect(packageJson.files).toEqual(
+      expect.arrayContaining(["apps/web", "packages/api-gateway", "packages/cli", "packages/host-webserver", "packages/bundle-web-app"]),
+    );
+    expect(packageJson.files).not.toContain("packages");
   });
 });
