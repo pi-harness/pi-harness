@@ -22,6 +22,7 @@ const maxManifestCandidates = 1_000;
 const maxTraversalDirectories = 512;
 const maxPathLength = 4_096;
 const maxBase64Length = Math.ceil(maxSnapshotBytes / 3) * 4;
+const maxNamedSkips = 5;
 const sensitiveNames = new Set([
   ".env",
   ".envrc",
@@ -56,6 +57,7 @@ interface SavepointFile {
   bytes: number;
   sha256: string;
   content: string;
+  mode?: number;
 }
 
 interface SavepointManifest {
@@ -101,13 +103,27 @@ function relativePath(cwd: string, path: string): string {
   return relative(cwd, path).split(sep).join("/");
 }
 
+// The one fold this file uses to decide whether a manifest's spelling of a name is the same name a case-insensitive filesystem will open. Plain `toLowerCase` is not that fold. Measured with stat/inode comparison on APFS, `diſt` (U+017F LATIN SMALL LETTER LONG S), `diﬅ` (U+FB05) and `diﬆ` (U+FB06) all open `dist`, `node_moduleſ` opens `node_modules`, `id_rſa` opens `id_rsa` and `x.Key` (U+212A KELVIN SIGN) opens `x.key`; NFKC maps every one of those onto its plain spelling before the lowercase runs. Measured on an HFS+ volume (`hdiutil create -fs HFS+`, still what macOS mounts for many external and Time Machine disks), the filesystem additionally ignores 16 codepoints entirely when comparing names - U+200C..U+200F, U+202A..U+202E, U+206A..U+206F and U+FEFF - so `.git‮`, `node_modules‍` and `id_r‌sa` open `.git`, `node_modules` and `id_rsa`. Stripping the whole Default_Ignorable_Code_Point property covers those 16 and is deliberately wider, because a manifest is untrusted input and refusing an exotic spelling costs only a skipped entry. NFKC is likewise wider than any filesystem fold measured here - APFS keeps `diｓt` as a separate name - and is kept for the same reason. An earlier revision also uppercased before lowercasing; that step turned out to match nothing NFKC did not already handle while wrongly folding dotless i (`dıst`, `.credentıals`) onto the ASCII spelling, which silently dropped real files from snapshots, so it is gone.
+function foldName(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
+    .toLowerCase();
+}
+
 function isSensitivePath(path: string): boolean {
-  const name = basename(path).toLowerCase();
+  const name = foldName(basename(path));
   return sensitiveNames.has(name) || name.startsWith(".env.") || name.endsWith(".pem") || name.endsWith(".key") || name.endsWith(".p12");
 }
 
-function isIgnoredPath(path: string): boolean {
-  return path.split(sep).some((part) => ignoredDirectories.has(part));
+// The single ignore check for both the snapshot walk and the restore, and it wants a workspace-relative path: the directory the workspace itself lives in is not the agent's business, so a project checked out at ~/build/myproject must still snapshot its own files. Manifest paths are "/"-separated while relative workspace paths use the platform separator, so it splits on both rather than making each caller normalise. collectFiles reads the on-disk name from a dirent and never sees a case variant, but a hand-edited manifest can spell an ignored directory in any case and a case-insensitive filesystem (APFS, NTFS) will still land inside the real one.
+function isIgnoredPath(relativePath: string): boolean {
+  return relativePath.split(/[/\\]/u).some((part) => ignoredDirectories.has(foldName(part)));
+}
+
+// A manifest is a plain JSON file in the agent directory, so the mode it records is untrusted. Restore masks off every execute bit, because a manifest that could mark a file executable is a way to plant a runnable script, and it masks off group and other write, the bit that would let another local account rewrite a workspace file. The owner read/write bits are forced back on so a manifest cannot leave a restored file that its owner can no longer open. Only group and other read survive from the manifest.
+function restorableMode(mode: number): number {
+  return (mode & 0o644) | 0o600;
 }
 
 function hash(content: Buffer): string {
@@ -120,7 +136,7 @@ async function collectFiles(root: string, trackedPaths: readonly string[], maxFi
   let totalBytes = 0;
   let directories = 0;
   const visit = async (path: string, depth: number): Promise<void> => {
-    if (files.length >= maxFiles || totalBytes >= maxTotalSnapshotBytes || isIgnoredPath(path) || isSensitivePath(path)) return;
+    if (files.length >= maxFiles || totalBytes >= maxTotalSnapshotBytes || isIgnoredPath(relative(root, path)) || isSensitivePath(path)) return;
     const info = await lstat(path).catch(() => undefined);
     if (info === undefined) return;
     if (info.isSymbolicLink()) return;
@@ -143,7 +159,7 @@ async function collectFiles(root: string, trackedPaths: readonly string[], maxFi
     if (relativeName === "" || seen.has(relativeName)) return;
     seen.add(relativeName);
     totalBytes += content.byteLength;
-    files.push({ path: relativeName, bytes: content.byteLength, sha256: hash(content), content: content.toString("base64") });
+    files.push({ path: relativeName, bytes: content.byteLength, sha256: hash(content), content: content.toString("base64"), mode: info.mode & 0o777 });
   };
   for (const path of trackedPaths) {
     await visit(path, 0);
@@ -168,11 +184,13 @@ function isCanonicalBase64(value: string): boolean {
   return Buffer.from(value, "base64").toString("base64") === value;
 }
 
+// An entry naming an ignored directory is deliberately not checked here. Manifests taken before the save side folded case can legitimately contain `Build/x.ts`, and rejecting the whole file for one such entry destroys the savepoint: `list` stops showing it and `restore` refuses the innocent entries alongside it. Restore skips those entries instead and reports them. Everything that makes a manifest structurally untrustworthy - bad JSON, a path that escapes the workspace, a sensitive name, a hash that does not match - still fails the whole manifest here.
 function isSavepointFile(value: unknown, seenPaths: Set<string>, totalBytes: { value: number }): value is SavepointFile {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const file = value as Record<string, unknown>;
-  if (Object.keys(file).some((key) => !new Set(["path", "bytes", "sha256", "content"]).has(key))) return false;
+  if (Object.keys(file).some((key) => !new Set(["path", "bytes", "sha256", "content", "mode"]).has(key))) return false;
   if (
+    (file.mode !== undefined && (typeof file.mode !== "number" || !Number.isSafeInteger(file.mode) || file.mode < 0 || file.mode > 0o777)) ||
     typeof file.path !== "string" ||
     !isValidRelativePath(file.path) ||
     isSensitivePath(file.path) ||
@@ -312,18 +330,31 @@ export default {
       await atomicWriteFile(manifestPath(id), serialized, { encoding: "utf8", mode: 0o600 });
       return manifest;
     };
-    const restore = async (manifest: SavepointManifest): Promise<string[]> => {
+    const restore = async (manifest: SavepointManifest): Promise<{ restored: string[]; skipped: string[] }> => {
       const restored: string[] = [];
+      const skipped: string[] = [];
       for (const file of manifest.files) {
         const lexicalPath = resolve(cwd, ...file.path.split("/"));
-        if (!withinRoot(cwd, lexicalPath) || isSensitivePath(lexicalPath)) continue;
+        // The ignore list that keeps collectFiles out of .git and friends has to hold on the way back in as well, otherwise a hand-edited manifest could write a directory a savepoint is never allowed to snapshot. This runs before prepareWorkspaceFile precisely so a blocked entry never gets its parent directory created.
+        if (!withinRoot(cwd, lexicalPath) || isSensitivePath(lexicalPath) || isIgnoredPath(relative(cwd, lexicalPath))) {
+          skipped.push(file.path);
+          continue;
+        }
         const content = Buffer.from(file.content, "base64");
         if (hash(content) !== file.sha256) throw new Error(`Savepoint integrity check failed: ${file.path}`);
         const prepared = await prepareWorkspaceFile(cwd, file.path, `Savepoint path must stay inside the workspace and target a regular file: ${file.path}`);
-        await atomicWriteFile(prepared.target, content, { mode: 0o600 });
+        // prepareWorkspaceFile realpaths the parent directory, so the same check has to run again on the canonical path: the lexical one above only sees what the manifest spelled, and a workspace symlink, or a trailing dot that Windows strips, can spell something that resolves into an ignored directory the lexical spelling never named.
+        if (isIgnoredPath(prepared.relativePath)) {
+          skipped.push(file.path);
+          continue;
+        }
+        const destinationMode = prepared.exists ? (await lstat(prepared.target)).mode & 0o777 : undefined;
+        // atomicWriteFile renames a freshly created temporary file over the target, so the temporary file's permissions become the target's. Passing no mode at all makes it carry over the bits the target already has, or fall back to owner-only for a file the restore creates: that is what a manifest written before modes were recorded needs, and it is also how an already executable destination keeps its own execute bit, which the manifest itself is never allowed to grant.
+        const mode = file.mode === undefined || (destinationMode !== undefined && (destinationMode & 0o111) !== 0) ? undefined : restorableMode(file.mode);
+        await atomicWriteFile(prepared.target, content, mode === undefined ? {} : { mode });
         restored.push(file.path);
       }
-      return restored;
+      return { restored, skipped };
     };
     const report = async (): Promise<{ store: string; trackedPaths: string[]; count: number; savepoints: SavepointSummary[] }> => {
       const savepoints = await listManifests(store, maxFiles);
@@ -367,10 +398,17 @@ export default {
             };
           }
           if (params.confirm !== true) throw new Error("Restoring a savepoint requires confirm=true");
-          const restored = await restore(manifest);
+          const { restored, skipped } = await restore(manifest);
+          // The skipped names come straight out of an untrusted manifest, which may hold up to 2000 entries of up to 4096 characters each and puts no restriction on newlines. The text goes to the model verbatim, so only the first few names are named, and each is JSON-quoted so a path cannot break out of the sentence. The full list is in the details.
+          const named = skipped.slice(0, maxNamedSkips).map((path) => JSON.stringify(path));
+          const remainder = skipped.length - named.length;
+          const skippedNote =
+            skipped.length === 0
+              ? ""
+              : ` Skipped ${skipped.length} entries that target an ignored directory: ${named.join(", ")}${remainder === 0 ? "" : `, and ${remainder} more`}.`;
           return {
-            content: [{ type: "text", text: `Restored ${restored.length} files from ${manifest.id}.` }],
-            details: { action: "restore", id: manifest.id, restored },
+            content: [{ type: "text", text: `Restored ${restored.length} files from ${manifest.id}.${skippedNote}` }],
+            details: { action: "restore", id: manifest.id, restored, skipped },
           };
         },
       }),
