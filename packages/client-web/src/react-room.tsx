@@ -3271,14 +3271,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         (() => {
           const receipts = Array.isArray(data?.receipts) ? data.receipts : [];
           const latest = data?.latest !== null && typeof data?.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
-          const riskLabel = (risk: unknown): string => (risk === "blocked" ? "已阻断" : risk === "review" ? "需复核" : "安全");
+          const riskLabel = (risk: unknown): string => (risk === "blocked" ? "高风险" : risk === "review" ? "需复核" : "安全");
           const riskClass = (risk: unknown): string =>
             risk === "blocked" ? "bg-[#fff0f0] text-[#b42318]" : risk === "review" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#eaf8f0] text-[#14733f]";
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  ["已阻断", data?.blocked ?? 0],
+                  ["高风险", data?.blocked ?? 0],
                   ["需复核", data?.review ?? 0],
                   ["安全", data?.safe ?? 0],
                 ].map(([label, count]) => (
@@ -3319,7 +3319,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   尚未收到工具调用。Agent 可调用 hol_guard_scan 预检命令或文本。
                 </div>
               )}
-              <div className="text-[10px] text-[#687381]">仅保存风险摘要和计数，不保存命令、路径或凭据原文；当前模式为审计。</div>
+              <div className="text-[10px] text-[#687381]">
+                仅保存风险摘要和计数，不保存命令、路径或凭据原文；风险等级仅供审计，HOL Guard 不会阻止任何工具执行。
+              </div>
             </div>
           );
         })()
@@ -3693,38 +3695,53 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           );
         })()
       ) : panel.id === "prompt-guard-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div
-            className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data?.risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : data?.risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
-          >
-            <span>{data?.risk === "blocked" ? "高风险，需阻断" : data?.risk === "review" ? "需要人工复核" : "未发现风险"}</span>
-            <strong className="font-mono">{value(data?.scans ?? 0)} 次扫描</strong>
-          </div>
-          {data?.latest && typeof data.latest === "object" ? (
-            (() => {
-              const report = data.latest as Record<string, unknown>;
-              const findings = Array.isArray(report.findings) ? report.findings : [];
-              return findings.length > 0 ? (
-                <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
-                  {findings.slice(0, 4).map((finding, index) => {
-                    const item = finding && typeof finding === "object" ? (finding as Record<string, unknown>) : {};
-                    return (
-                      <li key={`${value(item.code ?? "finding")}-${index}`}>
-                        <strong className="font-mono text-[#30343b]">{value(item.code ?? "finding")}</strong>：{value(item.message, "")}
-                      </li>
-                    );
-                  })}
-                </ul>
+        (() => {
+          // The headline follows the highest risk seen in this session so a flagged tool result is not hidden by a later benign user message; data.risk (the latest report) is the fallback for older backends.
+          const highest = data?.highest && typeof data.highest === "object" ? (data.highest as Record<string, unknown>) : undefined;
+          const highlighted = highest ?? (data?.latest && typeof data.latest === "object" ? (data.latest as Record<string, unknown>) : undefined);
+          const risk = highest?.risk ?? data?.risk;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div
+                className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+              >
+                <span>
+                  {risk === "blocked" ? "高风险，需阻断" : risk === "review" ? "需要人工复核" : "未发现风险"}
+                  {highlighted && risk !== "safe" && risk !== undefined ? (
+                    <span className="ml-2 font-mono text-[10px]">{value(highlighted.source, "unknown")}</span>
+                  ) : null}
+                </span>
+                <strong className="font-mono">{value(data?.scans ?? 0)} 次扫描</strong>
+              </div>
+              {highlighted ? (
+                (() => {
+                  const report = highlighted;
+                  const findings = Array.isArray(report.findings) ? report.findings : [];
+                  return findings.length > 0 ? (
+                    <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+                      {findings.slice(0, 4).map((finding, index) => {
+                        const item = finding && typeof finding === "object" ? (finding as Record<string, unknown>) : {};
+                        return (
+                          <li key={`${value(item.code ?? "finding")}-${index}`}>
+                            <strong className="font-mono text-[#30343b]">{value(item.code ?? "finding")}</strong>：{value(item.message, "")}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                      已扫描的用户消息和工具输出均未发现风险。
+                    </div>
+                  );
+                })()
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">最近一次扫描未发现风险。</div>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-              Agent 可调用 prompt_guard_scan 检查不可信文本。
+                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  尚未扫描任何内容。用户消息和工具输出会自动扫描，Agent 也可调用 prompt_guard_scan 检查不可信文本。
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "code2skill-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">

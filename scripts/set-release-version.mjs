@@ -95,14 +95,17 @@ while (directories.length) {
   }
 }
 for (const marketplacePath of marketplacePaths) {
+  const source = await readFile(marketplacePath, "utf8");
   /** @type {unknown} */
-  const parsedEntry = JSON.parse(await readFile(marketplacePath, "utf8"));
+  const parsedEntry = JSON.parse(source);
   if (!parsedEntry || typeof parsedEntry !== "object" || Array.isArray(parsedEntry)) throw new Error(`${marketplacePath} does not contain an object`);
   const entry = /** @type {MarketplaceEntry} */ (parsedEntry);
   const internal = [...packageNames].some((packageName) => entry.packageName === packageName || entry.packageName?.startsWith(`${packageName}/`));
   if (!internal) continue;
-  entry.version = version;
-  await writeFile(marketplacePath, `${JSON.stringify(entry, undefined, 2)}\n`);
+  // Rewrite only the top-level version line so the formatter-approved layout of the entry (inline short arrays, key order) survives a release; re-serialising with JSON.stringify expanded every array and broke the CI formatting check after each release commit.
+  const updated = source.replace(/^ {2}"version": "[^"]*"/mu, `  "version": "${version}"`);
+  if (updated === source) throw new Error(`${marketplacePath} has no top-level version field to update`);
+  await writeFile(marketplacePath, updated);
 }
 const marketplaceDestination = "packages/api-gateway/dist/marketplace-entries";
 await rm(marketplaceDestination, { recursive: true, force: true });

@@ -1,9 +1,10 @@
-import { lstat, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { readBoundedFile } from "../bounded-file.js";
+import { resolveExistingWorkspacePath } from "../workspace-path.js";
 import { EmptyConfig } from "../config.js";
 
 const maxQueryLength = 256;
@@ -23,14 +24,6 @@ const nativePathSemantics: PathSemantics = { isAbsolute, relative, sep };
 export function isWorkspaceSearchPathInside(root: string, target: string, pathSemantics: PathSemantics = nativePathSemantics): boolean {
   const remainder = pathSemantics.relative(root, target);
   return remainder === "" || (remainder !== ".." && !remainder.startsWith(`..${pathSemantics.sep}`) && !pathSemantics.isAbsolute(remainder));
-}
-
-function workspacePath(root: string, requested: string): string {
-  if (requested.length > maxPathLength || requested.includes("\\"))
-    throw new Error("Workspace search path must be a relative POSIX path of at most 512 characters");
-  const target = resolve(root, requested || ".");
-  if (!isWorkspaceSearchPathInside(root, target)) throw new Error("Workspace search path must stay inside the current workspace");
-  return target;
 }
 
 type WalkState = { files: string[]; directories: number };
@@ -72,9 +65,17 @@ export default {
       const normalizedQuery = query.trim();
       if (normalizedQuery.length === 0 || normalizedQuery.length > maxQueryLength)
         throw new Error(`Workspace search query must contain 1-${maxQueryLength} characters`);
-      const root = await realpath(context.piHarnessLaunch.cwd);
-      const target = workspacePath(root, requestedPath?.trim() ?? ".");
-      const targetMetadata = await stat(target);
+      const requested = requestedPath?.trim() || ".";
+      if (requested.length > maxPathLength || requested.includes("\\"))
+        throw new Error("Workspace search path must be a relative POSIX path of at most 512 characters");
+      // Canonicalise both ends before the containment check so a symlinked intermediate directory cannot lead outside the workspace.
+      const resolved = await resolveExistingWorkspacePath(
+        context.piHarnessLaunch.cwd,
+        requested,
+        "Workspace search path must stay inside the current workspace",
+      );
+      const root = resolved.root;
+      const target = resolved.target;
       const walkState: WalkState = { files: [], directories: 0 };
       const filesTruncated = await filesUnder(target, root, walkState);
       const files = walkState.files;
@@ -82,7 +83,7 @@ export default {
       const needle = caseSensitive ? normalizedQuery : normalizedQuery.toLocaleLowerCase();
       const matches: SearchMatch[] = [];
       let scannedFiles = 0;
-      let skippedFiles = targetMetadata.isFile() && targetMetadata.size > maxFileBytes ? 1 : 0;
+      let skippedFiles = 0;
       let stoppedAtLimit = false;
       for (const file of files) {
         if (matches.length >= limit) {

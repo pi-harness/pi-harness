@@ -5,6 +5,7 @@ import { listWorkspaceNodes, readWorkspaceGitStatus, type WorkspaceGitStatus, ty
 import { EmptyConfig } from "../config.js";
 
 const maxChangedFiles = 12;
+const treeCacheTtlMs = 5_000;
 
 export interface SidebarOverviewInput {
   readonly cwd: string;
@@ -42,22 +43,26 @@ export function createSidebarInspector(input: {
   readonly getSessionId: () => string;
   readonly listNodes?: (root: string, options: { maxDepth: number; maxNodes: number }) => Promise<WorkspaceNodeReport>;
   readonly readGitStatus?: (root: string) => Promise<WorkspaceGitStatus>;
+  readonly now?: () => number;
 }): () => Promise<SidebarOverview> {
   const readNodes = input.listNodes ?? listWorkspaceNodes;
   const readGit = input.readGitStatus ?? readWorkspaceGitStatus;
-  let tree: WorkspaceNodeReport | undefined;
+  const now = input.now ?? Date.now;
+  let tree: { readonly report: WorkspaceNodeReport; readonly scannedAt: number } | undefined;
   let inFlight: Promise<SidebarOverview> | undefined;
 
+  // The bounded workspace scan is cached only briefly so that files created during the session show up in the counts, while rapid panel polling still shares one scan.
+  const readTree = (): Promise<WorkspaceNodeReport> => {
+    const scannedAt = now();
+    if (tree !== undefined && scannedAt - tree.scannedAt < treeCacheTtlMs) return Promise.resolve(tree.report);
+    return readNodes(input.cwd, { maxDepth: 2, maxNodes: 80 }).then((result) => {
+      tree = { report: result, scannedAt };
+      return result;
+    });
+  };
+
   const inspect = async (): Promise<SidebarOverview> => {
-    const [currentTree, git] = await Promise.all([
-      tree === undefined
-        ? readNodes(input.cwd, { maxDepth: 2, maxNodes: 80 }).then((result) => {
-            tree = result;
-            return result;
-          })
-        : Promise.resolve(tree),
-      readGit(input.cwd),
-    ]);
+    const [currentTree, git] = await Promise.all([readTree(), readGit(input.cwd)]);
     return summarizeSidebar({
       cwd: input.cwd,
       gitAvailable: git.available,

@@ -6,4 +6,5 @@ export * from "./profile.js";
 export * from "./runtime.js";
 export * from "./services.js";
 export * from "./stdio.js";
+export * from "./atomic-write.js";
 export * from "./update-check.js";

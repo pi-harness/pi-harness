@@ -83,6 +83,12 @@ export default {
           if (!fileMap.has(currentPath)) fileMap.set(currentPath, { path: currentPath, added: 0, removed: 0 });
           continue;
         }
+        // A deleted file only carries a `--- a/` header (its `+++` side is /dev/null), so the removed lines must be attributed from here.
+        if (line.startsWith("--- a/")) {
+          currentPath = line.slice(6);
+          if (!fileMap.has(currentPath)) fileMap.set(currentPath, { path: currentPath, added: 0, removed: 0 });
+          continue;
+        }
         if (line.startsWith("+")) {
           if (line.startsWith("+++")) continue;
           addedLines += 1;

@@ -22,7 +22,19 @@ const maxManifestCandidates = 1_000;
 const maxTraversalDirectories = 512;
 const maxPathLength = 4_096;
 const maxBase64Length = Math.ceil(maxSnapshotBytes / 3) * 4;
-const sensitiveNames = new Set([".env", ".env.local", ".env.production", ".credentials", ".credentials.yaml", ".credentials.json"]);
+const sensitiveNames = new Set([
+  ".env",
+  ".envrc",
+  ".npmrc",
+  ".netrc",
+  ".credentials",
+  ".credentials.yaml",
+  ".credentials.json",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+]);
 const ignoredDirectories = new Set([".git", "node_modules", "dist", "build", ".next", ".turbo"]);
 
 export interface UndoSavepointPluginConfig {
@@ -91,7 +103,7 @@ function relativePath(cwd: string, path: string): string {
 
 function isSensitivePath(path: string): boolean {
   const name = basename(path).toLowerCase();
-  return sensitiveNames.has(name) || name.endsWith(".pem") || name.endsWith(".key") || name.endsWith(".p12");
+  return sensitiveNames.has(name) || name.startsWith(".env.") || name.endsWith(".pem") || name.endsWith(".key") || name.endsWith(".p12");
 }
 
 function isIgnoredPath(path: string): boolean {

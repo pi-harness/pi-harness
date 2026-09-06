@@ -43,7 +43,7 @@ npm run web
 - A project-owned YAML profile system for enabling, configuring, grouping, and composing plugins.
 - A separately published `@pi-harness/core` package, so compatible built-in plugin fixes can ship without republishing the launcher.
 - A non-blocking update check that suggests a compatible core update. Run `npm update --global @pi-harness/pi-harness`; set `PI_HARNESS_DISABLE_UPDATE_CHECK=1` to disable checks.
-- Safe defaults: loopback-only web hosting, explicit project trust for executable resources, bounded operations, cancellation, and lifecycle rollback.
+- Safe defaults: loopback-only web hosting, explicit project trust for executable resources, bounded operations, cancellation, and lifecycle rollback. The unauthenticated API also rejects requests whose `Host` header does not name the bound address and port and cross-site requests whose `Origin` does not match it, which blocks CSRF and DNS rebinding; a reverse proxy must forward the original `Host` header over plain HTTP.
 
 ## CLI and profiles
 

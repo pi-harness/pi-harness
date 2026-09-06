@@ -33,6 +33,6 @@ describe("release package", () => {
     expect(workflow).toContain("npm publish --workspace @pi-harness/core --access public");
     expect(workflow).toContain("npm publish --access public");
     expect(workflow).toContain("Verify package availability");
-    expect(workflow).toContain("RELEASE_TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}");
+    expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
   });
 });

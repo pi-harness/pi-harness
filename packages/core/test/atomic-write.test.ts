@@ -1,12 +1,42 @@
 import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { atomicWriteFile } from "../src/atomic-write.js";
+import type * as FsPromises from "node:fs/promises";
 
 const temporaryDirectories: string[] = [];
 
+// Records the order of fsync and rename calls made through node:fs/promises so the tests can prove the temporary file reaches stable storage before it replaces the target.
+const durability = vi.hoisted(() => ({ sequence: [] as string[], failSync: false }));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  return {
+    ...actual,
+    async open(...args: Parameters<typeof actual.open>) {
+      const handle = await actual.open(...args);
+      const path = String(args[0]);
+      const originalSync = handle.sync.bind(handle);
+      Object.defineProperty(handle, "sync", {
+        value: async () => {
+          durability.sequence.push(`sync:${path}`);
+          if (durability.failSync) throw new Error("sync failed");
+          await originalSync();
+        },
+      });
+      return handle;
+    },
+    async rename(...args: Parameters<typeof actual.rename>) {
+      durability.sequence.push(`rename:${String(args[1])}`);
+      await actual.rename(...args);
+    },
+  };
+});
+
 afterEach(async () => {
+  durability.sequence.length = 0;
+  durability.failSync = false;
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -48,5 +78,31 @@ describe("atomicWriteFile", () => {
 
     await expect(atomicWriteFile(target, "replacement", { encoding: "utf8", mode: 0o600 })).rejects.toThrow();
     expect((await readdir(root)).filter((name) => name.startsWith(".target.txt.") && name.endsWith(".tmp"))).toEqual([]);
+  });
+  test("fsyncs the temporary file before the rename and the directory after it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-atomic-write-"));
+    temporaryDirectories.push(root);
+    const target = join(root, "target.txt");
+
+    await atomicWriteFile(target, "durable", { encoding: "utf8" });
+
+    await expect(readFile(target, "utf8")).resolves.toBe("durable");
+    const fileSync = durability.sequence.findIndex((entry) => entry.startsWith(`sync:${join(root, ".target.txt.")}`) && entry.endsWith(".tmp"));
+    const rename = durability.sequence.indexOf(`rename:${target}`);
+    const directorySync = durability.sequence.indexOf(`sync:${root}`);
+    expect(fileSync).toBeGreaterThanOrEqual(0);
+    expect(rename).toBeGreaterThan(fileSync);
+    expect(directorySync).toBeGreaterThan(rename);
+  });
+
+  test("rejects and removes the temporary file when fsync fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-atomic-write-"));
+    temporaryDirectories.push(root);
+    const target = join(root, "target.txt");
+    durability.failSync = true;
+
+    await expect(atomicWriteFile(target, "content", { encoding: "utf8" })).rejects.toThrow(/sync failed/u);
+    await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readdir(root)).toEqual([]);
   });
 });

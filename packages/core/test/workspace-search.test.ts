@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { win32 } from "node:path";
@@ -51,6 +51,30 @@ describe("workspace search", () => {
     await context.fiber.dispose();
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
+  });
+
+  test("rejects paths that escape through a symlinked directory inside the workspace", async () => {
+    const { root, tool } = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-search-outside-"));
+    try {
+      await writeFile(join(outside, "secret.txt"), "needle outside\n");
+      await mkdir(join(outside, "sub"));
+      await writeFile(join(outside, "sub", "config.txt"), "needle nested\n");
+      await symlink(outside, join(root, "linked"));
+      await expect(tool.execute("file", { query: "needle", path: "linked/secret.txt" }, undefined, undefined, {} as never)).rejects.toThrow(/inside/iu);
+      await expect(tool.execute("directory", { query: "needle", path: "linked/sub" }, undefined, undefined, {} as never)).rejects.toThrow(/inside/iu);
+      await expect(tool.execute("root", { query: "needle" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { matchCount: 0 } });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("counts a single oversize target file once", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "big.log"), Buffer.alloc(2 * 1024 * 1024 + 1, 0x20));
+    await expect(tool.execute("oversize", { query: "needle", path: "big.log" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { matchCount: 0, scannedFiles: 0, skippedFiles: 1 },
+    });
   });
 
   test("skips invalid UTF-8 files instead of searching replacement characters", async () => {

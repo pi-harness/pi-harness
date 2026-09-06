@@ -1117,7 +1117,7 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ serverId: string; command: string[]; status: string }>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ serverId: string; executable: string; argumentCount: number; status: string }>> {
           const operationSignal = executionSignal(signal, lifecycle.signal);
           operationSignal.throwIfAborted();
           const raw = inspectParameters(params, connectionParameterNames);
@@ -1125,9 +1125,15 @@ export default {
           const command = optionalCommand(raw.command) ?? (serverId === undefined ? undefined : configuredCommand(serverId));
           if (command === undefined) throw new Error("Provide command or configured serverId to start an MCP server");
           const server = await startServer(command, serverId, operationSignal);
+          // Tool result details are persisted in the session transcript and exposed through the session endpoints, and MCP argv routinely carries tokens (possibly from the profile config rather than the caller), so redact exactly like statusSnapshot and serverSnapshot do.
           return {
             content: [{ type: "text", text: `MCP server ${server.id} is running.` }],
-            details: { serverId: server.id, command: [...server.command], status: server.status },
+            details: {
+              serverId: server.id,
+              executable: executableName(server.command),
+              argumentCount: Math.max(0, server.command.length - 1),
+              status: server.status,
+            },
           };
         },
       }),

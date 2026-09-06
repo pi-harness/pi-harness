@@ -13,16 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "Markdown export",
-    "session archive",
-    "workspace safety"
-  ],
-  "hooks": [
-    "Pi session",
-    "workspace files",
-    "plugin UI"
-  ],
+  "capabilities": ["Markdown export", "session archive", "workspace safety"],
+  "hooks": ["Pi session", "workspace files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/session-export",
     "config": {}

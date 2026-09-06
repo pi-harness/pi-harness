@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/hol-guard",
   "version": "0.1.21",
   "name": "HOL Guard",
-  "description": "Preflight tool arguments for destructive commands, sensitive paths, credentials, and remote exfiltration.",
+  "description": "Audit tool arguments and preflight text for destructive commands, sensitive paths, credentials, and remote exfiltration. Advisory only: reports risk, does not block execution.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,15 +13,8 @@
     "id": "security",
     "label": "安全防护"
   },
-  "capabilities": [
-    "command safety",
-    "credential detection",
-    "audit"
-  ],
-  "hooks": [
-    "tool execution",
-    "plugin UI"
-  ],
+  "capabilities": ["command safety", "credential detection", "audit", "advisory"],
+  "hooks": ["tool execution", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/hol-guard",
     "config": {}

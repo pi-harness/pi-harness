@@ -73,32 +73,41 @@ export default {
     const executable = normalizeExecutable(config.executable);
     const workspaceId = normalizeWorkspaceId(config.workspaceId);
     const timeoutMs = Math.max(1_000, Math.min(120_000, Math.trunc(config.timeoutMs ?? defaultTimeoutMs)));
+    const lifecycle = new AbortController();
     let state: MirageBridgeState = { executable, workspaceId, available: null, version: null, lastError: null, lastRun: null };
+    const executionSignal = (signal: AbortSignal | undefined): AbortSignal =>
+      signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
 
-    const doctor = async (): Promise<MirageBridgeState> => {
+    const doctor = async (signal: AbortSignal): Promise<MirageBridgeState> => {
+      signal.throwIfAborted();
       try {
         const result = await execFileAsync(executable, ["--version"], {
           cwd: context.piHarnessLaunch.cwd,
           timeout: Math.min(timeoutMs, 10_000),
           maxBuffer: maxOutputBytes,
+          signal,
         });
         const version = `${result.stdout}${result.stderr}`.trim().split(/\r?\n/u)[0]?.slice(0, 256) || "Mirage CLI detected";
         state = { ...state, available: true, version, lastError: null };
       } catch (error) {
+        // A cancelled probe says nothing about availability, so surface the abort instead of recording the CLI as missing.
+        signal.throwIfAborted();
         state = { ...state, available: false, version: null, lastError: errorMessage(error).slice(0, 1_000) };
       }
       return state;
     };
 
-    const run = async (commandInput: string): Promise<MirageRun> => {
+    const run = async (commandInput: string, signal: AbortSignal): Promise<MirageRun> => {
       if (workspaceId === null) throw new Error("Mirage workspaceId is not configured");
       const command = normalizeCommand(commandInput);
+      signal.throwIfAborted();
       const startedAt = Date.now();
       try {
         const result = await execFileAsync(executable, ["execute", "--workspace_id", workspaceId, "--command", command], {
           cwd: context.piHarnessLaunch.cwd,
           timeout: timeoutMs,
           maxBuffer: maxOutputBytes,
+          signal,
         });
         state = {
           ...state,
@@ -107,6 +116,8 @@ export default {
           lastRun: { workspaceId, command, exitCode: 0, durationMs: Date.now() - startedAt, output: `${result.stdout}${result.stderr}`.slice(-maxOutputBytes) },
         };
       } catch (error) {
+        // The signal kills the child; a cancelled run must not be recorded as a Mirage result, especially after the plugin has been disposed.
+        signal.throwIfAborted();
         const failure = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
         const unavailable = failure.code === "ENOENT";
         const output = `${failure.stdout ?? ""}${failure.stderr ?? failure.message ?? ""}`.slice(-maxOutputBytes);
@@ -134,8 +145,8 @@ export default {
         promptSnippet: "check the official Mirage virtual terminal integration",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(): Promise<AgentToolResult<MirageBridgeState>> {
-          const details = await doctor();
+        async execute(_toolCallId, _params, signal): Promise<AgentToolResult<MirageBridgeState>> {
+          const details = await doctor(executionSignal(signal));
           return {
             content: [
               {
@@ -161,8 +172,8 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<MirageRun>> {
-          const details = await run(params.command);
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<MirageRun>> {
+          const details = await run(params.command, executionSignal(signal));
           return { content: [{ type: "text", text: `Mirage exited with ${details.exitCode ?? "unknown"}.\n${details.output}` }], details };
         },
       }),
@@ -183,6 +194,7 @@ export default {
       throw error;
     }
     context.effect(() => () => {
+      lifecycle.abort(new Error("Mirage bridge plugin disposed"));
       unregisterDoctor();
       unregisterExecute();
       disposePanel();

@@ -10,7 +10,9 @@ import type { WebServer } from "@pi-harness/host-webserver";
 // Keep the host service declaration in the server entrypoint's type graph.
 type HarnessWebServer = WebServer;
 
-const host = process.env.PI_HARNESS_HOST ?? "127.0.0.1";
+// Accept the bracketed URL form of an IPv6 literal (e.g. "[::1]") but bind the bare address: net.Server.listen resolves the host through getaddrinfo, which rejects brackets with ENOTFOUND.
+const rawHost = process.env.PI_HARNESS_HOST ?? "127.0.0.1";
+const host = rawHost.startsWith("[") && rawHost.endsWith("]") ? rawHost.slice(1, -1) : rawHost;
 const DEFAULT_PI_HARNESS_PORT = 3141;
 const port = Number(process.env.PI_HARNESS_PORT ?? DEFAULT_PI_HARNESS_PORT);
 if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("PI_HARNESS_PORT must be an integer between 0 and 65535");
@@ -40,6 +42,7 @@ const processExit = new Promise<void>((resolve) => {
   resolveExit = resolve;
 });
 let harness: Awaited<ReturnType<typeof bootHarness>> | undefined;
+const exitCodeFor = (signal: NodeJS.Signals): number => (signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143);
 const formatStartupError = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   if (!/Pi model is not registered: everyapi\//u.test(message)) return message;
@@ -51,23 +54,33 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   startupAbort.abort(signal);
   if (harness !== undefined) {
     let disposed = false;
+    let watchdog: NodeJS.Timeout | undefined;
     await Promise.race([
       harness.dispose().then(() => {
         disposed = true;
       }),
-      new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      new Promise<void>((resolve) => {
+        watchdog = setTimeout(resolve, 5_000);
+      }),
     ]);
+    // Once dispose settles the watchdog must not hold the event loop open for the remainder of the 5 s window.
+    clearTimeout(watchdog);
     if (!disposed) {
       process.stderr.write("Pi Harness web shutdown timed out\n");
-      process.exit(signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143);
+      process.exit(exitCodeFor(signal));
       return;
     }
   }
-  process.exitCode = signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143;
+  process.exitCode = exitCodeFor(signal);
   resolveExit?.();
 };
 for (const signal of signals) {
-  process.once(signal, () => {
+  // Register with process.on rather than process.once: the Pi coding agent transitively loads signal-exit, which re-raises the signal with the default disposition (killing the process before dispose completes) whenever it finds no listener other than its own. A once-listener is removed before signal-exit runs, so it would trigger exactly that. A repeated signal during shutdown force-exits instead of waiting for the watchdog.
+  process.on(signal, () => {
+    if (shuttingDown) {
+      process.exit(exitCodeFor(signal));
+      return;
+    }
     void shutdown(signal);
   });
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -110,7 +110,7 @@ export default {
     });
     const upsert = (current: TabState, id: string, sessionPath: string, label: string | undefined, pinned: boolean): Tab => {
       const now = new Date().toISOString();
-      const existing = current.tabs.find((tab) => tab.id === id || tab.sessionPath === sessionPath);
+      const existing = current.tabs.find((tab) => tab.sessionPath === sessionPath);
       if (existing !== undefined) {
         existing.label = label?.trim() || existing.label;
         existing.pinned = pinned;
@@ -119,6 +119,7 @@ export default {
         return existing;
       }
       if (current.tabs.length >= maxTabs) throw new Error(`A maximum of ${maxTabs} session tabs is supported`);
+      if (current.tabs.some((tab) => tab.id === id)) throw new Error("Session tab id already exists for a different session");
       const tab = { id, label: label?.trim() || id, sessionPath, pinned, updatedAt: now };
       current.tabs = [tab, ...current.tabs];
       current.activeId = tab.id;
@@ -193,7 +194,9 @@ export default {
               current.activeId = target.id;
             });
           } else if (params.action === "pin") {
-            const tab = await mutate((current) => upsert(current, active.id, targetPath, params.label, true));
+            // Only the active session is keyed by its session id; other sessions are keyed by their file name so the tab describes the requested path.
+            const id = targetPath === active.sessionPath ? active.id : basename(targetPath, extname(targetPath));
+            const tab = await mutate((current) => upsert(current, id, targetPath, params.label, true));
             return { content: [{ type: "text", text: `Pinned session tab: ${tab.label}` }], details: tab };
           } else {
             await mutate((current) => {

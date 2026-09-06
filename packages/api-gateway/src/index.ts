@@ -1,11 +1,12 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { execFile, type ExecFileException } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
+import { atomicWriteFile } from "@pi-harness/core";
 import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
 import {
@@ -33,20 +34,35 @@ interface ApiServices {
 
 const loadMarketplaceStatistics = createMarketplaceStatisticsLoader();
 
+const DEFAULT_BODY_LIMIT_BYTES = 64 * 1024;
+const IMPORT_CONTENT_LIMIT_BYTES = 10 * 1024 * 1024;
+// The import body carries the JSONL content as a JSON string, so quotes and newlines are escaped; leave headroom above the content limit for that overhead.
+const IMPORT_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+// Retained trajectory events are replayed to every SSE client and returned by /api/session, so the array must stay bounded.
+const MAX_RETAINED_EVENTS = 2000;
+const GIT_TIMEOUT_MS = 15_000;
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("Request body is too large");
+    this.name = "PayloadTooLargeError";
+  }
+}
+
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload);
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "content-length": Buffer.byteLength(body) });
   response.end(body);
 }
 
-async function bodyText(request: IncomingMessage): Promise<string> {
+async function bodyText(request: IncomingMessage, maxBytes = DEFAULT_BODY_LIMIT_BYTES): Promise<string> {
   const chunks: string[] = [];
   let length = 0;
   for await (const chunk of request) {
     const input: string | Uint8Array = chunk as string | Uint8Array;
     const value = typeof input === "string" ? input : Buffer.from(input).toString("utf8");
     length += Buffer.byteLength(value);
-    if (length > 64 * 1024) throw new Error("Request body is too large");
+    if (length > maxBytes) throw new PayloadTooLargeError();
     chunks.push(value);
   }
   return chunks.join("");
@@ -139,26 +155,67 @@ function sessionMetadataFile(manager: SessionManager): string {
   return resolve(manager.getSessionDir(), ".pi-harness-session-meta.json");
 }
 
-async function readSessionMetadata(manager: SessionManager): Promise<SessionMetadataMap> {
+interface MetadataLogger {
+  warn(message: string): void;
+}
+
+// A missing file is the normal first-run state. Any other read or parse failure means the file exists but is unusable; it is renamed aside so the wreckage survives for recovery and the next write cannot silently replace the only copy.
+async function readSessionMetadata(manager: SessionManager, logger: MetadataLogger): Promise<SessionMetadataMap> {
+  const file = sessionMetadataFile(manager);
+  let raw: string;
   try {
-    const parsed: unknown = JSON.parse(await readFile(sessionMetadataFile(manager), "utf8"));
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return parsed as SessionMetadataMap;
-  } catch {
+    raw = await readFile(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    await quarantineSessionMetadata(file, logger, error);
     return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("session metadata must be a JSON object");
+    return parsed as SessionMetadataMap;
+  } catch (error) {
+    await quarantineSessionMetadata(file, logger, error);
+    return {};
+  }
+}
+
+async function quarantineSessionMetadata(file: string, logger: MetadataLogger, error: unknown): Promise<void> {
+  const quarantined = `${file}.corrupt-${Date.now()}`;
+  try {
+    await rename(file, quarantined);
+    logger.warn(`Session metadata at ${file} is unreadable (${errorText(error)}); moved it to ${quarantined} and starting from an empty map`);
+  } catch (renameError) {
+    logger.warn(`Session metadata at ${file} is unreadable (${errorText(error)}) and could not be quarantined: ${errorText(renameError)}`);
   }
 }
 
 async function writeSessionMetadata(manager: SessionManager, metadata: SessionMetadataMap): Promise<void> {
   await mkdir(manager.getSessionDir(), { recursive: true });
-  await writeFile(sessionMetadataFile(manager), JSON.stringify(metadata, null, 2) + "\n", "utf8");
+  await atomicWriteFile(sessionMetadataFile(manager), JSON.stringify(metadata, null, 2) + "\n", { encoding: "utf8" });
+}
+
+// Every read-modify-write of the metadata file runs through this chain so concurrent requests cannot interleave and drop each other's updates.
+let sessionMetadataQueue: Promise<unknown> = Promise.resolve();
+
+function mutateSessionMetadata<T>(manager: SessionManager, logger: MetadataLogger, mutate: (metadata: SessionMetadataMap) => Promise<T> | T): Promise<T> {
+  const operation = sessionMetadataQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const metadata = await readSessionMetadata(manager, logger);
+      const result = await mutate(metadata);
+      await writeSessionMetadata(manager, metadata);
+      return result;
+    });
+  sessionMetadataQueue = operation;
+  return operation;
 }
 
 function sessionPathInDirectory(path: string, manager: SessionManager): boolean {
   const root = resolve(manager.getSessionDir());
   const target = resolve(path);
   const relativePath = relative(root, target);
-  return relativePath !== "" && !isAbsolute(relativePath) && relativePath !== ".." && !relativePath.startsWith(".." + "/") && target.endsWith(".jsonl");
+  return relativePath !== "" && !isAbsolute(relativePath) && relativePath !== ".." && !relativePath.startsWith(".." + sep) && target.endsWith(".jsonl");
 }
 
 const webSessionUi = {
@@ -452,25 +509,69 @@ function writeSse(response: ServerResponse, payload: unknown): void {
   response.write(`data: ${JSON.stringify(jsonSafe(payload))}\n\n`);
 }
 
-function gitStatus(cwd: string): Promise<string> {
-  return new Promise((resolve) => {
-    execFile("git", ["status", "--short", "--untracked-files=all"], { cwd, maxBuffer: 512 * 1024 }, (error, stdout) => resolve(error ? "" : stdout));
+type GitTermination = "timeout" | "output-limit";
+
+// Node reports a maxBuffer overflow through a string error code and a timeout through `killed`; neither is a git exit status, so they must not be folded into an ordinary non-zero exit.
+function gitTermination(error: ExecFileException | null): GitTermination | undefined {
+  if (error === null) return undefined;
+  if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return "output-limit";
+  if (error.killed === true) return "timeout";
+  return undefined;
+}
+
+function gitTerminationMessage(command: string, termination: GitTermination): string {
+  return termination === "timeout"
+    ? `git ${command} timed out after ${GIT_TIMEOUT_MS / 1000} seconds`
+    : `git ${command} produced more output than the buffer limit allows`;
+}
+
+interface GitStatusResult {
+  readonly output: string;
+  readonly truncated: boolean;
+}
+
+function gitStatus(cwd: string): Promise<GitStatusResult> {
+  return new Promise((resolveStatus, rejectStatus) => {
+    execFile("git", ["status", "--short", "--untracked-files=all"], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 512 * 1024 }, (error, stdout, stderr) => {
+      if (error === null) {
+        resolveStatus({ output: stdout, truncated: false });
+        return;
+      }
+      const termination = gitTermination(error);
+      if (termination === "output-limit") {
+        // Keep the complete lines that arrived before the kill; the final line may have been cut mid-path.
+        resolveStatus({ output: stdout.slice(0, stdout.lastIndexOf("\n") + 1), truncated: true });
+        return;
+      }
+      if (termination === undefined && error.code === 128 && /not a git repository/i.test(stderr)) {
+        resolveStatus({ output: "", truncated: false });
+        return;
+      }
+      rejectStatus(new Error(termination ? gitTerminationMessage("status", termination) : stderr.trim() || error.message, { cause: error }));
+    });
   });
 }
 
 function gitDiff(cwd: string, path: string): Promise<string> {
   return new Promise((resolveOutput) => {
-    execFile("git", ["diff", "--no-ext-diff", "--", path], { cwd, maxBuffer: 1024 * 1024 }, (error, stdout) =>
+    execFile("git", ["diff", "--no-ext-diff", "--", path], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (error, stdout) =>
       resolveOutput(error && stdout.length === 0 ? "" : stdout),
     );
   });
 }
 
-function gitCommand(cwd: string, args: readonly string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+interface GitCommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: number;
+  readonly terminated: GitTermination | undefined;
+}
+
+function gitCommand(cwd: string, args: readonly string[]): Promise<GitCommandResult> {
   return new Promise((resolveResult) => {
-    execFile("git", [...args], { cwd, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile("git", [...args], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
       const code = error && typeof error.code === "number" ? error.code : error ? 1 : 0;
-      resolveResult({ stdout, stderr, code });
+      resolveResult({ stdout, stderr, code, terminated: gitTermination(error) });
     });
   });
 }
@@ -559,7 +660,11 @@ export default {
     const events: AgentSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
     const handleEvent = (event: AgentSessionEvent) => {
-      events.push(event);
+      // Streaming deltas reach clients live over SSE and each one carries the whole partial message, so only durable events are retained for snapshots.
+      if (event.type !== "message_update") {
+        events.push(event);
+        if (events.length > MAX_RETAINED_EVENTS) events.splice(0, events.length - MAX_RETAINED_EVENTS);
+      }
       for (const response of eventClients) {
         if (response.writableEnded || response.destroyed) {
           eventClients.delete(response);
@@ -686,7 +791,12 @@ export default {
             return;
           }
           const path = join(services.launch.agentDir, "settings.json");
-          await writeFile(path, JSON.stringify(parsed, null, 2) + "\n", "utf8");
+          // Replace the file atomically so an interrupted write never leaves a truncated settings.json behind; keep the existing permission bits.
+          const mode = await stat(path).then(
+            (info) => info.mode & 0o777,
+            () => 0o644,
+          );
+          await atomicWriteFile(path, JSON.stringify(parsed, null, 2) + "\n", { encoding: "utf8", mode });
           await services.runtime.session.settingsManager.reload();
           sendJson(response, 200, piConfig(services));
         } catch (error) {
@@ -1192,8 +1302,14 @@ export default {
     const disposeFiles = services.webServer.register({
       path: "/api/files",
       async handler(_request, response) {
-        const output = await gitStatus(activeCwd(services));
-        const items = output
+        let status: GitStatusResult;
+        try {
+          status = await gitStatus(activeCwd(services));
+        } catch (error) {
+          sendJson(response, 500, { error: errorText(error) });
+          return;
+        }
+        const items = status.output
           .split("\n")
           .map((line) => line.trimEnd())
           .filter((line) => line.length > 0)
@@ -1205,7 +1321,7 @@ export default {
               label: status === "??" ? "untracked" : status.includes("D") ? "deleted" : status.includes("A") ? "added" : "modified",
             };
           });
-        sendJson(response, 200, { items });
+        sendJson(response, 200, { items, ...(status.truncated ? { truncated: true } : {}) });
       },
     });
     const disposeFileDiff = services.webServer.register({
@@ -1224,7 +1340,7 @@ export default {
         const root = resolve(activeCwd(services));
         const absolute = resolve(root, requested);
         const relativePath = relative(root, absolute);
-        if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(".." + "/")) {
+        if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(".." + sep)) {
           sendJson(response, 400, { error: "path must stay inside the workspace" });
           return;
         }
@@ -1251,11 +1367,19 @@ export default {
           }
           const root = resolve(activeCwd(services));
           const add = await gitCommand(root, ["add", "-A", "--", ...paths]);
+          if (add.terminated) {
+            sendJson(response, 500, { error: gitTerminationMessage("add", add.terminated) });
+            return;
+          }
           if (add.code !== 0) {
             sendJson(response, 409, { error: add.stderr.trim() || "Unable to stage workspace files" });
             return;
           }
           const commit = await gitCommand(root, ["commit", "-m", payload.message.trim(), "--", ...paths]);
+          if (commit.terminated) {
+            sendJson(response, 500, { error: gitTerminationMessage("commit", commit.terminated) });
+            return;
+          }
           if (commit.code !== 0) {
             sendJson(response, 409, { error: commit.stdout.trim() || commit.stderr.trim() || "Nothing to commit" });
             return;
@@ -1286,16 +1410,36 @@ export default {
             sendJson(response, 400, { error: paths.message });
             return;
           }
-          const untracked = await gitCommand(root, ["ls-files", "--others", "--exclude-standard", "--", ...paths]);
-          const restore = await gitCommand(root, ["restore", "--worktree", "--staged", "--", ...paths]);
-          if (restore.code !== 0 && !restore.stderr.includes("pathspec")) {
-            sendJson(response, 409, { error: restore.stderr.trim() || "Unable to restore workspace files" });
+          const untracked = await gitCommand(root, ["ls-files", "-z", "--others", "--exclude-standard", "--", ...paths]);
+          // `git restore` refuses the whole request when any pathspec is unknown to it, so restore only the paths git tracks. `--with-tree=HEAD` keeps staged deletions in the list; it fails on an unborn HEAD, where the plain index listing is all there is.
+          let tracked = await gitCommand(root, ["ls-files", "-z", "--with-tree=HEAD", "--", ...paths]);
+          if (tracked.code !== 0 && tracked.terminated === undefined) tracked = await gitCommand(root, ["ls-files", "-z", "--", ...paths]);
+          const listing = [untracked, tracked].find((result) => result.terminated !== undefined || result.code !== 0);
+          if (listing) {
+            if (listing.terminated) sendJson(response, 500, { error: gitTerminationMessage("ls-files", listing.terminated) });
+            else sendJson(response, 409, { error: listing.stderr.trim() || "Unable to inspect workspace files" });
             return;
           }
-          for (const path of untracked.stdout
-            .split("\n")
-            .map((item) => item.trim())
-            .filter(Boolean)) {
+          const untrackedPaths = untracked.stdout.split("\0").filter(Boolean);
+          const trackedPaths = tracked.stdout.split("\0").filter(Boolean);
+          const known = [...untrackedPaths, ...trackedPaths];
+          const unknown = paths.filter((path) => !known.some((candidate) => candidate === path || candidate.startsWith(path + "/")));
+          if (unknown.length > 0) {
+            sendJson(response, 409, { error: `Paths did not match any file known to git: ${unknown.join(", ")}` });
+            return;
+          }
+          if (trackedPaths.length > 0) {
+            const restore = await gitCommand(root, ["restore", "--worktree", "--staged", "--", ...trackedPaths]);
+            if (restore.terminated) {
+              sendJson(response, 500, { error: gitTerminationMessage("restore", restore.terminated) });
+              return;
+            }
+            if (restore.code !== 0) {
+              sendJson(response, 409, { error: restore.stderr.trim() || "Unable to restore workspace files" });
+              return;
+            }
+          }
+          for (const path of untrackedPaths) {
             await rm(resolve(root, path), { recursive: true, force: true });
           }
           sendJson(response, 200, { reverted: true, paths });
@@ -1332,6 +1476,10 @@ export default {
     const disposePrompt = services.webServer.register({
       path: "/api/prompt",
       async handler(request, response) {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
         if (busy) {
           sendJson(response, 409, { error: "Another prompt is already running" });
           return;
@@ -1583,9 +1731,9 @@ export default {
             events.length = 0;
           }
           await unlink(path);
-          const metadata = await readSessionMetadata(manager);
-          delete metadata[path];
-          await writeSessionMetadata(manager, metadata);
+          await mutateSessionMetadata(manager, context.logger, (metadata) => {
+            delete metadata[path];
+          });
           sendJson(response, 200, { deleted: true, path, sessionFile: services.runtime.session.sessionFile });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
@@ -1607,16 +1755,17 @@ export default {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
-          const metadata = await readSessionMetadata(manager);
-          const currentMetadata = metadata[path] ?? {};
-          const nextMetadata: SessionMetadata = {
-            ...currentMetadata,
-            ...(payload.archived === undefined ? {} : { archived: payload.archived === true }),
-            ...(payload.pinned === undefined ? {} : { pinned: payload.pinned === true }),
-          };
-          metadata[path] = nextMetadata;
-          await writeSessionMetadata(manager, metadata);
-          sendJson(response, 200, { path, metadata: metadata[path] });
+          const nextMetadata = await mutateSessionMetadata(manager, context.logger, (metadata) => {
+            const currentMetadata = metadata[path] ?? {};
+            const updated: SessionMetadata = {
+              ...currentMetadata,
+              ...(payload.archived === undefined ? {} : { archived: payload.archived === true }),
+              ...(payload.pinned === undefined ? {} : { pinned: payload.pinned === true }),
+            };
+            metadata[path] = updated;
+            return updated;
+          });
+          sendJson(response, 200, { path, metadata: nextMetadata });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
         }
@@ -1654,21 +1803,21 @@ export default {
             sendJson(response, 409, { error: "Cannot batch-delete the active session" });
             return;
           }
-          const metadata = await readSessionMetadata(manager);
-          for (const path of paths) {
-            if (action === "delete") {
-              await unlink(path);
-              delete metadata[path];
-            } else {
-              const current = metadata[path] ?? {};
-              metadata[path] = {
-                ...current,
-                ...(action === "archive" || action === "unarchive" ? { archived: action === "archive" } : {}),
-                ...(action === "pin" || action === "unpin" ? { pinned: action === "pin" } : {}),
-              };
+          await mutateSessionMetadata(manager, context.logger, async (metadata) => {
+            for (const path of paths) {
+              if (action === "delete") {
+                await unlink(path);
+                delete metadata[path];
+              } else {
+                const current = metadata[path] ?? {};
+                metadata[path] = {
+                  ...current,
+                  ...(action === "archive" || action === "unarchive" ? { archived: action === "archive" } : {}),
+                  ...(action === "pin" || action === "unpin" ? { pinned: action === "pin" } : {}),
+                };
+              }
             }
-          }
-          await writeSessionMetadata(manager, metadata);
+          });
           sendJson(response, 200, { action, count: paths.length });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
@@ -1716,11 +1865,21 @@ export default {
           return;
         }
         try {
-          const payload = JSON.parse(await bodyText(request)) as { path?: unknown; content?: unknown; filename?: unknown; cwd?: unknown };
+          const payload = JSON.parse(await bodyText(request, IMPORT_BODY_LIMIT_BYTES)) as {
+            path?: unknown;
+            content?: unknown;
+            filename?: unknown;
+            cwd?: unknown;
+          };
           const suppliedPath = typeof payload.path === "string" ? payload.path : "";
           const content = typeof payload.content === "string" ? payload.content : undefined;
-          if ((!suppliedPath || !isAbsolute(suppliedPath)) && content === undefined) {
-            sendJson(response, 400, { error: "A JSONL file path or file content is required" });
+          // `path` reads an existing file and `content` is written to a private temporary file; accepting both would let the request choose where the content lands.
+          if (suppliedPath && content !== undefined) {
+            sendJson(response, 400, { error: "Provide either a JSONL file path or file content, not both" });
+            return;
+          }
+          if (content === undefined && (!suppliedPath || !isAbsolute(suppliedPath) || !suppliedPath.endsWith(".jsonl"))) {
+            sendJson(response, 400, { error: "An absolute .jsonl file path or file content is required" });
             return;
           }
           const manager = services.runtime.session.sessionManager;
@@ -1730,12 +1889,12 @@ export default {
           }
           const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : activeCwd(services);
           const temporaryDirectory = content === undefined ? undefined : await mkdtemp(join(tmpdir(), "pi-harness-import-"));
-          const importPath =
-            suppliedPath ||
-            join(temporaryDirectory as string, basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl"));
+          const requestedName = basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl");
+          const importName = requestedName === "" || requestedName === "." || requestedName === ".." ? "import.jsonl" : requestedName;
+          const importPath = temporaryDirectory === undefined ? suppliedPath : join(temporaryDirectory, importName);
           try {
             if (content !== undefined) {
-              if (Buffer.byteLength(content, "utf8") > 10 * 1024 * 1024) {
+              if (Buffer.byteLength(content, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
                 sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
                 return;
               }
@@ -1759,7 +1918,7 @@ export default {
             if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
           }
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendJson(response, error instanceof PayloadTooLargeError ? 413 : 400, { error: errorText(error) });
         }
       },
     });
@@ -1796,7 +1955,7 @@ export default {
           const page = Math.max(0, Number.parseInt(url.searchParams.get("page") ?? "0", 10) || 0);
           const pageSize = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("pageSize") ?? "50", 10) || 50));
           const includeArchived = url.searchParams.get("includeArchived") === "true";
-          const metadata = await readSessionMetadata(manager);
+          const metadata = await readSessionMetadata(manager, context.logger);
           const items =
             typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(services.launch.cwd, manager.getSessionDir()) : [];
           const filtered = items.filter((item) => includeArchived || metadata[item.path]?.archived !== true);

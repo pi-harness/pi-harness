@@ -1,6 +1,6 @@
 import { inflateSync, deflateSync } from "node:zlib";
 import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -152,7 +152,9 @@ export default {
       if (!isImageCompressorPathInside(root, input)) throw new Error("Image path must stay inside the current workspace");
       const metadata = await stat(input);
       if (!metadata.isFile() || metadata.size > maxInputBytes) throw new Error("Input image must be a regular PNG file no larger than 32 MiB");
-      const output = workspacePath(root, requestedOutput?.trim() || `${basename(input, extname(input))}.min.png`);
+      // Without an explicit outputPath the result lands next to its source, not at the workspace root, so same-named inputs in different directories cannot collide. dirname(input) is already realpath'd and containment-checked above, so it must not go back through workspacePath, which would reject the backslashes relative() produces on Windows.
+      const explicitOutput = requestedOutput?.trim() || undefined;
+      const output = explicitOutput === undefined ? join(dirname(input), `${basename(input, extname(input))}.min.png`) : workspacePath(root, explicitOutput);
       const outputParent = dirname(output);
       await mkdir(outputParent, { recursive: true });
       if (!isImageCompressorPathInside(root, await realpath(outputParent))) throw new Error("Image output path must stay inside the current workspace");
@@ -163,7 +165,13 @@ export default {
       }
       const inputBytes = await readFile(input);
       const compressed = optimizePng(inputBytes);
-      await atomicWriteFile(output, compressed, { mode: 0o600 });
+      // confirm=true approves compressing the input, not clobbering whatever already sits at the derived path; only an explicit outputPath may replace an existing file.
+      try {
+        await atomicWriteFile(output, compressed, { mode: 0o600, overwrite: explicitOutput !== undefined });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        throw new Error(`Image output already exists: ${relative(root, output)}; pass outputPath explicitly to replace it`, { cause: error });
+      }
       const report: CompressionReport = {
         inputPath: relative(root, input),
         outputPath: relative(root, output),

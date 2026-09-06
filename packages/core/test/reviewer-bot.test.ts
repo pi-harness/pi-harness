@@ -46,6 +46,44 @@ describe("reviewer bot", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: { status: "pass" } } }]);
   });
 
+  test("attributes a deleted file's removed lines to that file", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "other.txt"), "x\ny\nz\n");
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-qm", "add other"], { cwd: root });
+    await writeFile(join(root, "file.txt"), "changed\n");
+    await execFileAsync("git", ["rm", "-q", "other.txt"], { cwd: root });
+    await expect(tool.execute("review", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: {
+        files: [
+          { path: "file.txt", added: 1, removed: 1 },
+          { path: "other.txt", added: 0, removed: 3 },
+        ],
+        changedFiles: 2,
+        addedLines: 1,
+        removedLines: 4,
+      },
+    });
+  });
+
+  test("attributes removed lines when the deleted file comes first in the diff", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "a-first.txt"), "x\ny\n");
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-qm", "add first"], { cwd: root });
+    await writeFile(join(root, "file.txt"), "changed\n");
+    await execFileAsync("git", ["rm", "-q", "a-first.txt"], { cwd: root });
+    await expect(tool.execute("review", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: {
+        files: [
+          { path: "a-first.txt", added: 0, removed: 2 },
+          { path: "file.txt", added: 1, removed: 1 },
+        ],
+        removedLines: 3,
+      },
+    });
+  });
+
   test("cleans up registrations on disposal", async () => {
     const { context, tools, panels } = await fixture();
     await context.fiber.dispose();

@@ -22,11 +22,7 @@
     "optional dependency reporting",
     "descriptor-safe normalized panel"
   ],
-  "hooks": [
-    "dependency check tool",
-    "workspace manifest read",
-    "plugin UI"
-  ],
+  "hooks": ["dependency check tool", "workspace manifest read", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/dependency-checker",
     "config": {}

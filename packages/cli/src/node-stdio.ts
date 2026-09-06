@@ -3,12 +3,13 @@ import type { Readable, Writable } from "node:stream";
 import { MAX_STDIO_PROMPT_BYTES, PiHarnessStdioCancelledError, type PiHarnessStdio } from "@pi-harness/core";
 
 type TerminalReadable = Readable & { isTTY?: boolean };
+type TerminalWritable = Writable & { isTTY?: boolean };
 type PendingWrite = { readonly promise: Promise<void>; readonly resolve: () => void };
 
 export class NodeStdio implements PiHarnessStdio {
   readonly #input: TerminalReadable;
-  readonly #output: Writable;
-  readonly #error: Writable;
+  readonly #output: TerminalWritable;
+  readonly #error: TerminalWritable;
   readonly #abort = new AbortController();
   #readline: Interface | undefined;
   readonly #broken = new WeakSet<Writable>();
@@ -91,7 +92,9 @@ export class NodeStdio implements PiHarnessStdio {
       rejectOversized(new Error(`Prompt must be at most ${MAX_STDIO_PROMPT_BYTES} UTF-8 bytes`));
     };
     this.#input.on("data", onInputData);
-    const readline = createInterface({ input: this.#input, output: this.#output });
+    // The "> " marker is for a human at a terminal: when stdout is redirected it must not leak into the captured data, so the prompt goes to a TTY stderr instead, or nowhere when neither stream is a terminal.
+    const promptOutput = this.#output.isTTY === true ? this.#output : this.#error.isTTY === true ? this.#error : undefined;
+    const readline = createInterface({ input: this.#input, output: promptOutput });
     this.#readline = readline;
     readline.on("SIGINT", () => this.close());
     try {

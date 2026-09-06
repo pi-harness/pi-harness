@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "tasks",
-    "dependencies",
-    "board"
-  ],
-  "hooks": [
-    "session lifecycle",
-    "plugin UI"
-  ],
+  "capabilities": ["tasks", "dependencies", "board"],
+  "hooks": ["session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/taskboard",
     "config": {}
