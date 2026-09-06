@@ -20,12 +20,7 @@
     "session event reactions",
     "persistence health panel"
   ],
-  "hooks": [
-    "session events",
-    "pet reaction tool",
-    "session storage",
-    "plugin UI"
-  ],
+  "hooks": ["session events", "pet reaction tool", "session storage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/openpets",
     "config": {}

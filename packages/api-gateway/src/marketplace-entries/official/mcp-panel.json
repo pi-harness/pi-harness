@@ -13,15 +13,8 @@
     "id": "tools",
     "label": "工具"
   },
-  "capabilities": [
-    "MCP health",
-    "tool inspection",
-    "profile patch preview"
-  ],
-  "hooks": [
-    "MCP runtime",
-    "plugin UI"
-  ],
+  "capabilities": ["MCP health", "tool inspection", "profile patch preview"],
+  "hooks": ["MCP runtime", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/mcp-panel",
     "config": {}

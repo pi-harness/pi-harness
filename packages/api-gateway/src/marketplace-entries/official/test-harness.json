@@ -22,11 +22,7 @@
     "cancellable process-tree cleanup",
     "descriptor-safe normalized panel"
   ],
-  "hooks": [
-    "project verification tool",
-    "workspace npm scripts",
-    "plugin UI"
-  ],
+  "hooks": ["project verification tool", "workspace npm scripts", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/test-harness",
     "config": {

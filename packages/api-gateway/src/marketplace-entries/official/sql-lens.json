@@ -21,11 +21,7 @@
     "timeout and cancellation termination",
     "validated fail-closed panel reporting"
   ],
-  "hooks": [
-    "SQL read-only tool",
-    "workspace SQLite files",
-    "plugin UI"
-  ],
+  "hooks": ["SQL read-only tool", "workspace SQLite files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/sql-lens",
     "config": {

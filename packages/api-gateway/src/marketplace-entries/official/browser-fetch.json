@@ -21,10 +21,7 @@
     "bounded browser preview",
     "validated fail-closed panel reporting"
   ],
-  "hooks": [
-    "network request",
-    "plugin UI"
-  ],
+  "hooks": ["network request", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/browser-fetch",
     "config": {

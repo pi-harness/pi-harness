@@ -20,11 +20,7 @@
     "stable sequential cancellable inspection",
     "validated bounded panel reporting"
   ],
-  "hooks": [
-    "i18n check tool",
-    "workspace locale files",
-    "plugin UI"
-  ],
+  "hooks": ["i18n check tool", "workspace locale files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/i18n-pair",
     "config": {}

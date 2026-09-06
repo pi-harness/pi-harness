@@ -13,17 +13,8 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": [
-    "settled-session resource reload",
-    "single-flight reload guard",
-    "bounded reload status",
-    "cancellable caller wait"
-  ],
-  "hooks": [
-    "session resource reload tool",
-    "Pi session lifecycle",
-    "plugin UI"
-  ],
+  "capabilities": ["settled-session resource reload", "single-flight reload guard", "bounded reload status", "cancellable caller wait"],
+  "hooks": ["session resource reload tool", "Pi session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/plugin-dev",
     "config": {}

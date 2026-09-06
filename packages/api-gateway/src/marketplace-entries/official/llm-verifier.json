@@ -13,18 +13,8 @@
     "id": "testing",
     "label": "测试与质量"
   },
-  "capabilities": [
-    "model verification",
-    "batch verification",
-    "evidence review",
-    "audit history",
-    "release confidence"
-  ],
-  "hooks": [
-    "model runtime",
-    "structured verdict",
-    "plugin UI"
-  ],
+  "capabilities": ["model verification", "batch verification", "evidence review", "audit history", "release confidence"],
+  "hooks": ["model runtime", "structured verdict", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/llm-verifier",
     "config": {}

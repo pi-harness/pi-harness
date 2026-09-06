@@ -13,16 +13,8 @@
     "id": "context",
     "label": "上下文"
   },
-  "capabilities": [
-    "history compaction",
-    "context budget",
-    "automatic cleanup"
-  ],
-  "hooks": [
-    "agent end",
-    "context usage",
-    "plugin UI"
-  ],
+  "capabilities": ["history compaction", "context budget", "automatic cleanup"],
+  "hooks": ["agent end", "context usage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/history-compressor",
     "config": {
