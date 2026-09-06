@@ -1,0 +1,33 @@
+{
+  "name": "@pi-harness/cli",
+  "version": "0.1.15",
+  "private": true,
+  "description": "Plugin-first Pi Harness CLI",
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-harness/pi-harness.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "pih": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

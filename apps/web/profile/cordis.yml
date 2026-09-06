@@ -1,0 +1,265 @@
+- id: agent
+  name: cordis:group
+  group: true
+  config:
+    - id: models
+      name: "@pi-harness/core/plugins/models"
+      config:
+        provider: !!js process.env.PI_HARNESS_PROVIDER ?? 'everyapi'
+        model: !!js process.env.PI_HARNESS_MODEL ?? 'deepseek-v4-flash'
+        refreshOnCreate: false
+    - id: resources
+      name: "@pi-harness/core/plugins/resources"
+      config: {}
+    - id: model
+      name: "@pi-harness/core/plugins/model"
+      config: {}
+    - id: session
+      name: "@pi-harness/core/plugins/session"
+      config:
+        storage: jsonl
+    - id: tools
+      name: "@pi-harness/core/plugins/tools"
+      config:
+        names:
+          - read
+          - bash
+          - edit
+          - write
+    - id: agent-teams
+      name: "@pi-harness/core/plugins/agent-teams"
+      config: {}
+    - id: modlens
+      name: "@pi-harness/core/plugins/modlens"
+      config: {}
+    - id: git-time-capsule
+      name: "@pi-harness/core/plugins/git-time-capsule"
+      config: {}
+    - id: dependency-checker
+      name: "@pi-harness/core/plugins/dependency-checker"
+      config: {}
+    - id: at-file
+      name: "@pi-harness/core/plugins/at-file"
+      config: {}
+    - id: test-harness
+      name: "@pi-harness/core/plugins/test-harness"
+      config: {}
+    - id: session-insights
+      name: "@pi-harness/core/plugins/session-insights"
+      config: {}
+    - id: readme-gen
+      name: "@pi-harness/core/plugins/readme-gen"
+      config: {}
+    - id: i18n-pair
+      name: "@pi-harness/core/plugins/i18n-pair"
+      config: {}
+    - id: cleaner
+      name: "@pi-harness/core/plugins/cleaner"
+      config: {}
+    - id: sql-lens
+      name: "@pi-harness/core/plugins/sql-lens"
+      config: {}
+    - id: docker-sandbox
+      name: "@pi-harness/core/plugins/docker-sandbox"
+      config: {}
+    - id: mcp-client
+      name: "@pi-harness/core/plugins/mcp-client"
+      config: {}
+    - id: mcp-panel
+      name: "@pi-harness/core/plugins/mcp-panel"
+      config: {}
+    - id: browser-fetch
+      name: "@pi-harness/core/plugins/browser-fetch"
+      config: {}
+    - id: web-research
+      name: "@pi-harness/core/plugins/web-research"
+      config: {}
+    - id: browser-session
+      name: "@pi-harness/core/plugins/browser-session"
+      config: {}
+    - id: yaml-validator
+      name: "@pi-harness/core/plugins/yaml-validator"
+      config: {}
+    - id: mock-server
+      name: "@pi-harness/core/plugins/mock-server"
+      config: {}
+    - id: cli-notifier
+      name: "@pi-harness/core/plugins/cli-notifier"
+      config: {}
+    - id: obsidian-sync
+      name: "@pi-harness/core/plugins/obsidian-sync"
+      config: {}
+    - id: context-doctor
+      name: "@pi-harness/core/plugins/context-doctor"
+      config: {}
+    - id: history-compressor
+      name: "@pi-harness/core/plugins/history-compressor"
+      config: {}
+    - id: reviewer-bot
+      name: "@pi-harness/core/plugins/reviewer-bot"
+      config: {}
+    - id: auto-mode
+      name: "@pi-harness/core/plugins/auto-mode"
+      config: {}
+    - id: plan-execute
+      name: "@pi-harness/core/plugins/plan-execute"
+      config: {}
+    - id: plugin-finder
+      name: "@pi-harness/core/plugins/plugin-finder"
+      config: {}
+    - id: memory
+      name: "@pi-harness/core/plugins/memory"
+      config: {}
+    - id: graph-memory
+      name: "@pi-harness/core/plugins/graph-memory"
+      config: {}
+    - id: taskboard
+      name: "@pi-harness/core/plugins/taskboard"
+      config: {}
+    - id: synapse
+      name: "@pi-harness/core/plugins/synapse"
+      config: {}
+    - id: hol-guard
+      name: "@pi-harness/core/plugins/hol-guard"
+      config: {}
+    - id: plugin-radar
+      name: "@pi-harness/core/plugins/plugin-radar"
+      config: {}
+    - id: plugin-stars
+      name: "@pi-harness/core/plugins/plugin-stars"
+      config: {}
+    - id: plugin-check
+      name: "@pi-harness/core/plugins/plugin-check"
+      config: {}
+    - id: annotation
+      name: "@pi-harness/core/plugins/annotation"
+      config: {}
+    - id: cost-meter
+      name: "@pi-harness/core/plugins/cost-meter"
+      config:
+        dailyBudget: 0
+    - id: undo-savepoint
+      name: "@pi-harness/core/plugins/undo-savepoint"
+      config: {}
+    - id: skill-catalog
+      name: "@pi-harness/core/plugins/skill-catalog"
+      config: {}
+    - id: canvas-draw
+      name: "@pi-harness/core/plugins/canvas-draw"
+      config: {}
+    - id: image-compressor
+      name: "@pi-harness/core/plugins/image-compressor"
+      config: {}
+    - id: workspace-search
+      name: "@pi-harness/core/plugins/workspace-search"
+      config: {}
+    - id: prompt-guard
+      name: "@pi-harness/core/plugins/prompt-guard"
+      config: {}
+    - id: code2skill
+      name: "@pi-harness/core/plugins/code2skill"
+      config: {}
+    - id: tab-manager
+      name: "@pi-harness/core/plugins/tab-manager"
+      config: {}
+    - id: genui
+      name: "@pi-harness/core/plugins/genui"
+      config: {}
+    - id: anchored-standard
+      name: "@pi-harness/core/plugins/anchored-standard"
+      config: {}
+    - id: telemetry-blocker
+      name: "@pi-harness/core/plugins/telemetry-blocker"
+      config: {}
+    - id: change-verifier
+      name: "@pi-harness/core/plugins/change-verifier"
+      config: {}
+    - id: context
+      name: "@pi-harness/core/plugins/context"
+      config: {}
+    - id: runtime
+      name: "@pi-harness/core/plugins/runtime"
+      config:
+        thinkingLevel: medium
+    - id: plugin-dev
+      name: "@pi-harness/core/plugins/plugin-dev"
+      config: {}
+    - id: openpets
+      name: "@pi-harness/core/plugins/openpets"
+      config: {}
+    - id: session-bridge
+      name: "@pi-harness/core/plugins/session-bridge"
+      config: {}
+    - id: skill-guard
+      name: "@pi-harness/core/plugins/skill-guard"
+      config: {}
+    - id: recall-unread
+      name: "@pi-harness/core/plugins/recall-unread"
+      config: {}
+    - id: turn-rewind
+      name: "@pi-harness/core/plugins/turn-rewind"
+      config: {}
+    - id: session-export
+      name: "@pi-harness/core/plugins/session-export"
+      config: {}
+    - id: session-search
+      name: "@pi-harness/core/plugins/session-search"
+      config: {}
+    - id: session-compare
+      name: "@pi-harness/core/plugins/session-compare"
+      config: {}
+    - id: secure-audit
+      name: "@pi-harness/core/plugins/secure-audit"
+      config: {}
+    - id: session-bookmarks
+      name: "@pi-harness/core/plugins/session-bookmarks"
+      config: {}
+    - id: llm-verifier
+      name: "@pi-harness/core/plugins/llm-verifier"
+      config: {}
+    - id: module-search
+      name: "@pi-harness/core/plugins/module-search"
+      config: {}
+    - id: workspace-navigator
+      name: "@pi-harness/core/plugins/workspace-navigator"
+      config: {}
+    - id: better-sidebar
+      name: "@pi-harness/core/plugins/better-sidebar"
+      config: {}
+    - id: archify
+      name: "@pi-harness/core/plugins/archify"
+      config: {}
+    - id: reverse-skill
+      name: "@pi-harness/core/plugins/reverse-skill"
+      config: {}
+    - id: colleague-skill
+      name: "@pi-harness/core/plugins/colleague-skill"
+      config: {}
+    - id: prompt-library
+      name: "@pi-harness/core/plugins/prompt-library"
+      config: {}
+    - id: token-guard
+      name: "@pi-harness/core/plugins/token-guard"
+      config:
+        maxPercent: 90
+    - id: fail-logger
+      name: "@pi-harness/core/plugins/fail-logger"
+      config: {}
+    - id: vision-toolkit
+      name: "@pi-harness/core/plugins/vision-toolkit"
+      config: {}
+    - id: runtime-doctor
+      name: "@pi-harness/core/plugins/runtime-doctor"
+      config: {}
+    - id: webserver
+      name: "@pi-harness/host-webserver"
+      config:
+        host: !!js process.env.PI_HARNESS_HOST ?? '127.0.0.1'
+        port: !!js Number(process.env.PI_HARNESS_PORT ?? 3141)
+- id: api
+  name: "@pi-harness/api-gateway"
+  config: {}
+- id: web-app
+  name: "@pi-harness/web-app"
+  config:
+    staticDir: !!js process.env.PI_HARNESS_WEB_DIST

@@ -1,0 +1,35 @@
+{
+  "id": "readme-gen",
+  "packageName": "@pi-harness/core/plugins/readme-gen",
+  "version": "0.1.15",
+  "name": "README Gen",
+  "description": "Generate README reports from strictly bounded manifest metadata and a descriptor-safe loader inventory with Markdown-safe rendering, plus confirmed no-clobber atomic writes, explicit overwrite confirmation, and cancellable sequential execution.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "developer",
+    "label": "开发工具"
+  },
+  "capabilities": [
+    "bounded manifest metadata",
+    "descriptor-safe loader inventory",
+    "Markdown-safe rendering",
+    "confirmed no-clobber atomic writes",
+    "explicit overwrite confirmation",
+    "cancellable sequential tools",
+    "bounded normalized operation panel"
+  ],
+  "hooks": [
+    "README report and write tools",
+    "workspace manifest and files",
+    "Cordis loader inventory",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/readme-gen",
+    "config": {}
+  }
+}

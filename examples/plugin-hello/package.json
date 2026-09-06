@@ -1,0 +1,32 @@
+{
+  "name": "@pi-harness/plugin-hello",
+  "version": "0.1.15",
+  "private": true,
+  "description": "Example Cordis plugin that contributes a Pi tool",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-coding-agent": "0.84.4",
+    "@pi-harness/core": "0.1.15"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

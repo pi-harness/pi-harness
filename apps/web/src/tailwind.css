@@ -1,0 +1,25 @@
+@source "../../../packages/client-web/src";
+@import "tailwindcss";
+
+@theme static {
+  --animate-pulse-soft: pulse-soft 1.4s ease-in-out infinite;
+  --color-ink: #0f1115;
+  --color-muted: #65707b;
+  --color-faint: #687381;
+  --color-line: rgba(15, 17, 21, 0.12);
+  --color-soft: #f6f8fa;
+  --color-blue: #3565c5;
+  --color-blue-soft: #edf3fe;
+  --color-green: #14733f;
+  --color-red: #b42318;
+  --color-amber: #f59e0b;
+  --color-empty: #9aa0a6;
+  --color-starter-border: rgba(15, 17, 21, 0.14);
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  @keyframes pulse-soft {
+    50% {
+      opacity: 0.3;
+    }
+  }
+}

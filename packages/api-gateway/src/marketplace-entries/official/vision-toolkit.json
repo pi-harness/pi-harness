@@ -1,0 +1,32 @@
+{
+  "id": "vision-toolkit",
+  "packageName": "@pi-harness/core/plugins/vision-toolkit",
+  "version": "0.1.15",
+  "name": "Vision Toolkit",
+  "description": "Catalog signature-verified PNG, JPEG, GIF, and WebP metadata with bounded header reads, cancellable workspace traversal, explicit partial results, and a local-only normalized panel.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "multimodal",
+    "label": "视觉与多模态"
+  },
+  "capabilities": [
+    "bounded workspace image catalog",
+    "signature-verified image metadata",
+    "PNG JPEG GIF and WebP dimensions",
+    "cancellable bounded traversal",
+    "bounded normalized panel"
+  ],
+  "hooks": [
+    "image metadata tools",
+    "workspace access",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/vision-toolkit",
+    "config": {}
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "docker-sandbox",
+  "packageName": "@pi-harness/core/plugins/docker-sandbox",
+  "version": "0.1.15",
+  "name": "Docker Sandbox",
+  "description": "Run descriptor-safe argv commands with local-only Docker images, no container network, a read-only workspace by default, fixed CPU, memory, and PID limits, sanitized output, strict panel reporting, and cancellation cleanup.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "security",
+    "label": "安全"
+  },
+  "capabilities": [
+    "local-only image execution",
+    "no-network containers",
+    "read-only workspace by default",
+    "CPU memory and PID limits",
+    "sanitized bounded output",
+    "strict panel reporting",
+    "cancellation cleanup"
+  ],
+  "hooks": [
+    "sandbox execution tool",
+    "Docker CLI",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/docker-sandbox",
+    "config": {}
+  }
+}

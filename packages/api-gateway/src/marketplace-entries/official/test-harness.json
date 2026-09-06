@@ -1,0 +1,36 @@
+{
+  "id": "test-harness",
+  "packageName": "@pi-harness/core/plugins/test-harness",
+  "version": "0.1.15",
+  "name": "Test Harness",
+  "description": "Run five fixed npm script names from a trusted workspace, reporting real status with a sanitized 12 KiB UTF-8-safe untrusted output tail, a bounded configurable timeout, and cancellable process-tree cleanup.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "testing",
+    "label": "测试"
+  },
+  "capabilities": [
+    "five-script verification allowlist",
+    "real npm exit status and signal reporting",
+    "12 KiB UTF-8-safe output tail",
+    "terminal-control sanitization and untrusted framing",
+    "configurable bounded timeout",
+    "cancellable process-tree cleanup",
+    "descriptor-safe normalized panel"
+  ],
+  "hooks": [
+    "project verification tool",
+    "workspace npm scripts",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/test-harness",
+    "config": {
+      "timeoutMs": 120000
+    }
+  }
+}

@@ -1,0 +1,170 @@
+name: Release packages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release
+        run: |
+          npm test
+          npm run typecheck:workspaces
+          npm run test:package
+          npm run lint:check
+          git diff --check
+
+      - name: Prepare release version
+        id: metadata
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          existing_tag=""
+          for tag in $(git tag --list 'v*' --sort=-v:refname); do
+            target=$(git rev-list -n 1 "$tag")
+            parent=$(git rev-parse "$target^" 2>/dev/null || true)
+            if [ "$target" = "$HEAD_SHA" ] || [ "$parent" = "$HEAD_SHA" ]; then
+              existing_tag="$tag"
+              break
+            fi
+          done
+
+          if [ -n "$existing_tag" ]; then
+            version="${existing_tag#v}"
+          else
+            package_name=$(node -p "require('./package.json').name")
+            published_version=$(npm view "$package_name" version --registry=https://registry.npmjs.org 2>/dev/null || echo "0.0.0")
+            tagged_version=$(git tag --list 'v*' --sort=-v:refname | head -n 1 | sed 's/^v//' || true)
+            version=$(node -e '
+              const versions = process.argv.slice(1).filter((value) => /^\d+\.\d+\.\d+$/.test(value));
+              const latest = versions.map((value) => value.split(".").map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).at(-1) ?? [0, 0, 0];
+              process.stdout.write([latest[0], latest[1], latest[2] + 1].join("."));
+            ' "$published_version" "$tagged_version")
+          fi
+
+          node scripts/set-release-version.mjs "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Reserve release tag
+        id: release
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          tag_exists=false
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            tag_exists=true
+            target=$(git rev-list -n 1 "$TAG")
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json package-lock.json packages/*/package.json apps/*/package.json examples/*/package.json packages/api-gateway/src/marketplace-entries
+            git commit -m "release: $TAG"
+            target=$(git rev-parse HEAD)
+            git tag "$TAG" "$target"
+          fi
+          parent=$(git rev-parse "$target^" 2>/dev/null || true)
+          if [ "$target" != "$HEAD_SHA" ] && [ "$parent" != "$HEAD_SHA" ]; then
+            echo "$TAG does not belong to $HEAD_SHA" >&2
+            exit 1
+          fi
+          remote_main=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$remote_main" = "$HEAD_SHA" ]; then
+            if [ "$tag_exists" = true ]; then
+              git push origin "$target:refs/heads/main"
+            else
+              git push --atomic origin "$target:refs/heads/main" "refs/tags/$TAG"
+            fi
+          elif [ "$remote_main" = "$target" ]; then
+            if [ "$tag_exists" = false ]; then git push origin "refs/tags/$TAG"; fi
+          else
+            echo "main advanced to $remote_main; keeping $TAG without moving main"
+            if [ "$tag_exists" = false ]; then git push origin "refs/tags/$TAG"; fi
+          fi
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
+            exit 1
+          fi
+          for workspace in packages/core .; do
+            package_name=$(node -p "require('./$workspace/package.json').name")
+            package_version=$(node -p "require('./$workspace/package.json').version")
+            if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$package_name@$package_version already exists; skipping"
+            elif [ "$RELEASE_TAG_EXISTS" = true ]; then
+              echo "$package_name@$package_version was already submitted; waiting for registry availability"
+            elif if [ "$workspace" = "packages/core" ]; then npm publish --workspace @pi-harness/core --access public; else npm publish --access public; fi; then
+              echo "$package_name@$package_version published"
+            elif npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$package_name@$package_version is already published; continuing"
+            else
+              echo "Publishing $package_name@$package_version failed" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify package availability
+        env:
+          PACKAGE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          package_version="${PACKAGE_VERSION}"
+          for package_name in @pi-harness/core @pi-harness/pi-harness; do
+            for attempt in $(seq 1 60); do
+              published_version=$(npm view "$package_name@$package_version" version --prefer-online --registry=https://registry.npmjs.org 2>/dev/null || true)
+              if [ "$published_version" = "$package_version" ]; then
+                npm pack "$package_name@$package_version" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP" --registry=https://registry.npmjs.org
+                echo "$package_name@$package_version is publicly installable"
+                break
+              fi
+              if [ "$attempt" = 60 ]; then
+                echo "$package_name@$package_version was not available from npm after 10 minutes" >&2
+                exit 1
+              fi
+              echo "Waiting for $package_name@$package_version to become publicly available ($attempt/60)"
+              sleep 10
+            done
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.metadata.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists; skipping"
+          else
+            gh release create "$tag" --verify-tag --title "$tag" --generate-notes
+          fi

@@ -1,0 +1,29 @@
+{
+  "id": "workspace-search",
+  "packageName": "@pi-harness/core/plugins/workspace-search",
+  "version": "0.1.15",
+  "name": "Workspace Search",
+  "description": "Search bounded text files in the active workspace with ignored directories and binary content excluded.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "context",
+    "label": "上下文"
+  },
+  "capabilities": [
+    "workspace search",
+    "file discovery",
+    "context lookup"
+  ],
+  "hooks": [
+    "workspace files",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/workspace-search",
+    "config": {}
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "fail-logger",
+  "packageName": "@pi-harness/core/plugins/fail-logger",
+  "version": "0.1.15",
+  "name": "Failure Logger",
+  "description": "Aggregate bounded extension, Agent, and non-aborted compaction failures through descriptor-safe event inspection, safe diagnostic summaries, and occurrence counts without retaining full payloads.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "observability",
+    "label": "可观测性"
+  },
+  "capabilities": [
+    "bounded failure aggregation",
+    "descriptor-safe event inspection",
+    "abort-aware compaction diagnostics",
+    "occurrence counting",
+    "safe diagnostic summaries",
+    "capacity visibility"
+  ],
+  "hooks": [
+    "extension error",
+    "agent end",
+    "compaction end",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/fail-logger",
+    "config": {}
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "token-guard",
+  "packageName": "@pi-harness/core/plugins/token-guard",
+  "version": "0.1.15",
+  "name": "Token Guard",
+  "description": "Use descriptor-safe monitoring to issue at most one abort request per run when a context percentage or billed run-token budget is reached, with bounded errors and a cached normalized panel.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "observability",
+    "label": "可观测性"
+  },
+  "capabilities": [
+    "strict context percentage budget",
+    "optional billed run-token budget",
+    "one abort request per run",
+    "resilient descriptor-safe monitoring",
+    "bounded streaming inspection cadence",
+    "bounded abort error status",
+    "cached normalized panel"
+  ],
+  "hooks": [
+    "Pi session lifecycle",
+    "active runtime abort",
+    "session usage and statistics",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/token-guard",
+    "config": {
+      "maxPercent": 90,
+      "maxRunTokens": 0
+    }
+  }
+}

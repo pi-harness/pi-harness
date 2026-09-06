@@ -1,0 +1,32 @@
+{
+  "id": "better-sidebar",
+  "packageName": "@pi-harness/core/plugins/better-sidebar",
+  "version": "0.1.15",
+  "name": "Better Sidebar",
+  "description": "Show a compact workspace, Git, and session overview beside the conversation without modifying files.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "developer",
+    "label": "开发工具"
+  },
+  "capabilities": [
+    "workspace overview",
+    "Git status",
+    "session context",
+    "sidebar UI"
+  ],
+  "hooks": [
+    "workspace scan",
+    "read-only Git",
+    "session manager",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/better-sidebar",
+    "config": {}
+  }
+}

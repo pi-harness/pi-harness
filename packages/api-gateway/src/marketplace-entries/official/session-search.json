@@ -1,0 +1,30 @@
+{
+  "id": "session-search",
+  "packageName": "@pi-harness/core/plugins/session-search",
+  "version": "0.1.15",
+  "name": "Session Search",
+  "description": "Search persisted Pi JSONL sessions for matching user or assistant text without modifying session files.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "discovery",
+    "label": "发现与生态"
+  },
+  "capabilities": [
+    "session search",
+    "history lookup",
+    "read-only scan"
+  ],
+  "hooks": [
+    "session manager",
+    "JSONL sessions",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/session-search",
+    "config": {}
+  }
+}

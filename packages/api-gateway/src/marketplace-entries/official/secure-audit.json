@@ -1,0 +1,30 @@
+{
+  "id": "secure-audit",
+  "packageName": "@pi-harness/core/plugins/secure-audit",
+  "version": "0.1.15",
+  "name": "Secure Audit",
+  "description": "Read-only workspace scan for exposed credentials and dangerous shell commands with value-redacted findings.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "security",
+    "label": "安全"
+  },
+  "capabilities": [
+    "secret detection",
+    "dangerous command scan",
+    "redacted findings"
+  ],
+  "hooks": [
+    "workspace files",
+    "plugin UI",
+    "agent tool"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/secure-audit",
+    "config": {}
+  }
+}

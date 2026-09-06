@@ -1,0 +1,29 @@
+{
+  "id": "image-compressor",
+  "packageName": "@pi-harness/core/plugins/image-compressor",
+  "version": "0.1.15",
+  "name": "Image Compressor",
+  "description": "Create bounded image copies for model context while preserving the original file and reporting saved bytes.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "multimodal",
+    "label": "多模态"
+  },
+  "capabilities": [
+    "image compression",
+    "context hygiene",
+    "asset safety"
+  ],
+  "hooks": [
+    "workspace files",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/image-compressor",
+    "config": {}
+  }
+}

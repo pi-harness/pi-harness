@@ -1,0 +1,29 @@
+{
+  "id": "code2skill",
+  "packageName": "@pi-harness/core/plugins/code2skill",
+  "version": "0.1.15",
+  "name": "Code2Skill",
+  "description": "Package selected workspace source files into a bounded local Pi skill with a generated SKILL.md manifest and preserved references.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "tools",
+    "label": "工具"
+  },
+  "capabilities": [
+    "bounded skill packaging",
+    "source file preservation",
+    "SKILL.md generation"
+  ],
+  "hooks": [
+    "workspace files",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/code2skill",
+    "config": {}
+  }
+}

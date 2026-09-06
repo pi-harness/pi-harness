@@ -1,0 +1,35 @@
+{
+  "id": "session-insights",
+  "packageName": "@pi-harness/core/plugins/session-insights",
+  "version": "0.1.15",
+  "name": "Session Insights",
+  "description": "Publish descriptor-safe validated cached session statistics and run only confirmed settled-session compaction with explicit model usage and cost guidance plus cancellable lifecycle handling.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "observability",
+    "label": "可观测性"
+  },
+  "capabilities": [
+    "validated detached session statistics",
+    "message token cache cost and context accounting",
+    "cached active-session panel",
+    "confirmed settled-session compaction",
+    "dedicated compaction cancellation",
+    "single-flight bounded operation status",
+    "normalized fail-closed browser view"
+  ],
+  "hooks": [
+    "session report tool",
+    "active runtime session",
+    "Pi session lifecycle",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/session-insights",
+    "config": {}
+  }
+}

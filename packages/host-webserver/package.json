@@ -1,0 +1,35 @@
+{
+  "name": "@pi-harness/host-webserver",
+  "version": "0.1.15",
+  "private": true,
+  "description": "Cordis route-registration service for the Pi Harness web host",
+  "homepage": "https://github.com/pi-harness/pi-harness#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-harness/pi-harness.git",
+    "directory": "packages/host-webserver"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

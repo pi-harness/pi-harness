@@ -1,0 +1,34 @@
+{
+  "id": "mcp-client",
+  "packageName": "@pi-harness/core/plugins/mcp-client",
+  "version": "0.1.15",
+  "name": "MCP Client",
+  "description": "Connect to direct-argv MCP stdio servers with bounded pagination and protocol validation, tool, resource, and prompt bridging, cancellable queued requests, and lifecycle-owned process cleanup.",
+  "author": "Pi Harness",
+  "repository": "https://github.com/pi-harness/pi-harness",
+  "license": "MIT",
+  "source": "official",
+  "status": "verified",
+  "category": {
+    "id": "tools",
+    "label": "工具集成"
+  },
+  "capabilities": [
+    "bounded MCP stdio transport",
+    "bounded inventory pagination",
+    "tool resource and prompt bridging",
+    "persistent server lifecycle",
+    "cancellable queued requests"
+  ],
+  "hooks": [
+    "MCP stdio tools",
+    "managed server lifecycle",
+    "plugin UI"
+  ],
+  "profile": {
+    "name": "@pi-harness/core/plugins/mcp-client",
+    "config": {
+      "servers": []
+    }
+  }
+}
