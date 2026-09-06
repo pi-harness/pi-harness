@@ -2,9 +2,9 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/pi-harness/pi-harness/ci.yml?branch=main&label=CI)](https://github.com/pi-harness/pi-harness/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/%40pi-harness%2Fpi-harness?logo=npm)](https://www.npmjs.com/package/@pi-harness/pi-harness)
-[![npm downloads](https://img.shields.io/npm/dm/%40pi-harness%2Fpi-harness?label=npm%20downloads)](https://www.npmjs.com/package/@pi-harness/pi-harness)
-[![GitHub stars](https://img.shields.io/github/stars/pi-harness/pi-harness?label=stars&logo=github)](https://github.com/pi-harness/pi-harness/stargazers)
-[![License](https://img.shields.io/github/license/pi-harness/pi-harness?label=license)](LICENSE)
+[![npm downloads](https://img.shields.io/npm/dt/%40pi-harness%2Fpi-harness?label=npm%20downloads)](https://www.npmjs.com/package/@pi-harness/pi-harness)
+[![GitHub stars](https://img.shields.io/github/stars/pi-harness/pi-harness?label=GitHub%20stars&logo=github)](https://github.com/pi-harness/pi-harness/stargazers)
+[![License](https://img.shields.io/github/license/pi-harness/pi-harness?label=License)](LICENSE)
 
 Pi Harness is a plugin-first web host and CLI for [Pi](https://github.com/earendil-works/pi), built on [DeepSeek Cordis](https://github.com/DeepAgentsLab/cordis). It provides a local browser console, HTTP API, stdio workflows, and a composable plugin runtime.
 
