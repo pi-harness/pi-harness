@@ -15,8 +15,17 @@ const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".webmanifest": "application/manifest+json",
 };
+
+// The console renders model- and tool-produced markdown through dangerouslySetInnerHTML, so a CSP is the second line of defence behind the sanitizer: a bypass still cannot load a remote script or exfiltrate to another origin. frame-ancestors keeps any page the operator visits from framing the unauthenticated console, which the Host/Origin guard cannot block because browsers send no Origin on a frame navigation. Inline styles stay allowed because React writes element style attributes; nosniff is safe because every extension the bundle ships has an entry in MIME_TYPES.
+const SECURITY_HEADERS = {
+  "content-security-policy":
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "x-content-type-options": "nosniff",
+} as const;
 
 function contentType(path: string): string {
   const extension = path.slice(path.lastIndexOf(".")).toLowerCase();
@@ -41,7 +50,7 @@ function safePath(root: string, pathname: string): string | undefined {
 async function sendFile(path: string, response: ServerResponse): Promise<void> {
   const info = await stat(path);
   if (!info.isFile()) throw new Error("Not a file");
-  response.writeHead(200, { "content-type": contentType(path), "content-length": info.size, "cache-control": "no-cache" });
+  response.writeHead(200, { "content-type": contentType(path), "content-length": info.size, "cache-control": "no-cache", ...SECURITY_HEADERS });
   await pipeline(createReadStream(path), response);
 }
 
@@ -65,8 +74,9 @@ export default {
         try {
           await sendSafeFile(root, requested, response);
           return;
-        } catch {
-          // SPA fallback below.
+        } catch (error) {
+          // SPA fallback below, but only while nothing has reached the wire: once sendFile has written the 200 header the request is committed to that file, so a second writeHead would throw ERR_HTTP_HEADERS_SENT over the real failure.
+          if (response.headersSent) throw error;
         }
       }
       await sendSafeFile(root, index, response);

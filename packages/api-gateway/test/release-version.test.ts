@@ -78,4 +78,44 @@ describe("release version preparation", () => {
     expect(packedInternalEntry.version).toBe("0.1.3");
     expect(packedExternalEntry.version).toBe("4.5.6");
   });
+
+  it("re-runs against a checkout that already carries the release version", async () => {
+    // A re-dispatched release run checks out the release commit, so every manifest and marketplace entry already holds the requested version.
+    const fixture = await mkdtemp(resolve(tmpdir(), "pi-harness-release-version-"));
+    fixtures.push(fixture);
+    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples"))]);
+    await writeJson(fixture, "package.json", { name: "@pi-harness/pi-harness", version: "0.1.3", dependencies: { "@pi-harness/core": "^0.1.3" } });
+    await writeJson(fixture, "packages/core/package.json", { name: "@pi-harness/core", version: "0.1.3" });
+    await writeJson(fixture, "packages/api-gateway/package.json", { name: "@pi-harness/api-gateway", version: "0.1.3" });
+    await writeJson(fixture, "package-lock.json", {
+      name: "@pi-harness/pi-harness",
+      version: "0.1.3",
+      lockfileVersion: 3,
+      packages: { "": { name: "@pi-harness/pi-harness", version: "0.1.3", dependencies: { "@pi-harness/core": "^0.1.3" } } },
+    });
+    const formattedInternalEntry = `{\n  "packageName": "@pi-harness/core/plugins/example",\n  "version": "0.1.3",\n  "hooks": ["tool", "panel"]\n}\n`;
+    await mkdir(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official"), { recursive: true });
+    await writeFile(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official/internal.json"), formattedInternalEntry);
+
+    await execFileAsync(process.execPath, [resolve(repositoryRoot, "scripts/set-release-version.mjs"), "0.1.3"], { cwd: fixture });
+
+    expect(await readFile(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official/internal.json"), "utf8")).toBe(formattedInternalEntry);
+    expect(await readFile(resolve(fixture, "packages/api-gateway/dist/marketplace-entries/official/internal.json"), "utf8")).toBe(formattedInternalEntry);
+  });
+
+  it("rejects an internal marketplace entry without a top-level version field", async () => {
+    const fixture = await mkdtemp(resolve(tmpdir(), "pi-harness-release-version-"));
+    fixtures.push(fixture);
+    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples"))]);
+    await writeJson(fixture, "package.json", { name: "@pi-harness/pi-harness", version: "0.1.2" });
+    await writeJson(fixture, "packages/core/package.json", { name: "@pi-harness/core", version: "0.1.2" });
+    await writeJson(fixture, "packages/api-gateway/package.json", { name: "@pi-harness/api-gateway", version: "0.1.2" });
+    await writeJson(fixture, "package-lock.json", { name: "@pi-harness/pi-harness", version: "0.1.2", lockfileVersion: 3, packages: {} });
+    await mkdir(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official"), { recursive: true });
+    await writeJson(fixture, "packages/api-gateway/src/marketplace-entries/official/internal.json", { packageName: "@pi-harness/core/plugins/example" });
+
+    await expect(execFileAsync(process.execPath, [resolve(repositoryRoot, "scripts/set-release-version.mjs"), "0.1.3"], { cwd: fixture })).rejects.toThrow(
+      /has no top-level version field to update/u,
+    );
+  });
 });

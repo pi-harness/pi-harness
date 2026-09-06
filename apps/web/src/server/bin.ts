@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bootHarness, coreUpdateNotice, provideLaunchContext } from "@pi-harness/core";
 import "@pi-harness/host-webserver";
@@ -9,6 +9,10 @@ import type { WebServer } from "@pi-harness/host-webserver";
 
 // Keep the host service declaration in the server entrypoint's type graph.
 type HarnessWebServer = WebServer;
+
+// An unhandled 'error' event on a stream throws, so an EPIPE from a reader that closed early (`pi-harness | head -1`) would kill the process before the signal handlers can run the graceful shutdown. Swallowing the event leaves the write silently dropped, which is what a closed pipe means.
+process.stdout.on("error", () => {});
+process.stderr.on("error", () => {});
 
 // Accept the bracketed URL form of an IPv6 literal (e.g. "[::1]") but bind the bare address: net.Server.listen resolves the host through getaddrinfo, which rejects brackets with ENOTFOUND.
 const rawHost = process.env.PI_HARNESS_HOST ?? "127.0.0.1";
@@ -19,13 +23,34 @@ if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("PI_HA
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 if (!loopbackHosts.has(host) && process.env.PI_HARNESS_ALLOW_REMOTE !== "1")
   throw new Error("Refusing non-loopback PI_HARNESS_HOST; set PI_HARNESS_ALLOW_REMOTE=1 only on a trusted network");
+// Extra hostnames the web server accepts in the Host header, comma separated, for a deployment reached through a reverse proxy under a name this machine does not resolve to itself.
+const allowedHosts = (process.env.PI_HARNESS_ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter((entry) => entry.length > 0);
+// The web server compares each entry against a Host header hostname, so an entry carrying a scheme, port, path or credentials can never match; rejecting it here turns a silently ineffective deployment setting into a startup error.
+const isBareHostname = (entry: string): boolean => {
+  let url: URL;
+  try {
+    url = new URL("http://" + (entry.includes(":") && !entry.startsWith("[") ? "[" + entry + "]" : entry));
+  } catch {
+    return false;
+  }
+  return url.hostname !== "" && url.port === "" && url.pathname === "/" && url.username === "" && url.password === "" && url.search === "" && url.hash === "";
+};
+const invalidAllowedHost = allowedHosts.find((entry) => !isBareHostname(entry));
+if (invalidAllowedHost !== undefined)
+  throw new Error("PI_HARNESS_ALLOWED_HOSTS entries must be bare hostnames without a scheme, port or path: " + invalidAllowedHost);
 const cwd = process.cwd();
-const agentDir = process.env.PI_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+// PI_AGENT_DIR is one documented variable shared with the CLI launcher, so normalize it the same way there: blank means unset, and a relative value resolves against the working directory rather than failing the absolute-path check in provideLaunchContext.
+const configuredAgentDir = process.env.PI_AGENT_DIR?.trim();
+const agentDir = configuredAgentDir === undefined || configuredAgentDir.length === 0 ? join(homedir(), ".pi", "agent") : resolve(cwd, configuredAgentDir);
 const staticDir = fileURLToPath(new URL("../dist", import.meta.url));
 const profilePath = fileURLToPath(new URL("../profile/cordis.yml", import.meta.url));
 process.env.PI_HARNESS_WEB_DIST = staticDir;
 process.env.PI_HARNESS_HOST = host;
 process.env.PI_HARNESS_PORT = String(port);
+process.env.PI_HARNESS_ALLOWED_HOSTS = allowedHosts.join(",");
 if (process.env.PI_HARNESS_DISABLE_UPDATE_CHECK !== "1") {
   void coreUpdateNotice().then(
     (notice) => {
