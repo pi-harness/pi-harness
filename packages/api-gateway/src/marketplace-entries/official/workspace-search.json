@@ -1,7 +1,7 @@
 {
   "id": "workspace-search",
   "packageName": "@pi-harness/core/plugins/workspace-search",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "name": "Workspace Search",
   "description": "Search bounded text files in the active workspace with ignored directories and binary content excluded.",
   "author": "Pi Harness",

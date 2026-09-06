@@ -1,7 +1,7 @@
 {
   "id": "agent-teams",
   "packageName": "@pi-harness/core/plugins/agent-teams",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "name": "Agent Team Board",
   "description": "Maintain a bounded, session-local collaboration ledger of named roles, dependency-aware tasks, and mailbox notes without spawning agents or sending external messages.",
   "author": "Pi Harness",

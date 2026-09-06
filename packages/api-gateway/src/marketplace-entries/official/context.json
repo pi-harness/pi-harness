@@ -1,7 +1,7 @@
 {
   "id": "context-insights",
   "packageName": "@pi-harness/core/plugins/context",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "name": "Context Insights",
   "description": "Inspect context usage and descriptor-safe bounded message composition with cached active-session lifecycle counters and a fixed-limit normalized browser panel.",
   "author": "Pi Harness",
