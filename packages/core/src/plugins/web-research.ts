@@ -77,7 +77,10 @@ function normalizeSearchItems(payload: FirecrawlPayload, limit: number): WebSear
 
 async function readBoundedText(response: Response): Promise<string> {
   const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maxResponseBytes) throw new Error("Web research response exceeded the 1 MiB limit");
+  if (Number.isFinite(declaredLength) && declaredLength > maxResponseBytes) {
+    await response.body?.cancel?.();
+    throw new Error("Web research response exceeded the 1 MiB limit");
+  }
   if (response.body === null) throw new Error("Web research returned an empty response");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -96,7 +99,11 @@ async function readBoundedText(response: Response): Promise<string> {
   } finally {
     reader.releaseLock();
   }
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+  } catch (error) {
+    throw new Error("Web research response must contain valid UTF-8", { cause: error });
+  }
 }
 
 async function readBoundedJson(response: Response): Promise<FirecrawlPayload> {
@@ -166,7 +173,8 @@ export default {
         label: "Web search",
         description: "Search the public web and return bounded, structured source evidence with direct URLs.",
         promptSnippet: "search the public web for current source evidence",
-        parameters: Type.Object({ query: Type.String({ description: "Search query" }) }),
+        parameters: Type.Object({ query: Type.String({ description: "Search query" }) }, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebSearchReport>> {
           const query = params.query.trim();
           if (query.length < 2 || query.length > maxQueryLength) throw new Error(`Web search query must contain 2-${maxQueryLength} characters`);
@@ -241,10 +249,14 @@ export default {
           label: "Read page",
           description: "Read a public page with the existing bounded browser fetch tool, optionally recording a research focus.",
           promptSnippet: "read one public source page for focused evidence",
-          parameters: Type.Object({
-            url: Type.String({ description: "Public HTTP or HTTPS page URL" }),
-            focus: Type.Optional(Type.String({ description: "Question or topic to focus on while reading" })),
-          }),
+          parameters: Type.Object(
+            {
+              url: Type.String({ description: "Public HTTP or HTTPS page URL" }),
+              focus: Type.Optional(Type.String({ description: "Question or topic to focus on while reading" })),
+            },
+            { additionalProperties: false },
+          ),
+          executionMode: "sequential",
           async execute(toolCallId, params, signal, onUpdate, toolContext) {
             const browserFetch = context.piTools.snapshot().customTools.find((tool) => tool.name === "browser_fetch");
             if (browserFetch === undefined) throw new Error("read_page requires the Browser Fetch plugin to be enabled");

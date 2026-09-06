@@ -2,8 +2,8 @@
   "id": "agent-teams",
   "packageName": "@pi-harness/core/plugins/agent-teams",
   "version": "0.1.12",
-  "name": "Agent Teams",
-  "description": "Coordinate multiple named agents with durable tasks, dependencies, and mailbox messages.",
+  "name": "Agent Team Board",
+  "description": "Maintain a bounded, session-local collaboration ledger of named roles, dependency-aware tasks, and mailbox notes without spawning agents or sending external messages.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -11,9 +11,9 @@
   "status": "verified",
   "category": {
     "id": "collaboration",
-    "label": "多 Agent 协作"
+    "label": "会话协作"
   },
-  "capabilities": ["multi-agent", "tasks", "mailbox", "dependency graph", "cycle detection"],
+  "capabilities": ["collaboration ledger", "tasks", "mailbox notes", "dependency graph", "cycle detection"],
   "hooks": ["session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/agent-teams",

@@ -3,12 +3,14 @@ import { execFile } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Context } from "@deepseek-ai/cordis";
+import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { resolveExistingWorkspacePath } from "../workspace-path.js";
 
 const maxDepthLimit = 8;
 const maxNodesLimit = 500;
+const defaultGitTimeoutMs = 10_000;
 const ignoredDirectories = new Set([".git", "node_modules", ".pi", "dist", "build"]);
 
 export type WorkspaceNode = { kind: "directory" | "file"; name: string; path: string; depth: number };
@@ -19,11 +21,12 @@ export type WorkspaceGitStatus = { available: boolean; branch: string | null; cl
 
 const execFileAsync = promisify(execFile);
 
-export async function readWorkspaceGitStatus(root: string): Promise<WorkspaceGitStatus> {
+export async function readWorkspaceGitStatus(root: string, requestedTimeoutMs = defaultGitTimeoutMs): Promise<WorkspaceGitStatus> {
+  const timeoutMs = Math.max(100, Math.min(60_000, Math.trunc(requestedTimeoutMs)));
   try {
     const [branchResult, statusResult] = await Promise.all([
-      execFileAsync("git", ["-C", root, "branch", "--show-current"], { maxBuffer: 1024 * 1024 }),
-      execFileAsync("git", ["-C", root, "status", "--short", "--untracked-files=all"], { maxBuffer: 4 * 1024 * 1024 }),
+      execFileAsync("git", ["-C", root, "branch", "--show-current"], { maxBuffer: 1024 * 1024, timeout: timeoutMs }),
+      execFileAsync("git", ["-C", root, "status", "--short", "--untracked-files=all"], { maxBuffer: 4 * 1024 * 1024, timeout: timeoutMs }),
     ]);
     const entries = statusResult.stdout
       .split("\n")
@@ -34,6 +37,12 @@ export async function readWorkspaceGitStatus(root: string): Promise<WorkspaceGit
     return { available: false, branch: null, clean: false, entries: [] };
   }
 }
+
+export interface WorkspaceNavigatorPluginConfig {
+  gitTimeoutMs?: number;
+}
+
+export const Config: z<WorkspaceNavigatorPluginConfig> = z.object({ gitTimeoutMs: z.number().default(defaultGitTimeoutMs) });
 
 function normalizeOptions(options: WorkspaceNodeOptions): { maxDepth: number; maxNodes: number } {
   return {
@@ -48,8 +57,17 @@ export async function listWorkspaceNodes(root: string, options: WorkspaceNodeOpt
   const nodes: WorkspaceNode[] = [];
   let truncated = false;
   const visit = async (directory: string, depth: number): Promise<void> => {
-    if (depth > maxDepth || nodes.length >= maxNodes) {
-      if (nodes.length >= maxNodes) truncated = true;
+    if (nodes.length >= maxNodes) {
+      truncated = true;
+      return;
+    }
+    if (depth > maxDepth) {
+      try {
+        const hiddenEntries = await readdir(directory, { withFileTypes: true });
+        if (hiddenEntries.some((entry) => (entry.isDirectory() ? !ignoredDirectories.has(entry.name) : entry.isFile()))) truncated = true;
+      } catch {
+        truncated = true;
+      }
       return;
     }
     const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
@@ -84,7 +102,9 @@ export async function listWorkspaceNodes(root: string, options: WorkspaceNodeOpt
 export default {
   name: "pi-workspace-navigator",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
-  apply(context: Context) {
+  Config,
+  apply(context: Context, config: WorkspaceNavigatorPluginConfig) {
+    const gitTimeoutMs = Math.max(100, Math.min(60_000, Math.trunc(config.gitTimeoutMs ?? defaultGitTimeoutMs)));
     let latest: (WorkspaceNodeReport & { path: string; maxDepth: number; maxNodes: number }) | undefined;
     let latestGit: WorkspaceGitStatus | undefined;
     const inspect = async (requestedPath: string | undefined, requestedDepth: number | undefined, requestedNodes: number | undefined) => {
@@ -112,11 +132,15 @@ export default {
         label: "Workspace tree",
         description: "Show a bounded, read-only workspace tree while skipping dependency and build directories.",
         promptSnippet: "inspect the workspace directory tree",
-        parameters: Type.Object({
-          path: Type.Optional(Type.String({ description: "Relative directory path" })),
-          maxDepth: Type.Optional(Type.Number({ description: "Tree depth, 1-8" })),
-          maxNodes: Type.Optional(Type.Number({ description: "Maximum nodes, 1-500" })),
-        }),
+        parameters: Type.Object(
+          {
+            path: Type.Optional(Type.String({ description: "Relative directory path" })),
+            maxDepth: Type.Optional(Type.Number({ description: "Tree depth, 1-8" })),
+            maxNodes: Type.Optional(Type.Number({ description: "Maximum nodes, 1-500" })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<WorkspaceNodeReport & { path: string; maxDepth: number; maxNodes: number }>> {
           const report = await inspect(params.path, params.maxDepth, params.maxNodes);
           return {
@@ -137,9 +161,10 @@ export default {
         label: "Workspace status",
         description: "Show the current workspace Git branch and changed files without modifying the repository.",
         promptSnippet: "inspect the workspace Git status",
-        parameters: Type.Object({}),
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(): Promise<AgentToolResult<WorkspaceGitStatus>> {
-          latestGit = await readWorkspaceGitStatus(context.piHarnessLaunch.cwd);
+          latestGit = await readWorkspaceGitStatus(context.piHarnessLaunch.cwd, gitTimeoutMs);
           const summary = latestGit.available
             ? `${latestGit.branch ?? "detached HEAD"}: ${latestGit.clean ? "clean" : `${latestGit.entries.length} changed file(s)`}`
             : "Not a Git workspace.";
@@ -153,7 +178,7 @@ export default {
       title: "Workspace Navigator",
       description: "以受限目录树快速浏览当前工作区，不执行写操作。",
       icon: "⌘",
-      read: () => ({ latest: latest ?? null, git: latestGit ?? null, nodeCount: latest?.nodes.length ?? 0 }),
+      read: () => ({ latest: latest ?? null, git: latestGit ?? null, nodeCount: latest?.nodes.length ?? 0, gitTimeoutMs }),
     });
     context.effect(() => () => {
       unregister();

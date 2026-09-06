@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/openpets",
   "version": "0.1.12",
   "name": "OpenPets",
-  "description": "Keep a small durable companion state in the workspace UI from session events without retaining message contents.",
+  "description": "Keep a bounded durable companion state from validated recent session entries without retaining message contents, with descriptor-safe actions and explicit persistence health.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,14 @@
     "id": "web",
     "label": "网页"
   },
-  "capabilities": ["companion state", "session events", "ambient UI"],
-  "hooks": ["session events", "plugin UI"],
+  "capabilities": [
+    "bounded durable companion state",
+    "validated session recovery",
+    "descriptor-safe pet actions",
+    "session event reactions",
+    "persistence health panel"
+  ],
+  "hooks": ["session events", "pet reaction tool", "session storage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/openpets",
     "config": {}

@@ -2,6 +2,9 @@ import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { listWorkspaceNodes, readWorkspaceGitStatus, type WorkspaceGitStatus, type WorkspaceNodeReport } from "./workspace-navigator.js";
+import { EmptyConfig } from "../config.js";
+
+const maxChangedFiles = 12;
 
 export interface SidebarOverviewInput {
   readonly cwd: string;
@@ -25,7 +28,13 @@ export function summarizeSidebar(input: SidebarOverviewInput): SidebarOverview {
   const summary = !input.gitAvailable
     ? `非 Git 工作区 · ${changedCount > 0 ? `${changedCount} 个变更` : "无变更"}`
     : `${input.branch ?? "detached HEAD"} · ${changedCount > 0 ? `${changedCount} 个变更` : "clean"}`;
-  return { ...input, changedFiles: input.changedFiles.slice(0, 12), changedCount, summary };
+  return {
+    ...input,
+    changedFiles: input.changedFiles.slice(0, maxChangedFiles),
+    changedCount,
+    truncated: input.truncated || changedCount > maxChangedFiles,
+    summary,
+  };
 }
 
 export function createSidebarInspector(input: {
@@ -83,6 +92,7 @@ function textSummary(report: SidebarOverview): string {
 export default {
   name: "pi-better-sidebar",
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     const inspect = createSidebarInspector({
       cwd: context.piHarnessLaunch.cwd,
@@ -94,10 +104,11 @@ export default {
         label: "Sidebar overview",
         description: "Read a compact workspace and Git overview for the current session without modifying files.",
         promptSnippet: "inspect the workspace overview shown in the sidebar",
-        parameters: Type.Object({}),
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(): Promise<AgentToolResult<SidebarOverview>> {
           const report = await inspect();
-          return { content: [{ type: "text", text: textSummary(report) }], details: report };
+          return { content: [{ type: "text", text: textSummary(report) }], details: structuredClone(report) };
         },
       }),
     );
@@ -107,7 +118,7 @@ export default {
       title: "Better Sidebar",
       description: "在会话旁显示当前工作区、Git 变更和文件概览。",
       icon: "▤",
-      read: inspect,
+      read: async () => structuredClone(await inspect()),
     });
     context.effect(() => () => {
       unregisterTool();

@@ -75,4 +75,24 @@ describe("module search", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  test("skips invalid UTF-8 source files instead of parsing replacement characters", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-module-search-utf8-"));
+    await writeFile(join(cwd, "invalid.ts"), Buffer.from([0xc3, 0x28, 0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x20, 0x63, 0x6f, 0x6e, 0x73, 0x74]));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(moduleSearchPlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "module_search");
+      await expect(tool!.execute("call-1", { query: "export" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { matches: [], scannedFiles: 0, skippedFiles: 1 },
+      });
+    } finally {
+      await context.fiber.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });

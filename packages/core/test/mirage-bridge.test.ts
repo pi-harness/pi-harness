@@ -38,6 +38,10 @@ else console.log(JSON.stringify(process.argv.slice(2)));
       const execute = tools.snapshot().customTools.find((tool) => tool.name === "mirage_execute");
       expect(doctor).toBeDefined();
       expect(execute).toBeDefined();
+      expect(doctor!.executionMode).toBe("sequential");
+      expect(doctor!.parameters).toMatchObject({ additionalProperties: false });
+      expect(execute!.executionMode).toBe("sequential");
+      expect(execute!.parameters).toMatchObject({ additionalProperties: false });
       await expect(doctor!.execute("doctor-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
         details: { available: true, version: "mirage 0.9.0", workspaceId: "review-sandbox" },
       });

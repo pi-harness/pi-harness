@@ -64,6 +64,16 @@ const patterns: readonly GuardPattern[] = [
   },
 ];
 
+function ownData(value: unknown, key: PropertyKey): unknown {
+  if (value === null || typeof value !== "object") return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function serializeInput(input: unknown): string {
   if (typeof input === "string") return input;
   try {
@@ -110,10 +120,10 @@ export default {
       if (receipts.length > maxReceipts) receipts.length = maxReceipts;
     };
     const unsubscribe = context.on("pi/session-event", (event) => {
-      if (event.type !== "tool_execution_start") return;
-      const rawEvent = event as unknown as Record<string, unknown>;
-      const toolName = typeof rawEvent.toolName === "string" ? rawEvent.toolName : "unknown";
-      const input = rawEvent.args;
+      if (ownData(event, "type") !== "tool_execution_start") return;
+      const toolNameValue = ownData(event, "toolName");
+      const toolName = typeof toolNameValue === "string" ? toolNameValue : "unknown";
+      const input = ownData(event, "args");
       record(inspectGuardInput({ toolName, input }, `tool:${toolName}`, maxScanBytes));
     });
     const unregisterTool = context.piTools.register(
@@ -123,7 +133,8 @@ export default {
         description:
           "Preflight text or tool arguments for destructive commands, sensitive paths, credentials, remote exfiltration, and package-install risks without retaining the source.",
         promptSnippet: "scan a command or tool payload through the local security guard",
-        parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }),
+        parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }, { additionalProperties: false }),
+        executionMode: "sequential",
         execute(_toolCallId, params): Promise<AgentToolResult<GuardReport>> {
           return Promise.resolve().then(() => {
             const report = inspectGuardInput(params.text, params.source ?? "tool", maxScanBytes);
@@ -136,14 +147,21 @@ export default {
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "hol-guard-panel",
-      pluginId: "@pi-harness/core/plugins/hol-guard",
-      title: "HOL Guard",
-      description: "本地预检和工具调用审计；只保存风险摘要，不保存原始输入。",
-      icon: "⬢",
-      read: () => ({ mode: "audit", events, blocked, review, safe, latest: latest ?? null, receipts: receipts.slice(0, 8) }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "hol-guard-panel",
+        pluginId: "@pi-harness/core/plugins/hol-guard",
+        title: "HOL Guard",
+        description: "本地预检和工具调用审计；只保存风险摘要，不保存原始输入。",
+        icon: "⬢",
+        read: () => ({ mode: "audit", events, blocked, review, safe, latest: latest ?? null, receipts: receipts.slice(0, 8) }),
+      });
+    } catch (error) {
+      unregisterTool();
+      unsubscribe();
+      throw error;
+    }
     context.effect(() => () => {
       unsubscribe();
       unregisterTool();

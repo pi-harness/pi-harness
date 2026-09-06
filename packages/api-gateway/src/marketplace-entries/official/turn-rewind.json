@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/turn-rewind",
   "version": "0.1.12",
   "name": "Turn Rewind",
-  "description": "Navigate the native Pi session tree back to a prior user turn while preserving the abandoned branch.",
+  "description": "Scans a bounded current branch for user turns, supports queued serialized cancellable rewinds after the agent settles, and navigates the native session tree while preserving abandoned branches.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,15 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["session rewind", "branching", "recovery"],
-  "hooks": ["session tree", "plugin UI"],
+  "capabilities": [
+    "bounded current-branch candidate scan",
+    "settled-state queued navigation",
+    "preserved native session branches",
+    "optional branch summarization",
+    "cancellable serialized rewinds",
+    "bounded normalized operation panel"
+  ],
+  "hooks": ["session rewind tool", "active session tree", "agent settled lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/turn-rewind",
     "config": {}

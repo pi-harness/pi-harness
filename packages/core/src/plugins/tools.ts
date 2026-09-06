@@ -8,9 +8,12 @@ export interface ToolsPluginConfig {
 }
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
+const maxToolNames = 256;
+const maxToolNameLength = 128;
+const toolNamePattern = /^[^\s\p{Cc}]+$/u;
 
 export const Config: z<ToolsPluginConfig> = z.object({
-  names: z.array(z.string().min(1)).default(DEFAULT_TOOLS),
+  names: z.array(z.string().min(1).max(maxToolNameLength).pattern(toolNamePattern)).max(maxToolNames).default(DEFAULT_TOOLS),
 });
 
 export default {

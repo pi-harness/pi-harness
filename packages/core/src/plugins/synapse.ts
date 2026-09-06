@@ -107,21 +107,28 @@ export default {
         label: "Refresh session map",
         description: "Refresh the Synapse view from Pi's native session files and return fork relationships for the current workspace.",
         promptSnippet: "inspect the native Pi session map and fork lineage",
-        parameters: Type.Object({}),
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(): Promise<AgentToolResult<SynapseGraph>> {
           const next = await refresh();
           return { content: [{ type: "text", text: `Synapse mapped ${next.nodes.length} session(s) and ${next.edges.length} fork edge(s).` }], details: next };
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "synapse-panel",
-      pluginId: "@pi-harness/core/plugins/synapse",
-      title: "Synapse",
-      description: "将当前工作区的原生 Pi 会话与 fork 关系投影成可浏览地图。",
-      icon: "⌘",
-      read: async () => ({ ...(await refresh()), refreshes }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "synapse-panel",
+        pluginId: "@pi-harness/core/plugins/synapse",
+        title: "Synapse",
+        description: "将当前工作区的原生 Pi 会话与 fork 关系投影成可浏览地图。",
+        icon: "⌘",
+        read: async () => ({ ...(await refresh()), refreshes }),
+      });
+    } catch (error) {
+      refreshTool();
+      throw error;
+    }
     context.effect(() => () => {
       refreshTool();
       disposePanel();

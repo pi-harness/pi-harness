@@ -1,16 +1,17 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { createServer } from "node:http";
+import { createServer, Server } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { deflateSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
 import modelPlugin from "../src/plugins/model.js";
 import modelsPlugin from "../src/plugins/models.js";
@@ -66,10 +67,11 @@ import synapsePlugin from "../src/plugins/synapse.js";
 import { inspectGuardInput } from "../src/plugins/hol-guard.js";
 import holGuardPlugin from "../src/plugins/hol-guard.js";
 import pluginRadarPlugin from "../src/plugins/plugin-radar.js";
-import pluginCheckPlugin, { type PluginCheckScanReport } from "../src/plugins/plugin-check.js";
+import pluginCheckPlugin, { type PluginCheckReport, type PluginCheckScanReport } from "../src/plugins/plugin-check.js";
 import annotationPlugin from "../src/plugins/annotation.js";
 import costMeterPlugin from "../src/plugins/cost-meter.js";
 import skillCatalogPlugin from "../src/plugins/skill-catalog.js";
+import skillGuardPlugin from "../src/plugins/skill-guard.js";
 import undoSavepointPlugin from "../src/plugins/undo-savepoint.js";
 import mcpPanelPlugin from "../src/plugins/mcp-panel.js";
 
@@ -164,6 +166,32 @@ async function createContext(): Promise<{ context: Context; cwd: string; agentDi
 
 const modelConfig = { provider: "deepseek", model: "deepseek-v4-flash", refreshOnCreate: false } as const;
 const isolatedResources = { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } as const;
+
+function testPngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, "ascii");
+  let crc = 0xffffffff;
+  for (const byte of Buffer.concat([typeBytes, data])) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  const result = Buffer.allocUnsafe(12 + data.length);
+  result.writeUInt32BE(data.length, 0);
+  typeBytes.copy(result, 4);
+  data.copy(result, 8);
+  result.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 8 + data.length);
+  return result;
+}
+
+function testPng(header: Buffer, pixels: Buffer, beforeIdat: Buffer[] = [], afterIdat: Buffer[] = []): Buffer {
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    testPngChunk("IHDR", header),
+    ...beforeIdat,
+    testPngChunk("IDAT", deflateSync(pixels)),
+    ...afterIdat,
+    testPngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 describe("Pi domain plugins", () => {
   test("projects session lineage into an active graph without duplicating session history", () => {
@@ -377,6 +405,22 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toEqual([]);
   });
 
+  test("detaches panel data before returning snapshots", async () => {
+    const panels = new PiPluginUiRegistry();
+    const state = { nested: { value: 1 }, items: ["a"] };
+    panels.register({
+      id: "detached-panel",
+      pluginId: "example-plugin",
+      title: "Detached",
+      read: () => state,
+    });
+
+    const first = (await panels.snapshot())[0];
+    (first?.data as { nested: { value: number }; items: string[] }).nested.value = 99;
+    (first?.data as { nested: { value: number }; items: string[] }).items.push("mutated");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { nested: { value: 1 }, items: ["a"] } }]);
+  });
+
   test("publishes a live context insight panel from the session runtime", async () => {
     const context = new Context();
     contexts.push(context);
@@ -415,11 +459,14 @@ describe("Pi domain plugins", () => {
           contextWindow: 8000,
           percent: 15,
           messages: 1,
+          scannedMessages: 1,
+          messagesTruncated: false,
           events: 2,
           compactions: 1,
           composition: { user: 1, assistant: 0, toolResult: 0, system: 0, other: 0 },
           eventTypes: { message_start: 1, compaction_start: 1 },
           recentEvents: [expect.objectContaining({ type: "message_start" }), expect.objectContaining({ type: "compaction_start" })],
+          limits: { scannedMessages: 10_000, recentEvents: 50, eventTypes: 64, eventTypeCharacters: 128 },
         },
       },
     ]);
@@ -440,6 +487,7 @@ describe("Pi domain plugins", () => {
     context.provide("piSession", {
       manager: {
         getEntries: () => entries,
+        getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
       },
     } as never);
@@ -448,12 +496,24 @@ describe("Pi domain plugins", () => {
 
     await context.plugin(agentTeamsPlugin);
     const tool = firstTool(tools);
+    await expect(
+      tool.execute("invalid-status", { action: "add_task", title: "Invalid", status: "almost_done" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/task status/iu);
+    await expect(tool.execute("invalid-member", { action: "add_member", name: "审阅者" }, undefined, undefined, {} as never)).rejects.toThrow(/member id/iu);
+    await expect(
+      tool.execute("invalid-member-status", { action: "add_member", id: "observer", name: "Observer", status: "offline" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/member status/iu);
+    await expect(tool.execute("long-title", { action: "add_task", title: "x".repeat(201) }, undefined, undefined, {} as never)).rejects.toThrow(/title.*200/iu);
+    expect(entries).toEqual([]);
     await expect(tool.execute("call-1", { action: "add_task", title: "Review plugin manifest" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       content: [{ text: "Task task-1 created." }],
     });
     await expect(
       tool.execute("call-2", { action: "add_task", title: "Run integration checks", dependsOn: ["task-1"] }, undefined, undefined, {} as never),
     ).resolves.toMatchObject({ details: { item: { id: "task-2", status: "blocked", dependsOn: ["task-1"] } } });
+    await expect(tool.execute("cycle", { action: "update_task", id: "task-1", dependsOn: ["task-2"] }, undefined, undefined, {} as never)).rejects.toThrow(
+      /dependency cycle/iu,
+    );
     await expect(tool.execute("call-3", { action: "update_task", id: "task-1", status: "done" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { item: { id: "task-1", status: "done" } },
     });
@@ -474,6 +534,9 @@ describe("Pi domain plugins", () => {
     ).resolves.toMatchObject({
       details: { messages: [] },
     });
+    await expect(
+      tool.execute("call-8", { action: "add_member", id: "observer", name: "观察员", role: "发布观察", status: "idle" }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { kind: "member", item: { id: "observer", name: "观察员", role: "发布观察", status: "idle" } } });
     await expect(panels.snapshot()).resolves.toMatchObject([
       {
         id: "agent-teams-panel",
@@ -487,10 +550,1362 @@ describe("Pi domain plugins", () => {
     ]);
     const panel = (await panels.snapshot())[0];
     if (panel === undefined) throw new Error("agent-teams-panel was not registered");
-    expect((panel.data as { members: { id: string; status: string }[] }).members.find((member) => member.id === "builder")).toMatchObject({
+    const members = (panel.data as { members: { id: string; status: string }[] }).members;
+    expect(members.find((member) => member.id === "observer")).toMatchObject({ status: "idle" });
+    expect(members.find((member) => member.id === "builder")).toMatchObject({
       status: "working",
     });
-    expect(entries).toHaveLength(6);
+    expect(entries).toHaveLength(7);
+  });
+
+  test("publishes agent team input bounds in the tool parameter schema", async () => {
+    const context = new Context();
+    contexts.push(context);
+    context.provide("piSession", { manager: { getEntries: () => [], getBranch: () => [], appendCustomEntry() {} } } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    const idPattern = "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$";
+    expect(namedTool(tools, "team_task").parameters).toMatchObject({
+      properties: {
+        action: {
+          anyOf: [
+            { const: "add_task" },
+            { const: "update_task" },
+            { const: "claim_task" },
+            { const: "remove_task" },
+            { const: "add_member" },
+            { const: "remove_member" },
+            { const: "send_message" },
+            { const: "read_messages" },
+            { const: "clear_messages" },
+            { const: "get_state" },
+          ],
+        },
+        id: { maxLength: 64, pattern: idPattern },
+        title: { maxLength: 200 },
+        assignee: { maxLength: 64, pattern: idPattern },
+        name: { maxLength: 200 },
+        role: { maxLength: 200 },
+        status: {
+          anyOf: [{ const: "todo" }, { const: "blocked" }, { const: "in_progress" }, { const: "done" }, { const: "idle" }, { const: "working" }],
+        },
+        dependsOn: { maxItems: 256, items: { maxLength: 64, pattern: idPattern } },
+        from: { maxLength: 64, pattern: idPattern },
+        to: { maxLength: 64, pattern: idPattern },
+        body: { maxLength: 4_000 },
+        confirm: { type: "boolean" },
+      },
+      additionalProperties: false,
+    });
+  });
+
+  test("updates all mutable agent team task fields and recalculates readiness", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("dependency", { action: "add_task", title: "Dependency" }, undefined, undefined, {} as never);
+    await tool.execute("target", { action: "add_task", title: "Original" }, undefined, undefined, {} as never);
+
+    await expect(
+      tool.execute(
+        "update",
+        { action: "update_task", id: "task-2", title: "Updated", assignee: "reviewer", status: "todo", dependsOn: [" task-1 ", "task-1"] },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).resolves.toMatchObject({
+      details: { item: { id: "task-2", title: "Updated", assignee: "reviewer", status: "blocked", dependsOn: ["task-1"] } },
+    });
+    expect(entries).toHaveLength(3);
+  });
+
+  test("rejects invalid agent team actions without persisting partial state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+
+    await expect(tool.execute("missing-title", { action: "add_task" }, undefined, undefined, {} as never)).rejects.toThrow(/task title/iu);
+    await expect(
+      tool.execute("self-dependency", { action: "add_task", id: "self", title: "Self", dependsOn: ["self"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/depend on itself/iu);
+    await expect(
+      tool.execute("missing-dependency", { action: "add_task", title: "Missing dependency", dependsOn: ["missing"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/dependencies must already exist/iu);
+    await expect(tool.execute("missing-task", { action: "update_task", id: "missing" }, undefined, undefined, {} as never)).rejects.toThrow(/task not found/iu);
+    await expect(tool.execute("no-ready-task", { action: "claim_task", assignee: "builder" }, undefined, undefined, {} as never)).rejects.toThrow(/no ready/iu);
+    await expect(tool.execute("missing-name", { action: "add_member", id: "missing-name" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /member name/iu,
+    );
+    await expect(
+      tool.execute("duplicate-member", { action: "add_member", id: "planner", name: "Duplicate" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/member already exists/iu);
+    await expect(
+      tool.execute("unknown-sender", { action: "send_message", from: "missing", to: "planner", body: "Hello" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/unknown sender/iu);
+    await expect(
+      tool.execute("unknown-recipient", { action: "send_message", from: "planner", to: "missing", body: "Hello" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/unknown recipient/iu);
+    await expect(
+      tool.execute("oversized-message", { action: "send_message", from: "planner", to: "builder", body: "x".repeat(4_001) }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/4000 characters/iu);
+    await expect(tool.execute("unknown-mailbox", { action: "read_messages", to: "missing" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /unknown recipient/iu,
+    );
+    await expect(tool.execute("unknown-action", { action: "archive_task" }, undefined, undefined, {} as never)).rejects.toThrow(/unknown team action/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("unregisters the agent team tool and panel when the plugin context is disposed", async () => {
+    const context = new Context();
+    contexts.push(context);
+    context.provide("piSession", { manager: { getEntries: () => [], getBranch: () => [], appendCustomEntry() {} } } as never);
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+    expect(tools.snapshot().customTools.map((tool) => tool.name)).toEqual(["team_task"]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "agent-teams-panel" }]);
+
+    await context.fiber.dispose();
+
+    expect(tools.snapshot().customTools).toEqual([]);
+    await expect(panels.snapshot()).resolves.toEqual([]);
+  });
+
+  test("recovers agent team operations from malformed persisted members", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [{ type: "custom", customType: "pi-harness/agent-teams", data: { members: [null], tasks: [], messages: [] } }];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute("call-1", { action: "add_task", title: "Recover safely" }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { item: { id: "task-1", status: "todo" } },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { id: "agent-teams-panel", data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }] } },
+    ]);
+  });
+
+  test("restores the default role for a persisted agent team member", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      { type: "custom", customType: "pi-harness/agent-teams", data: { members: [{ id: "observer", name: "Observer" }], tasks: [], messages: [] } },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { members: [{ id: "observer", name: "Observer", role: "协作成员", status: "idle" }] } }]);
+  });
+
+  test("recovers agent team state from a malformed persisted root value", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [{ type: "custom", customType: "pi-harness/agent-teams", data: null }];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
+    ]);
+  });
+
+  test("falls back to the latest valid agent team snapshot when the newest root is malformed", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "observer", name: "Observer", role: "Observe", status: "idle" }],
+          tasks: [{ id: "task-1", title: "Preserved", assignee: "observer", status: "todo", dependsOn: [] }],
+          messages: [],
+        },
+      },
+      { type: "custom", customType: "pi-harness/agent-teams", data: null },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { members: [{ id: "observer" }], tasks: [{ id: "task-1", title: "Preserved" }] } }]);
+  });
+
+  test("deduplicates agent team identities loaded from persisted session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [
+            { id: "builder", name: "Builder", role: "Build", status: "idle" },
+            { id: "builder", name: "Duplicate", role: "Duplicate", status: "working" },
+          ],
+          tasks: [
+            { id: "task-1", title: "First", assignee: "builder", status: "todo", dependsOn: [] },
+            { id: "task-1", title: "Duplicate", assignee: "builder", status: "done", dependsOn: [] },
+          ],
+          messages: [
+            { id: "message-1", from: "builder", to: "builder", body: "First", timestamp: "2026-09-05T00:00:00.000Z", read: false },
+            { id: "message-1", from: "builder", to: "builder", body: "Duplicate", timestamp: "2026-09-05T00:00:01.000Z", read: false },
+          ],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          members: [{ id: "builder", name: "Builder" }],
+          tasks: [{ id: "task-1", title: "First" }],
+          messages: [{ id: "message-1", body: "First" }],
+        },
+      },
+    ]);
+  });
+
+  test("repairs dangling agent team references loaded from persisted session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [{ id: "task-1", title: "Recovered", assignee: "missing-member", status: "todo", dependsOn: [] }],
+          messages: [
+            { id: "message-1", from: "missing-member", to: "builder", body: "Ghost", timestamp: "2026-09-05T00:00:00.000Z", read: false },
+            { id: "message-2", from: "builder", to: "builder", body: "Keep", timestamp: "2026-09-05T00:00:01.000Z", read: false },
+          ],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          tasks: [{ id: "task-1", assignee: "unassigned" }],
+          messages: [{ id: "message-2", from: "builder", to: "builder", body: "Keep" }],
+        },
+      },
+    ]);
+  });
+
+  test("requeues an in-progress agent team task whose persisted assignee is missing", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [{ id: "task-1", title: "Recover", assignee: "missing-member", status: "in_progress", dependsOn: [] }],
+          messages: [],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { tasks: [{ id: "task-1", assignee: "unassigned", status: "todo" }] } }]);
+  });
+
+  test("reconciles agent team member statuses with persisted in-progress tasks", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [
+            { id: "builder", name: "Builder", role: "Build", status: "working" },
+            { id: "reviewer", name: "Reviewer", role: "Review", status: "idle" },
+          ],
+          tasks: [{ id: "task-1", title: "Review", assignee: "reviewer", status: "in_progress", dependsOn: [] }],
+          messages: [],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          members: [
+            { id: "builder", status: "idle" },
+            { id: "reviewer", status: "working" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("normalizes whitespace around persisted agent team statuses", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: " working " }],
+          tasks: [{ id: "task-1", title: "Active", assignee: "builder", status: " in_progress ", dependsOn: [] }],
+          messages: [],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { members: [{ id: "builder", status: "working" }], tasks: [{ id: "task-1", status: "in_progress" }] } },
+    ]);
+  });
+
+  test("reconciles persisted agent team task readiness before rendering state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [
+            { id: "waiting", title: "Waiting", assignee: "builder", status: "todo", dependsOn: ["dependency"] },
+            { id: "ready", title: "Ready", assignee: "builder", status: "blocked", dependsOn: [] },
+          ],
+          messages: [],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          tasks: [
+            { id: "waiting", status: "blocked" },
+            { id: "ready", status: "todo" },
+          ],
+          readyTasks: ["ready"],
+        },
+      },
+    ]);
+  });
+
+  test("reopens a persisted completed agent team task whose dependency is incomplete", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [
+            { id: "dependency", title: "Dependency", assignee: "builder", status: "todo", dependsOn: [] },
+            { id: "dependent", title: "Dependent", assignee: "builder", status: "done", dependsOn: ["dependency"] },
+          ],
+          messages: [],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          tasks: [
+            { id: "dependency", status: "todo" },
+            { id: "dependent", status: "blocked" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("bounds agent team text loaded from persisted session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: ` ${"n".repeat(201)} `, role: ` ${"r".repeat(201)} `, status: "idle" }],
+          tasks: [{ id: "task-1", title: ` ${"t".repeat(201)} `, assignee: "builder", status: "todo", dependsOn: [] }],
+          messages: [{ id: "message-1", from: "builder", to: "builder", body: ` ${"b".repeat(4_001)} `, timestamp: "2026-09-05T00:00:00.000Z", read: false }],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    const panel = (await panels.snapshot())[0];
+    if (panel === undefined) throw new Error("agent-teams-panel was not registered");
+    const state = panel.data as { members: Array<{ name: string; role: string }>; tasks: Array<{ title: string }>; messages: Array<{ body: string }> };
+    expect(state.members[0]).toMatchObject({ name: "n".repeat(200), role: "r".repeat(200) });
+    expect(state.tasks[0]?.title).toBe("t".repeat(200));
+    expect(state.messages[0]?.body).toBe("b".repeat(4_000));
+  });
+
+  test("discards invalid agent team ids loaded from persisted session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [
+            { id: "builder", name: "Builder", role: "Build", status: "idle" },
+            { id: "bad member", name: "Invalid", role: "Invalid", status: "idle" },
+          ],
+          tasks: [
+            { id: "task-1", title: "Keep", assignee: "builder", status: "todo", dependsOn: [] },
+            { id: "t".repeat(65), title: "Invalid", assignee: "builder", status: "todo", dependsOn: [] },
+          ],
+          messages: [
+            { id: "message-1", from: "builder", to: "builder", body: "Keep", timestamp: "2026-09-05T00:00:00.000Z", read: false },
+            { id: "bad message", from: "builder", to: "builder", body: "Invalid", timestamp: "2026-09-05T00:00:01.000Z", read: false },
+          ],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          members: [{ id: "builder" }],
+          tasks: [{ id: "task-1" }],
+          messages: [{ id: "message-1" }],
+        },
+      },
+    ]);
+  });
+
+  test("bounds and sanitizes agent team dependencies loaded from persisted session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const dependencies = [" bad reference ", ...Array.from({ length: 257 }, (_, index) => `dependency-${index}`), "dependency-0"];
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [{ id: "task-1", title: "Recovered", assignee: "builder", status: "todo", dependsOn: dependencies }],
+          messages: [],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    const panel = (await panels.snapshot())[0];
+    if (panel === undefined) throw new Error("agent-teams-panel was not registered");
+    const [task] = (panel.data as { tasks: Array<{ dependsOn: string[] }> }).tasks;
+    expect(task?.dependsOn).toHaveLength(255);
+    expect(task?.dependsOn[0]).toBe("dependency-0");
+    expect(task?.dependsOn.at(-1)).toBe("dependency-254");
+  });
+
+  test("allocates a unique agent team task id after loading sparse persisted ids", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [{ id: "task-2", title: "Existing", assignee: "builder", status: "todo", dependsOn: [] }],
+          messages: [],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute("call-1", { action: "add_task", title: "Recovered append" }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { item: { id: "task-1" } },
+    });
+  });
+
+  test("allocates a unique agent team message id after loading sparse persisted ids", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [],
+          messages: [{ id: "message-2", from: "builder", to: "builder", body: "Existing", timestamp: "2026-09-05T00:00:00.000Z", read: false }],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "send_message", from: "builder", to: "builder", body: "Recovered append" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).resolves.toMatchObject({ details: { item: { id: "message-1" } } });
+  });
+
+  test("normalizes invalid agent team message timestamps loaded from persisted state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+          tasks: [],
+          messages: [{ id: "message-1", from: "builder", to: "builder", body: "Recovered", timestamp: "not-a-date", read: false }],
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { messages: [{ timestamp: "1970-01-01T00:00:00.000Z" }] } }]);
+  });
+
+  test("rejects an unknown assignee when creating an agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "add_task", title: "Unowned work", assignee: "missing-member" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/unknown assignee/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("rejects an unknown assignee when updating an agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Owned work" }, undefined, undefined, {} as never);
+
+    await expect(
+      tool.execute("call-1", { action: "update_task", id: "task-1", assignee: "missing-member" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/unknown assignee/iu);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects an unknown assignee when claiming an agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Claimable work" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "claim_task", assignee: "missing-member" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /unknown assignee/iu,
+    );
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects an oversized agent team task id", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "add_task", id: "t".repeat(65), title: "Bounded identifier" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/task id.*1-64/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("rejects a completed agent team task whose dependencies are incomplete", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Dependency" }, undefined, undefined, {} as never);
+
+    await expect(
+      tool.execute("call-1", { action: "add_task", title: "Premature completion", status: "done", dependsOn: ["task-1"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/cannot be completed before its dependencies/iu);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects an in-progress agent team task without a member assignee", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "add_task", title: "Unowned active work", status: "in_progress" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/in-progress.*assignee/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("rejects an in-progress agent team task whose dependencies are incomplete", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Dependency" }, undefined, undefined, {} as never);
+
+    await expect(
+      tool.execute(
+        "call-1",
+        { action: "add_task", title: "Premature work", assignee: "builder", status: "in_progress", dependsOn: ["task-1"] },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/cannot be started before its dependencies/iu);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects moving an unassigned agent team task into progress", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Unassigned" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "update_task", id: "task-1", status: "in_progress" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /in-progress.*assignee/iu,
+    );
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects removing the assignee from an in-progress agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Active", assignee: "builder", status: "in_progress" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "update_task", id: "task-1", assignee: "unassigned" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /in-progress.*assignee/iu,
+    );
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects starting an agent team task whose dependencies are incomplete", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("dependency", { action: "add_task", title: "Dependency" }, undefined, undefined, {} as never);
+    await tool.execute("dependent", { action: "add_task", title: "Dependent", assignee: "builder", dependsOn: ["task-1"] }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "update_task", id: "task-2", status: "in_progress" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /cannot be started before its dependencies/iu,
+    );
+    expect(entries).toHaveLength(2);
+  });
+
+  test("rejects adding an incomplete dependency to an in-progress agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("dependency", { action: "add_task", title: "Dependency" }, undefined, undefined, {} as never);
+    await tool.execute("active", { action: "add_task", title: "Active", assignee: "builder", status: "in_progress" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "update_task", id: "task-2", dependsOn: ["task-1"] }, undefined, undefined, {} as never)).rejects.toThrow(
+      /cannot be started before its dependencies/iu,
+    );
+    expect(entries).toHaveLength(2);
+  });
+
+  test("rejects adding an incomplete dependency to a completed agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("dependency", { action: "add_task", title: "Dependency" }, undefined, undefined, {} as never);
+    await tool.execute("completed", { action: "add_task", title: "Completed", status: "done" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "update_task", id: "task-2", dependsOn: ["task-1"] }, undefined, undefined, {} as never)).rejects.toThrow(
+      /cannot be completed before its dependencies/iu,
+    );
+    expect(entries).toHaveLength(2);
+  });
+
+  test("preserves a preassigned member when claiming an agent team task without an assignee parameter", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Assigned work", assignee: "builder" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "claim_task" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { item: { status: "in_progress", assignee: "builder" } },
+    });
+  });
+
+  test("requires a member when claiming an unassigned agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Unassigned work" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-1", { action: "claim_task" }, undefined, undefined, {} as never)).rejects.toThrow(/assignee.*required/iu);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects an oversized agent team dependency list before resolving references", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "add_task", title: "Too connected", dependsOn: Array.from({ length: 257 }, (_, index) => `dependency-${index}`) },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/at most 256 dependencies/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("rejects an oversized agent team dependency id before resolving references", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "add_task", title: "Invalid reference", dependsOn: ["d".repeat(65)] },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/task dependency id.*1-64/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("rejects an oversized dependency list when updating an agent team task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+    const tool = namedTool(tools, "team_task");
+    await tool.execute("setup", { action: "add_task", title: "Existing task" }, undefined, undefined, {} as never);
+
+    await expect(
+      tool.execute(
+        "call-1",
+        { action: "update_task", id: "task-1", dependsOn: Array.from({ length: 257 }, (_, index) => `dependency-${index}`) },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/at most 256 dependencies/iu);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("rejects an oversized agent team member name", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute("call-1", { action: "add_member", id: "long-name", name: "n".repeat(201) }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/member name.*1-200/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("rejects an oversized agent team member role", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "add_member", id: "long-role", name: "Long role", role: "r".repeat(201) },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/member role.*1-200/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("rejects a working agent team member without an in-progress task", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute("call-1", { action: "add_member", id: "busy", name: "Busy", status: "working" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/working.*in-progress task/iu);
+    expect(entries).toEqual([]);
+  });
+
+  test("bounds the durable agent team task list before appending session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const tasks = Array.from({ length: 256 }, (_, index) => ({
+      id: `task-${index + 1}`,
+      title: `Task ${index + 1}`,
+      assignee: "unassigned",
+      status: "todo",
+      dependsOn: [],
+    }));
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: { members: [{ id: "planner", name: "Planner", role: "Plan", status: "idle" }], tasks, messages: [] },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute("call-1", { action: "add_task", title: "One too many" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/at most 256 tasks/iu);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("bounds the durable agent team mailbox before appending session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const messages = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `message-${index + 1}`,
+      from: "builder",
+      to: "reviewer",
+      body: "done",
+      timestamp: "2026-09-05T00:00:00.000Z",
+      read: false,
+    }));
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          members: [
+            { id: "builder", name: "Builder", role: "Build", status: "idle" },
+            { id: "reviewer", name: "Reviewer", role: "Review", status: "idle" },
+          ],
+          tasks: [],
+          messages,
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "send_message", from: "builder", to: "reviewer", body: "One too many" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/at most 1000 messages/iu);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("bounds the durable agent team member list before appending session state", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const members = Array.from({ length: 64 }, (_, index) => ({ id: `member-${index + 1}`, name: `Member ${index + 1}`, role: "Worker", status: "idle" }));
+    const entries: unknown[] = [{ type: "custom", customType: "pi-harness/agent-teams", data: { members, tasks: [], messages: [] } }];
+    context.provide("piSession", {
+      manager: {
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(
+      namedTool(tools, "team_task").execute(
+        "call-1",
+        { action: "add_member", id: "member-65", name: "Member 65", role: "Worker" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/at most 64 members/iu);
+    expect(entries).toHaveLength(1);
   });
 
   test("reloads the live Pi session through the plugin-dev bridge", async () => {
@@ -545,20 +1960,23 @@ describe("Pi domain plugins", () => {
   });
 
   test("attaches an in-workspace image through the modlens tool", async () => {
-    const { context, cwd } = await createContext();
+    const { context, cwd, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
-    await writeFile(join(cwd, "screen.png"), "png-data", "utf8");
+    await writeFile(join(cwd, "screen.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", "base64"));
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
 
     await context.plugin(modlensPlugin);
     const tool = firstTool(tools);
-    await expect(tool.execute("call-1", { path: "screen.png" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+    await expect(tool.execute("call-1", { path: "screen.png" }, undefined, undefined, { model: { input: ["image"] } } as never)).resolves.toMatchObject({
       content: [{ type: "image", mimeType: "image/png" }],
     });
-    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "modlens-panel", data: { attached: true, image: { path: "screen.png", bytes: 8 } } }]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "modlens-panel", data: { attached: true, image: { path: "screen.png", bytes: 24 } } }]);
     await expect(tool.execute("call-2", { path: "../outside.png" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
+    await writeFile(join(agentDir, "outside.png"), "outside-image", "utf8");
+    await symlink(join(agentDir, "outside.png"), join(cwd, "linked.png"));
+    await expect(tool.execute("call-3", { path: "linked.png" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
   });
 
   test("stops a streaming run when the configured token budget is exceeded", async () => {
@@ -580,7 +1998,7 @@ describe("Pi domain plugins", () => {
     expect(aborts).toBe(1);
   });
 
-  test("writes a Git time capsule outside the workspace", async () => {
+  test("writes a Git undo capsule outside the workspace", async () => {
     const { context, cwd } = await createContext();
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
@@ -597,7 +2015,7 @@ describe("Pi domain plugins", () => {
     const result = await tool.execute("call-1", {}, undefined, undefined, {} as never);
     const message = result.content[0];
     expect(message?.type).toBe("text");
-    expect(message?.type === "text" ? message.text : "").toMatch(/^Git snapshot saved:/);
+    expect(message?.type === "text" ? message.text : "").toMatch(/^Git undo capsule saved:/);
     const snapshot = await panels.snapshot();
     expect(snapshot[0]?.id).toBe("git-time-capsule-panel");
     const capsuleData = snapshot[0]?.data as
@@ -626,8 +2044,19 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "dependency-checker-panel", data: { report: { missing: ["missing-package"] } } }]);
   });
 
-  test("attaches a bounded workspace file for @file context", async () => {
+  test("rejects oversized dependency manifests before parsing them", async () => {
     const { context, cwd } = await createContext();
+    const tools = new PiToolRegistry();
+    await writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies: {}, padding: "x".repeat(1024 * 1024) }), "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(dependencyCheckerPlugin);
+
+    await expect(namedTool(tools, "dependency_check").execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/1 MiB|too large/iu);
+  });
+
+  test("attaches a bounded workspace file for @file context", async () => {
+    const { context, cwd, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     await writeFile(join(cwd, "notes.md"), "# Notes\ncontent", "utf8");
@@ -637,10 +2066,13 @@ describe("Pi domain plugins", () => {
     await context.plugin(atFilePlugin);
     const tool = firstTool(tools);
     await expect(tool.execute("call-1", { path: "notes.md" }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      content: [{ text: '<file path="notes.md">\n# Notes\ncontent\n</file>' }],
+      content: [{ text: '<file path="notes.md" untrusted="true">\n# Notes\ncontent\n</file>' }],
     });
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "at-file-panel", data: { lastFile: { path: "notes.md", bytes: 15 } } }]);
     await expect(tool.execute("call-2", { path: "../notes.md" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
+    await writeFile(join(agentDir, "outside-notes.md"), "outside", "utf8");
+    await symlink(join(agentDir, "outside-notes.md"), join(cwd, "linked-notes.md"));
+    await expect(tool.execute("call-3", { path: "linked-notes.md" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
   });
 
   test("deduplicates extension failures in the live failure logger panel", async () => {
@@ -666,7 +2098,7 @@ describe("Pi domain plugins", () => {
     context.provide("piPluginUi", panels);
     await context.plugin(testHarnessPlugin);
     const tool = firstTool(tools);
-    await expect(tool.execute("call-1", { script: "rm -rf /" }, undefined, undefined, {} as never)).rejects.toThrow(/not allowed/);
+    await expect(tool.execute("call-1", { script: "rm -rf /" }, undefined, undefined, {} as never)).rejects.toThrow(/not an approved verification script/iu);
     const snapshot = await panels.snapshot();
     expect(snapshot[0]?.id).toBe("test-harness-panel");
     const allowedScripts = (snapshot[0]?.data as { allowedScripts?: unknown } | undefined)?.allowedScripts;
@@ -683,7 +2115,7 @@ describe("Pi domain plugins", () => {
       assistantMessages: 2,
       toolCalls: 1,
       toolResults: 1,
-      totalMessages: 4,
+      totalMessages: 5,
       tokens: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30 },
       cost: 0.01,
       contextUsage: { tokens: 30, contextWindow: 1000, percent: 3 },
@@ -717,6 +2149,17 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "readme-gen-panel", data: { generated: true, name: "demo", scripts: 2 } }]);
   });
 
+  test("rejects oversized package manifests before generating a README", async () => {
+    const { context, cwd } = await createContext();
+    const tools = new PiToolRegistry();
+    await writeFile(join(cwd, "package.json"), JSON.stringify({ name: "demo", padding: "x".repeat(1024 * 1024) }), "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(readmeGenPlugin);
+
+    await expect(namedTool(tools, "readme_report").execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/1 MiB|too large/iu);
+  });
+
   test("requires explicit confirmation before cleaning only generated capsules", async () => {
     const { context, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
@@ -735,8 +2178,48 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "cleaner-panel", data: { capsules: [{ name: "202601.patch" }] } }]);
   });
 
+  test("ignores symbolic links while cleaning capsule files", async () => {
+    if (process.platform === "win32") return;
+    const { context, cwd, agentDir } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const directory = join(agentDir, "capsules");
+    const outside = join(cwd, "outside.patch");
+    const link = join(directory, "linked.patch");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "generated.patch"), "generated", "utf8");
+    await writeFile(outside, "outside", "utf8");
+    await symlink(outside, link);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(cleanerPlugin);
+
+    await expect(
+      namedTool(tools, "clean_harness_artifacts").execute("call-1", { confirm: true, keep: 0 }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { removed: 1, kept: 0 },
+    });
+    expect(existsSync(link)).toBe(true);
+    await expect(readFile(outside, "utf8")).resolves.toBe("outside");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "cleaner-panel", data: { capsules: [] } }]);
+  });
+
+  test("rejects an excessive number of capsule files without materializing an unbounded list", async () => {
+    const { context, agentDir } = await createContext();
+    const directory = join(agentDir, "capsules");
+    await mkdir(directory, { recursive: true });
+    await Promise.all(Array.from({ length: 257 }, (_, index) => writeFile(join(directory, `${String(index).padStart(4, "0")}.patch`), "x", "utf8")));
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(cleanerPlugin);
+
+    const snapshot = await context.piPluginUi.snapshot();
+    expect(snapshot[0]?.id).toBe("cleaner-panel");
+    expect(snapshot[0]?.error).toMatch(/exceeds.*256.*capsule/iu);
+  });
+
   test("reports missing and extra keys between local locale files", async () => {
-    const { context, cwd } = await createContext();
+    const { context, cwd, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     await mkdir(join(cwd, "locales"), { recursive: true });
@@ -745,8 +2228,43 @@ describe("Pi domain plugins", () => {
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
     await context.plugin(i18nPairPlugin);
-    const result = await firstTool(tools).execute("call-1", {}, undefined, undefined, {} as never);
+    const tool = firstTool(tools);
+    const result = await tool.execute("call-1", {}, undefined, undefined, {} as never);
     expect(result).toMatchObject({ details: { missing: ["save"], extra: ["onlyHere"] } });
+    await writeFile(join(agentDir, "outside-locale.json"), JSON.stringify({ secret: "outside" }), "utf8");
+    await symlink(join(agentDir, "outside-locale.json"), join(cwd, "locales", "linked.json"));
+    await expect(tool.execute("call-2", { base: "locales/linked.json" }, undefined, undefined, {} as never)).rejects.toThrow(/symbolic link/iu);
+  });
+
+  test("rejects oversized locale files before parsing them", async () => {
+    const { context, cwd } = await createContext();
+    const tools = new PiToolRegistry();
+    await mkdir(join(cwd, "locales"), { recursive: true });
+    await writeFile(join(cwd, "locales", "en.json"), JSON.stringify({ padding: "x".repeat(4 * 1024 * 1024) }), "utf8");
+    await writeFile(join(cwd, "locales", "ja.json"), "{}", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(i18nPairPlugin);
+
+    await expect(
+      namedTool(tools, "i18n_check").execute("call-1", { base: "locales/en.json", target: "locales/ja.json" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/4 MiB|locale.*limit/iu);
+  });
+
+  test("rejects locale objects deeper than the supported nesting limit", async () => {
+    const { context, cwd } = await createContext();
+    const tools = new PiToolRegistry();
+    await mkdir(join(cwd, "locales"), { recursive: true });
+    const deeplyNested = `${'{"nested":'.repeat(129)}"value"${"}".repeat(129)}`;
+    await writeFile(join(cwd, "locales", "en.json"), deeplyNested, "utf8");
+    await writeFile(join(cwd, "locales", "ja.json"), "{}", "utf8");
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(i18nPairPlugin);
+
+    await expect(
+      namedTool(tools, "i18n_check").execute("call-1", { base: "locales/en.json", target: "locales/ja.json" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/nesting|depth|128/iu);
   });
 
   test("executes bounded read-only SQLite queries and rejects mutations", async () => {
@@ -809,6 +2327,36 @@ describe("Pi domain plugins", () => {
     await expect(status!.execute("call-4", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { running: false } });
   });
 
+  test("does not leak a rejected promise when mock server cleanup fails", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(mockServerPlugin, { port: 0, routes: [] });
+    await namedTool(tools, "mock_server_start").execute("call-1", {}, undefined, undefined, {} as never);
+    let closeCalled = false;
+    const closeSpy = vi.spyOn(Server.prototype, "close");
+    closeSpy.mockImplementationOnce(function (this: Server, callback?: (error?: Error) => void) {
+      closeCalled = true;
+      closeSpy.mockRestore();
+      return this.close(() => callback?.(new Error("forced close failure")));
+    } as typeof Server.prototype.close);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await context.fiber.dispose();
+      await vi.waitFor(() => expect(closeCalled).toBe(true));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      closeSpy.mockRestore();
+    }
+  });
+
   test("records CLI notifications and respects the disabled setting", async () => {
     const { context } = await createContext();
     const panels = new PiPluginUiRegistry();
@@ -827,6 +2375,50 @@ describe("Pi domain plugins", () => {
     const notificationData = snapshot[0]?.data as { enabled?: unknown; notifications?: Array<{ message?: unknown }> } | undefined;
     expect(notificationData?.enabled).toBe(false);
     expect(notificationData?.notifications?.map((notification) => notification.message)).toEqual(["Agent turn completed.", "build finished"]);
+  });
+
+  test("bounds notifier messages produced from session error events", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    await context.plugin(cliNotifierPlugin, { enabled: false });
+
+    context.emit("pi/session-event", {
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "x".repeat(3_000) }],
+      willRetry: false,
+    } as never);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const snapshot = await panels.snapshot();
+    const data = snapshot[0]?.data as { notifications?: Array<{ message: string }> } | undefined;
+    expect(data?.notifications).toHaveLength(1);
+    expect(data?.notifications?.[0]?.message.length).toBeLessThanOrEqual(2_048);
+  });
+
+  test("times out a hung desktop notification process", async () => {
+    if (process.platform === "win32") return;
+    const { context, cwd } = await createContext();
+    const bin = join(cwd, "bin");
+    const executable = join(bin, process.platform === "darwin" ? "osascript" : "notify-send");
+    await mkdir(bin);
+    await writeFile(executable, "#!/bin/sh\nexec sleep 1\n", "utf8");
+    await chmod(executable, 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(cliNotifierPlugin, { enabled: true, timeoutMs: 500 });
+      const result = await namedTool(tools, "cli_notify").execute("call-1", { message: "timeout fixture" }, undefined, undefined, {} as never);
+      const details = result.details as { delivered?: unknown; reason?: unknown };
+      expect(details.delivered).toBe(false);
+      expect(details.reason).toMatch(/timed out/iu);
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   test("writes confirmed Markdown notes only inside the configured Obsidian vault", async () => {
@@ -935,6 +2527,28 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "reviewer-bot-panel", data: { latest: { status: "warning", changedFiles: 1 } } }]);
   });
 
+  test("times out a hung Git process while reviewing changes", async () => {
+    if (process.platform === "win32") return;
+    const { context, cwd } = await createContext();
+    const bin = join(cwd, "bin");
+    const executable = join(bin, "git");
+    await mkdir(bin);
+    await writeFile(executable, "#!/bin/sh\nexec sleep 1\n", "utf8");
+    await chmod(executable, 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(reviewerBotPlugin, { timeoutMs: 500 });
+      const pending = namedTool(tools, "review_changes").execute("call-1", {}, undefined, undefined, {} as never);
+      await expect(pending).rejects.toThrow(/timed out after 500 ms/iu);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
   test("executes safe argv commands and blocks risky auto-mode commands without confirmation", async () => {
     const { context } = await createContext();
     const panels = new PiPluginUiRegistry();
@@ -943,8 +2557,8 @@ describe("Pi domain plugins", () => {
     context.provide("piPluginUi", panels);
     await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
     const tool = namedTool(tools, "auto_mode_exec");
-    await expect(tool.execute("call-1", { command: ["node", "-e", "process.stdout.write('ok')"] }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      details: { allowed: true, exitCode: 0, stdout: "ok" },
+    await expect(tool.execute("call-1", { command: ["git", "--version"] }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { allowed: true, exitCode: 0 },
     });
     await expect(tool.execute("call-2", { command: ["rm", "-f", "file"] }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/);
     await expect(tool.execute("call-3", { command: ["sh", "-c", "echo bad"], confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
@@ -1073,6 +2687,96 @@ describe("Pi domain plugins", () => {
     await expect(secondPanels.snapshot()).resolves.toMatchObject([{ id: "memory-panel", data: { count: 0 } }]);
   });
 
+  test("rolls back a failed memory write and recovers the mutation queue", async () => {
+    const { context, agentDir } = await createContext();
+    const memoryPath = join(agentDir, "memory.json");
+    await writeFile(memoryPath, JSON.stringify({ version: 1, memories: [] }), "utf8");
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(memoryPlugin);
+    const set = namedTool(tools, "memory_set");
+    await namedTool(tools, "memory_search").execute("load", { query: "initial" }, undefined, undefined, {} as never);
+    await rm(memoryPath);
+    await mkdir(memoryPath);
+
+    await expect(set.execute("call-1", { key: "failed", value: "must roll back" }, undefined, undefined, {} as never)).rejects.toThrow();
+    await rm(memoryPath, { recursive: true });
+    await expect(set.execute("call-2", { key: "saved", value: "queue recovered" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { key: "saved" },
+    });
+    const persisted = JSON.parse(await readFile(memoryPath, "utf8")) as { memories: Array<{ key: string }> };
+    expect(persisted.memories.map((memory) => memory.key)).toEqual(["saved"]);
+    expect((await readdir(agentDir)).filter((name) => name.startsWith(".memory.json.") && name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("serializes concurrent contexts writing the same memory file", async () => {
+    const first = await createContext();
+    const second = new Context();
+    contexts.push(second);
+    provideLaunchContext(second, { cwd: first.cwd, agentDir: first.agentDir, args: [], requestExit() {} });
+    const firstTools = new PiToolRegistry();
+    const secondTools = new PiToolRegistry();
+    first.context.provide("piTools", firstTools);
+    first.context.provide("piPluginUi", new PiPluginUiRegistry());
+    second.provide("piTools", secondTools);
+    second.provide("piPluginUi", new PiPluginUiRegistry());
+    await Promise.all([first.context.plugin(memoryPlugin), second.plugin(memoryPlugin)]);
+
+    await Promise.all([
+      namedTool(firstTools, "memory_set").execute("call-a", { key: "concurrent-a", value: "first writer" }, undefined, undefined, {} as never),
+      namedTool(secondTools, "memory_set").execute("call-b", { key: "concurrent-b", value: "second writer" }, undefined, undefined, {} as never),
+    ]);
+    const persisted = JSON.parse(await readFile(join(first.agentDir, "memory.json"), "utf8")) as { memories: Array<{ key: string }> };
+    expect(persisted.memories.map((memory) => memory.key).sort()).toEqual(["concurrent-a", "concurrent-b"]);
+  });
+
+  test("rejects malformed memory records instead of loading partial data", async () => {
+    const { context, agentDir } = await createContext();
+    await writeFile(join(agentDir, "memory.json"), JSON.stringify({ version: 1, memories: [{ key: "partial", value: "missing metadata" }] }), "utf8");
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(memoryPlugin);
+
+    await expect(namedTool(tools, "memory_search").execute("call-1", { query: "partial" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /invalid memories/iu,
+    );
+  });
+
+  test("does not read memory records through a symbolic link", async () => {
+    const { context, cwd, agentDir } = await createContext();
+    const now = new Date().toISOString();
+    const outside = join(cwd, "outside-memory.json");
+    await writeFile(
+      outside,
+      JSON.stringify({ version: 1, memories: [{ id: "secret", key: "secret", value: "outside value", tags: [], createdAt: now, updatedAt: now }] }),
+      "utf8",
+    );
+    await symlink(outside, join(agentDir, "memory.json"));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(memoryPlugin);
+
+    await expect(namedTool(tools, "memory_search").execute("call-1", { query: "secret" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /symbolic link|regular file/iu,
+    );
+  });
+
+  test("bounds the memory file size according to the configured entry limit", async () => {
+    const { context, agentDir } = await createContext();
+    await writeFile(join(agentDir, "memory.json"), Buffer.alloc(128 * 1024));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(memoryPlugin, { maxEntries: 1 });
+
+    await expect(namedTool(tools, "memory_search").execute("call-1", { query: "memory" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /size|limit|exceeds/iu,
+    );
+  });
+
   test("persists typed graph memory nodes and relations across plugin lifecycles", async () => {
     const first = await createContext();
     const panels = new PiPluginUiRegistry();
@@ -1149,6 +2853,30 @@ describe("Pi domain plugins", () => {
     expect(panel?.error).toMatch(/invalid nodes/iu);
   });
 
+  test("does not read graph memory through a symbolic link", async () => {
+    const { context, cwd, agentDir } = await createContext();
+    const now = new Date().toISOString();
+    const outside = join(cwd, "outside-graph.json");
+    await writeFile(
+      outside,
+      JSON.stringify({
+        version: 1,
+        nodes: [{ id: "secret", kind: "event", label: "Secret event", summary: "outside value", createdAt: now, updatedAt: now }],
+        relations: [],
+      }),
+      "utf8",
+    );
+    await symlink(outside, join(agentDir, "graph-memory.json"));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(graphMemoryPlugin);
+
+    await expect(namedTool(tools, "graph_memory_search").execute("call-1", { query: "secret" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /symbolic link|regular file/iu,
+    );
+  });
+
   test("serializes concurrent contexts writing the same graph memory file", async () => {
     const first = await createContext();
     const second = new Context();
@@ -1213,6 +2941,30 @@ describe("Pi domain plugins", () => {
     await expect(secondPanels.snapshot()).resolves.toMatchObject([{ id: "taskboard-panel", data: { total: 1, counts: { done: 1 } } }]);
   });
 
+  test("rejects a taskboard database symlink before writing outside the agent directory", async () => {
+    if (process.platform === "win32") return;
+    const { context, cwd, agentDir } = await createContext();
+    const outside = join(cwd, "outside.sqlite");
+    const external = new DatabaseSync(outside);
+    external.exec("CREATE TABLE sentinel (value TEXT NOT NULL); INSERT INTO sentinel VALUES ('unchanged')");
+    external.close();
+    await symlink(outside, join(agentDir, "taskboard.sqlite"));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(taskboardPlugin);
+
+    await expect(namedTool(tools, "taskboard_create").execute("call-1", { title: "Must stay local" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /symbolic link|regular file/iu,
+    );
+    const verified = new DatabaseSync(outside, { readOnly: true });
+    try {
+      expect(verified.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all()).toEqual([{ name: "sentinel" }]);
+    } finally {
+      verified.close();
+    }
+  });
+
   test("generates validated Mermaid diagrams through the canvas draw plugin", async () => {
     const { context } = await createContext();
     const panels = new PiPluginUiRegistry();
@@ -1266,6 +3018,60 @@ describe("Pi domain plugins", () => {
     const output = await (await import("node:fs/promises")).readFile(join(cwd, "compressed.png"));
     expect(output.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))).toBe(true);
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "image-compressor-panel", data: { last: { outputPath: "compressed.png", saved: true } } }]);
+  });
+
+  test("rejects PNG image data that expands beyond the IHDR-declared scanline size", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(1, 0);
+    header.writeUInt32BE(1, 4);
+    header[8] = 8;
+    header[9] = 0;
+    await writeFile(join(cwd, "bomb.png"), testPng(header, Buffer.alloc(1024 * 1024)));
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(imageCompressorPlugin);
+
+    await expect(
+      namedTool(tools, "image_compress").execute(
+        "call-1",
+        { path: "bomb.png", outputPath: "compressed.png", confirm: true },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/image data|scanline|decompress/iu);
+    await expect((await import("node:fs/promises")).stat(join(cwd, "compressed.png"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("preserves PNG ancillary chunks while recompressing image data", async () => {
+    const { context, cwd } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(1, 0);
+    header.writeUInt32BE(1, 4);
+    header[8] = 8;
+    header[9] = 0;
+    const gamma = testPngChunk("gAMA", Buffer.from([0, 0, 177, 143]));
+    const text = testPngChunk("tEXt", Buffer.from("Comment\0production metadata", "latin1"));
+    await writeFile(join(cwd, "source.png"), testPng(header, Buffer.from([0, 127]), [gamma], [text]));
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(imageCompressorPlugin);
+
+    await namedTool(tools, "image_compress").execute(
+      "call-1",
+      { path: "source.png", outputPath: "compressed.png", confirm: true },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    const output = await readFile(join(cwd, "compressed.png"));
+    expect(output.includes(gamma)).toBe(true);
+    expect(output.includes(text)).toBe(true);
   });
 
   test("searches bounded workspace text and reports file locations", async () => {
@@ -1324,7 +3130,7 @@ describe("Pi domain plugins", () => {
   });
 
   test("packages selected source files into a local skill directory", async () => {
-    const { context, cwd } = await createContext();
+    const { context, cwd, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     await mkdir(join(cwd, "src"), { recursive: true });
@@ -1339,6 +3145,25 @@ describe("Pi domain plugins", () => {
     await expect(readFile(join(cwd, ".pi", "skills", "parser-guide", "SKILL.md"), "utf8")).resolves.toContain("Explain parser conventions");
     await expect(readFile(join(cwd, ".pi", "skills", "parser-guide", "references", "src", "parser.ts"), "utf8")).resolves.toContain("parse");
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "code2skill-panel", data: { generated: 1, latest: { slug: "parser-guide" } } }]);
+    await expect(
+      tool.execute("call-2", { name: "Parser Guide", description: "Do not overwrite", files: ["src/parser.ts"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/already exists/);
+
+    await writeFile(join(agentDir, "outside.ts"), "export const secret = true;\n", "utf8");
+    await symlink(join(agentDir, "outside.ts"), join(cwd, "src", "outside.ts"));
+    await expect(
+      tool.execute("call-3", { name: "Outside Source", description: "Must stay bounded", files: ["src/outside.ts"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/inside the workspace/);
+
+    await expect(
+      tool.execute("call-4", { name: "Directory Source", description: "Only regular files are allowed", files: ["src"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/regular file/iu);
+
+    await symlink(agentDir, join(cwd, ".pi", "skills", "linked-pack"));
+    await expect(
+      tool.execute("call-5", { name: "Linked Pack", description: "Must stay bounded", files: ["src/parser.ts"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/inside the workspace/);
+    await expect(readFile(join(agentDir, "SKILL.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("persists named session tabs without deleting session files", async () => {
@@ -1358,9 +3183,108 @@ describe("Pi domain plugins", () => {
       details: { tabs: [{ label: "API 回归", pinned: true }] },
     });
     await expect(readFile(join(agentDir, "session-tabs.json"), "utf8")).resolves.toContain("API 回归");
+    expect((await stat(join(agentDir, "session-tabs.json"))).mode & 0o777).toBe(0o600);
     await expect(panels.snapshot()).resolves.toMatchObject([
       { id: "tab-manager-panel", data: { activeId: "session-a", tabs: [{ label: "API 回归" }], writes: 2 } },
     ]);
+  });
+
+  test("rejects a corrupted session tab store instead of replacing it", async () => {
+    const { context, agentDir } = await createContext();
+    await writeFile(join(agentDir, "session-tabs.json"), "{not-json", "utf8");
+    const tools = new PiToolRegistry();
+    context.provide("piSession", { manager: { getSessionId: () => "session-a", getSessionFile: () => join(agentDir, "session-a.jsonl") } } as never);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piTools", tools);
+    let activationError: unknown;
+
+    try {
+      await context.plugin(tabManagerPlugin);
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toBeInstanceOf(Error);
+    if (!(activationError instanceof Error)) throw new Error("Expected corrupt tab store rejection");
+    expect(activationError.message).toMatch(/session tab store.*invalid JSON/iu);
+    await expect(readFile(join(agentDir, "session-tabs.json"), "utf8")).resolves.toBe("{not-json");
+  });
+
+  test("does not load session tabs through a symbolic link", async () => {
+    const { context, cwd, agentDir } = await createContext();
+    const outside = join(cwd, "outside-tabs.json");
+    await writeFile(outside, JSON.stringify({ tabs: [], activeId: null }), "utf8");
+    await symlink(outside, join(agentDir, "session-tabs.json"));
+    context.provide("piSession", { manager: { getSessionId: () => "session-a", getSessionFile: () => join(agentDir, "session-a.jsonl") } } as never);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piTools", new PiToolRegistry());
+
+    let activationError: unknown;
+    try {
+      await context.plugin(tabManagerPlugin);
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toBeInstanceOf(Error);
+    if (!(activationError instanceof Error)) throw new Error("Expected linked tab store rejection");
+    expect(activationError.message).toMatch(/symbolic link|regular file/iu);
+  });
+
+  test("rejects an oversized session tab store before parsing it", async () => {
+    const { context, agentDir } = await createContext();
+    await writeFile(join(agentDir, "session-tabs.json"), Buffer.alloc(1024 * 1024 + 1));
+    context.provide("piSession", { manager: { getSessionId: () => "session-a", getSessionFile: () => join(agentDir, "session-a.jsonl") } } as never);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piTools", new PiToolRegistry());
+
+    let activationError: unknown;
+    try {
+      await context.plugin(tabManagerPlugin);
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toBeInstanceOf(Error);
+    if (!(activationError instanceof Error)) throw new Error("Expected oversized tab store rejection");
+    expect(activationError.message).toMatch(/1 MiB|size|limit/iu);
+  });
+
+  test("rejects oversized labels before changing the session tab store", async () => {
+    const { context, agentDir } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piSession", { manager: { getSessionId: () => "session-a", getSessionFile: () => join(agentDir, "session-a.jsonl") } } as never);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piTools", tools);
+    await context.plugin(tabManagerPlugin);
+    const tool = namedTool(tools, "session_tab_manage");
+    await tool.execute("call-1", { action: "pin", label: "Valid" }, undefined, undefined, {} as never);
+
+    await expect(tool.execute("call-2", { action: "pin", label: "x".repeat(121) }, undefined, undefined, {} as never)).rejects.toThrow(/label.*1 to 120/iu);
+    const persisted = JSON.parse(await readFile(join(agentDir, "session-tabs.json"), "utf8")) as { tabs: Array<{ label: string }> };
+    expect(persisted.tabs[0]?.label).toBe("Valid");
+  });
+
+  test("serializes concurrent contexts writing the same session tab store", async () => {
+    const first = await createContext();
+    const second = new Context();
+    contexts.push(second);
+    provideLaunchContext(second, { cwd: first.cwd, agentDir: first.agentDir, args: [], requestExit() {} });
+    const firstTools = new PiToolRegistry();
+    const secondTools = new PiToolRegistry();
+    first.context.provide("piSession", {
+      manager: { getSessionId: () => "session-a", getSessionFile: () => join(first.agentDir, "session-a.jsonl") },
+    } as never);
+    second.provide("piSession", { manager: { getSessionId: () => "session-b", getSessionFile: () => join(first.agentDir, "session-b.jsonl") } } as never);
+    first.context.provide("piPluginUi", new PiPluginUiRegistry());
+    first.context.provide("piTools", firstTools);
+    second.provide("piPluginUi", new PiPluginUiRegistry());
+    second.provide("piTools", secondTools);
+    await Promise.all([first.context.plugin(tabManagerPlugin), second.plugin(tabManagerPlugin)]);
+
+    await Promise.all([
+      namedTool(firstTools, "session_tab_manage").execute("call-a", { action: "pin", label: "Session A" }, undefined, undefined, {} as never),
+      namedTool(secondTools, "session_tab_manage").execute("call-b", { action: "pin", label: "Session B" }, undefined, undefined, {} as never),
+    ]);
+    const persisted = JSON.parse(await readFile(join(first.agentDir, "session-tabs.json"), "utf8")) as { tabs: Array<{ id: string }> };
+    expect(persisted.tabs.map((tab) => tab.id).sort()).toEqual(["session-a", "session-b"]);
   });
 
   test("renders structured GenUI blocks without accepting executable markup", async () => {
@@ -1398,7 +3322,7 @@ describe("Pi domain plugins", () => {
     const tools = new PiToolRegistry();
     context.provide("piPluginUi", panels);
     context.provide("piTools", tools);
-    await context.plugin(anchoredStandardPlugin, { maxToolCalls: 2 });
+    await context.plugin(anchoredStandardPlugin, { maxToolCalls: 2, allowedTools: [" read ", "read"] });
     const check = namedTool(tools, "trajectory_anchor_check");
     context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "orphan", toolName: "bash" } as never);
     context.emit("pi/session-event", { type: "agent_start" } as never);
@@ -1406,8 +3330,172 @@ describe("Pi domain plugins", () => {
     context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "two", toolName: "read" } as never);
     context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "three", toolName: "read" } as never);
     context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false } as never);
-    await expect(check.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { status: "violated", toolCalls: 3 } });
+    const result = await check.execute("call-1", {}, undefined, undefined, {} as never);
+    const details = result.details as { status: string; toolCalls: number; violations: Array<{ code: string }> };
+    expect(details).toMatchObject({ status: "violated", toolCalls: 3, allowedTools: ["read"] });
+    expect(details.violations.map((violation) => violation.code)).toContain("disallowed_tool");
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "anchored-standard-panel", data: { status: "violated", events: 6, toolCalls: 3 } }]);
+  });
+
+  test("reports clean anchored-standard lifecycle transitions", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(anchoredStandardPlugin, { allowedTools: ["read"] });
+    const check = namedTool(tools, "trajectory_anchor_check");
+    await expect(check.execute("idle", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "idle", events: 0, toolCalls: 0, allowedTools: ["read"], violations: [] },
+    });
+
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "one", toolName: "read" } as never);
+    await expect(check.execute("anchored", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "anchored", events: 2, toolCalls: 1, violations: [] },
+    });
+
+    context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false } as never);
+    await expect(check.execute("ended", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "idle", events: 3, toolCalls: 1, violations: [] },
+    });
+  });
+
+  test("reports nested and orphan anchored-standard lifecycle events once per violation code", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(anchoredStandardPlugin);
+    const check = namedTool(tools, "trajectory_anchor_check");
+    context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false } as never);
+    context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false } as never);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+
+    const result = await check.execute("check", {}, undefined, undefined, {} as never);
+    const details = result.details as { violations: Array<{ code: string }> };
+    expect(details.violations.map((violation) => violation.code)).toEqual(["orphan_end", "nested_run"]);
+  });
+
+  test("stops anchored-standard event inspection when its plugin context is disposed", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(anchoredStandardPlugin);
+    const check = namedTool(tools, "trajectory_anchor_check");
+
+    await context.fiber.dispose();
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+
+    await expect(check.execute("check", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { status: "idle", events: 0 } });
+    expect(tools.snapshot().customTools).toEqual([]);
+    await expect(panels.snapshot()).resolves.toEqual([]);
+  });
+
+  test("normalizes a non-finite anchored-standard tool budget to the default", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    await context.plugin(anchoredStandardPlugin, { maxToolCalls: Number.NaN });
+
+    await expect(namedTool(tools, "trajectory_anchor_check").execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "idle", maxToolCalls: 64 },
+    });
+  });
+
+  test("clamps and truncates anchored-standard tool budgets", async () => {
+    for (const [configured, expected] of [
+      [0, 1],
+      [3.9, 3],
+      [999, 512],
+    ] as const) {
+      const { context } = await createContext();
+      const tools = new PiToolRegistry();
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      context.provide("piTools", tools);
+      await context.plugin(anchoredStandardPlugin, { maxToolCalls: configured });
+      await expect(namedTool(tools, "trajectory_anchor_check").execute("check", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { maxToolCalls: expected },
+      });
+    }
+  });
+
+  test("leaves tool names unrestricted when anchored-standard has no explicit allowlist", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piTools", tools);
+    await context.plugin(anchoredStandardPlugin);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    context.emit("pi/session-event", { type: "tool_execution_start", toolCallId: "one", toolName: "custom_tool" } as never);
+
+    await expect(namedTool(tools, "trajectory_anchor_check").execute("check", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "anchored", allowedTools: [], violations: [] },
+    });
+  });
+
+  test("rejects an oversized anchored-standard tool allowlist before registering", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+
+    let activationError: unknown;
+    try {
+      await context.plugin(anchoredStandardPlugin, { allowedTools: Array.from({ length: 513 }, (_, index) => `tool-${index}`) });
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toBeInstanceOf(Error);
+    if (!(activationError instanceof Error)) throw new Error("Expected anchored-standard activation to reject an oversized allowlist");
+    expect(activationError.message).toMatch(/512/iu);
+    expect(tools.snapshot().customTools).toEqual([]);
+    await expect(panels.snapshot()).resolves.toEqual([]);
+  });
+
+  test("rejects an oversized anchored-standard tool name before registering", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    let activationError: unknown;
+    try {
+      await context.plugin(anchoredStandardPlugin, { allowedTools: ["t".repeat(129)] });
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toBeInstanceOf(Error);
+    if (!(activationError instanceof Error)) throw new Error("Expected anchored-standard activation to reject an oversized tool name");
+    expect(activationError.message).toMatch(/128/iu);
+    expect(tools.snapshot().customTools).toEqual([]);
+    await expect(panels.snapshot()).resolves.toEqual([]);
+  });
+
+  test("rejects a blank anchored-standard tool name instead of disabling the allowlist", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piPluginUi", panels);
+    context.provide("piTools", tools);
+    let activationError: unknown;
+    try {
+      await context.plugin(anchoredStandardPlugin, { allowedTools: ["   "] });
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toBeInstanceOf(Error);
+    if (!(activationError instanceof Error)) throw new Error("Expected anchored-standard activation to reject a blank tool name");
+    expect(activationError.message).toMatch(/match regexp|non-whitespace/iu);
+    expect(tools.snapshot().customTools).toEqual([]);
+    await expect(panels.snapshot()).resolves.toEqual([]);
   });
 
   test("blocks telemetry by default and never stores event properties", async () => {
@@ -1476,7 +3564,7 @@ describe("Pi domain plugins", () => {
     const server = join(cwd, "mcp-fixture.mjs");
     await writeFile(
       server,
-      `let buffer = Buffer.alloc(0); const handle = (message) => { let result = {}; if (message.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: { resources: {}, prompts: {} }, serverInfo: { name: "fixture", version: "1" } }; if (message.method === "tools/list") result = { tools: [{ name: "echo", description: "Echo text", inputSchema: { type: "object" } }] }; if (message.method === "tools/call") result = { content: [{ type: "text", text: String(message.params.arguments?.text ?? "") }], isError: false }; if (message.method === "resources/list") result = { resources: [{ uri: "fixture://readme", name: "Readme", mimeType: "text/plain" }] }; if (message.method === "resources/read") result = { contents: [{ uri: message.params.uri, mimeType: "text/plain", text: "resource body" }] }; if (message.method === "prompts/list") result = { prompts: [{ name: "review", description: "Review prompt", arguments: [] }] }; if (message.method === "prompts/get") result = { description: "Review prompt", messages: [{ role: "user", content: { type: "text", text: "Review this" } }] }; process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); }; process.stdin.on("data", (chunk) => { buffer = Buffer.concat([buffer, chunk]); while (true) { const end = buffer.indexOf("\\r\\n\\r\\n"); if (end < 0) break; const match = buffer.subarray(0, end).toString().match(/Content-Length: (\\d+)/i); if (!match) break; const length = Number(match[1]); if (buffer.length < end + 4 + length) break; const body = buffer.subarray(end + 4, end + 4 + length); buffer = buffer.subarray(end + 4 + length); handle(JSON.parse(body)); } });`,
+      `let buffer = ""; const handle = (message) => { if (message.id === undefined) return; let result = {}; if (message.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: { resources: {}, prompts: {} }, serverInfo: { name: "fixture", version: "1" } }; if (message.method === "tools/list") result = { tools: [{ name: "echo", description: "Echo text", inputSchema: { type: "object" } }] }; if (message.method === "tools/call") result = { content: [{ type: "text", text: String(message.params.arguments?.text ?? "") }], isError: false }; if (message.method === "resources/list") result = { resources: [{ uri: "fixture://readme", name: "Readme", mimeType: "text/plain" }] }; if (message.method === "resources/read") result = { contents: [{ uri: message.params.uri, mimeType: "text/plain", text: "resource body" }] }; if (message.method === "prompts/list") result = { prompts: [{ name: "review", description: "Review prompt", arguments: [] }] }; if (message.method === "prompts/get") result = { description: "Review prompt", messages: [{ role: "user", content: { type: "text", text: "Review this" } }] }; process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); }; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => { buffer += chunk; while (true) { const newline = buffer.indexOf("\\n"); if (newline < 0) break; const line = buffer.slice(0, newline).trim(); buffer = buffer.slice(newline + 1); if (line !== "") handle(JSON.parse(line)); } });`,
       "utf8",
     );
     const panels = new PiPluginUiRegistry();
@@ -1539,6 +3627,88 @@ describe("Pi domain plugins", () => {
     await expect(listTools!.execute("call-9", { command: ["/bin/sh", "-c", "echo bad"] }, undefined, undefined, {} as never)).rejects.toThrow(
       /shell wrapper/iu,
     );
+  });
+
+  test("initializes a spec-compliant MCP stdio server with current client metadata", async () => {
+    const { context, cwd } = await createContext();
+    const server = join(cwd, "mcp-newline-fixture.mjs");
+    const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    await writeFile(
+      server,
+      `let buffer = ""; let clientVersion = ""; const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n"); process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => { buffer += chunk; while (true) { const newline = buffer.indexOf("\\n"); if (newline < 0) break; const line = buffer.slice(0, newline).trim(); buffer = buffer.slice(newline + 1); if (line === "") continue; if (/^content-length:/i.test(line)) { send({ jsonrpc: "2.0", id: 1, error: { code: -32600, message: "Content-Length framing is not valid MCP stdio" } }); continue; } const message = JSON.parse(line); if (message.method === "initialize") { clientVersion = String(message.params.clientInfo.version); send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "newline-fixture", version: "1" } } }); } else if (message.method === "tools/list") send({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "metadata", description: clientVersion, inputSchema: { type: "object" } }] } }); } });`,
+      "utf8",
+    );
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(mcpClientPlugin);
+
+    await expect(
+      namedTool(tools, "mcp_list_tools").execute("call-1", { command: [process.execPath, server] }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { tools: [{ name: "metadata", description: packageMetadata.version }] },
+    });
+  });
+
+  test("rejects MCP response frames larger than 1 MiB", async () => {
+    const { context, cwd } = await createContext();
+    const server = join(cwd, "mcp-oversized-fixture.mjs");
+    await writeFile(
+      server,
+      `let buffer = Buffer.alloc(0); const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n"); const handle = (message) => { if (message.method === "initialize") { send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "oversized-fixture", version: "1" } } }); return; } if (message.method === "tools/list") { const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { padding: "x".repeat(1024 * 1024) } })); process.stdout.write(Buffer.concat([Buffer.from("Content-Length: " + body.length + "\\r\\n\\r\\n"), body])); } }; process.stdin.on("data", (chunk) => { buffer = Buffer.concat([buffer, chunk]); while (buffer.length > 0) { const headerEnd = buffer.indexOf("\\r\\n\\r\\n"); if (/^content-length:/i.test(buffer.toString("ascii", 0, Math.min(buffer.length, 32)))) { if (headerEnd < 0) return; const match = buffer.subarray(0, headerEnd).toString("ascii").match(/content-length:\\s*(\\d+)/i); if (!match) return; const length = Number(match[1]); if (buffer.length < headerEnd + 4 + length) return; const body = buffer.subarray(headerEnd + 4, headerEnd + 4 + length); buffer = buffer.subarray(headerEnd + 4 + length); handle(JSON.parse(body.toString("utf8"))); continue; } const newline = buffer.indexOf(10); if (newline < 0) return; const line = buffer.subarray(0, newline).toString("utf8").trim(); buffer = buffer.subarray(newline + 1); if (line !== "") handle(JSON.parse(line)); } });`,
+      "utf8",
+    );
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(mcpClientPlugin);
+
+    await expect(
+      namedTool(tools, "mcp_list_tools").execute("call-1", { command: [process.execPath, server] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/1 MiB limit/iu);
+  });
+
+  test("cancels an in-flight MCP request and notifies the stdio server", async () => {
+    const { context, cwd } = await createContext();
+    const server = join(cwd, "mcp-cancellation-fixture.mjs");
+    const requestedMarker = join(cwd, "mcp-requested");
+    const cancelledMarker = join(cwd, "mcp-cancelled");
+    await writeFile(
+      server,
+      `import { writeFileSync } from "node:fs"; let buffer = Buffer.alloc(0); const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n"); const handle = (message) => { if (message.method === "initialize") { send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "cancellation-fixture", version: "1" } } }); return; } if (message.method === "tools/list") writeFileSync(${JSON.stringify(requestedMarker)}, "requested"); if (message.method === "notifications/cancelled") writeFileSync(${JSON.stringify(cancelledMarker)}, String(message.params.requestId)); }; process.stdin.on("data", (chunk) => { buffer = Buffer.concat([buffer, chunk]); while (buffer.length > 0) { const headerEnd = buffer.indexOf("\\r\\n\\r\\n"); if (/^content-length:/i.test(buffer.toString("ascii", 0, Math.min(buffer.length, 32)))) { if (headerEnd < 0) return; const match = buffer.subarray(0, headerEnd).toString("ascii").match(/content-length:\\s*(\\d+)/i); if (!match) return; const length = Number(match[1]); if (buffer.length < headerEnd + 4 + length) return; const body = buffer.subarray(headerEnd + 4, headerEnd + 4 + length); buffer = buffer.subarray(headerEnd + 4 + length); handle(JSON.parse(body.toString("utf8"))); continue; } const newline = buffer.indexOf(10); if (newline < 0) return; const line = buffer.subarray(0, newline).toString("utf8").trim(); buffer = buffer.subarray(newline + 1); if (line !== "") handle(JSON.parse(line)); } });`,
+      "utf8",
+    );
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(mcpClientPlugin, { servers: [{ id: "cancellation", command: [process.execPath, server], autoStart: false }] });
+    await namedTool(tools, "mcp_server_start").execute("call-1", { serverId: "cancellation" }, undefined, undefined, {} as never);
+    const controller = new AbortController();
+    let outcome: unknown;
+    const pending = namedTool(tools, "mcp_list_tools")
+      .execute("call-2", { serverId: "cancellation" }, controller.signal, undefined, {} as never)
+      .then(
+        (result) => {
+          outcome = result;
+        },
+        (error: unknown) => {
+          outcome = error;
+        },
+      );
+    await vi.waitFor(() => expect(existsSync(requestedMarker)).toBe(true));
+    controller.abort(new Error("test cancellation"));
+    try {
+      await vi.waitFor(() => expect(outcome).toBeInstanceOf(Error), { timeout: 500 });
+      if (!(outcome instanceof Error)) throw new Error("Expected MCP cancellation rejection");
+      expect(outcome.message).toMatch(/cancelled/iu);
+      await vi.waitFor(() => expect(existsSync(cancelledMarker)).toBe(true));
+    } finally {
+      await context.fiber.dispose();
+      await pending;
+    }
   });
 
   test("fetches bounded browser pages and blocks private targets by default", async () => {
@@ -1912,6 +4082,73 @@ describe("Pi domain plugins", () => {
     }
   });
 
+  test("rejects an oversized plugin radar response before reading its body", async () => {
+    const originalFetch = globalThis.fetch;
+    let bodyRead = false;
+    globalThis.fetch = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-length": String(1024 * 1024 + 1) }),
+        body: {
+          getReader() {
+            bodyRead = true;
+            throw new Error("oversized body was read");
+          },
+        },
+        text() {
+          bodyRead = true;
+          return Promise.reject(new Error("oversized body was read"));
+        },
+      } as unknown as Response);
+    try {
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(pluginRadarPlugin, { apiUrl: "https://api.github.test" });
+
+      await expect(namedTool(tools, "plugin_radar_search").execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/1 MiB limit/iu);
+      expect(bodyRead).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("times out plugin radar requests independently of caller cancellation", async () => {
+    const originalFetch = globalThis.fetch;
+    const caller = new AbortController();
+    globalThis.fetch = (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted === true) reject(signal.reason instanceof Error ? signal.reason : new Error("Plugin radar request aborted"));
+        else
+          signal?.addEventListener("abort", () => reject(signal.reason instanceof Error ? signal.reason : new Error("Plugin radar request aborted")), {
+            once: true,
+          });
+      });
+    vi.useFakeTimers();
+    try {
+      const { context } = await createContext();
+      const panels = new PiPluginUiRegistry();
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(pluginRadarPlugin, { apiUrl: "https://api.github.test", timeoutMs: 1_000 });
+      const pending = namedTool(tools, "plugin_radar_search").execute("call-1", {}, caller.signal, undefined, {} as never);
+      const timedOut = expect(pending).rejects.toThrow(/timed out after 1000 ms/iu);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      caller.abort(new Error("test fallback cancellation"));
+      await timedOut;
+    } finally {
+      caller.abort();
+      vi.useRealTimers();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("checks plugin manifests and patches without modifying repositories", async () => {
     const { context, cwd } = await createContext();
     const good = join(cwd, "dsh-good");
@@ -1947,6 +4184,79 @@ describe("Pi domain plugins", () => {
     expect(await readFile(join(good, "cordis.patch.yml"), "utf8")).toBe("- id: dsh-good\n  name: dsh-good\n");
   });
 
+  test("keeps plugin repository checks inside the current workspace", async () => {
+    const { context, cwd, agentDir } = await createContext();
+    const outside = join(agentDir, "dsh-outside");
+    await mkdir(join(outside, "src"), { recursive: true });
+    await writeFile(join(outside, "package.json"), JSON.stringify({ name: "dsh-outside", main: "dist/index.js" }), "utf8");
+    await symlink(outside, join(cwd, "dsh-linked"));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(pluginCheckPlugin, {});
+
+    await expect(
+      namedTool(tools, "plugin_check").execute("call-1", { action: "check", path: "dsh-linked" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/inside the current workspace/iu);
+  });
+
+  test("starts plugin repository checks with default configuration", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    let activationError: unknown;
+    try {
+      await context.plugin(pluginCheckPlugin);
+    } catch (error) {
+      activationError = error;
+    }
+    expect(activationError).toBeUndefined();
+    await expect(namedTool(tools, "plugin_check").execute("call-1", { action: "schema" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { verdict: "pass" },
+    });
+  });
+
+  test("bounds plugin source reads and reports oversized files as skipped", async () => {
+    const { context, cwd } = await createContext();
+    const repo = join(cwd, "dsh-large-source");
+    await mkdir(join(repo, "src"), { recursive: true });
+    await writeFile(join(repo, "package.json"), JSON.stringify({ name: "dsh-large-source", main: "dist/index.js", scripts: { build: "tsc" } }), "utf8");
+    await writeFile(join(repo, "cordis.patch.yml"), "- id: dsh-large-source\n", "utf8");
+    await writeFile(join(repo, "README.md"), "pi plugin --profile web add github:example/dsh-large-source\n", "utf8");
+    await writeFile(join(repo, "src", "oversized.ts"), Buffer.alloc(1024 * 1024 + 1, 0x20));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(pluginCheckPlugin);
+
+    const result = await namedTool(tools, "plugin_check").execute("call-1", { action: "check", path: "dsh-large-source" }, undefined, undefined, {} as never);
+    const details = result.details as PluginCheckReport;
+    expect(details.sourceScan).toEqual({ checked: 0, skipped: 1, truncated: false });
+    expect(details.warnings.some((warning) => warning.code === "source-scan-incomplete")).toBe(true);
+  });
+
+  test("rejects oversized plugin metadata files before parsing them", async () => {
+    const { context, cwd } = await createContext();
+    const repo = join(cwd, "dsh-large-manifest");
+    await mkdir(join(repo, "src"), { recursive: true });
+    await writeFile(
+      join(repo, "package.json"),
+      JSON.stringify({ name: "dsh-large-manifest", main: "dist/index.js", padding: "x".repeat(1024 * 1024) }),
+      "utf8",
+    );
+    await writeFile(join(repo, "cordis.patch.yml"), "- id: dsh-large-manifest\n", "utf8");
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(pluginCheckPlugin);
+
+    const result = await namedTool(tools, "plugin_check").execute("call-1", { action: "check", path: "dsh-large-manifest" }, undefined, undefined, {} as never);
+    const details = result.details as PluginCheckReport;
+    const manifestError = details.errors.find((error) => error.code === "no-manifest");
+    expect(manifestError?.message).toMatch(/1 MiB|large/iu);
+  });
+
   test("manages numbered annotations and renders a model-ready prompt block", async () => {
     const { context } = await createContext();
     const panels = new PiPluginUiRegistry();
@@ -1965,6 +4275,12 @@ describe("Pi domain plugins", () => {
     );
     expect(first.details).toMatchObject({ id: 1, quote: "Use the streaming transport", note: "Keep this behavior" });
     await tool.execute("add-2", { action: "add", quote: "Render Markdown with a library" }, undefined, undefined, {} as never);
+    await expect(tool.execute("empty-prompt", { action: "prompt", question: "   " }, undefined, undefined, {} as never)).rejects.toThrow(
+      /annotation question is required/iu,
+    );
+    await expect(tool.execute("long-prompt", { action: "prompt", question: "q".repeat(4_001) }, undefined, undefined, {} as never)).rejects.toThrow(
+      /annotation question.*4000/iu,
+    );
     const prompt = await tool.execute("prompt", { action: "prompt", question: "What should we change?" }, undefined, undefined, {} as never);
     const [firstBlock] = prompt.content;
     expect(firstBlock?.type).toBe("text");
@@ -1976,6 +4292,138 @@ describe("Pi domain plugins", () => {
     expect((await tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).details).toMatchObject({ count: 1 });
     await tool.execute("clear", { action: "clear" }, undefined, undefined, {} as never);
     expect((await panels.snapshot())[0]).toMatchObject({ data: { count: 0, annotations: [] } });
+  });
+
+  test("publishes annotation input bounds in the tool parameter schema", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(annotationPlugin);
+
+    expect(namedTool(tools, "annotation_manage").parameters).toMatchObject({
+      properties: {
+        quote: { maxLength: 4_000 },
+        note: { maxLength: 1_000 },
+        id: { type: "integer", minimum: 1 },
+        question: { maxLength: 4_000 },
+      },
+    });
+  });
+
+  test("rejects an unknown annotation action at the execution boundary", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(annotationPlugin);
+
+    await expect(namedTool(tools, "annotation_manage").execute("unknown", { action: "archive" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /unknown annotation action/iu,
+    );
+  });
+
+  test("does not expose mutable annotation state through an add result", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(annotationPlugin);
+    const tool = namedTool(tools, "annotation_manage");
+    const added = await tool.execute("add", { action: "add", quote: "Original" }, undefined, undefined, {} as never);
+    (added.details as { quote: string }).quote = "Mutated";
+
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { annotations: [{ quote: "Original" }] },
+    });
+  });
+
+  test("does not expose mutable annotation state through a list result", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(annotationPlugin);
+    const tool = namedTool(tools, "annotation_manage");
+    await tool.execute("add", { action: "add", quote: "Original", note: "Original note" }, undefined, undefined, {} as never);
+    const listed = await tool.execute("list", { action: "list" }, undefined, undefined, {} as never);
+    (listed.details as { annotations: Array<{ note: string }> }).annotations[0]!.note = "Mutated";
+
+    await expect(tool.execute("list-again", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { annotations: [{ note: "Original note" }] },
+    });
+  });
+
+  test("enforces annotation action preconditions and bounded collection capacity", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(annotationPlugin);
+    const tool = namedTool(tools, "annotation_manage");
+
+    await expect(tool.execute("empty-list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { count: 0, annotations: [] },
+    });
+    await expect(tool.execute("empty-prompt", { action: "prompt", question: "Question" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /add at least one annotation/iu,
+    );
+    await expect(tool.execute("missing-remove", { action: "remove" }, undefined, undefined, {} as never)).rejects.toThrow(/id is required/iu);
+    await expect(tool.execute("unknown-remove", { action: "remove", id: 1 }, undefined, undefined, {} as never)).rejects.toThrow(/not found/iu);
+    await expect(tool.execute("empty-quote", { action: "add", quote: "   " }, undefined, undefined, {} as never)).rejects.toThrow(/quote.*1-4000/iu);
+    await expect(tool.execute("long-quote", { action: "add", quote: "q".repeat(4_001) }, undefined, undefined, {} as never)).rejects.toThrow(/quote.*1-4000/iu);
+    await expect(tool.execute("long-note", { action: "add", quote: "Valid", note: "n".repeat(1_001) }, undefined, undefined, {} as never)).rejects.toThrow(
+      /note.*0-1000/iu,
+    );
+    for (let index = 1; index <= 50; index += 1) {
+      await tool.execute(`add-${index}`, { action: "add", quote: `Quote ${index}` }, undefined, undefined, {} as never);
+    }
+    await expect(tool.execute("over-capacity", { action: "add", quote: "One too many" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /at most 50 annotations/iu,
+    );
+    await tool.execute("remove", { action: "remove", id: 25 }, undefined, undefined, {} as never);
+    await expect(tool.execute("replacement", { action: "add", quote: "Replacement" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { id: 51 },
+    });
+  });
+
+  test("clears the last annotation prompt together with the collection", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(annotationPlugin);
+    const tool = namedTool(tools, "annotation_manage");
+    await tool.execute("add", { action: "add", quote: "Quote" }, undefined, undefined, {} as never);
+    await tool.execute("prompt", { action: "prompt", question: "Question" }, undefined, undefined, {} as never);
+    const beforeClear = (await panels.snapshot())[0];
+    if (beforeClear === undefined) throw new Error("annotation-panel was not registered");
+    expect(beforeClear.data).toMatchObject({ count: 1 });
+    expect(typeof (beforeClear.data as { lastPrompt?: string }).lastPrompt).toBe("string");
+
+    await tool.execute("clear", { action: "clear" }, undefined, undefined, {} as never);
+
+    const panel = (await panels.snapshot())[0];
+    if (panel === undefined) throw new Error("annotation-panel was not registered");
+    expect(panel.data).toMatchObject({ count: 0, annotations: [] });
+    expect((panel.data as { lastPrompt?: string }).lastPrompt).toBeUndefined();
+  });
+
+  test("unregisters the annotation tool and panel when its plugin context is disposed", async () => {
+    const { context } = await createContext();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(annotationPlugin);
+    expect(tools.snapshot().customTools.map((tool) => tool.name)).toEqual(["annotation_manage"]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "annotation-panel" }]);
+
+    await context.fiber.dispose();
+
+    expect(tools.snapshot().customTools).toEqual([]);
+    await expect(panels.snapshot()).resolves.toEqual([]);
   });
 
   test("persists completed session costs and exposes a daily budget report", async () => {
@@ -1998,7 +4446,6 @@ describe("Pi domain plugins", () => {
     context.provide("piRuntime", { session: { getSessionStats: () => sessionStats } } as never);
     await context.plugin(costMeterPlugin, { dailyBudget: 5 });
     context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false });
-    await new Promise((resolve) => setTimeout(resolve, 10));
     sessionStats = {
       ...sessionStats,
       assistantMessages: 3,
@@ -2007,7 +4454,6 @@ describe("Pi domain plugins", () => {
       cost: 2,
     };
     context.emit("pi/session-event", { type: "agent_end", messages: [], willRetry: false });
-    await new Promise((resolve) => setTimeout(resolve, 10));
     const tool = tools.snapshot().customTools.find((entry) => entry.name === "cost_report");
     if (tool === undefined) throw new Error("cost_report was not registered");
     const report = await tool.execute("report", {}, undefined, undefined, {} as never);
@@ -2017,6 +4463,130 @@ describe("Pi domain plugins", () => {
     if (panel === undefined) throw new Error("cost-meter-panel was not registered");
     expect((panel.data as { entries: unknown[] }).entries).toHaveLength(1);
     expect(await readFile(join(agentDir, "cost-meter.json"), "utf8")).toContain("session-1");
+  });
+
+  test("does not read cost history through a symbolic link", async () => {
+    const { context, cwd, agentDir } = await createContext();
+    const outside = join(cwd, "outside-costs.json");
+    await writeFile(
+      outside,
+      JSON.stringify({ version: 1, entries: [{ sessionId: "secret", cost: 99, tokens: 1, messages: 1, recordedAt: new Date().toISOString() }] }),
+      "utf8",
+    );
+    await symlink(outside, join(agentDir, "cost-meter.json"));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piRuntime", {
+      session: {
+        getSessionStats: () => ({
+          sessionFile: undefined,
+          sessionId: "current",
+          userMessages: 0,
+          assistantMessages: 0,
+          toolCalls: 0,
+          toolResults: 0,
+          totalMessages: 0,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          cost: 0,
+        }),
+      },
+    } as never);
+    await context.plugin(costMeterPlugin);
+
+    await expect(namedTool(tools, "cost_report").execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/symbolic link|regular file/iu);
+  });
+
+  test("rejects oversized cost history before parsing it", async () => {
+    const { context, agentDir } = await createContext();
+    await writeFile(join(agentDir, "cost-meter.json"), Buffer.alloc(4 * 1024 * 1024 + 1));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piRuntime", {
+      session: {
+        getSessionStats: () => ({
+          sessionFile: undefined,
+          sessionId: "current",
+          userMessages: 0,
+          assistantMessages: 0,
+          toolCalls: 0,
+          toolResults: 0,
+          totalMessages: 0,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          cost: 0,
+        }),
+      },
+    } as never);
+    await context.plugin(costMeterPlugin);
+
+    await expect(namedTool(tools, "cost_report").execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/4 MiB|size|limit/iu);
+  });
+
+  test("rolls back failed cost records and recovers the persistence queue", async () => {
+    const { context, agentDir } = await createContext();
+    const costPath = join(agentDir, "cost-meter.json");
+    await writeFile(costPath, JSON.stringify({ version: 1, entries: [] }), "utf8");
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    let sessionStats = {
+      sessionFile: undefined,
+      sessionId: "failed-session",
+      userMessages: 1,
+      assistantMessages: 1,
+      toolCalls: 0,
+      toolResults: 0,
+      totalMessages: 2,
+      tokens: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, total: 20 },
+      cost: 1,
+    };
+    context.provide("piRuntime", { session: { getSessionStats: () => sessionStats } } as never);
+    await context.plugin(costMeterPlugin);
+    const report = namedTool(tools, "cost_report");
+    await report.execute("load", {}, undefined, undefined, {} as never);
+    await rm(costPath);
+    await mkdir(costPath);
+
+    await expect(report.execute("call-1", { refresh: true }, undefined, undefined, {} as never)).rejects.toThrow();
+    await rm(costPath, { recursive: true });
+    sessionStats = { ...sessionStats, sessionId: "saved-session", cost: 2 };
+    await expect(report.execute("call-2", { refresh: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { entries: [{ sessionId: "saved-session" }] },
+    });
+    const persisted = JSON.parse(await readFile(costPath, "utf8")) as { entries: Array<{ sessionId: string }> };
+    expect(persisted.entries.map((entry) => entry.sessionId)).toEqual(["saved-session"]);
+    expect((await readdir(agentDir)).filter((name) => name.startsWith(".cost-meter.json.") && name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("rejects malformed cost entries instead of reporting partial data", async () => {
+    const { context, agentDir } = await createContext();
+    await writeFile(
+      join(agentDir, "cost-meter.json"),
+      JSON.stringify({ version: 1, entries: [{ sessionId: "partial", cost: 1, recordedAt: new Date().toISOString() }] }),
+      "utf8",
+    );
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piRuntime", {
+      session: {
+        getSessionStats: () => ({
+          sessionFile: undefined,
+          sessionId: "current",
+          userMessages: 0,
+          assistantMessages: 0,
+          toolCalls: 0,
+          toolResults: 0,
+          totalMessages: 0,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          cost: 0,
+        }),
+      },
+    } as never);
+    await context.plugin(costMeterPlugin);
+
+    await expect(namedTool(tools, "cost_report").execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/invalid entries/iu);
   });
 
   test("creates, diffs, lists, and safely restores a workspace savepoint", async () => {
@@ -2086,6 +4656,69 @@ describe("Pi domain plugins", () => {
     expect((await panels.snapshot())[0]).toMatchObject({ id: "skill-catalog-panel", data: { skillCount: 1, mcpCount: 1 } });
   });
 
+  test("rejects non-file skill catalog entries before reading them", async () => {
+    const { context, cwd } = await createContext();
+    const skillPath = join(cwd, ".pi", "skills", "directory-skill", "SKILL.md");
+    await mkdir(skillPath, { recursive: true });
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piResources", {
+      resourceLoader: {
+        getSkills: () => ({
+          skills: [
+            {
+              name: "directory-skill",
+              description: "Invalid directory entry",
+              filePath: skillPath,
+              baseDir: dirname(skillPath),
+              sourceInfo: { source: "test", scope: "project" },
+              disableModelInvocation: false,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    } as never);
+    context.provide("piMcp", { snapshot: () => ({ servers: [] }) });
+    await context.plugin(skillCatalogPlugin);
+
+    await expect(
+      namedTool(tools, "skill_catalog").execute("read", { action: "read", name: "directory-skill" }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/regular file/iu);
+  });
+
+  test("scans loaded skills through the bounded skill-guard plugin path", async () => {
+    const { context, cwd } = await createContext();
+    const skillPath = join(cwd, "oversized-skill.md");
+    await writeFile(skillPath, Buffer.alloc(128 * 1024 + 1, 0x20));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piResources", {
+      resourceLoader: {
+        getSkills: () => ({
+          skills: [
+            {
+              name: "oversized",
+              description: "Oversized fixture",
+              filePath: skillPath,
+              baseDir: cwd,
+              sourceInfo: { source: "test", scope: "project" },
+              disableModelInvocation: false,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    } as never);
+    await context.plugin(skillGuardPlugin);
+
+    await expect(namedTool(tools, "skill_guard_scan").execute("scan", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 1, review: 1, reports: [{ name: "oversized", findings: [{ code: "size_limit" }] }] },
+    });
+  });
+
   test("reports MCP server health and bridged tools through the console plugin", async () => {
     const { context, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
@@ -2144,7 +4777,29 @@ describe("Pi domain plugins", () => {
       {} as never,
     );
     expect(await readFile(patchPath, "utf8")).toContain("mcp-search");
-    expect(await readFile(`${patchPath}.bak`, "utf8")).toBe("");
+    expect(await readFile(`${patchPath}.bak`, "utf8")).toContain("mcp-docs");
     expect((await panels.snapshot())[0]).toMatchObject({ id: "mcp-panel", data: { servers: [{ id: "docs", toolCount: 1 }] } });
+  });
+
+  test("rejects oversized MCP patch files before reading or backing them up", async () => {
+    const { context, agentDir } = await createContext();
+    const patchPath = join(agentDir, "cordis.patch.yml");
+    await writeFile(patchPath, Buffer.alloc(2 * 1024 * 1024 + 1));
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piMcp", { snapshot: () => ({ servers: [] }) });
+    await context.plugin(mcpPanelPlugin, { patchPath });
+
+    await expect(
+      namedTool(tools, "mcp_panel").execute(
+        "apply",
+        { action: "apply", serverId: "docs", command: ["node", "server.js"], confirm: true },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/2 MiB|size|limit/iu);
+    await expect(stat(`${patchPath}.bak`)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

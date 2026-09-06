@@ -254,6 +254,82 @@ function pluginLoaded(services: ApiServices, packageName: string): boolean {
   return services.loader !== undefined && [...services.loader.entries()].some((entry) => entry.options.name === packageName && !entry.disabled);
 }
 
+const loggerPanelItemLimit = 40;
+const loggerPanelArgumentLimit = 16;
+const loggerPanelStringLimit = 2_048;
+const loggerPanelPropertyLimit = 32;
+const loggerPanelDepthLimit = 4;
+const loggerPanelNodeLimit = 256;
+
+function boundedLogText(value: unknown, limit: number, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  return value.length <= limit ? value : value.slice(0, limit) + "…";
+}
+
+function safeLogTimestamp(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  try {
+    return new Date(value).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+interface LogSanitizeState {
+  remaining: number;
+  readonly seen: WeakSet<object>;
+}
+
+function sanitizeLogValue(value: unknown, state: LogSanitizeState, depth = 0): unknown {
+  if (state.remaining <= 0) return "[Truncated]";
+  state.remaining -= 1;
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string") return boundedLogText(value, loggerPanelStringLimit, "");
+  if (typeof value === "number") return Number.isFinite(value) ? value : String(value);
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "undefined") return null;
+  if (typeof value === "function") return "[Function]";
+  if (typeof value === "symbol") return String(value);
+  if (typeof value !== "object") return Object.prototype.toString.call(value);
+  if (depth >= loggerPanelDepthLimit) return "[Max Depth]";
+  if (state.seen.has(value)) return "[Circular]";
+  state.seen.add(value);
+
+  try {
+    if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : "Invalid Date";
+    if (value instanceof Error)
+      return {
+        name: boundedLogText(value.name, 128, "Error"),
+        message: boundedLogText(value.message, loggerPanelStringLimit, ""),
+      };
+    if (Array.isArray(value)) {
+      const length = Math.min(value.length, loggerPanelArgumentLimit);
+      const output: unknown[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        output.push(descriptor === undefined ? null : "value" in descriptor ? sanitizeLogValue(descriptor.value, state, depth + 1) : "[Accessor]");
+      }
+      if (value.length > loggerPanelArgumentLimit) output.push(`[${value.length - loggerPanelArgumentLimit} more items]`);
+      return output;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Object.keys(descriptors).filter((key) => descriptors[key]?.enumerable === true);
+    const entries = keys.slice(0, loggerPanelPropertyLimit).map((key) => {
+      const descriptor = descriptors[key]!;
+      return [key, "value" in descriptor ? sanitizeLogValue(descriptor.value, state, depth + 1) : "[Accessor]"] as const;
+    });
+    if (keys.length > loggerPanelPropertyLimit) entries.push(["…", `${keys.length - loggerPanelPropertyLimit} more properties`]);
+    return Object.fromEntries(entries);
+  } catch {
+    return "[Unavailable]";
+  }
+}
+
+function sanitizeLogArguments(args: readonly unknown[]): unknown[] {
+  const sanitized = sanitizeLogValue(args, { remaining: loggerPanelNodeLimit, seen: new WeakSet<object>() });
+  return Array.isArray(sanitized) ? sanitized : [sanitized];
+}
+
 function registerPluginPanels(context: Context, services: ApiServices): () => void {
   if (services.pluginUi === undefined) return () => {};
   const disposers = [
@@ -264,15 +340,20 @@ function registerPluginPanels(context: Context, services: ApiServices): () => vo
       description: "查看最近的生命周期和运行时诊断输出。",
       icon: "▤",
       visible: () => pluginLoaded(services, "@deepseek-ai/cordis-plugin-logger-console"),
-      read: () => ({
-        total: context.logger.buffer.length,
-        items: context.logger.buffer.slice(-40).map((message) => ({
-          time: new Date(message.ts).toISOString(),
-          level: message.type,
-          source: message.name,
-          args: message.args,
-        })),
-      }),
+      read: () => {
+        const messages = context.logger.buffer.slice(-loggerPanelItemLimit);
+        return {
+          total: context.logger.buffer.length,
+          showing: messages.length,
+          bufferLimit: context.logger.bufferSize,
+          items: messages.map((message) => ({
+            time: safeLogTimestamp(message.ts),
+            level: boundedLogText(message.type, 32, "unknown"),
+            source: boundedLogText(message.name, 256, "runtime"),
+            args: sanitizeLogArguments(message.args),
+          })),
+        };
+      },
     }),
     services.pluginUi.register({
       id: "plugin-group-panel",

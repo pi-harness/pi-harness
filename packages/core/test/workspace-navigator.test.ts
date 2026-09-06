@@ -24,8 +24,18 @@ describe("workspace navigator", () => {
         ],
         directoryCount: 2,
         fileCount: 2,
-        truncated: false,
+        truncated: true,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not mark an empty directory beyond the depth limit as truncated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-navigator-"));
+    await mkdir(join(root, "one"));
+    try {
+      await expect(listWorkspaceNodes(root, { maxDepth: 1 })).resolves.toMatchObject({ truncated: false });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

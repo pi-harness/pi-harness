@@ -10,6 +10,8 @@ export class PiHarnessStdioCancelledError extends Error {
   }
 }
 
+export const MAX_STDIO_PROMPT_BYTES = 1_048_576;
+
 export interface PiHarnessStdio {
   readPrompt(): Promise<string>;
   writeOutput(text: string): void;
@@ -58,15 +60,111 @@ function promptFromArgs(args: readonly string[]): string | undefined {
 
 const PROMPT_CANCELLED_EXIT_CODE = 130;
 const TOOL_ARGUMENT_SUMMARY_LIMIT = 120;
+const TOOL_ARGUMENT_STRING_LIMIT = 512;
+const TOOL_ARGUMENT_PROPERTY_LIMIT = 16;
+const TOOL_ARGUMENT_DEPTH_LIMIT = 4;
+const TOOL_ARGUMENT_NODE_LIMIT = 64;
+const TOOL_NAME_LIMIT = 128;
+const DIAGNOSTIC_MESSAGE_LIMIT = 2_048;
+const SESSION_MESSAGE_SCAN_LIMIT = 10_000;
+
+type PreviewState = { remaining: number; readonly seen: WeakSet<object> };
+
+function dataProperty(value: unknown, key: PropertyKey): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function boundedLine(value: string, limit: number): string {
+  const prefix = value.length <= limit ? value : value.slice(0, limit - 1) + "…";
+  return prefix.replaceAll("\0", "�").replace(/\s+/gu, " ").trim();
+}
+
+function failureMessage(value: unknown, fallback: string): string {
+  const rawMessage = typeof value === "string" ? value : dataProperty(value, "message");
+  return typeof rawMessage === "string" ? boundedLine(rawMessage, DIAGNOSTIC_MESSAGE_LIMIT) || fallback : fallback;
+}
+
+function isPromptCancellation(value: unknown): boolean {
+  return dataProperty(value, "name") === "PiHarnessStdioCancelledError";
+}
+
+function signalIsAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function toolArgumentPreview(value: unknown, state: PreviewState, depth = 0): unknown {
+  if (state.remaining <= 0) return "[Truncated]";
+  state.remaining -= 1;
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string") return value.slice(0, TOOL_ARGUMENT_STRING_LIMIT);
+  if (typeof value === "number") return Number.isFinite(value) ? value : String(value);
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "undefined") return "[Undefined]";
+  if (typeof value === "function") return "[Function]";
+  if (typeof value === "symbol") return "[Symbol]";
+  if (typeof value !== "object") return "[Unknown]";
+  if (depth >= TOOL_ARGUMENT_DEPTH_LIMIT) return "[Max Depth]";
+  if (state.seen.has(value)) return "[Circular]";
+  state.seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const length = dataProperty(value, "length");
+      const arrayLength = typeof length === "number" && Number.isSafeInteger(length) && length >= 0 ? length : 0;
+      const output: unknown[] = [];
+      for (let index = 0; index < Math.min(arrayLength, TOOL_ARGUMENT_PROPERTY_LIMIT); index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        output.push(
+          descriptor === undefined ? null : "value" in descriptor ? toolArgumentPreview(descriptor.value as unknown, state, depth + 1) : "[Accessor]",
+        );
+      }
+      if (arrayLength > TOOL_ARGUMENT_PROPERTY_LIMIT) output.push(`[${arrayLength - TOOL_ARGUMENT_PROPERTY_LIMIT} more items]`);
+      return output;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value) as Record<string, PropertyDescriptor>;
+    const output: Record<string, unknown> = {};
+    let properties = 0;
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (key === "__proto__" || descriptor.enumerable !== true) continue;
+      if (properties >= TOOL_ARGUMENT_PROPERTY_LIMIT) {
+        output["…"] = "[More properties]";
+        break;
+      }
+      output[key.slice(0, TOOL_ARGUMENT_STRING_LIMIT)] =
+        "value" in descriptor ? toolArgumentPreview(descriptor.value as unknown, state, depth + 1) : "[Accessor]";
+      properties += 1;
+    }
+    return properties === 0 ? "[Object]" : output;
+  } catch {
+    return "[Unavailable]";
+  }
+}
+
+function findLastAssistantMessage(messages: unknown): unknown {
+  const length = dataProperty(messages, "length");
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) return undefined;
+  const firstIndex = Math.max(0, length - SESSION_MESSAGE_SCAN_LIMIT);
+  for (let index = length - 1; index >= firstIndex; index -= 1) {
+    const message = dataProperty(messages, String(index));
+    if (dataProperty(message, "role") === "assistant") return message;
+  }
+  return undefined;
+}
 
 function summarizeToolArguments(args: unknown): string {
   let text: string;
   try {
-    text = typeof args === "string" ? args : (JSON.stringify(args) ?? "");
+    const preview = toolArgumentPreview(args, { remaining: TOOL_ARGUMENT_NODE_LIMIT, seen: new WeakSet<object>() });
+    text = typeof preview === "string" ? preview : (JSON.stringify(preview) ?? "");
   } catch {
     return "";
   }
-  const line = text.replace(/\s+/g, " ").trim();
+  const line = text.replaceAll("\0", "�").replace(/\s+/g, " ").trim();
   return line.length > TOOL_ARGUMENT_SUMMARY_LIMIT ? `${line.slice(0, TOOL_ARGUMENT_SUMMARY_LIMIT)}...` : line;
 }
 
@@ -77,6 +175,7 @@ export class StdioApplication implements PiHarnessApplication {
   #running = false;
   #pendingSeparator = false;
   #wroteOutput = false;
+  #outputEndsWithNewline = false;
 
   constructor(runtime: PiRuntimeService, launch: PiHarnessLaunch, stdio: PiHarnessStdio) {
     this.#runtime = runtime;
@@ -86,43 +185,112 @@ export class StdioApplication implements PiHarnessApplication {
 
   writeSessionEvent(event: AgentSessionEvent): void {
     if (!this.#running) return;
-    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+    const eventType = dataProperty(event, "type");
+    const assistantEvent = eventType === "message_update" ? dataProperty(event, "assistantMessageEvent") : undefined;
+    if (dataProperty(assistantEvent, "type") === "text_delta") {
+      const delta = dataProperty(assistantEvent, "delta");
+      if (typeof delta !== "string" || delta === "") return;
       if (this.#pendingSeparator) {
         this.#pendingSeparator = false;
-        this.#stdio.writeOutput("\n");
+        if (!this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
       }
       this.#wroteOutput = true;
-      this.#stdio.writeOutput(event.assistantMessageEvent.delta);
+      this.#outputEndsWithNewline = delta.endsWith("\n");
+      this.#stdio.writeOutput(delta);
       return;
     }
-    if (event.type === "tool_execution_start") {
+    if (eventType === "tool_execution_start") {
+      const rawToolName = dataProperty(event, "toolName");
+      const toolName = typeof rawToolName === "string" ? boundedLine(rawToolName, TOOL_NAME_LIMIT) : "";
+      if (toolName === "") return;
       if (this.#wroteOutput) this.#pendingSeparator = true;
-      this.#stdio.writeError(`> ${event.toolName} ${summarizeToolArguments(event.args)}\n`);
+      this.#stdio.writeError(`> ${toolName} ${summarizeToolArguments(dataProperty(event, "args"))}\n`);
       return;
     }
-    if (event.type === "tool_execution_end") {
-      const result = event.result as { isError?: boolean } | undefined;
-      if (result?.isError === true) this.#stdio.writeError(`! ${event.toolName} failed\n`);
+    if (eventType === "tool_execution_end") {
+      const rawToolName = dataProperty(event, "toolName");
+      const toolName = typeof rawToolName === "string" ? boundedLine(rawToolName, TOOL_NAME_LIMIT) : "";
+      if (toolName !== "" && dataProperty(event, "isError") === true) this.#stdio.writeError(`! ${toolName} failed\n`);
       return;
     }
-    if (event.type === "auto_retry_start") this.#stdio.writeError(`Retrying after ${event.errorMessage} (attempt ${event.attempt}/${event.maxAttempts})\n`);
+    if (eventType === "auto_retry_start") {
+      const rawMessage = dataProperty(event, "errorMessage");
+      const message = typeof rawMessage === "string" ? boundedLine(rawMessage, DIAGNOSTIC_MESSAGE_LIMIT) : "";
+      const attempt = dataProperty(event, "attempt");
+      const maxAttempts = dataProperty(event, "maxAttempts");
+      if (
+        message !== "" &&
+        typeof attempt === "number" &&
+        Number.isSafeInteger(attempt) &&
+        attempt >= 1 &&
+        typeof maxAttempts === "number" &&
+        Number.isSafeInteger(maxAttempts) &&
+        maxAttempts >= attempt
+      )
+        this.#stdio.writeError(`Retrying after ${message} (attempt ${attempt}/${maxAttempts})\n`);
+    }
+  }
+
+  async #readPrompt(signal: AbortSignal | undefined): Promise<string> {
+    if (signal === undefined) return await this.#stdio.readPrompt();
+    if (signal.aborted) throw new PiHarnessStdioCancelledError();
+    let cancel: (() => void) | undefined;
+    const cancelled = new Promise<string>((_resolve, reject) => {
+      cancel = () => reject(new PiHarnessStdioCancelledError());
+      signal.addEventListener("abort", cancel, { once: true });
+    });
+    try {
+      return await Promise.race([this.#stdio.readPrompt(), cancelled]);
+    } finally {
+      if (cancel !== undefined) signal.removeEventListener("abort", cancel);
+    }
+  }
+
+  async #prompt(prompt: string, signal: AbortSignal | undefined): Promise<void> {
+    const request = this.#runtime.prompt(prompt);
+    if (signal === undefined) return await request;
+    if (signal.aborted) {
+      void request.catch(() => {});
+      throw new PiHarnessStdioCancelledError();
+    }
+    let cancel: (() => void) | undefined;
+    const cancelled = new Promise<void>((_resolve, reject) => {
+      cancel = () => reject(new PiHarnessStdioCancelledError());
+      signal.addEventListener("abort", cancel, { once: true });
+    });
+    try {
+      return await Promise.race([request, cancelled]);
+    } finally {
+      if (cancel !== undefined) signal.removeEventListener("abort", cancel);
+    }
   }
 
   async run(signal?: AbortSignal): Promise<number> {
     if (this.#running) throw new Error("stdio application is already running");
     this.#running = true;
+    this.#pendingSeparator = false;
+    this.#wroteOutput = false;
+    this.#outputEndsWithNewline = false;
     const onAbort = () => {
-      void this.#runtime.abort().catch(() => {});
+      try {
+        void this.#runtime.abort().catch(() => {});
+      } catch {
+        // The signal still cancels this surface even if the runtime abort hook is already unavailable.
+      }
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     try {
-      if (signal?.aborted === true) return PROMPT_CANCELLED_EXIT_CODE;
+      if (signalIsAborted(signal)) return PROMPT_CANCELLED_EXIT_CODE;
       let prompt: string;
       try {
-        prompt = promptFromArgs(this.#launch.args) ?? (await this.#stdio.readPrompt());
+        prompt = promptFromArgs(this.#launch.args) ?? (await this.#readPrompt(signal));
       } catch (error) {
-        if (error instanceof PiHarnessStdioCancelledError) return PROMPT_CANCELLED_EXIT_CODE;
-        this.#stdio.writeError(`${error instanceof Error ? error.message : String(error)}\n`);
+        if (isPromptCancellation(error)) return PROMPT_CANCELLED_EXIT_CODE;
+        this.#stdio.writeError(`${failureMessage(error, "Could not read prompt input")}\n`);
+        return 2;
+      }
+      if (Buffer.byteLength(prompt, "utf8") > MAX_STDIO_PROMPT_BYTES) {
+        this.#stdio.writeError(`Prompt must be at most ${MAX_STDIO_PROMPT_BYTES} UTF-8 bytes\n`);
         return 2;
       }
       if (prompt.trim().length === 0) {
@@ -130,30 +298,57 @@ export class StdioApplication implements PiHarnessApplication {
         return 2;
       }
       try {
-        await this.#runtime.prompt(prompt);
+        await this.#prompt(prompt, signal);
       } catch (error) {
-        this.#stdio.writeError(`${error instanceof Error ? error.message : String(error)}\n`);
+        if (signalIsAborted(signal)) {
+          if (this.#wroteOutput && !this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
+          return PROMPT_CANCELLED_EXIT_CODE;
+        }
+        this.#stdio.writeError(`${failureMessage(error, "Agent request failed")}\n`);
         return 1;
       }
-      const lastAssistantMessage = this.#runtime.session.messages.findLast((message) => message.role === "assistant");
-      const stopReason = lastAssistantMessage?.stopReason;
+      if (signalIsAborted(signal)) {
+        if (this.#wroteOutput && !this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
+        return PROMPT_CANCELLED_EXIT_CODE;
+      }
+      let lastAssistantMessage: unknown;
+      try {
+        lastAssistantMessage = findLastAssistantMessage(this.#runtime.session.messages);
+      } catch (error) {
+        if (this.#wroteOutput && !this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
+        this.#stdio.writeError(`${failureMessage(error, "Could not inspect final agent response")}\n`);
+        return 1;
+      }
+      if (lastAssistantMessage === undefined) {
+        if (this.#wroteOutput && !this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
+        this.#stdio.writeError("Could not determine the final assistant response\n");
+        return 1;
+      }
+      const stopReason = dataProperty(lastAssistantMessage, "stopReason");
+      if (stopReason !== "stop" && stopReason !== "error" && stopReason !== "aborted" && stopReason !== "length") {
+        if (this.#wroteOutput && !this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
+        this.#stdio.writeError("Could not determine the final assistant stop reason\n");
+        return 1;
+      }
       if (stopReason === "error" || stopReason === "aborted" || stopReason === "length") {
-        if (this.#wroteOutput) this.#stdio.writeOutput("\n");
-        this.#stdio.writeError(
-          `${lastAssistantMessage?.errorMessage ?? (stopReason === "length" ? "Response was truncated by the model's output limit" : `Request ${stopReason}`)}\n`,
-        );
+        if (this.#wroteOutput && !this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
+        const rawErrorMessage = dataProperty(lastAssistantMessage, "errorMessage");
+        const fallback = stopReason === "length" ? "Response was truncated by the model's output limit" : `Request ${stopReason}`;
+        const errorMessage = typeof rawErrorMessage === "string" ? boundedLine(rawErrorMessage, DIAGNOSTIC_MESSAGE_LIMIT) || fallback : fallback;
+        this.#stdio.writeError(`${errorMessage}\n`);
         return 1;
       }
       if (!this.#wroteOutput) {
         this.#stdio.writeError("The agent produced no output\n");
         return 1;
       }
-      this.#stdio.writeOutput("\n");
+      if (!this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
       return 0;
     } finally {
       signal?.removeEventListener("abort", onAbort);
       this.#running = false;
       this.#pendingSeparator = false;
+      this.#outputEndsWithNewline = false;
       await this.#stdio.flush?.();
     }
   }

@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig } from "../config.js";
 
 export type RuntimeDoctorCheckStatus = "ok" | "warning" | "error";
 export interface RuntimeDoctorCheck {
@@ -82,6 +83,7 @@ async function pathExists(path: string): Promise<boolean> {
 export default {
   name: "pi-runtime-doctor",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let extensionErrors = 0;
     const inspect = async (): Promise<RuntimeDoctorReport> => {
@@ -110,7 +112,8 @@ export default {
         label: "Runtime doctor",
         description: "Audit workspace, agent directory, model, runtime, MCP servers, and extension errors in one read-only report.",
         promptSnippet: "diagnose whether the Pi Harness runtime is ready",
-        parameters: Type.Object({}),
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(): Promise<AgentToolResult<RuntimeDoctorReport>> {
           const report = await inspect();
           return {

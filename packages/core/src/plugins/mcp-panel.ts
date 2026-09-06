@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { atomicWriteFile } from "../atomic-write.js";
+import { readBoundedTextFile } from "../bounded-file.js";
 import type { PiMcpServerSnapshot } from "../services.js";
 
 type McpPanelServer = Omit<PiMcpServerSnapshot, "command"> & { executable: string; toolCount: number; statusSource: "runtime" };
 type McpPanelHealth = { serverId: string; status: string; severity: "ok" | "warning"; suggestions: string[] };
+const maxPatchBytes = 2 * 1024 * 1024;
 
 export interface McpPanelPluginConfig {
   patchPath?: string;
@@ -95,17 +98,20 @@ export default {
         });
         if (metadata?.isSymbolicLink() || (metadata !== undefined && !metadata.isFile()))
           throw new Error("MCP profile patch target must be a regular file and cannot be a symbolic link");
-        const existing = metadata === undefined ? "" : await readFile(patchTarget, "utf8");
+        let existing = "";
+        if (metadata !== undefined) {
+          existing = await readBoundedTextFile(patchTarget, maxPatchBytes, "MCP profile patch");
+        }
         const rowPattern = new RegExp(`^- id: mcp-${serverId}\\s*$`, "mu");
         if (rowPattern.test(existing)) throw new Error(`MCP server patch already exists: ${serverId}`);
+        const next = `${existing.trimEnd()}${existing.trimEnd() === "" ? "" : "\n"}${fragment}`;
+        if (Buffer.byteLength(next, "utf8") > maxPatchBytes) throw new Error("MCP profile patch exceeds the 2 MiB output limit");
         const backup = `${patchTarget}.bak`;
-        await writeFile(backup, existing, { encoding: "utf8", mode: 0o600, flag: "wx" }).catch((error: unknown) => {
-          if (!(error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST")) throw error;
-        });
+        await atomicWriteFile(backup, existing, { encoding: "utf8", mode: 0o600 });
         const temporary = `${patchTarget}.${randomUUID()}.tmp`;
         let renamed = false;
         try {
-          await writeFile(temporary, `${existing.trimEnd()}${existing.trimEnd() === "" ? "" : "\n"}${fragment}`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+          await writeFile(temporary, next, { encoding: "utf8", mode: 0o600, flag: "wx" });
           await rename(temporary, patchTarget);
           renamed = true;
         } finally {
@@ -125,13 +131,17 @@ export default {
         label: "MCP panel",
         description: "Inspect MCP status and tools, derive health suggestions, and preview or explicitly apply a backed-up profile patch.",
         promptSnippet: "inspect MCP status or preview a server profile patch",
-        parameters: Type.Object({
-          action: Type.Union([Type.Literal("status"), Type.Literal("tools"), Type.Literal("health"), Type.Literal("preview"), Type.Literal("apply")]),
-          serverId: Type.Optional(Type.String({ description: "Configured or running MCP server id" })),
-          command: Type.Optional(Type.Array(Type.String(), { description: "MCP server executable and arguments" })),
-          autoStart: Type.Optional(Type.Boolean({ description: "Start the configured server with the runtime" })),
-          confirm: Type.Optional(Type.Boolean({ description: "Must be true before applying a patch" })),
-        }),
+        parameters: Type.Object(
+          {
+            action: Type.Union([Type.Literal("status"), Type.Literal("tools"), Type.Literal("health"), Type.Literal("preview"), Type.Literal("apply")]),
+            serverId: Type.Optional(Type.String({ description: "Configured or running MCP server id" })),
+            command: Type.Optional(Type.Array(Type.String(), { description: "MCP server executable and arguments" })),
+            autoStart: Type.Optional(Type.Boolean({ description: "Start the configured server with the runtime" })),
+            confirm: Type.Optional(Type.Boolean({ description: "Must be true before applying a patch" })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
           await Promise.resolve();
           const servers = snapshot();
@@ -174,14 +184,20 @@ export default {
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "mcp-panel",
-      pluginId: "@pi-harness/core/plugins/mcp-panel",
-      title: "MCP Console",
-      description: "查看 MCP 服务器状态、桥接工具和健康建议。",
-      icon: "⌘",
-      read: () => ({ servers: snapshot(), statusSource: "runtime", writesEnabled: patchTarget !== undefined, patchPath: patchTarget ?? null }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "mcp-panel",
+        pluginId: "@pi-harness/core/plugins/mcp-panel",
+        title: "MCP Console",
+        description: "查看 MCP 服务器状态、桥接工具和健康建议。",
+        icon: "⌘",
+        read: () => ({ servers: snapshot(), statusSource: "runtime", writesEnabled: patchTarget !== undefined, patchPath: patchTarget ?? null }),
+      });
+    } catch (error) {
+      unregister();
+      throw error;
+    }
     context.effect(() => () => {
       unregister();
       disposePanel();

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/fail-logger",
   "version": "0.1.12",
   "name": "Failure Logger",
-  "description": "Deduplicate extension and runtime failures into a bounded diagnostic panel without retaining full message payloads.",
+  "description": "Aggregate bounded extension, Agent, and non-aborted compaction failures through descriptor-safe event inspection, safe diagnostic summaries, and occurrence counts without retaining full payloads.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,15 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": ["error deduplication", "runtime diagnostics", "failure panel"],
-  "hooks": ["extension errors", "plugin UI"],
+  "capabilities": [
+    "bounded failure aggregation",
+    "descriptor-safe event inspection",
+    "abort-aware compaction diagnostics",
+    "occurrence counting",
+    "safe diagnostic summaries",
+    "capacity visibility"
+  ],
+  "hooks": ["extension error", "agent end", "compaction end", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/fail-logger",
     "config": {}

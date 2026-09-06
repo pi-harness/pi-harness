@@ -16,6 +16,22 @@ function tool(name: string, description: string) {
 }
 
 describe("PiToolRegistry", () => {
+  test.each(["", "   ", "bad tool", "tool\0hidden", "tool\nhidden", "x".repeat(129)])("rejects an unsafe or unbounded configured name: %j", (name) => {
+    expect(() => new PiToolRegistry([name])).toThrow(/tool name/iu);
+  });
+
+  test("rejects duplicate and unbounded configured inventories", () => {
+    expect(() => new PiToolRegistry(["read", "read"])).toThrow(/unique/iu);
+    expect(() => new PiToolRegistry(Array.from({ length: 257 }, (_, index) => `tool-${index}`))).toThrow(/tool names/iu);
+  });
+
+  test.each(["", "   ", "bad tool", "tool\0hidden", "tool\nhidden", "x".repeat(129)])("rejects an unsafe or unbounded custom tool name: %j", (name) => {
+    const registry = new PiToolRegistry();
+
+    expect(() => registry.register(tool(name, "invalid"))).toThrow(/tool name/iu);
+    expect(registry.snapshot().customTools).toEqual([]);
+  });
+
   test("a stale unregister does not evict a newer tool of the same name", () => {
     const registry = new PiToolRegistry([]);
     const first = tool("hello", "first");

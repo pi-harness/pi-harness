@@ -13,6 +13,7 @@ export class PiRuntime implements PiRuntimeService {
   readonly sessionRuntime: AgentSessionRuntime;
   #disposed = false;
   #sessionDisposed = false;
+  #disposePromise: Promise<void> | undefined;
 
   constructor(sessionRuntime: AgentSessionRuntime) {
     this.sessionRuntime = sessionRuntime;
@@ -32,9 +33,14 @@ export class PiRuntime implements PiRuntimeService {
     await this.session.abort();
   }
 
-  async dispose(): Promise<void> {
-    if (this.#disposed) return;
+  dispose(): Promise<void> {
+    if (this.#disposePromise !== undefined) return this.#disposePromise;
     this.#disposed = true;
+    this.#disposePromise = this.#disposeSession();
+    return this.#disposePromise;
+  }
+
+  async #disposeSession(): Promise<void> {
     try {
       // Settle an in-flight turn first so its tool results are persisted before session_shutdown runs.
       if (!this.session.isIdle) await this.session.abort();

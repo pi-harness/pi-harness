@@ -132,7 +132,8 @@ export default {
         label: "Check Mirage CLI",
         description: "Check whether the official Mirage virtual-terminal CLI is available and report its configured workspace.",
         promptSnippet: "check the official Mirage virtual terminal integration",
-        parameters: Type.Object({}),
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
         async execute(): Promise<AgentToolResult<MirageBridgeState>> {
           const details = await doctor();
           return {
@@ -155,21 +156,32 @@ export default {
         label: "Execute in Mirage",
         description: "Pass one command to the official Mirage virtual terminal in the configured virtual workspace.",
         promptSnippet: "run a command inside the configured Mirage virtual workspace",
-        parameters: Type.Object({ command: Type.String({ description: "Command interpreted by Mirage, not the host shell" }) }),
+        parameters: Type.Object(
+          { command: Type.String({ description: "Command interpreted by Mirage, not the host shell" }) },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<MirageRun>> {
           const details = await run(params.command);
           return { content: [{ type: "text", text: `Mirage exited with ${details.exitCode ?? "unknown"}.\n${details.output}` }], details };
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "mirage-bridge-panel",
-      pluginId: "@pi-harness/core/plugins/mirage-bridge",
-      title: "Mirage Bridge",
-      description: "连接官方 Mirage 虚拟终端，在配置的虚拟工作区中执行命令。",
-      icon: "◇",
-      read: () => ({ ...state, timeoutMs }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "mirage-bridge-panel",
+        pluginId: "@pi-harness/core/plugins/mirage-bridge",
+        title: "Mirage Bridge",
+        description: "连接官方 Mirage 虚拟终端，在配置的虚拟工作区中执行命令。",
+        icon: "◇",
+        read: () => ({ ...state, timeoutMs }),
+      });
+    } catch (error) {
+      unregisterDoctor();
+      unregisterExecute();
+      throw error;
+    }
     context.effect(() => () => {
       unregisterDoctor();
       unregisterExecute();

@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { lstat, mkdir, opendir, rmdir, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { atomicWriteFile } from "../atomic-write.js";
+import { readBoundedFile, readBoundedTextFile } from "../bounded-file.js";
 
 const defaultFileName = "graph-memory.json";
 const absoluteNodeLimit = 2_000;
@@ -14,8 +16,13 @@ const maxSummaryBytes = 16 * 1024;
 const maxSourceLength = 512;
 const maxQueryLength = 160;
 const maxFileBytes = 4 * 1024 * 1024;
+const maxSearchResults = 50;
 const lockRetryMs = 25;
 const lockTimeoutMs = 10_000;
+const staleLockMs = 30_000;
+const maxLockOwnerBytes = 1024;
+const nodeFields = new Set(["id", "kind", "label", "summary", "source", "createdAt", "updatedAt"]);
+const relationFields = new Set(["id", "from", "to", "relation", "createdAt"]);
 
 type NodeKind = "task" | "skill" | "event";
 type RelationKind = "USED_SKILL" | "SOLVED_BY" | "REQUIRES" | "PATCHES" | "CONFLICTS_WITH" | "RELATED_TO";
@@ -24,6 +31,80 @@ type GraphRelation = { id: string; from: string; to: string; relation: RelationK
 type GraphFile = { version: 1; nodes: GraphNode[]; relations: GraphRelation[] };
 type GraphSearchReport = { query: string; total: number; nodes: GraphNode[]; relations: GraphRelation[] };
 type GraphState = Pick<GraphFile, "nodes" | "relations">;
+type RecordParameters = { kind: NodeKind; label: string; summary: string; source?: string };
+type LinkParameters = { from: string; to: string; relation: RelationKind };
+type SearchParameters = { query: string; kind?: NodeKind; limit?: number };
+type ForgetParameters = { id: string; confirm: boolean };
+
+function cloneNode(node: GraphNode): GraphNode {
+  return { ...node };
+}
+
+function cloneRelation(relation: GraphRelation): GraphRelation {
+  return { ...relation };
+}
+
+function cloneSearchReport(report: GraphSearchReport): GraphSearchReport {
+  return { ...report, nodes: report.nodes.map(cloneNode), relations: report.relations.map(cloneRelation) };
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error("Graph memory operation was cancelled", { cause: signal.reason });
+}
+
+function rejectionError(error: unknown, message: string): Error {
+  return error instanceof Error ? error : new Error(message, { cause: error });
+}
+
+function withCancellation<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  try {
+    throwIfAborted(signal);
+  } catch (error) {
+    return Promise.reject(rejectionError(error, "Graph memory operation was cancelled"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      try {
+        throwIfAborted(signal);
+      } catch (error) {
+        reject(rejectionError(error, "Graph memory operation was cancelled"));
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void operation.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(rejectionError(error, "Graph memory operation failed"));
+      },
+    );
+  });
+}
+
+async function waitForLockRetry(signal: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, lockRetryMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      try {
+        throwIfAborted(signal);
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error("Graph memory operation was cancelled", { cause: error }));
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 export interface GraphMemoryPluginConfig {
   fileName?: string;
@@ -37,19 +118,79 @@ export const Config: z<GraphMemoryPluginConfig> = z.object({
   maxRelations: z.number().default(absoluteRelationLimit),
 });
 
+function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(maximum, Math.trunc(value))) : fallback;
+}
+
+function dataDescriptors(value: unknown, field: string, allowed: ReadonlySet<string>): Record<PropertyKey, PropertyDescriptor> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${field} must be an object`);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !allowed.has(key))) throw new Error(`${field} contains an unknown property`);
+  if (Object.values(descriptors).some((descriptor) => !("value" in descriptor))) throw new Error(`${field} must use data properties`);
+  return descriptors;
+}
+
+function recordParameters(value: unknown): RecordParameters {
+  const descriptors = dataDescriptors(value, "Graph memory record parameters", new Set(["kind", "label", "summary", "source"]));
+  const kind: unknown = descriptors.kind?.value;
+  const label: unknown = descriptors.label?.value;
+  const summary: unknown = descriptors.summary?.value;
+  const source: unknown = descriptors.source?.value;
+  if (!isNodeKind(kind)) throw new Error("Graph memory kind must be task, skill, or event");
+  if (typeof label !== "string") throw new Error("Graph memory label must be a string");
+  if (typeof summary !== "string") throw new Error("Graph memory summary must be a string");
+  if (source !== undefined && typeof source !== "string") throw new Error("Graph memory source must be a string");
+  return { kind, label, summary, ...(source === undefined ? {} : { source }) };
+}
+
+function linkParameters(value: unknown): LinkParameters {
+  const descriptors = dataDescriptors(value, "Graph memory link parameters", new Set(["from", "to", "relation"]));
+  const from: unknown = descriptors.from?.value;
+  const to: unknown = descriptors.to?.value;
+  const relation: unknown = descriptors.relation?.value;
+  if (typeof from !== "string") throw new Error("Graph memory link from must be a string");
+  if (typeof to !== "string") throw new Error("Graph memory link to must be a string");
+  if (!isRelationKind(relation)) throw new Error("Graph memory relation kind is invalid");
+  return { from, to, relation };
+}
+
+function searchParameters(value: unknown): SearchParameters {
+  const descriptors = dataDescriptors(value, "Graph memory search parameters", new Set(["query", "kind", "limit"]));
+  const query: unknown = descriptors.query?.value;
+  const kind: unknown = descriptors.kind?.value;
+  const limit: unknown = descriptors.limit?.value;
+  if (typeof query !== "string") throw new Error("Graph memory query must be a string");
+  if (kind !== undefined && !isNodeKind(kind)) throw new Error("Graph memory search kind must be task, skill, or event");
+  if (limit !== undefined && typeof limit !== "number") throw new Error("Graph memory search limit must be a number");
+  return { query, ...(kind === undefined ? {} : { kind }), ...(limit === undefined ? {} : { limit }) };
+}
+
+function forgetParameters(value: unknown): ForgetParameters {
+  const descriptors = dataDescriptors(value, "Graph memory forget parameters", new Set(["id", "confirm"]));
+  const id: unknown = descriptors.id?.value;
+  const confirm: unknown = descriptors.confirm?.value;
+  if (typeof id !== "string") throw new Error("Graph memory forget id must be a string");
+  if (typeof confirm !== "boolean") throw new Error("Graph memory forget confirm must be a boolean");
+  return { id, confirm };
+}
+
 function normalizeFilePath(agentDir: string, fileName: string | undefined): string {
   const name = (fileName ?? defaultFileName).trim();
-  if (name === "" || basename(name) !== name || !name.toLowerCase().endsWith(".json")) throw new Error("Graph memory fileName must be a single .json filename");
+  if (name.includes("\0")) throw new Error("Graph memory fileName must not contain NUL characters");
+  if (name === "" || name.includes("/") || name.includes("\\") || basename(name) !== name || !name.toLowerCase().endsWith(".json"))
+    throw new Error("Graph memory fileName must be a single .json filename");
   return resolve(agentDir, name);
 }
 
 function normalizeText(value: string, field: string, maxLength: number): string {
+  if (value.includes("\0")) throw new Error(`${field} must not contain NUL characters`);
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.length > maxLength) throw new Error(`${field} must contain 1-${maxLength} characters`);
   return normalized;
 }
 
 function normalizeSummary(value: string): string {
+  if (value.includes("\0")) throw new Error("Graph memory summary must not contain NUL characters");
   const normalized = value.trim();
   if (normalized === "" || Buffer.byteLength(normalized, "utf8") > maxSummaryBytes)
     throw new Error(`Graph memory summary must be non-empty and at most ${maxSummaryBytes} bytes`);
@@ -68,6 +209,7 @@ function isGraphNode(value: unknown): value is GraphNode {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const node = value as Record<string, unknown>;
   return (
+    Object.keys(node).every((key) => nodeFields.has(key)) &&
     typeof node.id === "string" &&
     node.id.length > 0 &&
     node.id.length <= maxLabelLength &&
@@ -91,6 +233,7 @@ function isGraphRelation(value: unknown): value is GraphRelation {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const relation = value as Record<string, unknown>;
   return (
+    Object.keys(relation).every((key) => relationFields.has(key)) &&
     typeof relation.id === "string" &&
     relation.id.length > 0 &&
     relation.id.length <= maxLabelLength &&
@@ -105,12 +248,11 @@ function isGraphRelation(value: unknown): value is GraphRelation {
 async function readGraphFile(filePath: string, nodeLimit: number, relationLimit: number): Promise<GraphState> {
   let raw: Buffer;
   try {
-    raw = await readFile(filePath);
+    raw = await readBoundedFile(filePath, maxFileBytes, "Graph memory file");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { nodes: [], relations: [] };
     throw error;
   }
-  if (raw.byteLength > maxFileBytes) throw new Error(`Graph memory file exceeds its ${maxFileBytes}-byte limit`);
   const parsed = JSON.parse(raw.toString("utf8")) as Partial<GraphFile>;
   if (parsed.version !== 1 || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.relations)) throw new Error("Graph memory file has an unsupported format");
   if (!parsed.nodes.every(isGraphNode)) throw new Error("Graph memory file contains invalid nodes");
@@ -130,24 +272,111 @@ async function readGraphFile(filePath: string, nodeLimit: number, relationLimit:
 
 async function writeGraphFile(filePath: string, state: GraphState): Promise<void> {
   const payload = JSON.stringify({ version: 1, ...state } satisfies GraphFile, null, 2);
+  const bytes = Buffer.byteLength(payload, "utf8");
+  if (bytes > maxFileBytes) throw new Error(`Graph memory file exceeds its ${maxFileBytes}-byte limit`);
   await mkdir(dirname(filePath), { recursive: true });
-  const temporary = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
-  await writeFile(temporary, payload, { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, filePath);
+  await atomicWriteFile(filePath, payload, { encoding: "utf8", mode: 0o600 });
 }
 
-async function acquireGraphLock(lockPath: string): Promise<() => Promise<void>> {
+function graphLockOwnerIsAlive(value: unknown): boolean | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const pid = (value as Record<string, unknown>).pid;
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : true;
+  }
+}
+
+function sameFile(left: Awaited<ReturnType<typeof lstat>>, right: Awaited<ReturnType<typeof lstat>>): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function reclaimStaleGraphLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
+  if (Date.now() - Number(lockMetadata.mtimeMs) <= staleLockMs) return false;
+  let directory;
+  try {
+    directory = await opendir(lockPath, { bufferSize: 1 });
+  } catch {
+    return false;
+  }
+  let ownerName: string | undefined;
+  try {
+    const owner = await directory.read();
+    const extra = await directory.read();
+    if (owner === null || extra !== null || !/^[a-z0-9-]{1,64}\.owner$/iu.test(owner.name)) return false;
+    ownerName = owner.name;
+  } finally {
+    await directory.close().catch(() => undefined);
+  }
+  const ownerPath = resolve(lockPath, ownerName);
+  let ownerMetadata;
+  try {
+    ownerMetadata = await lstat(ownerPath);
+    if (!ownerMetadata.isFile() || ownerMetadata.isSymbolicLink() || Date.now() - Number(ownerMetadata.mtimeMs) <= staleLockMs) return false;
+    const owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Graph memory lock owner")) as unknown;
+    if (graphLockOwnerIsAlive(owner) === true) return false;
+    const [currentLockMetadata, currentOwnerMetadata] = await Promise.all([lstat(lockPath), lstat(ownerPath)]);
+    if (!sameFile(lockMetadata, currentLockMetadata) || !sameFile(ownerMetadata, currentOwnerMetadata)) return false;
+    await unlink(ownerPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if (!(error instanceof SyntaxError)) return false;
+    const [currentLockMetadata, currentOwnerMetadata] = await Promise.all([lstat(lockPath), lstat(ownerPath)]).catch(() => []);
+    if (currentLockMetadata === undefined || currentOwnerMetadata === undefined) return false;
+    if (!sameFile(lockMetadata, currentLockMetadata) || ownerMetadata === undefined || !sameFile(ownerMetadata, currentOwnerMetadata)) return false;
+    await unlink(ownerPath).catch(() => undefined);
+  }
+  try {
+    await rmdir(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function acquireGraphLock(lockPath: string, signal: AbortSignal): Promise<() => Promise<void>> {
   const deadline = Date.now() + lockTimeoutMs;
   while (true) {
+    throwIfAborted(signal);
     try {
-      await mkdir(lockPath);
+      await mkdir(lockPath, { mode: 0o700 });
+      const token = randomUUID();
+      const ownerPath = resolve(lockPath, `${token}.owner`);
+      try {
+        await writeFile(ownerPath, JSON.stringify({ pid: process.pid, token }), { encoding: "utf8", mode: 0o600, flag: "wx" });
+      } catch (error) {
+        await rmdir(lockPath).catch(() => undefined);
+        throw new Error("Could not establish graph memory lock ownership", { cause: error });
+      }
       return async () => {
-        await rm(lockPath, { recursive: true, force: true });
+        try {
+          await unlink(ownerPath);
+        } catch (error) {
+          throw new Error("Graph memory lock ownership was lost before release", { cause: error });
+        }
+        try {
+          await rmdir(lockPath);
+        } catch (error) {
+          throw new Error("Could not safely release graph memory file lock", { cause: error });
+        }
       };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline)
-        throw new Error("Timed out waiting for graph memory file lock", { cause: error });
-      await new Promise<void>((resolve) => setTimeout(resolve, lockRetryMs));
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw new Error("Could not acquire graph memory file lock", { cause: error });
+      let metadata;
+      try {
+        metadata = await lstat(lockPath);
+      } catch (inspectionError) {
+        if ((inspectionError as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Error("Could not inspect graph memory file lock", { cause: inspectionError });
+      }
+      if (metadata.isSymbolicLink()) throw new Error("Graph memory file lock must not be a symbolic link", { cause: error });
+      if (!metadata.isDirectory()) throw new Error("Graph memory file lock must be a directory", { cause: error });
+      if (await reclaimStaleGraphLock(lockPath, metadata)) continue;
+      if (Date.now() >= deadline) throw new Error("Timed out waiting for graph memory file lock", { cause: error });
+      await waitForLockRetry(signal);
     }
   }
 }
@@ -158,44 +387,59 @@ export default {
   Config,
   apply(context: Context, config: GraphMemoryPluginConfig) {
     const filePath = normalizeFilePath(context.piHarnessLaunch.agentDir, config.fileName);
-    const nodeLimit = Math.max(1, Math.min(absoluteNodeLimit, Math.trunc(config.maxNodes ?? absoluteNodeLimit)));
-    const relationLimit = Math.max(1, Math.min(absoluteRelationLimit, Math.trunc(config.maxRelations ?? absoluteRelationLimit)));
+    const nodeLimit = boundedInteger(config.maxNodes, absoluteNodeLimit, absoluteNodeLimit);
+    const relationLimit = boundedInteger(config.maxRelations, absoluteRelationLimit, absoluteRelationLimit);
     let nodes: GraphNode[] = [];
     let relations: GraphRelation[] = [];
     let loaded = false;
     let loading: Promise<void> | undefined;
     let mutationQueue = Promise.resolve();
     let lastSearch: GraphSearchReport | undefined;
+    const lifecycle = new AbortController();
 
     const load = async (): Promise<void> => {
       if (loaded) return;
       if (loading !== undefined) return loading;
-      loading = (async () => {
+      const pending = (async () => {
         const state = await readGraphFile(filePath, nodeLimit, relationLimit);
         nodes = state.nodes;
         relations = state.relations;
         loaded = true;
       })();
-      return loading;
+      loading = pending;
+      try {
+        await pending;
+      } finally {
+        if (loading === pending) loading = undefined;
+      }
     };
 
-    const mutate = async <T>(operation: (state: GraphState) => T): Promise<T> => {
+    const mutate = async <T>(operation: (state: GraphState) => T, signal: AbortSignal): Promise<T> => {
+      throwIfAborted(signal);
       let result: T | undefined;
       const run = async (): Promise<void> => {
-        const release = await acquireGraphLock(`${filePath}.lock`);
+        throwIfAborted(signal);
+        const release = await acquireGraphLock(`${filePath}.lock`, signal);
         try {
           const state = await readGraphFile(filePath, nodeLimit, relationLimit);
+          throwIfAborted(signal);
           result = operation(state);
+          throwIfAborted(signal);
           await writeGraphFile(filePath, state);
           nodes = state.nodes;
           relations = state.relations;
           loaded = true;
+          lastSearch = undefined;
         } finally {
           await release();
         }
       };
-      mutationQueue = mutationQueue.catch(() => undefined).then(run);
-      await mutationQueue;
+      const scheduled = mutationQueue.catch(() => undefined).then(run);
+      mutationQueue = scheduled.then(
+        () => undefined,
+        () => undefined,
+      );
+      await withCancellation(scheduled, signal);
       return result as T;
     };
 
@@ -204,13 +448,20 @@ export default {
       label: "Record graph memory",
       description: "Persist or update one typed task, skill, or event node with explicit provenance in the local graph memory.",
       promptSnippet: "record durable typed knowledge in the local graph memory",
-      parameters: Type.Object({
-        kind: Type.Union([Type.Literal("task"), Type.Literal("skill"), Type.Literal("event")]),
-        label: Type.String(),
-        summary: Type.String(),
-        source: Type.Optional(Type.String()),
-      }),
-      async execute(_toolCallId, params): Promise<AgentToolResult<GraphNode>> {
+      parameters: Type.Object(
+        {
+          kind: Type.Union([Type.Literal("task"), Type.Literal("skill"), Type.Literal("event")]),
+          label: Type.String(),
+          summary: Type.String(),
+          source: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+      executionMode: "sequential",
+      async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<GraphNode>> {
+        const params = recordParameters(rawParams);
+        const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+        throwIfAborted(operationSignal);
         const label = normalizeText(params.label, "Graph memory label", maxLabelLength);
         const summary = normalizeSummary(params.summary);
         const source = params.source === undefined ? undefined : normalizeText(params.source, "Graph memory source", maxSourceLength);
@@ -224,8 +475,8 @@ export default {
               : { ...existing, label, summary, ...(source === undefined ? {} : { source }), updatedAt: now };
           state.nodes = [next, ...state.nodes.filter((candidate) => candidate.id !== next.id)];
           return next;
-        });
-        return { content: [{ type: "text", text: `Graph memory recorded: ${node.id} [${node.kind}] ${node.label}` }], details: node };
+        }, operationSignal);
+        return { content: [{ type: "text", text: `Graph memory recorded: ${node.id} [${node.kind}] ${node.label}` }], details: cloneNode(node) };
       },
     });
 
@@ -234,19 +485,26 @@ export default {
       label: "Link graph memories",
       description: "Create one typed directed relation between two existing graph-memory nodes.",
       promptSnippet: "link two graph memories with a typed relation",
-      parameters: Type.Object({
-        from: Type.String(),
-        to: Type.String(),
-        relation: Type.Union([
-          Type.Literal("USED_SKILL"),
-          Type.Literal("SOLVED_BY"),
-          Type.Literal("REQUIRES"),
-          Type.Literal("PATCHES"),
-          Type.Literal("CONFLICTS_WITH"),
-          Type.Literal("RELATED_TO"),
-        ]),
-      }),
-      async execute(_toolCallId, params): Promise<AgentToolResult<GraphRelation>> {
+      parameters: Type.Object(
+        {
+          from: Type.String(),
+          to: Type.String(),
+          relation: Type.Union([
+            Type.Literal("USED_SKILL"),
+            Type.Literal("SOLVED_BY"),
+            Type.Literal("REQUIRES"),
+            Type.Literal("PATCHES"),
+            Type.Literal("CONFLICTS_WITH"),
+            Type.Literal("RELATED_TO"),
+          ]),
+        },
+        { additionalProperties: false },
+      ),
+      executionMode: "sequential",
+      async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<GraphRelation>> {
+        const params = linkParameters(rawParams);
+        const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+        throwIfAborted(operationSignal);
         const from = normalizeText(params.from, "Graph relation source id", maxLabelLength);
         const to = normalizeText(params.to, "Graph relation target id", maxLabelLength);
         if (from === to) throw new Error("Graph memory relations require two different nodes");
@@ -259,10 +517,10 @@ export default {
           const next: GraphRelation = { id: randomUUID(), from, to, relation: params.relation, createdAt: new Date().toISOString() };
           state.relations = [next, ...state.relations];
           return next;
-        });
+        }, operationSignal);
         return {
           content: [{ type: "text", text: `Graph relation ${relation.id} ${relation.relation}: ${relation.from} → ${relation.to}` }],
-          details: relation,
+          details: cloneRelation(relation),
         };
       },
     });
@@ -272,17 +530,25 @@ export default {
       label: "Search graph memory",
       description: "Search typed graph-memory nodes by label, summary, provenance, kind, or connected relation.",
       promptSnippet: "search the local cross-session knowledge graph",
-      parameters: Type.Object({
-        query: Type.String(),
-        kind: Type.Optional(Type.Union([Type.Literal("task"), Type.Literal("skill"), Type.Literal("event")])),
-        limit: Type.Optional(Type.Number()),
-      }),
-      async execute(_toolCallId, params): Promise<AgentToolResult<GraphSearchReport>> {
+      parameters: Type.Object(
+        {
+          query: Type.String(),
+          kind: Type.Optional(Type.Union([Type.Literal("task"), Type.Literal("skill"), Type.Literal("event")])),
+          limit: Type.Optional(Type.Number()),
+        },
+        { additionalProperties: false },
+      ),
+      executionMode: "sequential",
+      async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<GraphSearchReport>> {
+        const params = searchParameters(rawParams);
+        const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+        throwIfAborted(operationSignal);
         await load();
+        throwIfAborted(operationSignal);
         const query = normalizeText(params.query, "Graph memory query", maxQueryLength);
         if (query.length < 2) throw new Error(`Graph memory query must contain 2-${maxQueryLength} characters`);
         const needle = query.toLocaleLowerCase();
-        const limit = Math.max(1, Math.min(50, Math.trunc(params.limit ?? 12)));
+        const limit = boundedInteger(params.limit, 12, maxSearchResults);
         const ranked = nodes
           .filter((node) => params.kind === undefined || node.kind === params.kind)
           .map((node) => {
@@ -309,7 +575,8 @@ export default {
         const matches = ranked.slice(0, limit).map((match) => match.node);
         const matchedIds = new Set(matches.map((node) => node.id));
         const matchedRelations = relations.filter((relation) => matchedIds.has(relation.from) || matchedIds.has(relation.to)).slice(0, limit * 4);
-        lastSearch = { query, total: ranked.length, nodes: matches, relations: matchedRelations };
+        const report = { query, total: ranked.length, nodes: matches.map(cloneNode), relations: matchedRelations.map(cloneRelation) };
+        lastSearch = cloneSearchReport(report);
         return {
           content: [
             {
@@ -320,7 +587,7 @@ export default {
                   : matches.map((node) => `${node.id} [${node.kind}] ${node.label}: ${node.summary}`).join("\n"),
             },
           ],
-          details: lastSearch,
+          details: cloneSearchReport(report),
         };
       },
     });
@@ -330,8 +597,12 @@ export default {
       label: "Forget graph memory",
       description: "Delete one graph-memory node and all incident relations after explicit confirmation.",
       promptSnippet: "forget a graph memory after confirmation",
-      parameters: Type.Object({ id: Type.String(), confirm: Type.Boolean() }),
-      async execute(_toolCallId, params): Promise<AgentToolResult<{ id: string; removed: boolean; removedRelations: number }>> {
+      parameters: Type.Object({ id: Type.String(), confirm: Type.Boolean() }, { additionalProperties: false }),
+      executionMode: "sequential",
+      async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ id: string; removed: boolean; removedRelations: number }>> {
+        const params = forgetParameters(rawParams);
+        const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+        throwIfAborted(operationSignal);
         const id = normalizeText(params.id, "Graph memory node id", maxLabelLength);
         if (params.confirm !== true) throw new Error("Deleting a graph memory requires confirm=true");
         const result = await mutate((state) => {
@@ -340,7 +611,7 @@ export default {
           state.nodes = state.nodes.filter((node) => node.id !== id);
           state.relations = state.relations.filter((relation) => relation.from !== id && relation.to !== id);
           return { id, removed: state.nodes.length !== beforeNodes, removedRelations: beforeRelations - state.relations.length };
-        });
+        }, operationSignal);
         return {
           content: [{ type: "text", text: result.removed ? `Graph memory deleted: ${id}` : `Graph memory not found: ${id}` }],
           details: result,
@@ -372,13 +643,14 @@ export default {
                 skill: nodes.filter((node) => node.kind === "skill").length,
                 event: nodes.filter((node) => node.kind === "event").length,
               },
-              recent: nodes.slice(0, 8),
+              recent: nodes.slice(0, 8).map(cloneNode),
               recentRelations: relations.slice(0, 8).map((relation) => ({
                 ...relation,
                 fromLabel: nodes.find((node) => node.id === relation.from)?.label ?? relation.from,
                 toLabel: nodes.find((node) => node.id === relation.to)?.label ?? relation.to,
               })),
-              lastSearch: lastSearch ?? null,
+              lastSearch: lastSearch === undefined ? null : cloneSearchReport(lastSearch),
+              limits: { nodes: nodeLimit, relations: relationLimit, fileBytes: maxFileBytes, searchResults: maxSearchResults },
             };
           },
         }),
@@ -388,6 +660,7 @@ export default {
       throw error;
     }
     context.effect(() => () => {
+      lifecycle.abort(new Error("Graph memory plugin disposed"));
       for (const dispose of disposers.reverse()) dispose();
     });
   },

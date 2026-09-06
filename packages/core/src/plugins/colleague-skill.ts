@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig } from "../config.js";
 
 const customType = "pi-harness/colleague-handoff";
-const maxTextLength = 4_000;
+const maxRoleLength = 128;
+const maxObjectiveLength = 4_000;
+const maxContextLength = 4_000;
+const maxListTextLength = 1_000;
+const maxFileLength = 4_096;
 const maxListItems = 20;
 
 export interface ColleagueHandoffInput {
@@ -26,58 +32,70 @@ export interface ColleagueHandoff {
   createdAt: string;
 }
 
-function boundedText(value: string | undefined, field: string): string {
-  const text = value?.trim() ?? "";
-  if (text.length > maxTextLength) throw new Error(`${field} must be ${maxTextLength} characters or fewer`);
+function boundedText(value: unknown, field: string, maximum: number, required = false): string {
+  if (value === undefined && !required) return "";
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  const text = value.trim();
+  if (required && text.length === 0) throw new Error(`${field} is required`);
+  if (text.length > maximum) throw new Error(`${field} must be ${maximum} characters or fewer`);
+  if (text.includes("\0")) throw new Error(`${field} must not contain null bytes`);
   return text;
 }
 
-function boundedList(values: string[] | undefined, field: string): string[] {
-  const list = values ?? [];
-  if (list.length > maxListItems) throw new Error(`${field} must contain ${maxListItems} items or fewer`);
-  return list.map((value) => boundedText(value, `${field} item`)).filter(Boolean);
+function boundedList(values: unknown, field: string, itemMaximum: number): string[] {
+  if (values === undefined) return [];
+  if (!Array.isArray(values)) throw new Error(`${field} must be an array`);
+  if (values.length > maxListItems) throw new Error(`${field} must contain ${maxListItems} items or fewer`);
+  return values.map((value) => boundedText(value, `${field} item`, itemMaximum, true));
 }
 
-export function createColleagueHandoff(input: ColleagueHandoffInput, id: string, createdAt: string): ColleagueHandoff {
-  const toRole = boundedText(input.toRole, "toRole");
-  const objective = boundedText(input.objective, "objective");
-  if (!toRole) throw new Error("toRole is required");
-  if (!objective) throw new Error("objective is required");
+export function createColleagueHandoff(input: unknown, id: string, createdAt: string): ColleagueHandoff {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("Handoff input must be an object");
+  const value = input as Record<string, unknown>;
+  const toRole = boundedText(value.toRole, "toRole", maxRoleLength, true);
+  const objective = boundedText(value.objective, "objective", maxObjectiveLength, true);
+  const validatedId = boundedText(id, "handoff id", 128, true);
+  const validatedCreatedAt = boundedText(createdAt, "createdAt", 64, true);
+  if (!Number.isFinite(Date.parse(validatedCreatedAt))) throw new Error("createdAt must be a valid timestamp");
   return {
-    id,
+    id: validatedId,
     toRole,
     objective,
-    context: boundedText(input.context, "context"),
-    constraints: boundedList(input.constraints, "constraints"),
-    files: boundedList(input.files, "files"),
-    acceptance: boundedList(input.acceptance, "acceptance"),
-    createdAt,
+    context: boundedText(value.context, "context", maxContextLength),
+    constraints: boundedList(value.constraints, "constraints", maxListTextLength),
+    files: boundedList(value.files, "files", maxFileLength),
+    acceptance: boundedList(value.acceptance, "acceptance", maxListTextLength),
+    createdAt: validatedCreatedAt,
   };
 }
 
 function readLatest(context: Context): ColleagueHandoff | undefined {
   const entries = context.piSession.manager.getEntries();
-  const entry = [...entries].reverse().find((item) => item.type === "custom" && item.customType === customType);
-  if (entry?.type !== "custom" || entry.data === undefined || entry.data === null || typeof entry.data !== "object") return undefined;
-  const value = entry.data as Partial<ColleagueHandoff>;
-  if (typeof value.id !== "string" || typeof value.toRole !== "string" || typeof value.objective !== "string" || typeof value.createdAt !== "string")
-    return undefined;
-  return {
-    id: value.id,
-    toRole: value.toRole,
-    objective: value.objective,
-    context: typeof value.context === "string" ? value.context : "",
-    constraints: Array.isArray(value.constraints) ? value.constraints.filter((item): item is string => typeof item === "string") : [],
-    files: Array.isArray(value.files) ? value.files.filter((item): item is string => typeof item === "string") : [],
-    acceptance: Array.isArray(value.acceptance) ? value.acceptance.filter((item): item is string => typeof item === "string") : [],
-    createdAt: value.createdAt,
-  };
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.type !== "custom" || entry.customType !== customType || entry.data === null || typeof entry.data !== "object") continue;
+    const value = entry.data as Record<string, unknown>;
+    if (typeof value.id !== "string" || typeof value.createdAt !== "string") continue;
+    try {
+      return createColleagueHandoff(value, value.id, value.createdAt);
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error("Colleague handoff was cancelled", { cause: signal.reason });
 }
 
 export default {
   name: "pi-colleague-skill",
   inject: ["piSession", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
+    const lifecycle = new AbortController();
     let latest = readLatest(context);
     const unregister = context.piTools.register(
       defineTool({
@@ -85,22 +103,28 @@ export default {
         label: "Colleague handoff",
         description: "Create a durable, structured handoff packet for another role without starting a hidden agent or sending external messages.",
         promptSnippet: "prepare a structured handoff for a colleague role",
-        parameters: Type.Object({
-          toRole: Type.String({ description: "Receiving role, for example reviewer or frontend" }),
-          objective: Type.String({ description: "The concrete outcome the colleague should deliver" }),
-          context: Type.Optional(Type.String()),
-          constraints: Type.Optional(Type.Array(Type.String())),
-          files: Type.Optional(Type.Array(Type.String())),
-          acceptance: Type.Optional(Type.Array(Type.String())),
-        }),
-        execute(_toolCallId, params): Promise<AgentToolResult<ColleagueHandoff>> {
+        parameters: Type.Object(
+          {
+            toRole: Type.String({ description: "Receiving role, for example reviewer or frontend", minLength: 1, maxLength: maxRoleLength }),
+            objective: Type.String({ description: "The concrete outcome the colleague should deliver", minLength: 1, maxLength: maxObjectiveLength }),
+            context: Type.Optional(Type.String({ maxLength: maxContextLength })),
+            constraints: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: maxListTextLength }), { maxItems: maxListItems })),
+            files: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: maxFileLength }), { maxItems: maxListItems })),
+            acceptance: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: maxListTextLength }), { maxItems: maxListItems })),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
+        execute(_toolCallId, params, signal): Promise<AgentToolResult<ColleagueHandoff>> {
           return Promise.resolve().then(() => {
-            const handoff = createColleagueHandoff(params, `handoff-${Date.now()}`, new Date().toISOString());
-            context.piSession.manager.appendCustomEntry(customType, handoff);
+            const actionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+            throwIfAborted(actionSignal);
+            const handoff = createColleagueHandoff(params, `handoff-${Date.now()}-${randomUUID().slice(0, 8)}`, new Date().toISOString());
+            context.piSession.manager.appendCustomEntry(customType, structuredClone(handoff));
             latest = handoff;
             return {
               content: [{ type: "text" as const, text: `Handoff ${handoff.id} prepared for ${handoff.toRole}.` }],
-              details: handoff,
+              details: structuredClone(handoff),
             };
           });
         },
@@ -112,9 +136,10 @@ export default {
       title: "Colleague Skill",
       description: "把任务、上下文、约束和验收条件整理成可追踪的角色交接包。",
       icon: "⇄",
-      read: () => ({ latest: latest ?? null }),
+      read: () => ({ latest: latest === undefined ? null : structuredClone(latest) }),
     });
     context.effect(() => () => {
+      lifecycle.abort(new Error("Colleague Skill plugin disposed"));
       unregister();
       disposePanel();
     });

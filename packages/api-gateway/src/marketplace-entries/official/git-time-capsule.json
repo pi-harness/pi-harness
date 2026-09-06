@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/git-time-capsule",
   "version": "0.1.12",
   "name": "Git Time Capsule",
-  "description": "Create lightweight Git savepoints before agent changes so a task can be reviewed or restored safely.",
+  "description": "Capture the current unstaged tracked Git diff as a byte-exact, validated undo capsule without external diff or textconv helpers, then reverse-apply it only after explicit confirmation.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,10 +13,17 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["git savepoint", "change recovery", "rollback"],
-  "hooks": ["Git repository", "explicit restore", "plugin UI"],
+  "capabilities": [
+    "byte-exact validated unstaged diff capture",
+    "exclusive no-clobber capsule publication",
+    "confirmed deterministic reverse apply",
+    "bounded 256-capsule inventory",
+    "cancellable serialized Git operations",
+    "descriptor-safe normalized panel"
+  ],
+  "hooks": ["Git snapshot tool", "Git restore tool", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/git-time-capsule",
-    "config": {}
+    "config": { "timeoutMs": 15000 }
   }
 }

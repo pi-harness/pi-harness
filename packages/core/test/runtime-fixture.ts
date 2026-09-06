@@ -10,7 +10,7 @@ import runtimePlugin from "../src/plugins/runtime.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 
-export async function createTestRuntimeContext(
+export async function createTestRuntimeServices(
   responses: FauxResponseStep[],
   toolNames: string[] = [],
   resourceOptions: { noExtensions: boolean; agentDir?: string } = { noExtensions: true },
@@ -41,6 +41,15 @@ export async function createTestRuntimeContext(
   context.provide("piModels", { runtime: modelRuntime, model });
   await context.plugin(sessionPlugin, { storage: "memory" });
   await context.plugin(toolsPlugin, { names: toolNames });
+  return { context, faux };
+}
+
+export async function createTestRuntimeContext(
+  responses: FauxResponseStep[],
+  toolNames: string[] = [],
+  resourceOptions: { noExtensions: boolean; agentDir?: string } = { noExtensions: true },
+): Promise<{ context: Context; faux: FauxProviderHandle }> {
+  const { context, faux } = await createTestRuntimeServices(responses, toolNames, resourceOptions);
   await context.plugin(runtimePlugin, { thinkingLevel: "off" });
   return { context, faux };
 }

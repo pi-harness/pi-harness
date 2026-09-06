@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, parseSessionEntries, SessionManager, type AgentToolResult, type SessionInfo } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig } from "../config.js";
 
 const maxSessions = 200;
 const maxSessionFileBytes = 4 * 1024 * 1024;
@@ -146,6 +147,7 @@ function renderReport(report: SessionCompareReport): string {
 export default {
   name: "pi-session-compare",
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
+  Config: EmptyConfig,
   apply(context: Context) {
     let latest: SessionCompareReport | undefined;
     const unregister = context.piTools.register(
@@ -154,10 +156,14 @@ export default {
         label: "Compare sessions",
         description: "Compare two persisted Pi JSONL sessions by message role and text without modifying either file.",
         promptSnippet: "compare two persisted Pi sessions",
-        parameters: Type.Object({
-          left: Type.String({ description: "Left session id or session filename" }),
-          right: Type.String({ description: "Right session id or session filename" }),
-        }),
+        parameters: Type.Object(
+          {
+            left: Type.String({ description: "Left session id or session filename" }),
+            right: Type.String({ description: "Right session id or session filename" }),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
         async execute(_toolCallId, params): Promise<AgentToolResult<SessionCompareReport>> {
           latest = await compareSessions(context, params.left, params.right);
           return { content: [{ type: "text", text: renderReport(latest) }], details: latest };

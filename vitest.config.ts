@@ -9,5 +9,7 @@ export default defineConfig({
   },
   test: {
     execArgv: ["--expose-internals"],
+    pool: "forks",
+    maxWorkers: 4,
   },
 });

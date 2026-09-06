@@ -2,13 +2,15 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { bootHarness, type BootedHarness } from "../src/boot.js";
 
 const booted: BootedHarness[] = [];
+const consoleLoggerEntry = import.meta.resolve("@deepseek-ai/cordis-plugin-logger-console");
 
 afterEach(async () => {
   await Promise.all(booted.splice(0).map(async (harness) => harness.dispose()));
+  vi.restoreAllMocks();
 });
 
 async function createProfile(entries: unknown[]): Promise<{ directory: string; profilePath: string }> {
@@ -117,6 +119,132 @@ describe("bootHarness", () => {
     );
 
     await expect(bootHarness({ configPath: profile.profilePath })).rejects.toThrow(/Duplicate loader entry id "shared"/);
+  });
+
+  test("accepts exactly 512 disabled profile entries and rejects the next one", async () => {
+    const exact = await createProfile(Array.from({ length: 512 }, (_, index) => ({ id: `entry-${index}`, name: "./disabled-fixture.mjs", disabled: true })));
+    const harness = await bootHarness({ configPath: exact.profilePath });
+    booted.push(harness);
+
+    const oversized = await createProfile(
+      Array.from({ length: 513 }, (_, index) => ({ id: `entry-${index}`, name: "./disabled-fixture.mjs", disabled: true })),
+    );
+    await expect(bootHarness({ configPath: oversized.profilePath })).rejects.toThrow(/512-entry limit/iu);
+  });
+
+  test("accepts 16 nested groups and rejects a seventeenth level", async () => {
+    const nested = (depth: number): unknown[] => {
+      let entry: Record<string, unknown> = { id: "leaf", name: "./disabled-fixture.mjs", disabled: true };
+      for (let index = 0; index < depth; index += 1) {
+        entry = { id: `group-${index}`, name: "cordis:group", group: true, config: [entry] };
+      }
+      return [entry];
+    };
+    const exact = await createProfile(nested(16));
+    const harness = await bootHarness({ configPath: exact.profilePath });
+    booted.push(harness);
+
+    const tooDeep = await createProfile(nested(17));
+    await expect(bootHarness({ configPath: tooDeep.profilePath })).rejects.toThrow(/16-level nesting limit/iu);
+  });
+
+  test("rejects malformed group entries before the external plugin runs", async () => {
+    const malformedGroup = await createProfile([{ id: "group", name: "cordis:group", group: true, config: {} }]);
+    await expect(bootHarness({ configPath: malformedGroup.profilePath })).rejects.toThrow(/group config must be an array/iu);
+
+    const malformedName = await createProfile([{ id: "entry", name: 7, disabled: true }]);
+    await expect(bootHarness({ configPath: malformedName.profilePath })).rejects.toThrow(/plugin name must be a non-empty string/iu);
+
+    const oversizedId = await createProfile([{ id: "x".repeat(129), name: "./disabled-fixture.mjs", disabled: true }]);
+    await expect(bootHarness({ configPath: oversizedId.profilePath })).rejects.toThrow(/entry id.*128/iu);
+  });
+
+  test("makes the console logger emit warnings with its safe default profile", async () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => {});
+    const profile = await createProfile([{ id: "logger", name: consoleLoggerEntry, config: {} }]);
+    const harness = await bootHarness({ configPath: profile.profilePath });
+    booted.push(harness);
+    output.mockClear();
+
+    harness.context.logger("audit").warn("warning diagnostic");
+
+    expect(output).toHaveBeenCalledOnce();
+    expect(output.mock.calls[0]?.[0]).toContain("warning diagnostic");
+  });
+
+  test("retains warnings and debug diagnostics in the bounded logger buffer", async () => {
+    const profile = await createProfile([]);
+    const harness = await bootHarness({ configPath: profile.profilePath });
+    booted.push(harness);
+    harness.context.logger.buffer = [];
+
+    const logger = harness.context.logger("audit");
+    logger.warn("warning diagnostic");
+    logger.debug("debug diagnostic");
+
+    expect(harness.context.logger.buffer.map((message) => message.type)).toEqual(["warn", "debug"]);
+  });
+
+  test("disposes the console logger without removing a later exporter", async () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => {});
+    const profile = await createProfile([]);
+    const collector = await createPlugin(
+      profile.directory,
+      "collector",
+      `export default function collector(ctx) {
+        const messages = [];
+        ctx.provide("fixtureLoggerMessages", messages);
+        ctx.logger.exporter({ levels: { default: 3 }, export(message) { messages.push(message.args[0]); } });
+      }`,
+    );
+    await writeFile(
+      profile.profilePath,
+      JSON.stringify([
+        { id: "logger", name: consoleLoggerEntry, config: {} },
+        { id: "collector", name: collector },
+      ]),
+      "utf8",
+    );
+    const harness = await bootHarness({ configPath: profile.profilePath });
+    booted.push(harness);
+    const messages = harness.context.get("fixtureLoggerMessages") as string[];
+    messages.length = 0;
+    output.mockClear();
+
+    const entry = [...harness.context.loader.entries()].find((item) => item.options.id === "logger");
+    await entry?.update({ disabled: true });
+    harness.context.logger("audit").info("after logger disposal");
+
+    expect(messages).toEqual(["after logger disposal"]);
+    expect(output).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["non-object config", []],
+    ["unknown option", { destination: "remote" }],
+    ["color level", { colors: 4 }],
+    ["line length", { maxLength: 0 }],
+    ["oversized line length", { maxLength: 65_537 }],
+    ["levels map", { levels: [] }],
+    ["levels count", { levels: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`logger-${index}`, 1])) }],
+    ["empty logger name", { levels: { "": 1 } }],
+    ["oversized logger name", { levels: { ["x".repeat(129)]: 1 } }],
+    ["logger level", { levels: { default: 4 } }],
+    ["diff flag", { showDiff: "yes" }],
+    ["timestamp template", { showTime: "x".repeat(65) }],
+    ["label object", { label: [] }],
+    ["unknown label option", { label: { color: "red" } }],
+    ["label width", { label: { width: 257 } }],
+    ["label margin", { label: { margin: -1 } }],
+    ["label alignment", { label: { align: "center" } }],
+  ])("rejects unsafe console logger %s before activation", async (_label, config) => {
+    const profile = await createProfile([{ id: "logger", name: consoleLoggerEntry, config }]);
+
+    await expect(
+      bootHarness({ configPath: profile.profilePath }).then((harness) => {
+        booted.push(harness);
+      }),
+    ).rejects.toThrow(/console logger config/iu);
   });
 
   test("forwards Cordis full-reload requests to the host", async () => {

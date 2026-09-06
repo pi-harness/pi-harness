@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/core/plugins/yaml-validator",
   "version": "0.1.12",
   "name": "YAML Validator",
-  "description": "Validate bounded YAML configuration files and return precise parse errors without rewriting the source.",
+  "description": "Validate workspace-contained UTF-8 multi-document YAML through bounded, cancellable reads and line-aware diagnostics.",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,8 +13,14 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": ["YAML validation", "config diagnostics", "parse errors"],
-  "hooks": ["workspace files", "plugin UI"],
+  "capabilities": [
+    "workspace-contained bounded reads",
+    "strict UTF-8 multi-document YAML",
+    "line-aware error and warning diagnostics",
+    "cancellable validation lifecycle",
+    "bounded panel previews"
+  ],
+  "hooks": ["YAML validation tool", "workspace files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/yaml-validator",
     "config": {}
