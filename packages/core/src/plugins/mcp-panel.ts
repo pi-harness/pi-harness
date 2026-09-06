@@ -8,6 +8,7 @@ import { defineTool, type AgentToolResult, type ToolDefinition } from "@earendil
 import { atomicWriteFile } from "../atomic-write.js";
 import { readBoundedTextFile } from "../bounded-file.js";
 import type { PiMcpServerSnapshot } from "../services.js";
+import { validateCommand as validateServerCommand } from "./mcp-client.js";
 
 type McpPanelServer = Omit<PiMcpServerSnapshot, "command"> & { executable: string; toolCount: number; statusSource: "runtime" };
 type McpPanelHealth = { serverId: string; status: string; severity: "ok" | "warning"; suggestions: string[] };
@@ -41,8 +42,10 @@ function validateServerId(serverId: string): string {
 }
 
 function validateCommand(command: readonly string[]): string[] {
-  if (command.length === 0 || command.length > 32 || command.some((part) => part.trim() === "" || part.length > 4096))
+  if (command.length === 0 || command.length > 32 || command.some((part) => part.trim() === ""))
     throw new Error("MCP command must contain 1-32 non-empty arguments");
+  // The loader validates the same field at activation, so a patch this panel writes must satisfy its argument and shell-wrapper rules or the next launch fails.
+  validateServerCommand(command);
   return [...command];
 }
 

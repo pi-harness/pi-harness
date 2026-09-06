@@ -45,8 +45,14 @@ const patterns: readonly GuardPattern[] = [
     severity: "high",
     score: 6,
     message: "检测到可能的 API key、token、密码或私钥内容。",
-    pattern:
-      /(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:api[_-]?key|password|secret|token)\s*[:=]\s*\S+)/u,
+    pattern: /(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)/u,
+  },
+  {
+    code: "credential_assignment",
+    severity: "high",
+    score: 6,
+    message: "检测到疑似凭据赋值，例如 API_KEY=、TOKEN= 或 password:。",
+    pattern: /(?:api[_-]?key|access[_-]?key|password|secret|token)\s*[:=]\s*\S+/iu,
   },
   {
     code: "remote_exfiltration",

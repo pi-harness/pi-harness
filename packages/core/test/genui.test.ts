@@ -115,6 +115,34 @@ describe("GenUI plugin", () => {
     ).rejects.toThrow(/total text.*16384/iu);
   });
 
+  test("enumerates block types and tones as literal schema members", async () => {
+    const { tools } = await setup();
+    const parameters = tool(tools).parameters as {
+      properties: { blocks: { items: { properties: { type: { anyOf: readonly unknown[] }; tone: { anyOf: readonly unknown[] } } } } };
+    };
+    const block = parameters.properties.blocks.items.properties;
+    // Raw strings inside anyOf are not schemas, so every member has to stay an object with a const for the enum to constrain anything.
+    for (const member of [...block.type.anyOf, ...block.tone.anyOf]) expect(typeof member).toBe("object");
+    expect(block.type.anyOf).toEqual([
+      { type: "string", const: "text" },
+      { type: "string", const: "badge" },
+      { type: "string", const: "progress" },
+    ]);
+    expect(block.tone.anyOf).toEqual([
+      { type: "string", const: "neutral" },
+      { type: "string", const: "info" },
+      { type: "string", const: "success" },
+      { type: "string", const: "warning" },
+      { type: "string", const: "danger" },
+    ]);
+    await expect(
+      tool(tools).execute("bad-type", { title: "t", blocks: [{ type: "video", label: "x", value: "y" }] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/block type/iu);
+    await expect(
+      tool(tools).execute("bad-tone", { title: "t", blocks: [{ type: "badge", label: "x", value: "y", tone: "rainbow" }] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/tone/iu);
+  });
+
   test("does not replace the last successful card when a later render is invalid", async () => {
     const { panels, tools } = await setup();
     const render = tool(tools);

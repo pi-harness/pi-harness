@@ -112,6 +112,19 @@ describe("memory", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { count: 0 } }]);
   });
 
+  test("reports the least recently written memory dropped at the entry limit", async () => {
+    const { set, search, panels } = await fixture({ fileName: "memory.json", maxEntries: 2 });
+    await set.execute("first", { key: "alpha", value: "one" }, undefined, undefined, {} as never);
+    await set.execute("second", { key: "beta", value: "two" }, undefined, undefined, {} as never);
+
+    await expect(set.execute("third", { key: "gamma", value: "three" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      content: [{ type: "text", text: "Memory saved: gamma (evicted alpha to stay within 2 entries)" }],
+      details: { key: "gamma", value: "three" },
+    });
+    await expect(search.execute("search", { query: "one" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 0 } });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { count: 2 } }]);
+  });
+
   test("fails closed on malformed persisted records and cleans up", async () => {
     const { root, context, tools, panels } = await fixture();
     await writeFile(join(root, "memory.json"), JSON.stringify({ version: 1, memories: [{ id: "x", key: "x", value: "ok", tags: [] }] }));

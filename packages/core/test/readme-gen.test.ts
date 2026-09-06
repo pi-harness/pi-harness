@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -333,6 +333,23 @@ describe("readme generator", () => {
         overwritten: true,
       });
       await expect(readFile(path, "utf8")).resolves.toBe("replacement\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the permissions of a README it regenerates and creates a new one owner-only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-readme-mode-"));
+    try {
+      const path = join(root, "README.md");
+      await writeFile(path, "original\n", "utf8");
+      await chmod(path, 0o644);
+
+      await writeReadmeFile(root, "replacement\n", "README.md", true, true);
+      await expect(stat(path).then((info) => info.mode & 0o777)).resolves.toBe(0o644);
+
+      await writeReadmeFile(root, "# Fresh\n", "docs/README.md", true);
+      await expect(stat(join(root, "docs/README.md")).then((info) => info.mode & 0o777)).resolves.toBe(0o600);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -14,6 +14,7 @@ const maxFiles = 2_000;
 const maxDirectories = 512;
 const maxDepth = 16;
 const maxResults = 100;
+const maxMatchTextLength = 500;
 const ignoredDirectories = new Set([".git", "node_modules", ".pi", "dist", "build"]);
 type SearchMatch = { path: string; line: number; text: string };
 type SearchReport = { query: string; path: string; matches: SearchMatch[]; matchCount: number; scannedFiles: number; skippedFiles: number; truncated: boolean };
@@ -28,7 +29,13 @@ export function isWorkspaceSearchPathInside(root: string, target: string, pathSe
 
 type WalkState = { files: string[]; directories: number };
 
-async function filesUnder(target: string, root: string, state: WalkState, depth = 0): Promise<boolean> {
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error("Workspace search was cancelled", { cause: signal.reason });
+}
+
+async function filesUnder(target: string, root: string, state: WalkState, signal: AbortSignal | undefined, depth = 0): Promise<boolean> {
+  throwIfAborted(signal);
   if (state.files.length >= maxFiles || state.directories >= maxDirectories || depth > maxDepth) return true;
   const metadata = await lstat(target);
   if (metadata.isSymbolicLink()) return false;
@@ -45,7 +52,7 @@ async function filesUnder(target: string, root: string, state: WalkState, depth 
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
     const child = resolve(target, entry.name);
     if (!isWorkspaceSearchPathInside(root, child)) continue;
-    if (await filesUnder(child, root, state, depth + 1)) return true;
+    if (await filesUnder(child, root, state, signal, depth + 1)) return true;
   }
   return false;
 }
@@ -61,7 +68,9 @@ export default {
       requestedPath: string | undefined,
       caseSensitive: boolean,
       requestedLimit: number | undefined,
+      signal: AbortSignal | undefined,
     ): Promise<SearchReport> => {
+      throwIfAborted(signal);
       const normalizedQuery = query.trim();
       if (normalizedQuery.length === 0 || normalizedQuery.length > maxQueryLength)
         throw new Error(`Workspace search query must contain 1-${maxQueryLength} characters`);
@@ -77,7 +86,7 @@ export default {
       const root = resolved.root;
       const target = resolved.target;
       const walkState: WalkState = { files: [], directories: 0 };
-      const filesTruncated = await filesUnder(target, root, walkState);
+      const filesTruncated = await filesUnder(target, root, walkState, signal);
       const files = walkState.files;
       const limit = Math.max(1, Math.min(maxResults, Math.trunc(requestedLimit ?? maxResults)));
       const needle = caseSensitive ? normalizedQuery : normalizedQuery.toLocaleLowerCase();
@@ -85,7 +94,9 @@ export default {
       let scannedFiles = 0;
       let skippedFiles = 0;
       let stoppedAtLimit = false;
+      let clippedText = false;
       for (const file of files) {
+        throwIfAborted(signal);
         if (matches.length >= limit) {
           stoppedAtLimit = true;
           break;
@@ -111,7 +122,10 @@ export default {
         const lines = source.split(/\r?\n/u);
         for (const [index, line] of lines.entries()) {
           if ((caseSensitive ? line : line.toLocaleLowerCase()).includes(needle)) {
-            matches.push({ path: relative(root, file), line: index + 1, text: line });
+            // A minified bundle or a single-line JSON document is one legitimate line of up to maxFileBytes, so each match text is clipped before it reaches the agent content and the panel state.
+            const clipped = line.length > maxMatchTextLength;
+            if (clipped) clippedText = true;
+            matches.push({ path: relative(root, file), line: index + 1, text: clipped ? `${line.slice(0, maxMatchTextLength)}…` : line });
             if (matches.length >= limit) {
               stoppedAtLimit = true;
               break;
@@ -126,7 +140,7 @@ export default {
         matchCount: matches.length,
         scannedFiles,
         skippedFiles,
-        truncated: filesTruncated || stoppedAtLimit,
+        truncated: filesTruncated || stoppedAtLimit || clippedText,
       };
       latest = report;
       return report;
@@ -147,8 +161,8 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<SearchReport>> {
-          const report = await search(params.query, params.path, params.caseSensitive === true, params.maxResults);
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<SearchReport>> {
+          const report = await search(params.query, params.path, params.caseSensitive === true, params.maxResults, signal);
           return {
             content: [{ type: "text", text: report.matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join("\n") || "No matches found." }],
             details: report,

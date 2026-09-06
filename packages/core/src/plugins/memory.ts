@@ -296,14 +296,19 @@ export default {
           const key = normalizeKey(params.key);
           const value = normalizeValue(params.value);
           const tags = normalizeTags(params.tags);
-          const memory = await mutate((current) => {
+          const saved = await mutate((current) => {
             const now = new Date().toISOString();
             const existing = current.find((item) => item.key === key);
             const next: Memory =
               existing === undefined ? { id: randomUUID(), key, value, tags, createdAt: now, updatedAt: now } : { ...existing, value, tags, updatedAt: now };
-            return { memories: [next, ...current.filter((item) => item.key !== key)].slice(0, entryLimit), result: next };
+            const ordered = [next, ...current.filter((item) => item.key !== key)];
+            return { memories: ordered.slice(0, entryLimit), result: { memory: next, evicted: ordered.slice(entryLimit).map((item) => item.key) } };
           });
-          return { content: [{ type: "text", text: `Memory saved: ${key}` }], details: memory };
+          const text =
+            saved.evicted.length === 0
+              ? `Memory saved: ${key}`
+              : `Memory saved: ${key} (evicted ${saved.evicted.join(", ")} to stay within ${entryLimit} entries)`;
+          return { content: [{ type: "text", text }], details: saved.memory };
         },
       }),
     );

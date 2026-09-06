@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -40,6 +40,28 @@ describe("Obsidian sync", () => {
     });
     await expect(readFile(join(vault, "notes/today.md"), "utf8")).resolves.toBe("# Today");
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { configured: true, last: { relativePath: "notes/today.md" } } }]);
+  });
+
+  test("replaces an existing note on a second call", async () => {
+    const { vault, tool } = await fixture();
+    await tool.execute("first", { relativePath: "notes/today.md", content: "# Original", confirm: true }, undefined, undefined, {} as never);
+    await expect(
+      tool.execute("second", { relativePath: "notes/today.md", content: "# Replaced", confirm: true }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { relativePath: "notes/today.md" } });
+    await expect(readFile(join(vault, "notes/today.md"), "utf8")).resolves.toBe("# Replaced");
+  });
+
+  test("keeps the permissions of a note it replaces and creates a new note owner-only", async () => {
+    const { vault, tool } = await fixture();
+    const path = join(vault, "notes/today.md");
+    await tool.execute("first", { relativePath: "notes/today.md", content: "# Original", confirm: true }, undefined, undefined, {} as never);
+    await expect(stat(path).then((info) => info.mode & 0o777)).resolves.toBe(0o600);
+    await chmod(path, 0o644);
+
+    await tool.execute("second", { relativePath: "notes/today.md", content: "# Replaced", confirm: true }, undefined, undefined, {} as never);
+
+    await expect(readFile(path, "utf8")).resolves.toBe("# Replaced");
+    await expect(stat(path).then((info) => info.mode & 0o777)).resolves.toBe(0o644);
   });
 
   test("rejects unconfirmed or escaping paths and cleans up", async () => {

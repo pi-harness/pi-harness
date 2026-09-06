@@ -129,6 +129,15 @@ async function scanTypeScriptSources(sourceDir: string): Promise<{ sources: stri
   return { sources, checked, skipped, truncated };
 }
 
+// Relative ESM specifiers must carry their emitted extension; a trailing dotted segment such as ".js" or ".json" is what marks them as complete.
+export function hasExtensionlessRelativeImport(source: string): boolean {
+  for (const match of source.matchAll(/from\s+["'](\.[^"']*)["']/gu)) {
+    const specifier = match[1];
+    if (specifier !== undefined && !/\.[a-z0-9]+$/iu.test(specifier)) return true;
+  }
+  return false;
+}
+
 async function checkRepository(path: string, strict: boolean): Promise<PluginCheckReport> {
   const root = resolve(path);
   const checks: Check[] = [];
@@ -207,7 +216,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
     const scan = await scanTypeScriptSources(sourceDir);
     sourceScan = { checked: scan.checked, skipped: scan.skipped, truncated: scan.truncated };
     const { sources } = scan;
-    if (sources.some((source) => /from\s+["'][.][^"']*["']/u.test(source)))
+    if (sources.some((source) => hasExtensionlessRelativeImport(source)))
       addIssue(checks, "missing-ts-ext-imports", "warning", "a TypeScript relative import omits its file extension");
     else checks.push({ code: "missing-ts-ext-imports", status: "passed", message: "relative imports include extensions or no source files were found" });
     if (scan.skipped > 0 || scan.truncated)
@@ -279,7 +288,7 @@ export default {
         promptSnippet: "check a Pi Harness plugin repository",
         parameters: Type.Object(
           {
-            action: Type.Union(["check", "scan", "schema"]),
+            action: Type.Union([Type.Literal("check"), Type.Literal("scan"), Type.Literal("schema")]),
             path: Type.Optional(Type.String({ description: "Repository path for check, parent directory for scan" })),
             strict: Type.Optional(Type.Boolean({ description: "Treat warnings as errors" })),
           },

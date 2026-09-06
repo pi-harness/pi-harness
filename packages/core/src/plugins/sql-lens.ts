@@ -1,5 +1,6 @@
+import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
-import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
@@ -34,6 +35,7 @@ const maxResultBytes = 1024 * 1024;
 const maxBlobPreviewBytes = 256;
 const maxPanelRows = 20;
 const maxErrorLength = 2_000;
+const maxWorkerOutputBytes = 2 * 1024 * 1024;
 const parameterNames = new Set(["database", "query"]);
 const unsafeUnicode = /[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/u;
 
@@ -152,8 +154,29 @@ function sqlParameters(value: unknown): SqlParameters {
   return { database, query: normalizedQuery };
 }
 
-function workerUrl(): URL {
-  return new URL(import.meta.url.endsWith(".ts") ? "./sql-lens-worker.ts" : "./sql-lens-worker.js", import.meta.url);
+function workerPath(): string {
+  return fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./sql-lens-worker.ts" : "./sql-lens-worker.js", import.meta.url));
+}
+
+function appendBounded(chunks: Buffer[], chunk: Buffer, current: number, maximum: number): number {
+  const remaining = Math.max(0, maximum + 1 - current);
+  if (remaining > 0) chunks.push(chunk.subarray(0, remaining));
+  return current + chunk.length;
+}
+
+function workerResponse(text: string): WorkerResponse {
+  const parsed: unknown = JSON.parse(text);
+  if (parsed === null || typeof parsed !== "object") throw new Error("SQL Lens worker returned a malformed response");
+  const response = parsed as { ok?: unknown; error?: unknown; report?: unknown };
+  if (response.ok !== true) return { ok: false, error: typeof response.error === "string" ? response.error : "SQL Lens worker failed" };
+  const report = response.report as { columns?: unknown; rows?: unknown; truncated?: unknown; scannedRows?: unknown } | null | undefined;
+  if (report === null || typeof report !== "object") throw new Error("SQL Lens worker returned a malformed report");
+  if (!Array.isArray(report.columns) || report.columns.some((column) => typeof column !== "string"))
+    throw new Error("SQL Lens worker returned malformed columns");
+  if (!Array.isArray(report.rows) || report.rows.some((row) => row === null || typeof row !== "object" || Array.isArray(row)))
+    throw new Error("SQL Lens worker returned malformed rows");
+  if (typeof report.truncated !== "boolean" || !Number.isSafeInteger(report.scannedRows)) throw new Error("SQL Lens worker returned a malformed report");
+  return { ok: true, report: report as Pick<SqlReport, "columns" | "rows" | "truncated" | "scannedRows"> };
 }
 
 async function inspectDatabaseFiles(database: string): Promise<Awaited<ReturnType<typeof lstat>>> {
@@ -180,8 +203,8 @@ function runSqlWorker(
   input: {
     database: string;
     query: string;
-    device: number | bigint;
-    inode: number | bigint;
+    device: string;
+    inode: string;
     limits: { databaseBytes: number; rows: number; columns: number; stringLength: number; resultBytes: number; blobPreviewBytes: number };
   },
   timeoutMs: number,
@@ -189,43 +212,63 @@ function runSqlWorker(
 ): Promise<Pick<SqlReport, "columns" | "rows" | "truncated" | "scannedRows">> {
   throwIfAborted(signal);
   return new Promise((resolve, reject) => {
-    const worker = new Worker(workerUrl(), { workerData: input });
-    let settled = false;
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
-      worker.removeAllListeners();
-    };
-    const fail = (error: unknown): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      void worker.terminate();
-      reject(rejectionError(error, "SQL Lens worker failed"));
+    // The query runs in a child process rather than a worker thread because node:sqlite exposes no interrupt handle: a step that has entered SQLite ignores terminate() and keeps a thread pinned inside the harness, while a separate process can be killed by the operating system.
+    const child = spawn(process.execPath, [workerPath()], { shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let pendingError: Error | undefined;
+    const stop = (error: unknown): void => {
+      pendingError ??= rejectionError(error, "SQL Lens worker failed");
+      // The read-only child has nothing to shut down in an orderly way, and any signal it would have to handle in JavaScript stays queued while the process is pinned inside a native SQLite step, so it is killed outright.
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     };
     const onAbort = (): void => {
       try {
         throwIfAborted(signal);
       } catch (error) {
-        fail(error);
+        stop(error);
       }
     };
-    const timer = setTimeout(() => fail(new Error(`SQL Lens query timed out after ${timeoutMs}ms`)), timeoutMs);
+    const timer = setTimeout(() => stop(new Error(`SQL Lens query timed out after ${timeoutMs}ms`)), timeoutMs);
     signal.addEventListener("abort", onAbort, { once: true });
-    worker.once("message", (message: WorkerResponse) => {
-      if (settled) return;
-      if (!message.ok) {
-        fail(new Error(message.error));
+    // A killed child breaks the request pipe; the close handler already reports why the query ended.
+    child.stdin.on("error", () => undefined);
+    child.stdin.end(JSON.stringify(input));
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes = appendBounded(stdout, chunk, stdoutBytes, maxWorkerOutputBytes);
+      if (stdoutBytes > maxWorkerOutputBytes) stop(new Error(`SQL Lens worker output exceeds the ${maxWorkerOutputBytes}-byte limit`));
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrBytes = appendBounded(stderr, chunk, stderrBytes, maxErrorLength);
+    });
+    child.once("error", (error) => {
+      pendingError ??= rejectionError(error, "SQL Lens worker failed to start");
+    });
+    child.once("close", (code, closeSignal) => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      if (pendingError !== undefined) {
+        reject(pendingError);
         return;
       }
-      settled = true;
-      cleanup();
-      resolve(message.report);
-    });
-    worker.once("error", fail);
-    worker.once("exit", (code) => {
-      if (code !== 0) fail(new Error(`SQL Lens worker exited with code ${code}`));
-      else if (!settled) fail(new Error("SQL Lens worker exited without a result"));
+      if (code !== 0) {
+        reject(new Error(`SQL Lens worker exited with ${closeSignal ?? `code ${code ?? "unknown"}`}: ${boundedError(Buffer.concat(stderr).toString("utf8"))}`));
+        return;
+      }
+      let response: WorkerResponse;
+      try {
+        response = workerResponse(Buffer.concat(stdout).toString("utf8"));
+      } catch (error) {
+        reject(rejectionError(error, "SQL Lens worker returned an unreadable result"));
+        return;
+      }
+      if (!response.ok) {
+        reject(new Error(response.error));
+        return;
+      }
+      resolve(response.report);
     });
   });
 }
@@ -274,8 +317,8 @@ export default {
                 {
                   database: resolved.target,
                   query: params.query,
-                  device: metadata.dev,
-                  inode: metadata.ino,
+                  device: String(metadata.dev),
+                  inode: String(metadata.ino),
                   limits: {
                     databaseBytes: maxDatabaseBytes,
                     rows: maxRows,

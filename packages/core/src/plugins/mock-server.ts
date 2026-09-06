@@ -5,11 +5,14 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 
 type MockRoute = { path: string; method?: string; status?: number; headers?: Record<string, string>; body?: string };
-type MockServerState = { running: boolean; url: string | null; routes: number; lastRequest: string | null };
+type MockServerState = { running: boolean; url: string | null; routes: number; lastRequest: string | null; lastError: string | null };
 
 const maxRoutes = 64;
 const maxBodyBytes = 128 * 1024;
 const allowedMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
+// Node rejects header names outside the HTTP token grammar and header values outside the latin-1 printable range plus tab, so both are checked at apply time instead of inside the request listener.
+const headerNamePattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u;
+const headerValuePattern = /^[\t\x20-\x7e\x80-\xff]*$/u;
 
 export interface MockServerPluginConfig {
   port?: number;
@@ -37,13 +40,26 @@ function normalizeRoutes(routes: MockRoute[]): MockRoute[] {
     if (!Number.isInteger(status) || status < 100 || status > 599) throw new Error("Mock route status must be an integer between 100 and 599");
     const body = route.body ?? "";
     if (Buffer.byteLength(body, "utf8") > maxBodyBytes) throw new Error(`Mock route body cannot exceed ${maxBodyBytes} bytes`);
-    const headers = Object.fromEntries(Object.entries(route.headers ?? {}).map(([name, value]) => [name, String(value)]));
+    const headers = Object.fromEntries(
+      Object.entries(route.headers ?? {}).map(([name, rawValue]) => {
+        const value = String(rawValue);
+        if (!headerNamePattern.test(name)) throw new Error(`Mock route header name must be an HTTP token: ${name}`);
+        if (!headerValuePattern.test(value)) throw new Error(`Mock route header value contains characters that are invalid in an HTTP header: ${name}`);
+        return [name, value];
+      }),
+    );
     return { path, method, status, headers, body };
   });
 }
 
 function routeKey(method: string, path: string): string {
   return `${method} ${path}`;
+}
+
+// Request-listener failures reach the panel as text, so control characters are folded out and the message is bounded before it is stored.
+function requestErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replaceAll(/[\p{Cc}\p{Cf}]/gu, " ").slice(0, 500) || "Mock route failed";
 }
 
 export default {
@@ -53,27 +69,40 @@ export default {
   apply(context: Context, config: MockServerPluginConfig) {
     const routes = normalizeRoutes(config.routes ?? []);
     let server: Server | undefined;
-    let state: MockServerState = { running: false, url: null, routes: routes.length, lastRequest: null };
+    let state: MockServerState = { running: false, url: null, routes: routes.length, lastRequest: null, lastError: null };
     const start = async (requestedPort?: number): Promise<MockServerState> => {
       if (server !== undefined) throw new Error("Mock server is already running");
       const port = requestedPort ?? config.port ?? 0;
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Mock server port must be an integer between 0 and 65535");
       const routeMap = new Map(routes.map((route) => [routeKey(route.method ?? "GET", route.path), route]));
       server = createServer((request: IncomingMessage, response: ServerResponse) => {
-        const method = (request.method ?? "GET").toUpperCase();
-        const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-        state = { ...state, lastRequest: routeKey(method, pathname) };
-        const route = routeMap.get(routeKey(method, pathname));
-        if (route === undefined) {
-          response.statusCode = 404;
-          response.setHeader("content-type", "text/plain; charset=utf-8");
-          response.end("Not found");
-          return;
+        // A throw inside the request listener would surface as an uncaught exception and take the whole host down, so every response failure is answered with a 500 instead.
+        try {
+          const method = (request.method ?? "GET").toUpperCase();
+          const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+          state = { ...state, lastRequest: routeKey(method, pathname), lastError: null };
+          const route = routeMap.get(routeKey(method, pathname));
+          if (route === undefined) {
+            response.statusCode = 404;
+            response.setHeader("content-type", "text/plain; charset=utf-8");
+            response.end("Not found");
+            return;
+          }
+          response.statusCode = route.status ?? 200;
+          for (const [name, value] of Object.entries(route.headers ?? {})) response.setHeader(name, value);
+          if (!response.hasHeader("content-type")) response.setHeader("content-type", "text/plain; charset=utf-8");
+          response.end(route.body ?? "");
+        } catch (error) {
+          // Header validation now runs at apply time, so this catch is the only place a runtime failure can surface; recording it on the state the panel reads is what keeps the 500 from being silent.
+          state = { ...state, lastError: requestErrorMessage(error) };
+          if (response.writableEnded) return;
+          if (!response.headersSent) {
+            response.statusCode = 500;
+            for (const name of response.getHeaderNames()) response.removeHeader(name);
+            response.setHeader("content-type", "text/plain; charset=utf-8");
+          }
+          response.end("Mock route failed");
         }
-        response.statusCode = route.status ?? 200;
-        for (const [name, value] of Object.entries(route.headers ?? {})) response.setHeader(name, value);
-        if (!response.hasHeader("content-type")) response.setHeader("content-type", "text/plain; charset=utf-8");
-        response.end(route.body ?? "");
       });
       try {
         await new Promise<void>((resolve, reject) => {

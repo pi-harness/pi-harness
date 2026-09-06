@@ -25,6 +25,18 @@ async function fixture() {
   return { root, context, tools, panels, tool };
 }
 
+function signalAbortingOnCheck(index: number): AbortSignal {
+  const reason = new Error("workspace search aborted");
+  let checks = 0;
+  return {
+    reason,
+    get aborted() {
+      checks += 1;
+      return checks >= index;
+    },
+  } as unknown as AbortSignal;
+}
+
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
 });
@@ -92,6 +104,37 @@ describe("workspace search", () => {
       details: { matchCount: 0, scannedFiles: 2_000, truncated: true },
     });
   }, 15_000);
+
+  test("clips an oversize matched line before it reaches the agent content", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "bundle.min.js"), `needle${"a".repeat(200_000)}\n`);
+    const result = (await tool.execute("clip", { query: "needle" }, undefined, undefined, {} as never)) as {
+      content: { text: string }[];
+      details: { matches: { text: string }[]; truncated: boolean };
+    };
+    expect(result.details.matches[0]?.text).toHaveLength(501);
+    expect(result.details.matches[0]?.text.endsWith("…")).toBe(true);
+    expect(result.details.truncated).toBe(true);
+    expect(result.content[0]?.text.length).toBeLessThan(1_000);
+  });
+
+  test("stops the directory walk when the caller aborts after the scan started", async () => {
+    const { root, tool } = await fixture();
+    await mkdir(join(root, "empty"));
+    const controller = new AbortController();
+    // search() runs its pre-flight abort check synchronously, so execute() has already returned a promise parked on the workspace path resolution by the time abort() lands here. Targeting an empty directory leaves the walk with no file to scan afterwards, which makes the check inside filesUnder the only one that can observe this abort.
+    const pending = tool.execute("walk", { query: "hello", path: "empty" }, controller.signal, undefined, {} as never);
+    controller.abort(new Error("workspace search aborted"));
+    await expect(pending).rejects.toThrow(/workspace search aborted/iu);
+  });
+
+  test("stops the file scan when the abort lands after the directory walk", async () => {
+    const { tool } = await fixture();
+    // throwIfAborted only reads `aborted` and `reason`, so counting those reads places the abort on a chosen check deterministically. Scanning a single file checks in this order: the pre-flight check in search(), the check in filesUnder(), then the check guarding the file in the scan loop.
+    await expect(tool.execute("scan", { query: "hello", path: "one.txt" }, signalAbortingOnCheck(3), undefined, {} as never)).rejects.toThrow(
+      /workspace search aborted/iu,
+    );
+  });
 
   test("rejects unknown plugin configuration before activation", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-search-config-"));

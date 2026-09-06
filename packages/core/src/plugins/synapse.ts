@@ -7,6 +7,7 @@ import { assertKnownConfigKeys } from "../config.js";
 const defaultMaxSessions = 500;
 const maxAllowedSessions = 2_000;
 const maxLabelLength = 120;
+const graphCacheTtlMs = 5_000;
 
 export interface SynapsePluginConfig {
   maxSessions?: number;
@@ -93,12 +94,29 @@ export default {
     const maxSessions = Math.max(1, Math.min(maxAllowedSessions, Math.trunc(config.maxSessions ?? defaultMaxSessions)));
     let graph: SynapseGraph = { nodes: [], edges: [], orphanCount: 0 };
     let refreshes = 0;
+    let scannedAt: number | undefined;
+    let inFlight: Promise<SynapseGraph> | undefined;
 
-    const refresh = async (): Promise<SynapseGraph> => {
+    const scan = async (): Promise<SynapseGraph> => {
       const sessions = await SessionManager.list(context.piHarnessLaunch.cwd, context.piSession.manager.getSessionDir());
       graph = buildSynapseGraph(sessions.slice(0, maxSessions), context.piSession.manager.getSessionFile());
-      refreshes += 1;
+      scannedAt = Date.now();
       return graph;
+    };
+
+    const refresh = (): Promise<SynapseGraph> => {
+      if (inFlight !== undefined) return inFlight;
+      const current = scan().finally(() => {
+        if (inFlight === current) inFlight = undefined;
+      });
+      inFlight = current;
+      return current;
+    };
+
+    // Panel polls arrive on every runtime event, so they reuse a recent scan instead of re-parsing every session file of the workspace; the explicit tool always rescans.
+    const readGraph = (): Promise<SynapseGraph> => {
+      if (scannedAt !== undefined && Date.now() - scannedAt < graphCacheTtlMs) return Promise.resolve(graph);
+      return refresh();
     };
 
     const refreshTool = context.piTools.register(
@@ -111,6 +129,8 @@ export default {
         executionMode: "sequential",
         async execute(): Promise<AgentToolResult<SynapseGraph>> {
           const next = await refresh();
+          // The panel reports how many times this tool was asked for a map; background polls reuse the same scan and must not inflate it.
+          refreshes = Math.min(Number.MAX_SAFE_INTEGER, refreshes + 1);
           return { content: [{ type: "text", text: `Synapse mapped ${next.nodes.length} session(s) and ${next.edges.length} fork edge(s).` }], details: next };
         },
       }),
@@ -123,7 +143,7 @@ export default {
         title: "Synapse",
         description: "将当前工作区的原生 Pi 会话与 fork 关系投影成可浏览地图。",
         icon: "⌘",
-        read: async () => ({ ...(await refresh()), refreshes }),
+        read: async () => ({ ...(await readGraph()), refreshes }),
       });
     } catch (error) {
       refreshTool();
