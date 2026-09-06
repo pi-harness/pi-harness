@@ -1,7 +1,7 @@
 {
   "id": "graph-memory",
   "packageName": "@pi-harness/core/plugins/graph-memory",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "name": "Graph Memory",
   "description": "Store bounded typed task, skill, and event nodes with validated directed relations, atomic locked persistence, and inspectable cross-session search.",
   "author": "Pi Harness",
@@ -13,8 +13,17 @@
     "id": "memory",
     "label": "记忆与上下文"
   },
-  "capabilities": ["bounded typed nodes", "validated directed relations", "ranked graph search", "atomic locked persistence"],
-  "hooks": ["graph memory tools", "local graph file", "plugin UI"],
+  "capabilities": [
+    "bounded typed nodes",
+    "validated directed relations",
+    "ranked graph search",
+    "atomic locked persistence"
+  ],
+  "hooks": [
+    "graph memory tools",
+    "local graph file",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/graph-memory",
     "config": {

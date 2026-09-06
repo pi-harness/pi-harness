@@ -1,7 +1,7 @@
 {
   "id": "undo-savepoint",
   "packageName": "@pi-harness/core/plugins/undo-savepoint",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "name": "Undo Savepoints",
   "description": "Create inspectable savepoints before agent changes so the workspace can be restored safely.",
   "author": "Pi Harness",
@@ -13,8 +13,14 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["savepoint", "recovery"],
-  "hooks": ["tool execution", "plugin UI"],
+  "capabilities": [
+    "savepoint",
+    "recovery"
+  ],
+  "hooks": [
+    "tool execution",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/undo-savepoint",
     "config": {}

@@ -1,7 +1,7 @@
 {
   "id": "obsidian-sync",
   "packageName": "@pi-harness/core/plugins/obsidian-sync",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "name": "Obsidian Sync",
   "description": "Write explicitly requested session notes to a bounded Obsidian vault path without reading unrelated vault files.",
   "author": "Pi Harness",
@@ -13,8 +13,15 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["Obsidian notes", "session export", "knowledge capture"],
-  "hooks": ["vault path", "plugin UI"],
+  "capabilities": [
+    "Obsidian notes",
+    "session export",
+    "knowledge capture"
+  ],
+  "hooks": [
+    "vault path",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/obsidian-sync",
     "config": {}

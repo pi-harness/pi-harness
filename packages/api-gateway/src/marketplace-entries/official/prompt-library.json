@@ -1,7 +1,7 @@
 {
   "id": "prompt-library",
   "packageName": "@pi-harness/core/plugins/prompt-library",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "name": "Prompt Library",
   "description": "Save, search, update, and delete reusable prompt templates in the current Pi session.",
   "author": "Pi Harness",
@@ -13,8 +13,16 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["prompt templates", "tagged prompts", "session persistence"],
-  "hooks": ["session storage", "bounded input", "plugin UI"],
+  "capabilities": [
+    "prompt templates",
+    "tagged prompts",
+    "session persistence"
+  ],
+  "hooks": [
+    "session storage",
+    "bounded input",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/prompt-library",
     "config": {}

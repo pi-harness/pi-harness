@@ -1,7 +1,7 @@
 {
   "id": "session-insights",
   "packageName": "@pi-harness/core/plugins/session-insights",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "name": "Session Insights",
   "description": "Publish descriptor-safe validated cached session statistics and run only confirmed settled-session compaction with explicit model usage and cost guidance plus cancellable lifecycle handling.",
   "author": "Pi Harness",
@@ -22,7 +22,12 @@
     "single-flight bounded operation status",
     "normalized fail-closed browser view"
   ],
-  "hooks": ["session report tool", "active runtime session", "Pi session lifecycle", "plugin UI"],
+  "hooks": [
+    "session report tool",
+    "active runtime session",
+    "Pi session lifecycle",
+    "plugin UI"
+  ],
   "profile": {
     "name": "@pi-harness/core/plugins/session-insights",
     "config": {}
