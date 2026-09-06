@@ -13,14 +13,8 @@
     "id": "memory",
     "label": "记忆与上下文"
   },
-  "capabilities": [
-    "memory",
-    "notes"
-  ],
-  "hooks": [
-    "session lifecycle",
-    "plugin UI"
-  ],
+  "capabilities": ["memory", "notes"],
+  "hooks": ["session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/memory",
     "config": {}

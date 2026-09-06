@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "planning",
-    "progress tracking",
-    "execution state"
-  ],
-  "hooks": [
-    "session state",
-    "plugin UI"
-  ],
+  "capabilities": ["planning", "progress tracking", "execution state"],
+  "hooks": ["session state", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/plan-execute",
     "config": {}
