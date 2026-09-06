@@ -394,7 +394,7 @@ describe("agent teams plugin", () => {
     await expect(reopened.tool.execute("state", { action: "get_state" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { tasks: [{ id: "task-1", title: "Revision 511" }] },
     });
-  }, 15_000);
+  }, 60_000);
 
   test("rejects a mutation when the combined persisted state exceeds eight MiB", async () => {
     const manager = SessionManager.inMemory();

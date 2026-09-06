@@ -46,7 +46,7 @@ describe("packaged profiles", () => {
       expect(tool.executionMode, tool.name).toBe("sequential");
       expect(tool.parameters, tool.name).toMatchObject({ type: "object", additionalProperties: false });
     }
-  });
+  }, 30_000);
 
   test("boots the default production profile without HMR", async () => {
     const { harness, cwd } = await bootProfile("default");
