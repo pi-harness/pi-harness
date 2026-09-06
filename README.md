@@ -33,6 +33,10 @@ npm run build
 npm run web
 ```
 
+## Web console
+
+![Pi Harness web console](docs/assets/pi-harness-web-console.png)
+
 ## What you get
 
 - A Cordis plugin tree for models, resources, sessions, tools, runtime, Web/API, and stdio.
