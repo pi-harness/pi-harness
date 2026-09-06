@@ -133,8 +133,11 @@ function runView(value: unknown): { value: TestHarnessRunView | null; altered: b
     (status === "failed" && (exitCode === null || (safeInteger(exitCode, 1, 255) && exitCode !== 0 && signal === null))) ||
     ((status === "timed-out" || status === "cancelled") && exitCode === null);
   const renderedBytes = new TextEncoder().encode(output.value).byteLength;
+  // A truncated run whose raw counter is below the cap has to show a full cap's worth of output, because the only way to truncate that little raw input is decode-time or sanitisation-time expansion, and both stop exactly at the cap. `raw.toString("utf8")` turns each invalid byte into a three-byte U+FFFD before the sanitiser ever runs, so that expansion can happen with `outputSanitized` still false. The slack is one code point, at most four bytes.
+  const fillsOutputCap = renderedBytes + 4 > outputBytes;
+  // `outputBytes` counts raw process bytes while truncation is decided after decoding and sanitisation, so it is an upper bound on nothing and a lower bound only for runs the byte counter itself cut off.
   const validAccounting = source.outputTruncated
-    ? source.outputBytes >= outputBytes
+    ? source.outputBytes >= outputBytes || source.outputSanitized || fillsOutputCap
     : source.outputBytes <= outputBytes && (source.outputSanitized || source.outputBytes === renderedBytes);
   if (!validOutcome || !validAccounting) return { value: null, altered: true };
   return {

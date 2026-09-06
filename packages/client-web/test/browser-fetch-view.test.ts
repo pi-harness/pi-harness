@@ -38,6 +38,30 @@ describe("browser fetch panel view", () => {
     });
   });
 
+  test("keeps multi-line document previews and neutralizes unsafe code points", () => {
+    const view = browserFetchPanelView({
+      latest: {
+        url: "https://example.com/start",
+        finalUrl: "https://example.com/start",
+        status: 200,
+        contentType: "text/html",
+        bytes: 38,
+        truncated: false,
+        previewTruncated: false,
+        text: "<html>\n\t<body>hi\u0000\u200B</body>\r\n</html>",
+      },
+      allowPrivate: false,
+      maxResponseBytes: 512 * 1024,
+      maxPanelTextChars: 12_000,
+      maxRedirects: 3,
+      timeoutMs: 20_000,
+    });
+
+    expect(view.malformed).toBe(false);
+    expect(view.latest?.text).toBe("<html>\n\t<body>hi\uFFFD\uFFFD</body>\r\n</html>");
+    expect(view.latest).toMatchObject({ status: 200, bytes: 38, truncated: false, previewTruncated: false });
+  });
+
   test("bounds valid large previews while preserving validated totals", () => {
     const longUrl = "x".repeat(4_096);
     const longContentType = "x".repeat(256);

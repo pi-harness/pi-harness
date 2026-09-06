@@ -63,6 +63,24 @@ describe("Docker sandbox panel view", () => {
     });
   });
 
+  test("keeps arguments that carry tabs and line breaks", () => {
+    const view = dockerSandboxPanelView({
+      latest: {
+        image: "alpine:3.20",
+        command: ["python3", "-c", "import sys\nprint(1)"],
+        write: false,
+        exitCode: 0,
+        status: "completed",
+        output: "1\n",
+      },
+      defaults: { ...defaultSettings },
+    });
+
+    expect(view.malformed).toBe(false);
+    expect(view.latest?.command).toEqual(["python3", "-c", "import sys\nprint(1)"]);
+    expect(view.latest).toMatchObject({ commandCount: 3, exitCode: 0, status: "completed", truncated: false });
+  });
+
   test("bounds hostile command and output details while preserving totals", () => {
     const command = Array.from({ length: 20 }, (_, index) => (index === 0 ? "x".repeat(300) : `arg-${index}`));
     const view = dockerSandboxPanelView({

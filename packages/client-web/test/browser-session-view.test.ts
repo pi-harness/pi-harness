@@ -60,6 +60,34 @@ describe("browser session view", () => {
     });
   });
 
+  it("keeps multi-line page text and neutralizes format code points in tab titles", () => {
+    const title = "\u{1F469}\u200D\u{1F4BB} Dashboard";
+    const view = browserSessionPanelView({
+      endpoint: "http://127.0.0.1:9222/",
+      connected: true,
+      error: null,
+      tabs: [{ targetId: "one", title, url: "https://a.example/" }],
+      inventory: { total: 1, shown: 1, truncated: false },
+      limits: defaults,
+      latest: {
+        targetId: "one",
+        title,
+        url: "https://a.example/",
+        status: "read",
+        truncated: false,
+        previewTruncated: false,
+        text: "line1\nline2",
+        clicked: false,
+      },
+    });
+
+    expect(view.malformed).toBe(false);
+    expect(view.tabs).toEqual([{ targetId: "one", title: "\u{1F469}\uFFFD\u{1F4BB} Dashboard", url: "https://a.example/" }]);
+    expect(view.inventory).toEqual({ total: 1, shown: 1, truncated: false });
+    expect(view.latest?.text).toBe("line1\nline2");
+    expect(view.latest?.title).toBe("\u{1F469}\uFFFD\u{1F4BB} Dashboard");
+  });
+
   it("fails closed for malformed panel fields instead of inventing defaults", () => {
     const long = "x".repeat(20_000);
     const view = browserSessionPanelView({

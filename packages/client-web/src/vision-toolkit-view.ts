@@ -187,14 +187,15 @@ function reportView(value: unknown): { report: VisionToolkitReportView | null; a
   const scannedDirectories = integer(source.scannedDirectories, defaultLimits.scannedDirectories);
   const truncated = typeof source.truncated === "boolean" ? source.truncated : undefined;
   const issuesTruncated = typeof source.issuesTruncated === "boolean" ? source.issuesTruncated : undefined;
+  // Issues are not limited to image candidates: an unreadable subdirectory records an issue while only advancing the scanned entry counter, so issues are bounded by scanned entries instead.
   const countersValid =
     inspectedCandidates !== undefined &&
     scannedEntries !== undefined &&
     scannedDirectories !== undefined &&
     inspectedCandidates <= scannedEntries &&
     assets.length <= inspectedCandidates &&
-    issues.length <= inspectedCandidates &&
-    (issuesTruncated === true || assets.length + issues.length <= inspectedCandidates);
+    issues.length <= scannedEntries &&
+    (issuesTruncated === true || assets.length + issues.length <= scannedEntries);
   altered ||= !expectedKeys(source, ["assets", "issues", "inspectedCandidates", "scannedEntries", "scannedDirectories", "truncated", "issuesTruncated"]);
   if (!countersValid || truncated === undefined || issuesTruncated === undefined) return { report: null, altered: true };
   return {

@@ -178,16 +178,17 @@ function latestView(value: unknown): SqlLensPanelView["latest"] | undefined {
   }
   if (columns.length === 0 || new Set(columns).size !== columns.length) return undefined;
   const scanned = safeInteger(inventory.scanned, Number.MAX_SAFE_INTEGER);
-  const returned = safeInteger(inventory.returned, limitsDefaults.panelRows);
+  // `returned` counts the rows the query produced (up to the query row cap), while `shown` counts the rows the panel payload actually carries (up to the panel cap).
+  const returned = safeInteger(inventory.returned, limitsDefaults.rows);
   const shown = safeInteger(inventory.shown, limitsDefaults.panelRows);
   if (
     scanned === undefined ||
     returned === undefined ||
     shown === undefined ||
     scanned !== scannedRows ||
-    returned !== rowsRaw.length ||
-    shown !== returned ||
-    shown > scanned ||
+    shown !== rowsRaw.length ||
+    shown !== Math.min(returned, limitsDefaults.panelRows) ||
+    returned > scanned ||
     inventory.displayLimit !== limitsDefaults.panelRows ||
     typeof inventory.truncated !== "boolean"
   )

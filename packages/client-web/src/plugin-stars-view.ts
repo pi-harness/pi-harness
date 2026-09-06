@@ -211,6 +211,8 @@ export function pluginStarsPanelView(data: unknown): PluginStarsPanelView {
   if (total === undefined || shown === undefined || typeof inventory.truncated !== "boolean") return malformedView();
   const rawLatest = source.latest;
   let latest: PluginStarsPanelView["latest"] = null;
+  // The payload carries up to `limits.panelItems` results while the panel renders only `visibleRows` of them, so `inventory.shown` is validated against the accepted count rather than the rendered one.
+  let acceptedResults = 0;
   if (rawLatest !== null) {
     const latestSource = ownDataRecord(rawLatest, latestKeys);
     if (latestSource === undefined || !exact(latestSource, latestKeys)) return malformedView();
@@ -235,15 +237,11 @@ export function pluginStarsPanelView(data: unknown): PluginStarsPanelView {
       if (item === undefined) return malformedView();
       results.push(item);
     }
+    acceptedResults = results.length;
     latest = { source: latestName, generatedAt, total: latestTotal, query, fetchedAt, results: pluginStarsRows(results, visibleRows) };
   }
   const visibleResults = latest?.results ?? [];
-  if (
-    shown !== visibleResults.length ||
-    total < shown ||
-    (latest === null && (total !== 0 || shown !== 0)) ||
-    (latest !== null && latest.total < visibleResults.length)
-  )
+  if (shown !== acceptedResults || total < shown || (latest === null && (total !== 0 || shown !== 0)) || (latest !== null && latest.total < acceptedResults))
     return malformedView();
   return {
     source: sourceUrl,

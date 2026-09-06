@@ -53,6 +53,15 @@ function boundedText(value: unknown, maximum: number, allowEmpty = false): strin
   return value;
 }
 
+// The fetched body is arbitrary untrusted document text rendered inside a <pre>, so unsafe code points are replaced instead of discarding the whole record; tab and line breaks stay because they carry the document layout.
+function previewText(value: unknown, maximum: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if ([...value].length > maximum || new TextEncoder().encode(value).byteLength > maximum) return undefined;
+  let output = "";
+  for (const character of value) output += character === "\t" || character === "\n" || character === "\r" || !unsafeUnicode.test(character) ? character : "�";
+  return output;
+}
+
 function integer(value: unknown, minimum: number, maximum: number): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : undefined;
 }
@@ -73,7 +82,7 @@ function latestView(value: unknown, limits: BrowserFetchPanelView["limits"]): Br
   const url = boundedText(source.url, 4_096);
   const finalUrl = boundedText(source.finalUrl, 4_096);
   const contentType = boundedText(source.contentType, 256);
-  const text = boundedText(source.text, defaults.responseBytes, true);
+  const text = previewText(source.text, defaults.responseBytes);
   const status = integer(source.status, 100, 599);
   const bytes = integer(source.bytes, 0, limits.responseBytes);
   if (
