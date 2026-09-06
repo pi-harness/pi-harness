@@ -13,15 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "code review",
-    "git diff",
-    "risk detection"
-  ],
-  "hooks": [
-    "workspace Git",
-    "plugin UI"
-  ],
+  "capabilities": ["code review", "git diff", "risk detection"],
+  "hooks": ["workspace Git", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/reviewer-bot",
     "config": {}

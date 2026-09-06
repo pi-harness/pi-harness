@@ -21,11 +21,7 @@
     "cancellable serialized Git operations",
     "descriptor-safe normalized panel"
   ],
-  "hooks": [
-    "Git snapshot tool",
-    "Git restore tool",
-    "plugin UI"
-  ],
+  "hooks": ["Git snapshot tool", "Git restore tool", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/git-time-capsule",
     "config": {

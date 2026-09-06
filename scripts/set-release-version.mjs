@@ -57,7 +57,8 @@ const dependencyFields = /** @type {const} */ (["dependencies", "devDependencies
 const updateDependencies = (value) => {
   for (const field of dependencyFields) {
     for (const dependency of Object.keys(value[field] ?? {})) {
-      if (packageNames.has(dependency)) value[field][dependency] = version;
+      if (!packageNames.has(dependency)) continue;
+      value[field][dependency] = dependency === "@pi-harness/core" && value.name === "@pi-harness/pi-harness" ? `^${version}` : version;
     }
   }
 };

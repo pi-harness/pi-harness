@@ -3,22 +3,16 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
-const bundledWorkspacePaths = ["api-gateway", "cli", "core", "host-webserver", "bundle-web-app"] as const;
+const bundledWorkspacePaths = ["api-gateway", "cli", "host-webserver", "bundle-web-app"] as const;
 const bundledRuntimePackageNames = ["@earendil-works/pi-agent-core", "@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"] as const;
-const bundledWorkspacePackageNames = [
-  "@pi-harness/api-gateway",
-  "@pi-harness/cli",
-  "@pi-harness/core",
-  "@pi-harness/host-webserver",
-  "@pi-harness/web-app",
-] as const;
+const bundledWorkspacePackageNames = ["@pi-harness/api-gateway", "@pi-harness/cli", "@pi-harness/host-webserver", "@pi-harness/web-app"] as const;
 const bundledPackageNames = [...bundledRuntimePackageNames, ...bundledWorkspacePackageNames];
 
 const readJson = async (path: string): Promise<Record<string, unknown>> =>
   JSON.parse(await readFile(resolve(repositoryRoot, path), "utf8")) as Record<string, unknown>;
 
 describe("release package", () => {
-  it("publishes one self-contained public package", async () => {
+  it("publishes the launcher and keeps core independently installable", async () => {
     const rootManifest = await readJson("package.json");
     const dependencies = rootManifest.dependencies as Record<string, string>;
 
@@ -36,8 +30,8 @@ describe("release package", () => {
     expect(clientManifest.private).toBe(true);
 
     const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-    expect(workflow).not.toContain("npm publish --workspace");
-    expect(workflow.match(/npm publish --access public/g)).toHaveLength(1);
+    expect(workflow).toContain("npm publish --workspace @pi-harness/core --access public");
+    expect(workflow).toContain("npm publish --access public");
     expect(workflow).toContain("Verify package availability");
     expect(workflow).toContain("RELEASE_TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}");
   });

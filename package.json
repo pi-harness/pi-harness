@@ -21,7 +21,10 @@
   ],
   "files": [
     "apps/web",
-    "packages"
+    "packages/api-gateway",
+    "packages/cli",
+    "packages/host-webserver",
+    "packages/bundle-web-app"
   ],
   "type": "module",
   "scripts": {
@@ -54,7 +57,7 @@
     "@liustack/modlens": "3.25.4",
     "@pi-harness/api-gateway": "0.1.14",
     "@pi-harness/cli": "0.1.14",
-    "@pi-harness/core": "0.1.14",
+    "@pi-harness/core": "^0.1.14",
     "@pi-harness/host-webserver": "0.1.14",
     "@pi-harness/web-app": "0.1.14",
     "semver": "7.8.5",
@@ -79,7 +82,6 @@
     "@earendil-works/pi-coding-agent",
     "@pi-harness/api-gateway",
     "@pi-harness/cli",
-    "@pi-harness/core",
     "@pi-harness/host-webserver",
     "@pi-harness/web-app"
   ],

@@ -13,15 +13,8 @@
     "id": "security",
     "label": "安全"
   },
-  "capabilities": [
-    "trajectory audit",
-    "tool allowlist",
-    "run anchoring"
-  ],
-  "hooks": [
-    "session events",
-    "plugin UI"
-  ],
+  "capabilities": ["trajectory audit", "tool allowlist", "run anchoring"],
+  "hooks": ["session events", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/anchored-standard",
     "config": {}

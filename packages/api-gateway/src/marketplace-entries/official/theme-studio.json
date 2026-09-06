@@ -13,16 +13,8 @@
     "id": "interface",
     "label": "界面增强"
   },
-  "capabilities": [
-    "theme presets",
-    "contrast modes",
-    "session persistence"
-  ],
-  "hooks": [
-    "session lifecycle",
-    "React root tokens",
-    "plugin UI"
-  ],
+  "capabilities": ["theme presets", "contrast modes", "session persistence"],
+  "hooks": ["session lifecycle", "React root tokens", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/theme-studio",
     "config": {

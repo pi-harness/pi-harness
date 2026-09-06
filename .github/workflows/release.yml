@@ -119,39 +119,44 @@ jobs:
             echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
             exit 1
           fi
-          package_name=$(node -p "require('./package.json').name")
-          package_version=$(node -p "require('./package.json').version")
-          if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$package_name@$package_version already exists; skipping"
-          elif [ "$RELEASE_TAG_EXISTS" = true ]; then
-            echo "$package_name@$package_version was already submitted; waiting for registry availability"
-          elif npm publish --access public; then
-            echo "$package_name@$package_version published"
-          elif npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$package_name@$package_version is already published; continuing"
-          else
-            echo "Publishing $package_name@$package_version failed" >&2
-            exit 1
-          fi
+          for workspace in packages/core .; do
+            package_name=$(node -p "require('./$workspace/package.json').name")
+            package_version=$(node -p "require('./$workspace/package.json').version")
+            if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$package_name@$package_version already exists; skipping"
+            elif [ "$RELEASE_TAG_EXISTS" = true ]; then
+              echo "$package_name@$package_version was already submitted; waiting for registry availability"
+            elif if [ "$workspace" = "packages/core" ]; then npm publish --workspace @pi-harness/core --access public; else npm publish --access public; fi; then
+              echo "$package_name@$package_version published"
+            elif npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$package_name@$package_version is already published; continuing"
+            else
+              echo "Publishing $package_name@$package_version failed" >&2
+              exit 1
+            fi
+          done
 
       - name: Verify package availability
         env:
           PACKAGE_VERSION: ${{ steps.metadata.outputs.version }}
         run: |
-          package_name=$(node -p "require('./package.json').name")
           package_version="${PACKAGE_VERSION}"
-          for attempt in $(seq 1 60); do
-            published_version=$(npm view "$package_name@$package_version" version --prefer-online --registry=https://registry.npmjs.org 2>/dev/null || true)
-            if [ "$published_version" = "$package_version" ]; then
-              npm pack "$package_name@$package_version" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP" --registry=https://registry.npmjs.org
-              echo "$package_name@$package_version is publicly installable"
-              exit 0
-            fi
-            echo "Waiting for $package_name@$package_version to become publicly available ($attempt/60)"
-            sleep 10
+          for package_name in @pi-harness/core @pi-harness/pi-harness; do
+            for attempt in $(seq 1 60); do
+              published_version=$(npm view "$package_name@$package_version" version --prefer-online --registry=https://registry.npmjs.org 2>/dev/null || true)
+              if [ "$published_version" = "$package_version" ]; then
+                npm pack "$package_name@$package_version" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP" --registry=https://registry.npmjs.org
+                echo "$package_name@$package_version is publicly installable"
+                break
+              fi
+              if [ "$attempt" = 60 ]; then
+                echo "$package_name@$package_version was not available from npm after 10 minutes" >&2
+                exit 1
+              fi
+              echo "Waiting for $package_name@$package_version to become publicly available ($attempt/60)"
+              sleep 10
+            done
           done
-          echo "$package_name@$package_version was not available from npm after 10 minutes" >&2
-          exit 1
 
       - name: Create GitHub Release
         env:

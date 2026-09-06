@@ -22,12 +22,7 @@
     "bounded abort error status",
     "cached normalized panel"
   ],
-  "hooks": [
-    "Pi session lifecycle",
-    "active runtime abort",
-    "session usage and statistics",
-    "plugin UI"
-  ],
+  "hooks": ["Pi session lifecycle", "active runtime abort", "session usage and statistics", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/token-guard",
     "config": {
