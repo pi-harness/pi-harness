@@ -21,11 +21,7 @@
     "bounded panel previews",
     "validated fail-closed panel reporting"
   ],
-  "hooks": [
-    "browser session tools",
-    "Chrome DevTools Protocol",
-    "plugin UI"
-  ],
+  "hooks": ["browser session tools", "Chrome DevTools Protocol", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/browser-session",
     "config": {

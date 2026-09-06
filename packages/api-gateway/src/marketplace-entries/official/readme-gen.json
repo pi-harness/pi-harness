@@ -22,12 +22,7 @@
     "cancellable sequential tools",
     "bounded normalized operation panel"
   ],
-  "hooks": [
-    "README report and write tools",
-    "workspace manifest and files",
-    "Cordis loader inventory",
-    "plugin UI"
-  ],
+  "hooks": ["README report and write tools", "workspace manifest and files", "Cordis loader inventory", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/readme-gen",
     "config": {}

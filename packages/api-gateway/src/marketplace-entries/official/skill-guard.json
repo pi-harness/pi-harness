@@ -21,11 +21,7 @@
     "descriptor-safe cancellable scans",
     "bounded normalized panel"
   ],
-  "hooks": [
-    "skill scan tool",
-    "resource loader",
-    "plugin UI"
-  ],
+  "hooks": ["skill scan tool", "resource loader", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/skill-guard",
     "config": {}

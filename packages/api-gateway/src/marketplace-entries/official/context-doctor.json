@@ -21,13 +21,7 @@
     "single-flight bounded operation status",
     "cached normalized panel"
   ],
-  "hooks": [
-    "context doctor tool",
-    "session messages and usage",
-    "Pi session lifecycle",
-    "manual compaction",
-    "plugin UI"
-  ],
+  "hooks": ["context doctor tool", "session messages and usage", "Pi session lifecycle", "manual compaction", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/context-doctor",
     "config": {}

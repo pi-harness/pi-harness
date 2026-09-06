@@ -13,17 +13,8 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": [
-    "UTC daily cost ledger",
-    "session cost snapshots",
-    "daily budget monitoring",
-    "bounded local persistence"
-  ],
-  "hooks": [
-    "agent end",
-    "cost report tool",
-    "plugin UI"
-  ],
+  "capabilities": ["UTC daily cost ledger", "session cost snapshots", "daily budget monitoring", "bounded local persistence"],
+  "hooks": ["agent end", "cost report tool", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/cost-meter",
     "config": {

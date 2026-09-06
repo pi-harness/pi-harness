@@ -13,16 +13,8 @@
     "id": "security",
     "label": "安全"
   },
-  "capabilities": [
-    "secret detection",
-    "dangerous command scan",
-    "redacted findings"
-  ],
-  "hooks": [
-    "workspace files",
-    "plugin UI",
-    "agent tool"
-  ],
+  "capabilities": ["secret detection", "dangerous command scan", "redacted findings"],
+  "hooks": ["workspace files", "plugin UI", "agent tool"],
   "profile": {
     "name": "@pi-harness/core/plugins/secure-audit",
     "config": {}

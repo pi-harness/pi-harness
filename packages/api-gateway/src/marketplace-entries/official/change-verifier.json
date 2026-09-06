@@ -13,16 +13,8 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "verification gate",
-    "test orchestration",
-    "change review"
-  ],
-  "hooks": [
-    "project scripts",
-    "Git diff",
-    "plugin UI"
-  ],
+  "capabilities": ["verification gate", "test orchestration", "change review"],
+  "hooks": ["project scripts", "Git diff", "plugin UI"],
   "profile": {
     "name": "@pi-harness/core/plugins/change-verifier",
     "config": {}
