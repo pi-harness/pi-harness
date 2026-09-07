@@ -122,6 +122,16 @@ describe("bootHarness", () => {
     expect((verbose as Error).message).toMatch(/^\s+at /mu);
   });
 
+  test("says a repeated cause once, since the loader quotes the message it caught in its own", async () => {
+    const profile = await createProfile([]);
+    await writeFile(profile.profilePath, JSON.stringify([{ name: "@pi-harness/plugin-absent-fixture" }]), "utf8");
+
+    const error = (await bootHarness({ configPath: profile.profilePath }).catch((failure: unknown) => failure)) as Error;
+
+    expect(error.message).toContain("@pi-harness/plugin-absent-fixture");
+    expect(error.message.split("\n").filter((line) => line.startsWith("caused by: "))).toEqual([]);
+  });
+
   test("rejects a duplicate entry id reused across sibling groups", async () => {
     const profile = await createProfile([]);
     const first = await createPlugin(

@@ -183,10 +183,18 @@ const FIBER_FAILED = 3 as FiberState.FAILED;
 
 /** Startup failures are read by a user whose profile is misconfigured, and Cordis loader and fiber frames tell that user nothing they can act on, so the frames are kept behind PI_HARNESS_DEBUG=1 and the message chain alone is reported by default. */
 function formatError(error: unknown): string {
-  if (error instanceof AggregateError) return error.errors.map(formatError).join("\n");
-  if (!(error instanceof Error)) return String(error);
-  const own = process.env.PI_HARNESS_DEBUG === "1" ? (error.stack ?? error.message) : describeError(error);
-  return error.cause === undefined ? own : `${own}\ncaused by: ${formatError(error.cause)}`;
+  return formatErrorChain(error).join("\ncaused by: ");
+}
+
+/** Cordis rethrows a failure with the message it caught embedded in its own, so the chain repeats one sentence at every level. A level the level above it already quotes is dropped, and its own cause takes its place. Under the debug flag every level stays, because its frames are what was asked for. */
+function formatErrorChain(error: unknown): readonly string[] {
+  if (error instanceof AggregateError) return [error.errors.map(formatError).join("\n")];
+  if (!(error instanceof Error)) return [String(error)];
+  const debug = process.env.PI_HARNESS_DEBUG === "1";
+  const own = debug ? (error.stack ?? error.message) : describeError(error);
+  if (error.cause === undefined) return [own];
+  const causes = formatErrorChain(error.cause);
+  return [own, ...(debug ? causes : causes.filter((cause) => !own.includes(cause)))];
 }
 
 /** Dropping the frames also drops the constructor name the stack led with, so a `TypeError` keeps it here, and an error thrown with no message at all reports its name rather than nothing. */
