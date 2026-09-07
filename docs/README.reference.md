@@ -800,6 +800,14 @@ Caller cancellation works both while a request is active and while it waits behi
 
 ## Author a plugin
 
+A plugin package installs `@pi-harness/core` plus the four runtimes whose types appear in its published surface:
+
+```sh
+npm install @pi-harness/core @deepseek-ai/cordis @deepseek-ai/schemastery @earendil-works/pi-ai @earendil-works/pi-coding-agent
+```
+
+Those four are `peerDependencies` of `@pi-harness/core`, so the plugin and the harness resolve the same copy. They were regular dependencies before, which made npm nest a second copy whenever a plugin asked for a different version; the plugin then failed to compile against a `Context` that carried no harness services. Match the versions `@pi-harness/core` declares, or npm reports the conflict at install time.
+
 [`examples/plugin-hello`](./examples/plugin-hello) is a complete external Cordis plugin. It contributes a native Pi `ToolDefinition`, registers cleanup with `ctx.effect()`, and provides a readiness marker after registration:
 
 ```ts
