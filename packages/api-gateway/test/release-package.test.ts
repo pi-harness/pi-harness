@@ -7,6 +7,8 @@ const bundledWorkspacePaths = ["api-gateway", "cli", "host-webserver", "bundle-w
 const bundledRuntimePackageNames = ["@earendil-works/pi-agent-core", "@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"] as const;
 const bundledWorkspacePackageNames = ["@pi-harness/api-gateway", "@pi-harness/cli", "@pi-harness/host-webserver", "@pi-harness/web-app"] as const;
 const bundledPackageNames = [...bundledRuntimePackageNames, ...bundledWorkspacePackageNames];
+// Runtimes whose types appear in the published surface of @pi-harness/core. npm nests a second copy of a pinned dependency when the consumer wants a different version; a peer resolves to the consumer's single copy instead.
+const corePeerRuntimeNames = ["@deepseek-ai/cordis", "@deepseek-ai/schemastery", "@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"] as const;
 
 const readJson = async (path: string): Promise<Record<string, unknown>> =>
   JSON.parse(await readFile(resolve(repositoryRoot, path), "utf8")) as Record<string, unknown>;
@@ -34,6 +36,20 @@ describe("release package", () => {
     expect(workflow).toContain("npm publish --access public");
     expect(workflow).toContain("Verify package availability");
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
+  });
+
+  it("keeps the runtimes in the core type surface as peers so a plugin author resolves one copy", async () => {
+    const rootManifest = await readJson("package.json");
+    const rootDependencies = rootManifest.dependencies as Record<string, string>;
+    const core = await readJson("packages/core/package.json");
+    const coreDependencies = (core.dependencies ?? {}) as Record<string, string>;
+    const corePeers = (core.peerDependencies ?? {}) as Record<string, string>;
+
+    expect(Object.keys(corePeers).sort()).toEqual([...corePeerRuntimeNames]);
+    for (const name of corePeerRuntimeNames) {
+      expect(coreDependencies[name], `${name} must not also be a dependency, which reintroduces the nested copy`).toBeUndefined();
+      expect(corePeers[name], `${name} peer range must pin the version the launcher installs`).toBe(rootDependencies[name]);
+    }
   });
 
   it("cleans every compiled workspace output", async () => {

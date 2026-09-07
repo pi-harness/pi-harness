@@ -58,7 +58,7 @@ describe("release contract", () => {
   });
 
   test("core declares every package its sources and shipped profiles load", () => {
-    const core = readJson("packages/core/package.json") as { name: string; dependencies: Record<string, string> };
+    const core = readJson("packages/core/package.json") as { name: string; dependencies: Record<string, string>; peerDependencies: Record<string, string> };
     const specifierPattern =
       /(?:from\s*|import\s*\(\s*|import\.meta\.resolve\(\s*|require(?:\.resolve)?\(\s*)["']([@a-z][^"'\s]*)["']|"(@[a-z0-9._~-]+\/[a-z0-9._~-]+(?:\/[a-z0-9._~-]+)*)"/gu;
     const required = new Map<string, string>();
@@ -72,6 +72,11 @@ describe("release contract", () => {
     }
     const external = [...required].filter(([name]) => !name.startsWith("node:") && !name.includes(":") && name !== core.name);
     expect(external.length).toBeGreaterThan(0);
-    for (const [name, file] of external) expect(core.dependencies[name], `${name} (used by ${file}) is missing from ${core.name} dependencies`).toBeDefined();
+    // A runtime that appears in the published type surface is declared as a peer instead, so the consumer owns the single installed copy.
+    for (const [name, file] of external)
+      expect(
+        core.dependencies[name] ?? core.peerDependencies[name],
+        `${name} (used by ${file}) is declared by neither ${core.name} dependencies nor peerDependencies`,
+      ).toBeDefined();
   });
 });
