@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import pluginCheckPlugin, { hasExtensionlessRelativeImport, isPluginRepositoryName, type PluginCheckReport } from "../src/plugins/plugin-check.js";
-import { provideLaunchContext, PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 const directories: string[] = [];

@@ -5,8 +5,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { atomicWriteFile } from "../atomic-write.js";
-import { readBoundedFile, readBoundedTextFile } from "../bounded-file.js";
+import { atomicWriteFile, readBoundedFile, readBoundedTextFile } from "@pi-harness/plugin-api";
 
 const defaultFileName = "graph-memory.json";
 const absoluteNodeLimit = 2_000;

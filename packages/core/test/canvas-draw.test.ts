@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 async function createCanvas(): Promise<{ context: Context; panels: PiPluginUiRegistry; tools: PiToolRegistry }> {
   const context = new Context();

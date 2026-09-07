@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
 import runtimePlugin from "../src/plugins/runtime.js";
 import { PiRuntime } from "../src/runtime.js";
-import { PiToolRegistry } from "../src/services.js";
+import { PiToolRegistry } from "@pi-harness/plugin-api";
 import { createTestRuntimeContext, createTestRuntimeServices } from "./runtime-fixture.js";
 
 const contexts: Context[] = [];

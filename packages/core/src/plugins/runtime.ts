@@ -9,7 +9,7 @@ import {
   type SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { PiRuntime } from "../runtime.js";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 export interface RuntimePluginConfig {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

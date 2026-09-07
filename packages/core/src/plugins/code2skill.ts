@@ -3,9 +3,7 @@ import { dirname, isAbsolute, join, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedFile } from "../bounded-file.js";
-import { prepareWorkspaceFile, resolveExistingWorkspacePath } from "../workspace-path.js";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig, prepareWorkspaceFile, readBoundedFile, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 const maxFiles = 32;
 const maxNameLength = 128;

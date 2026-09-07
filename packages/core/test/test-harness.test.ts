@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import testHarnessPlugin from "../src/plugins/test-harness.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];

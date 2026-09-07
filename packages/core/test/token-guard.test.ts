@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, test, vi } from "vitest";
-import { PiPluginUiRegistry } from "../src/services.js";
+import { PiPluginUiRegistry } from "@pi-harness/plugin-api";
 import tokenGuardPlugin from "../src/plugins/token-guard.js";
 import { createTestRuntimeContext } from "./runtime-fixture.js";
 

@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import turnRewindPlugin, { scanRewindCandidates, selectRewindTarget } from "../src/plugins/turn-rewind.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

@@ -1,7 +1,7 @@
 import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
 import { PiHarnessStdioCancelledError, StdioApplication, type PiHarnessStdio } from "../src/stdio.js";
-import type { PiHarnessLaunch, PiRuntimeService } from "../src/services.js";
+import type { PiHarnessLaunch, PiRuntimeService } from "@pi-harness/plugin-api";
 
 function createRuntime(onPrompt?: () => void): PiRuntimeService & { prompts: string[] } {
   const prompts: string[] = [];

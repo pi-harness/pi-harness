@@ -2,7 +2,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import synapsePlugin, { buildSynapseGraph } from "../src/plugins/synapse.js";
-import { provideLaunchContext, PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 

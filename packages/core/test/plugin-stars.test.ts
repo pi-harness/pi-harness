@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import { parsePluginStarsPayload, searchPluginStars } from "../src/plugins/plugin-stars.js";
 import pluginStars from "../src/plugins/plugin-stars.js";
 import toolsPlugin from "../src/plugins/tools.js";

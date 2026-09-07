@@ -5,7 +5,7 @@ import { win32 } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import workspaceSearchPlugin, { isWorkspaceSearchPathInside } from "../src/plugins/workspace-search.js";
-import { provideLaunchContext, PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 

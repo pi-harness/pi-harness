@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import mirageBridgePlugin from "../src/plugins/mirage-bridge.js";
 
 const temporaryDirectories: string[] = [];
@@ -29,7 +29,7 @@ async function longRunningFixture() {
   await writeFile(
     executable,
     `#!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import {writeFileSync } from "node:fs";
 if (process.argv[2] === "--version") {
   console.log("mirage 0.9.0");
 } else {

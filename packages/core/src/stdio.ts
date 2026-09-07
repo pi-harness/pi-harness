@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { PiHarnessLaunch, PiRuntimeService } from "./services.js";
+import type { PiHarnessLaunch, PiRuntimeService } from "@pi-harness/plugin-api";
 
 export class PiHarnessStdioCancelledError extends Error {
   override readonly name = "PiHarnessStdioCancelledError";

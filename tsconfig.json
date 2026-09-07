@@ -14,7 +14,8 @@
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "@pi-harness/core": ["packages/core/src/index.ts"]
+      "@pi-harness/core": ["packages/core/src/index.ts"],
+      "@pi-harness/plugin-api": ["packages/plugin-api/src/index.ts"]
     },
     "resolveJsonModule": true,
     "skipLibCheck": true,

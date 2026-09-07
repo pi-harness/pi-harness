@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import { listSessionBookmarks, normalizeBookmarkLabel } from "../src/plugins/session-bookmarks.js";
 import sessionBookmarksPlugin from "../src/plugins/session-bookmarks.js";
 

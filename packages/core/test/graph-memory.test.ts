@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import graphMemoryPlugin from "../src/plugins/graph-memory.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 const temporaryDirectories: string[] = [];
 

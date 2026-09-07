@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import openPetsPlugin from "../src/plugins/openpets.js";
 
 type OpenPetsFixture = {

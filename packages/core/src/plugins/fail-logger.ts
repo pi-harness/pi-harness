@@ -1,5 +1,5 @@
 import type { Context } from "@deepseek-ai/cordis";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig } from "@pi-harness/plugin-api";
 
 const maxFailures = 50;
 const maxMessageLength = 2_048;

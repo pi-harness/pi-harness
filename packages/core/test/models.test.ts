@@ -5,7 +5,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import modelsPlugin, { Config as ModelsConfig } from "../src/plugins/models.js";
-import { provideLaunchContext } from "../src/services.js";
+import { provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 

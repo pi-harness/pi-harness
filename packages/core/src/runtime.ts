@@ -1,5 +1,5 @@
 import type { AgentSession, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import type { PiRuntimeService } from "./services.js";
+import type { PiRuntimeService } from "@pi-harness/plugin-api";
 
 export class PiRuntimeDisposedError extends Error {
   override readonly name = "PiRuntimeDisposedError";

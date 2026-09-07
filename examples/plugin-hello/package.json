@@ -24,7 +24,7 @@
     "@deepseek-ai/cordis": "4.0.1",
     "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4",
-    "@pi-harness/core": "0.1.26"
+    "@pi-harness/plugin-api": "0.1.26"
   },
   "engines": {
     "node": ">=22.19.0"

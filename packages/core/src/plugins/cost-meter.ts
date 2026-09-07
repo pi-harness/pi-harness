@@ -5,8 +5,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedTextFile } from "../bounded-file.js";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys, readBoundedTextFile } from "@pi-harness/plugin-api";
 
 const defaultFileName = "cost-meter.json";
 const defaultMaxEntries = 365;

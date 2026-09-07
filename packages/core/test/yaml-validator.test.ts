@@ -3,10 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import { provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import toolsPlugin from "../src/plugins/tools.js";
 import yamlValidatorPlugin from "../src/plugins/yaml-validator.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
 
 const temporaryDirectories: string[] = [];
 

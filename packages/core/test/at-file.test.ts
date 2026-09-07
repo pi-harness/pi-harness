@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import atFilePlugin from "../src/plugins/at-file.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 describe("at-file", () => {
   test("accepts a UTF-8 text file exactly at the attachment limit", async () => {

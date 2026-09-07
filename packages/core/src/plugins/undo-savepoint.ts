@@ -5,9 +5,15 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { isPathInside, prepareWorkspaceFile, resolveExistingWorkspacePath, resolveWorkspaceFilePath } from "../workspace-path.js";
-import { atomicWriteFile } from "../atomic-write.js";
-import { readBoundedFile, readBoundedTextFile } from "../bounded-file.js";
+import {
+  atomicWriteFile,
+  isPathInside,
+  prepareWorkspaceFile,
+  readBoundedFile,
+  readBoundedTextFile,
+  resolveExistingWorkspacePath,
+  resolveWorkspaceFilePath,
+} from "@pi-harness/plugin-api";
 
 const defaultStoreName = "undo-savepoints";
 const defaultTrackedPaths = ["."];

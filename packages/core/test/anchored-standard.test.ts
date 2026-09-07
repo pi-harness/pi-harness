@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import anchoredStandardPlugin from "../src/plugins/anchored-standard.js";
 
 const contexts: Context[] = [];

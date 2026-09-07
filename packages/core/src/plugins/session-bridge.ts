@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult, type SessionManager } from "@earendil-works/pi-coding-agent";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig } from "@pi-harness/plugin-api";
 
 const bridgeVersion = 1 as const;
 const maxMessages = 100;

@@ -6,7 +6,7 @@ import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
 import modelsPlugin from "../src/plugins/models.js";
 import resourcesPlugin, { Config as ResourcesConfig } from "../src/plugins/resources.js";
-import { provideLaunchContext } from "../src/services.js";
+import { provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 const isolatedResources = {

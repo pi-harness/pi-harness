@@ -28,8 +28,8 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
-    "build:web": "npm run build -w @pi-harness/core && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
+    "build": "npm run build -w @pi-harness/plugin-api && npm run build -w @pi-harness/core && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
+    "build:web": "npm run build -w @pi-harness/plugin-api && npm run build -w @pi-harness/core && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
     "web": "npm run build:web && node apps/web/server-dist/bin.js",
     "format": "vp fmt . --write",
     "format:check": "vp fmt . --check",
@@ -40,7 +40,7 @@
     "lint:check": "node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js .",
     "test": "npm run build && vitest run",
     "typecheck": "npm run build && npm run typecheck:workspaces",
-    "typecheck:workspaces": "npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
+    "typecheck:workspaces": "npm run typecheck -w @pi-harness/plugin-api && npm run typecheck -w @pi-harness/core && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",

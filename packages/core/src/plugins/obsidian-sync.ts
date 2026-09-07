@@ -4,7 +4,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { atomicWriteFile } from "../atomic-write.js";
+import { atomicWriteFile } from "@pi-harness/plugin-api";
 
 const maxContentBytes = 512 * 1024;
 const maxRelativePathLength = 512;

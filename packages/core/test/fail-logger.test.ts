@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import failLoggerPlugin from "../src/plugins/fail-logger.js";
-import { PiPluginUiRegistry } from "../src/services.js";
+import { PiPluginUiRegistry } from "@pi-harness/plugin-api";
 
 interface FailurePanelData {
   total: number;

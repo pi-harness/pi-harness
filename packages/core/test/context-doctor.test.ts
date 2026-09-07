@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test, vi } from "vitest";
 import contextDoctorPlugin, { inspectMessages } from "../src/plugins/context-doctor.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 async function createDoctor(session: unknown, config = { warnPercent: 75, maxMessageBytes: 64 * 1024 }) {
   const context = new Context();

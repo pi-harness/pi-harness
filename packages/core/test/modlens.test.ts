@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import modlensPlugin from "../src/plugins/modlens.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];

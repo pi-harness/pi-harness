@@ -1,8 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { BoundedFileSizeError, readBoundedFile } from "../bounded-file.js";
-import { EmptyConfig } from "../config.js";
+import { BoundedFileSizeError, EmptyConfig, readBoundedFile } from "@pi-harness/plugin-api";
 
 const maxSkillBytes = 128 * 1024;
 const maxSkills = 50;

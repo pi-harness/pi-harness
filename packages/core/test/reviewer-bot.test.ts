@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import reviewerBotPlugin from "../src/plugins/reviewer-bot.js";
-import { provideLaunchContext, PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const execFileAsync = promisify(execFile);
 const contexts: Context[] = [];

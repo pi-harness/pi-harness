@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import sqlLensPlugin, { Config } from "../src/plugins/sql-lens.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 // Only the plugin holds a reference to the process it spawns, so recording the real children is the only way to assert that an abandoned query is gone from the operating system.
 const spawnedChildren = vi.hoisted(() => [] as ChildProcess.ChildProcess[]);

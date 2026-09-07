@@ -4,8 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { atomicWriteFile } from "../atomic-write.js";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig, atomicWriteFile } from "@pi-harness/plugin-api";
 
 const pngSignature = Buffer.from("89504e470d0a1a0a", "hex");
 const maxInputBytes = 32 * 1024 * 1024;

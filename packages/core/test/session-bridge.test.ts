@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { provideLaunchContext } from "../src/services.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import { buildBridgePackage, buildHandoffPreview, parseBridgePackage } from "../src/plugins/session-bridge.js";
 import sessionBridge from "../src/plugins/session-bridge.js";
 import sessionPlugin from "../src/plugins/session.js";

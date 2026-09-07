@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
-import { readBoundedFile, readBoundedTextFile } from "../src/bounded-file.js";
+import { readBoundedFile, readBoundedTextFile } from "@pi-harness/plugin-api";
 
 const execFileAsync = promisify(execFile);
 

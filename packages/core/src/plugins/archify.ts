@@ -2,9 +2,8 @@ import { basename, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedTextFile } from "../bounded-file.js";
+import { EmptyConfig, readBoundedTextFile } from "@pi-harness/plugin-api";
 import { listWorkspaceNodes, type WorkspaceNode } from "./workspace-navigator.js";
-import { EmptyConfig } from "../config.js";
 
 const defaultMaxNodes = 300;
 const maxComponents = 40;

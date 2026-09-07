@@ -5,7 +5,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
 import sessionPlugin, { Config as SessionConfig } from "../src/plugins/session.js";
-import { provideLaunchContext } from "../src/services.js";
+import { provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];

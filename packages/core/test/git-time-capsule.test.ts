@@ -5,7 +5,7 @@ import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import { applyCapsule } from "../src/plugins/git-time-capsule.js";
 import gitTimeCapsulePlugin from "../src/plugins/git-time-capsule.js";
 

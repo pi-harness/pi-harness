@@ -1,9 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { atomicWriteFile } from "../atomic-write.js";
-import { prepareWorkspaceFile } from "../workspace-path.js";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig, atomicWriteFile, prepareWorkspaceFile } from "@pi-harness/plugin-api";
 
 const maxOutputBytes = 1024 * 1024;
 const defaultFileName = "pi-session.md";

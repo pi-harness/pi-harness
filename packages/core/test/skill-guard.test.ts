@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import skillGuard, { inspectSkillText } from "../src/plugins/skill-guard.js";
 
 const temporaryDirectories: string[] = [];

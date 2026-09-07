@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
-import { PiToolRegistry } from "../src/services.js";
+import { PiToolRegistry } from "@pi-harness/plugin-api";
 
 function tool(name: string, description: string) {
   return defineTool({

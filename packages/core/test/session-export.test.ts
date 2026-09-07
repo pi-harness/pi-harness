@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import sessionExportPlugin, { renderSessionMarkdown } from "../src/plugins/session-export.js";
 
 describe("session export", () => {

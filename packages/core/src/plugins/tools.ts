@@ -1,7 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { PiPluginUiRegistry, PiToolRegistry } from "../services.js";
-import { assertKnownConfigKeys } from "../config.js";
+import { PiPluginUiRegistry, PiToolRegistry, assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 export interface ToolsPluginConfig {
   names?: string[];

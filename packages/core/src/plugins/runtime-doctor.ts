@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig } from "@pi-harness/plugin-api";
 
 export type RuntimeDoctorCheckStatus = "ok" | "warning" | "error";
 export interface RuntimeDoctorCheck {

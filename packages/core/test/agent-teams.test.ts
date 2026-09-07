@@ -2,7 +2,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
 import agentTeamsPlugin, { dependencyCycle, readyTeamTasks } from "../src/plugins/agent-teams.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 

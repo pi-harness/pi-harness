@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { boundedLine, StdioApplication } from "../stdio.js";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 const resourceTypeLimit = 32;
 const diagnosticMessageLimit = 2_048;

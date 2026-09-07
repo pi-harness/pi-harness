@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { atomicWriteFile } from "../src/atomic-write.js";
+import { atomicWriteFile } from "@pi-harness/plugin-api";
 import type * as FsPromises from "node:fs/promises";
 
 const temporaryDirectories: string[] = [];
