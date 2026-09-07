@@ -1,7 +1,7 @@
 {
   "id": "plugin-finder",
   "packageName": "@pi-harness/core/plugins/plugin-finder",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "name": "Plugin Finder",
   "description": "Search a configured npm-compatible registry for Pi plugins with bounded queries and explicit installation handoff.",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "module-search",
   "packageName": "@pi-harness/core/plugins/module-search",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "name": "Module Search",
   "description": "Find imports, exports, and declared symbols in bounded workspace source files without modifying them.",
   "author": "Pi Harness",

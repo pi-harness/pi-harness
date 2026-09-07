@@ -1,7 +1,7 @@
 {
   "id": "mirage-bridge",
   "packageName": "@pi-harness/core/plugins/mirage-bridge",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "name": "Mirage Bridge",
   "description": "Connect Pi Harness to the official Mirage virtual-terminal CLI without adding a second host shell.",
   "author": "Pi Harness",

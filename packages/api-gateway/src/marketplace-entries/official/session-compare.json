@@ -1,7 +1,7 @@
 {
   "id": "session-compare",
   "packageName": "@pi-harness/core/plugins/session-compare",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "name": "Session Compare",
   "description": "Compare two persisted Pi sessions by message role and text without modifying either session file.",
   "author": "Pi Harness",
