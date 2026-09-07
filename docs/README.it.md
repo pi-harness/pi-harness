@@ -54,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Consulta il [riferimento in inglese](README.reference.md) per il catalogo selezionato dei plugin, la configurazione, tutte le rotte dell’API HTTP, i limiti e la sicurezza. Core include più plugin di quanti il catalogo ne descriva: [`packages/core/src/plugins`](../packages/core/src/plugins) è l’insieme completo e [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) elenca quelli abilitati per impostazione predefinita dalla console web.
+Consulta il [riferimento in inglese](README.reference.md) per il catalogo selezionato dei plugin, la configurazione, tutte le rotte dell’API HTTP, i limiti e la sicurezza. Core include più plugin di quanti il catalogo ne descriva: [`packages/plugins`](../packages/plugins) è l’insieme completo e [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) elenca quelli abilitati per impostazione predefinita dalla console web.
 
 ## Licenza
 

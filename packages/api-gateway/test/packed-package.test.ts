@@ -46,7 +46,9 @@ import process from "node:process";
 const args = process.argv.slice(2);
 if (args[0] === "pack") {
   const workspaces = args.filter((argument, index) => args[index - 1] === "--workspace");
-  process.stdout.write((workspaces.length === 0 ? ["harness.tgz"] : workspaces.map((name) => name.slice(name.indexOf("/") + 1) + ".tgz")).join("\\n") + "\\n");
+  // The root is packed with its scripts, so prepack's own build output shares this stdout with the tarball name.
+  const lines = workspaces.length === 0 ? ["> pi-harness build:web", "built 75 plugin packages in 3 waves", "harness.tgz"] : workspaces.map((name) => name.slice(name.indexOf("/") + 1) + ".tgz");
+  process.stdout.write(lines.join("\\n") + "\\n");
   process.exit(0);
 }
 if (args[0] !== "install") process.exit(1);
@@ -71,7 +73,10 @@ const bin = { "pi-harness": "./apps/web/server-dist/bin.js", pih: "./packages/cl
 write(join(harnessRoot, "package.json"), JSON.stringify({ name: "@pi-harness/pi-harness", version: "9.9.9", bin, dependencies: { "@earendil-works/pi-coding-agent": "0.84.4" } }));
 write(join(agentRoot, "package.json"), JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "0.84.4", dependencies: {} }));
 write(join(agentRoot, "dist", "cli", "args.js"), "");
-write(join(harnessRoot, "apps", "web", "profile", "cordis.yml"), "[]\\n");
+write(join(harnessRoot, "apps", "web", "profile", "cordis.yml"), "- id: modlens\\n  name: \\"@pi-harness/plugin-modlens\\"\\n");
+const shippedDependencies = process.env.PACKED_PACKAGE_FIXTURE_SHIPPED_DEP === "1" ? { "@pi-harness/client-web": "9.9.9" } : undefined;
+write(join(harnessRoot, "apps", "web", "package.json"), JSON.stringify({ name: "@pi-harness/web", private: true, dependencies: shippedDependencies }));
+if (process.env.PACKED_PACKAGE_FIXTURE_PROFILE_PLUGIN !== "0") write(join(harnessRoot, "node_modules", "@pi-harness", "plugin-modlens", "dist", "index.js"), "export default {};\\n");
 write(join(harnessRoot, "node_modules", "@pi-harness", "core", "dist", "index.js"), process.env.PACKED_PACKAGE_FIXTURE_CORE);
 write(join(harnessRoot, "node_modules", "@pi-harness", "core", "dist", "plugin-resolve.js"), process.env.PACKED_PACKAGE_FIXTURE_RESOLVE);
 if (process.env.PACKED_PACKAGE_FIXTURE_BINS === "1") for (const target of Object.values(bin)) write(join(harnessRoot, target), "");
@@ -85,7 +90,13 @@ const createFakeNpm = async (): Promise<string> => {
   return fakeNpm;
 };
 
-const runSmokeTest = async (fakeNpm: string, bins: boolean, marketplace = true): ReturnType<typeof execFileAsync> =>
+const runSmokeTest = async (
+  fakeNpm: string,
+  bins: boolean,
+  marketplace = true,
+  profilePlugin = true,
+  shippedDependency = false,
+): ReturnType<typeof execFileAsync> =>
   execFileAsync(process.execPath, [resolve(repositoryRoot, "scripts/test-packed-package.mjs")], {
     env: {
       ...process.env,
@@ -94,6 +105,8 @@ const runSmokeTest = async (fakeNpm: string, bins: boolean, marketplace = true):
       PACKED_PACKAGE_FIXTURE_CORE: fakeCoreSource,
       PACKED_PACKAGE_FIXTURE_RESOLVE: fakeResolveSource,
       PACKED_PACKAGE_FIXTURE_MARKETPLACE: marketplace ? "1" : "0",
+      PACKED_PACKAGE_FIXTURE_PROFILE_PLUGIN: profilePlugin ? "1" : "0",
+      PACKED_PACKAGE_FIXTURE_SHIPPED_DEP: shippedDependency ? "1" : "0",
     },
   });
 
@@ -111,10 +124,26 @@ describe("packed package smoke test", () => {
   });
 
   it("rejects a tarball that ships no runnable bin entrypoint", async () => {
-    // `npm pack --ignore-scripts` never runs prepack, so an unbuilt workspace produces a tarball with a bin map pointing at files the tarball does not contain.
+    // A `files` allowlist that omits build output, or a prepack that failed to produce it, ships a bin map pointing at files the tarball does not contain.
     const fakeNpm = await createFakeNpm();
 
     await expect(runSmokeTest(fakeNpm, false)).rejects.toThrow(/missing the pi-harness entrypoint \.\/apps\/web\/server-dist\/bin\.js/u);
+  });
+
+  it("rejects an install whose shipped profile enables a plugin the tarball never brings in", async () => {
+    // The 0.1.29 launcher shipped a profile naming 45 packages it did not depend on, so a clean install failed to boot on the first entry the loader could not import.
+    const fakeNpm = await createFakeNpm();
+
+    await expect(runSmokeTest(fakeNpm, true, true, false)).rejects.toThrow(/enables 1 plugin\(s\) the install does not contain: @pi-harness\/plugin-modlens/u);
+  });
+
+  it("rejects an install whose shipped workspace depends on a package npm can never fetch", async () => {
+    // apps/web is built out of two private workspaces, so the dependency list 0.1.29 shipped made every npm command run inside the installation fail with E404 on @pi-harness/client-web.
+    const fakeNpm = await createFakeNpm();
+
+    await expect(runSmokeTest(fakeNpm, true, true, true, true)).rejects.toThrow(
+      /apps\/web\/package\.json depends on @pi-harness\/client-web, which the install neither contains nor can fetch/u,
+    );
   });
 
   it("rejects a launcher whose marketplace install lands somewhere the loader cannot resolve", async () => {

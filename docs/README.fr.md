@@ -54,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Consultez la [référence en anglais](README.reference.md) pour le catalogue sélectionné de plugins, la configuration, toutes les routes de l’API HTTP, les limites et la sécurité. Core embarque plus de plugins que ce catalogue n’en décrit : [`packages/core/src/plugins`](../packages/core/src/plugins) constitue l’ensemble complet et [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) liste ceux que la console web active par défaut.
+Consultez la [référence en anglais](README.reference.md) pour le catalogue sélectionné de plugins, la configuration, toutes les routes de l’API HTTP, les limites et la sécurité. Core embarque plus de plugins que ce catalogue n’en décrit : [`packages/plugins`](../packages/plugins) constitue l’ensemble complet et [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) liste ceux que la console web active par défaut.
 
 ## Licence
 
