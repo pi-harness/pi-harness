@@ -3,7 +3,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bootHarness, coreUpdateNotice, provideLaunchContext } from "@pi-harness/core";
+import { bootHarness, coreUpdateNotice, prepareHarnessProfile, provideLaunchContext } from "@pi-harness/core";
 import "@pi-harness/host-webserver";
 import type { WebServer } from "@pi-harness/host-webserver";
 
@@ -46,7 +46,9 @@ const cwd = process.cwd();
 const configuredAgentDir = process.env.PI_AGENT_DIR?.trim();
 const agentDir = configuredAgentDir === undefined || configuredAgentDir.length === 0 ? join(homedir(), ".pi", "agent") : resolve(cwd, configuredAgentDir);
 const staticDir = fileURLToPath(new URL("../dist", import.meta.url));
-const profilePath = fileURLToPath(new URL("../profile/cordis.yml", import.meta.url));
+const builtinProfilePath = fileURLToPath(new URL("../profile/cordis.yml", import.meta.url));
+// The web console installs marketplace plugins with npm and then imports them, so the profile it edits and the node_modules it installs into live in a directory the user owns rather than inside the installed package, which npm replaces on every upgrade.
+const profilePath = await prepareHarnessProfile({ builtinProfilePath, profileName: "web", cwd });
 process.env.PI_HARNESS_WEB_DIST = staticDir;
 process.env.PI_HARNESS_HOST = host;
 process.env.PI_HARNESS_PORT = String(port);

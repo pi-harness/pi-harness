@@ -27,6 +27,7 @@ function createEnvironment(cwd = process.cwd(), input: string | null = "", shutd
   return {
     cwd,
     agentDir: join(cwd, ".pi-agent-test"),
+    harnessHome: join(cwd, ".pi-harness-test"),
     version: "0.1.0-test",
     stdin,
     stdout: new Writable({

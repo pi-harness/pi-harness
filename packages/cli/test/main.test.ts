@@ -23,6 +23,7 @@ function createEnvironment(cwd: string, shutdownTimeoutMs = 5_000): TestEnvironm
   return {
     cwd,
     agentDir: join(cwd, ".pi-agent-test"),
+    harnessHome: join(cwd, ".pi-harness-test"),
     version: "0.1.0-test",
     stdin,
     stdout: new Writable({

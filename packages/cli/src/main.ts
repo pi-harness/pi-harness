@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
-import { bootHarness, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
+import { bootHarness, prepareHarnessProfile, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
 import { CliUsageError, parseLauncherArgs } from "./args.js";
 import { NodeStdio } from "./node-stdio.js";
 import { BUILTIN_PROFILES, BUILTIN_PROFILES_DIR } from "./profiles.js";
@@ -9,6 +9,8 @@ import { PI_HARNESS_RESTART_EXIT_CODE } from "./relaunch.js";
 export interface CliEnvironment {
   readonly cwd: string;
   readonly agentDir: string;
+  /** Directory that owns the booted copy of a built-in profile and the node_modules the marketplace installs into. */
+  readonly harnessHome: string;
   readonly version: string;
   readonly stdin: Readable;
   readonly stdout: Writable;
@@ -82,6 +84,13 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
         : { configPath: invocation.configPath }),
       cwd: environment.cwd,
     });
+    // A built-in profile is a template: the copy under the harness home is what boots, because that is the file the web console appends marketplace entries to and the directory those packages are installed beside. An explicit --config already names a file the user owns, so it is booted as given.
+    if (invocation.configPath === undefined)
+      configPath = await prepareHarnessProfile({
+        builtinProfilePath: configPath,
+        profileName: invocation.profile ?? "default",
+        directory: environment.harnessHome,
+      });
     if (invocation.dumpConfig) {
       environment.stdout.write(await readFile(configPath, "utf8"));
       return 0;

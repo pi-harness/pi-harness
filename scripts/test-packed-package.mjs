@@ -19,14 +19,20 @@ const temporaryRoot = await mkdtemp(join(tmpdir(), "pi-harness-packed-package-")
 const installPrefix = join(temporaryRoot, "prefix");
 const npmCli = process.env.npm_execpath;
 
-/** @param {...string} args */
-const runNpm = (...args) =>
+/**
+ * @param {string} cwd
+ * @param {...string} args
+ */
+const runNpmIn = (cwd, ...args) =>
   execFileSync(npmCli ? process.execPath : process.platform === "win32" ? "npm.cmd" : "npm", npmCli ? [npmCli, ...args] : args, {
-    cwd: repositoryRoot,
+    cwd,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
   });
+
+/** @param {...string} args */
+const runNpm = (...args) => runNpmIn(repositoryRoot, ...args);
 
 /** @param {string} file */
 const readManifest = (file) => {
@@ -146,6 +152,39 @@ try {
   }
 
   await import(pathToFileURL(join(agentRoot, "dist", "cli", "args.js")).href);
+
+  // Everything above proves the tarball is well formed; this proves the launcher can still do the one thing that needs the tarball to be well formed at runtime. Installing a marketplace plugin runs npm inside whatever directory owns the booted profile and then imports the package from there, and both halves have failed silently before: npm refused to run inside the installed package at all, and the loader could not resolve an ESM-only package once npm had installed it.
+  const harnessHome = join(temporaryRoot, "harness-home");
+  // npm nests a workspace package under the launcher only when a version collision forces it to, and hoists it beside the launcher otherwise, so both layouts are a correct install.
+  const coreRoot = [join(harnessRoot, "node_modules", "@pi-harness", "core"), join(installPrefix, "lib", "node_modules", "@pi-harness", "core")].find(
+    (candidate) => existsSync(join(candidate, "dist", "index.js")),
+  );
+  if (coreRoot === undefined) throw new Error("The installed launcher ships no @pi-harness/core to drive the marketplace stage with");
+  /** @type {unknown} */
+  const importedCore = await import(pathToFileURL(join(coreRoot, "dist", "index.js")).href);
+  const installedCore =
+    /** @type {{ prepareHarnessProfile: (options: { builtinProfilePath: string; profileName: string; directory: string }) => Promise<string> }} */ (
+      importedCore
+    );
+  // The resolver the loader uses is internal to the package, so the stage reaches for the module the loader itself imports rather than the public surface.
+  /** @type {unknown} */
+  const importedResolve = await import(pathToFileURL(join(coreRoot, "dist", "plugin-resolve.js")).href);
+  const installedResolve = /** @type {{ resolvePluginEntry: (fromFile: string, name: string) => string | undefined }} */ (importedResolve);
+  const profilePath = await installedCore.prepareHarnessProfile({
+    builtinProfilePath: join(harnessRoot, "apps", "web", "profile", "cordis.yml"),
+    profileName: "web",
+    directory: harnessHome,
+  });
+  if (!existsSync(join(harnessHome, "package.json"))) throw new Error("Preparing the harness home left no manifest for npm to install against");
+  // A plugin the launcher already bundles would resolve from its own node_modules whether or not the install worked, so the subject has to be one that is only reachable through the harness home.
+  const marketplacePlugin = [...publishable.keys()].find((name) => name.startsWith("@pi-harness/plugin-") && !workspacesToPack.includes(name));
+  if (marketplacePlugin === undefined) throw new Error("No publishable plugin is outside the bundled set to install as a marketplace package");
+  const marketplaceTarball = runNpm("pack", "--workspace", marketplacePlugin, "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
+  if (marketplaceTarball.length === 0) throw new Error(`npm pack produced no tarball for ${marketplacePlugin}`);
+  runNpmIn(harnessHome, "install", "--save-exact", "--package-lock=false", "--ignore-scripts", join(temporaryRoot, marketplaceTarball));
+  const entry = installedResolve.resolvePluginEntry(profilePath, marketplacePlugin);
+  if (entry === undefined || !existsSync(entry)) throw new Error(`${marketplacePlugin} installed into the harness home but the loader cannot resolve it`);
+
   process.stdout.write(`Packed package smoke test passed (${harnessManifest.name}@${harnessManifest.version})\n`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { coreUpdateNotice } from "@pi-harness/core";
+import { coreUpdateNotice, harnessHomeDirectory } from "@pi-harness/core";
 import { runCli, type CliEnvironment } from "./main.js";
 import { shouldRelaunchForDevelopmentProfile, superviseDevelopmentProcess } from "./relaunch.js";
 
@@ -16,6 +16,7 @@ const agentDir = configuredAgentDir === undefined || configuredAgentDir.length =
 const environment: CliEnvironment = {
   cwd: process.cwd(),
   agentDir,
+  harnessHome: harnessHomeDirectory(),
   version: packageJson.version,
   supervised: process.env.PI_HARNESS_SUPERVISED === "1",
   stdin: process.stdin,
