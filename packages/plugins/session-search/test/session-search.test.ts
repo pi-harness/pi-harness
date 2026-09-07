@@ -1,0 +1,30 @@
+import { describe, expect, test } from "vitest";
+import { searchSessionEntries } from "../src/index.js";
+
+describe("session search", () => {
+  test("returns matching message previews with session context", () => {
+    const result = searchSessionEntries(
+      [
+        { type: "message", message: { role: "user", content: "fix the auth flow" } },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "I will inspect auth.ts" }] } },
+        { type: "message", message: { role: "user", content: "unrelated" } },
+      ],
+      "auth",
+    );
+    expect(result).toEqual([
+      { role: "user", text: "fix the auth flow" },
+      { role: "assistant", text: "I will inspect auth.ts" },
+    ]);
+  });
+
+  test("rejects empty or overlong queries", () => {
+    expect(() => searchSessionEntries([], "")).toThrow("Session search query must contain 1-120 characters");
+    expect(() => searchSessionEntries([], "x".repeat(121))).toThrow("Session search query must contain 1-120 characters");
+  });
+
+  test("centers long previews around the matching text", () => {
+    const result = searchSessionEntries([{ type: "message", message: { role: "user", content: `${"x".repeat(700)}needle${"y".repeat(700)}` } }], "needle");
+    expect(result[0]?.text).toContain("needle");
+    expect(result[0]?.text).toHaveLength(500);
+  });
+});

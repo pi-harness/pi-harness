@@ -1,6 +1,6 @@
 {
   "id": "plugin-dev",
-  "packageName": "@pi-harness/core/plugins/plugin-dev",
+  "packageName": "@pi-harness/plugin-plugin-dev",
   "version": "0.1.28",
   "name": "Plugin Dev",
   "description": "Defer Pi session resource reloads until the agent is settled, enforce a single active reload with bounded status, and expose the operation only for trusted local development.",
@@ -16,7 +16,7 @@
   "capabilities": ["settled-session resource reload", "single-flight reload guard", "bounded reload status", "cancellable caller wait"],
   "hooks": ["session resource reload tool", "Pi session lifecycle", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/plugin-dev",
+    "name": "@pi-harness/plugin-plugin-dev",
     "config": {}
   }
 }

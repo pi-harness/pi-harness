@@ -9,15 +9,15 @@ const execFileAsync = promisify(execFile);
 const fixtures: string[] = [];
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 
-// Stands in for npm so the smoke test can be exercised without packing and globally installing the real workspace: `pack` reports tarball names and `install` lays out
-// the tree the script inspects, optionally without the files the root bin map points at.
+// Stands in for npm so the smoke test can be exercised without packing and globally installing the real workspace: `pack` reports one tarball name per requested workspace and `install` lays out the tree the script inspects, optionally without the files the root bin map points at.
 const fakeNpmSource = `import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 
 const args = process.argv.slice(2);
 if (args[0] === "pack") {
-  process.stdout.write(args.includes("--workspace") ? "core.tgz\\n" : "harness.tgz\\n");
+  const workspaces = args.filter((argument, index) => args[index - 1] === "--workspace");
+  process.stdout.write((workspaces.length === 0 ? ["harness.tgz"] : workspaces.map((name) => name.slice(name.indexOf("/") + 1) + ".tgz")).join("\\n") + "\\n");
   process.exit(0);
 }
 if (args[0] !== "install") process.exit(1);

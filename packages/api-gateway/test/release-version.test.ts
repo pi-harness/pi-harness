@@ -23,7 +23,7 @@ describe("release version preparation", () => {
   it("synchronizes manifests, lock data, and internal marketplace entries without changing external versions", async () => {
     const fixture = await mkdtemp(resolve(tmpdir(), "pi-harness-release-version-"));
     fixtures.push(fixture);
-    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples"))]);
+    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples")), mkdir(resolve(fixture, "packages/plugins"), { recursive: true })]);
     await writeJson(fixture, "package.json", { name: "@pi-harness/pi-harness", version: "0.1.2", dependencies: { "@pi-harness/core": "0.1.2" } });
     await writeJson(fixture, "packages/core/package.json", { name: "@pi-harness/core", version: "0.1.2" });
     await writeJson(fixture, "packages/api-gateway/package.json", { name: "@pi-harness/api-gateway", version: "0.1.2" });
@@ -83,7 +83,7 @@ describe("release version preparation", () => {
     // A re-dispatched release run checks out the release commit, so every manifest and marketplace entry already holds the requested version.
     const fixture = await mkdtemp(resolve(tmpdir(), "pi-harness-release-version-"));
     fixtures.push(fixture);
-    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples"))]);
+    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples")), mkdir(resolve(fixture, "packages/plugins"), { recursive: true })]);
     await writeJson(fixture, "package.json", { name: "@pi-harness/pi-harness", version: "0.1.3", dependencies: { "@pi-harness/core": "^0.1.3" } });
     await writeJson(fixture, "packages/core/package.json", { name: "@pi-harness/core", version: "0.1.3" });
     await writeJson(fixture, "packages/api-gateway/package.json", { name: "@pi-harness/api-gateway", version: "0.1.3" });
@@ -103,10 +103,86 @@ describe("release version preparation", () => {
     expect(await readFile(resolve(fixture, "packages/api-gateway/dist/marketplace-entries/official/internal.json"), "utf8")).toBe(formattedInternalEntry);
   });
 
+  it("moves a plugin package's version only when that plugin changed", async () => {
+    // A plugin is published on its own, so the release train's version means nothing to it: an untouched plugin keeps the version already on npm and is skipped by the publish step.
+    const fixture = await mkdtemp(resolve(tmpdir(), "pi-harness-release-version-"));
+    fixtures.push(fixture);
+    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples")), mkdir(resolve(fixture, "packages/plugins"), { recursive: true })]);
+    await writeJson(fixture, "package.json", {
+      name: "@pi-harness/pi-harness",
+      version: "0.1.2",
+      dependencies: { "@pi-harness/core": "0.1.2", "@pi-harness/plugin-alpha": "0.2.5", "@pi-harness/plugin-beta": "0.1.2" },
+    });
+    await writeJson(fixture, "packages/core/package.json", { name: "@pi-harness/core", version: "0.1.2" });
+    await writeJson(fixture, "packages/plugin-api/package.json", { name: "@pi-harness/plugin-api", version: "0.1.2" });
+    await writeJson(fixture, "packages/api-gateway/package.json", { name: "@pi-harness/api-gateway", version: "0.1.2" });
+    await writeJson(fixture, "packages/plugins/alpha/package.json", {
+      name: "@pi-harness/plugin-alpha",
+      version: "0.2.5",
+      dependencies: { "@pi-harness/plugin-api": "^0.1.2" },
+    });
+    await writeJson(fixture, "packages/plugins/beta/package.json", {
+      name: "@pi-harness/plugin-beta",
+      version: "0.1.2",
+      dependencies: { "@pi-harness/plugin-api": "^0.1.2" },
+    });
+    await writeFile(resolve(fixture, "packages/plugins/alpha/index.js"), "export default 1;\n");
+    await writeFile(resolve(fixture, "packages/plugins/beta/index.js"), "export default 1;\n");
+    await writeJson(fixture, "package-lock.json", {
+      name: "@pi-harness/pi-harness",
+      version: "0.1.2",
+      lockfileVersion: 3,
+      packages: {
+        "": { name: "@pi-harness/pi-harness", version: "0.1.2", dependencies: { "@pi-harness/plugin-alpha": "0.2.5" } },
+        "packages/plugins/alpha": { name: "@pi-harness/plugin-alpha", version: "0.2.5", dependencies: { "@pi-harness/plugin-api": "^0.1.2" } },
+        "packages/plugins/beta": { name: "@pi-harness/plugin-beta", version: "0.1.2" },
+      },
+    });
+    await mkdir(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official"), { recursive: true });
+    await writeFile(
+      resolve(fixture, "packages/api-gateway/src/marketplace-entries/official/alpha.json"),
+      `{\n  "packageName": "@pi-harness/plugin-alpha",\n  "version": "0.2.5"\n}\n`,
+    );
+    await writeFile(
+      resolve(fixture, "packages/api-gateway/src/marketplace-entries/official/beta.json"),
+      `{\n  "packageName": "@pi-harness/plugin-beta",\n  "version": "0.1.2"\n}\n`,
+    );
+    await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: fixture });
+    await execFileAsync("git", ["config", "user.email", "release@test.invalid"], { cwd: fixture });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: fixture });
+    await execFileAsync("git", ["add", "-A"], { cwd: fixture });
+    await execFileAsync("git", ["commit", "-qm", "release fixture"], { cwd: fixture });
+    await execFileAsync("git", ["tag", "v0.1.2"], { cwd: fixture });
+    await writeFile(resolve(fixture, "packages/plugins/alpha/index.js"), "export default 2;\n");
+    await writeJson(fixture, "packages/plugins/gamma/package.json", { name: "@pi-harness/plugin-gamma", version: "0.0.0" });
+
+    await execFileAsync(process.execPath, [resolve(repositoryRoot, "scripts/set-release-version.mjs"), "0.1.3", "--base", "v0.1.2"], { cwd: fixture });
+
+    const read = async (path: string): Promise<Record<string, unknown>> =>
+      JSON.parse(await readFile(resolve(fixture, path), "utf8")) as Record<string, unknown>;
+    expect(await read("packages/plugins/alpha/package.json")).toMatchObject({ version: "0.2.6", dependencies: { "@pi-harness/plugin-api": "^0.1.2" } });
+    expect(await read("packages/plugins/beta/package.json")).toMatchObject({ version: "0.1.2" });
+    // A plugin that did not exist at the previous release joins at the train's version instead of starting from whatever its manifest happened to declare.
+    expect(await read("packages/plugins/gamma/package.json")).toMatchObject({ version: "0.1.3" });
+    expect(await read("package.json")).toMatchObject({
+      version: "0.1.3",
+      dependencies: { "@pi-harness/core": "^0.1.3", "@pi-harness/plugin-alpha": "0.2.6", "@pi-harness/plugin-beta": "0.1.2" },
+    });
+    expect(await read("package-lock.json")).toMatchObject({
+      packages: {
+        "": { dependencies: { "@pi-harness/plugin-alpha": "0.2.6" } },
+        "packages/plugins/alpha": { version: "0.2.6" },
+        "packages/plugins/beta": { version: "0.1.2" },
+      },
+    });
+    expect(await read("packages/api-gateway/src/marketplace-entries/official/alpha.json")).toMatchObject({ version: "0.2.6" });
+    expect(await read("packages/api-gateway/src/marketplace-entries/official/beta.json")).toMatchObject({ version: "0.1.2" });
+  });
+
   it("rejects an internal marketplace entry without a top-level version field", async () => {
     const fixture = await mkdtemp(resolve(tmpdir(), "pi-harness-release-version-"));
     fixtures.push(fixture);
-    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples"))]);
+    await Promise.all([mkdir(resolve(fixture, "apps")), mkdir(resolve(fixture, "examples")), mkdir(resolve(fixture, "packages/plugins"), { recursive: true })]);
     await writeJson(fixture, "package.json", { name: "@pi-harness/pi-harness", version: "0.1.2" });
     await writeJson(fixture, "packages/core/package.json", { name: "@pi-harness/core", version: "0.1.2" });
     await writeJson(fixture, "packages/api-gateway/package.json", { name: "@pi-harness/api-gateway", version: "0.1.2" });

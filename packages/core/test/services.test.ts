@@ -18,62 +18,62 @@ import modelsPlugin from "../src/plugins/models.js";
 import resourcesPlugin from "../src/plugins/resources.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
-import contextPlugin from "../src/plugins/context.js";
-import agentTeamsPlugin from "../src/plugins/agent-teams.js";
-import pluginDevPlugin from "../src/plugins/plugin-dev.js";
-import openPetsPlugin from "../src/plugins/openpets.js";
-import modlensPlugin from "../src/plugins/modlens.js";
-import tokenGuardPlugin from "../src/plugins/token-guard.js";
-import gitTimeCapsulePlugin from "../src/plugins/git-time-capsule.js";
-import dependencyCheckerPlugin from "../src/plugins/dependency-checker.js";
-import atFilePlugin from "../src/plugins/at-file.js";
-import failLoggerPlugin from "../src/plugins/fail-logger.js";
-import testHarnessPlugin from "../src/plugins/test-harness.js";
-import sessionInsightsPlugin from "../src/plugins/session-insights.js";
-import cleanerPlugin from "../src/plugins/cleaner.js";
-import i18nPairPlugin from "../src/plugins/i18n-pair.js";
-import sqlLensPlugin from "../src/plugins/sql-lens.js";
-import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
-import mcpClientPlugin from "../src/plugins/mcp-client.js";
-import browserFetchPlugin from "../src/plugins/browser-fetch.js";
-import webResearchPlugin from "../src/plugins/web-research.js";
-import browserSessionPlugin from "../src/plugins/browser-session.js";
-import yamlValidatorPlugin from "../src/plugins/yaml-validator.js";
-import readmeGenPlugin from "../src/plugins/readme-gen.js";
-import mockServerPlugin from "../src/plugins/mock-server.js";
-import cliNotifierPlugin from "../src/plugins/cli-notifier.js";
-import obsidianSyncPlugin from "../src/plugins/obsidian-sync.js";
-import contextDoctorPlugin from "../src/plugins/context-doctor.js";
-import historyCompressorPlugin from "../src/plugins/history-compressor.js";
-import reviewerBotPlugin from "../src/plugins/reviewer-bot.js";
-import autoModePlugin from "../src/plugins/auto-mode.js";
-import planExecutePlugin from "../src/plugins/plan-execute.js";
-import pluginFinderPlugin from "../src/plugins/plugin-finder.js";
-import memoryPlugin from "../src/plugins/memory.js";
-import graphMemoryPlugin from "../src/plugins/graph-memory.js";
-import taskboardPlugin from "../src/plugins/taskboard.js";
-import canvasDrawPlugin from "../src/plugins/canvas-draw.js";
-import imageCompressorPlugin from "../src/plugins/image-compressor.js";
-import workspaceSearchPlugin from "../src/plugins/workspace-search.js";
-import promptGuardPlugin from "../src/plugins/prompt-guard.js";
-import code2SkillPlugin from "../src/plugins/code2skill.js";
-import tabManagerPlugin from "../src/plugins/tab-manager.js";
-import genUiPlugin from "../src/plugins/genui.js";
-import anchoredStandardPlugin from "../src/plugins/anchored-standard.js";
-import telemetryBlockerPlugin from "../src/plugins/telemetry-blocker.js";
-import changeVerifierPlugin from "../src/plugins/change-verifier.js";
-import { buildSynapseGraph } from "../src/plugins/synapse.js";
-import synapsePlugin from "../src/plugins/synapse.js";
-import { inspectGuardInput } from "../src/plugins/hol-guard.js";
-import holGuardPlugin from "../src/plugins/hol-guard.js";
-import pluginRadarPlugin from "../src/plugins/plugin-radar.js";
-import pluginCheckPlugin, { type PluginCheckReport, type PluginCheckScanReport } from "../src/plugins/plugin-check.js";
-import annotationPlugin from "../src/plugins/annotation.js";
-import costMeterPlugin from "../src/plugins/cost-meter.js";
-import skillCatalogPlugin from "../src/plugins/skill-catalog.js";
-import skillGuardPlugin from "../src/plugins/skill-guard.js";
-import undoSavepointPlugin from "../src/plugins/undo-savepoint.js";
-import mcpPanelPlugin from "../src/plugins/mcp-panel.js";
+import contextPlugin from "@pi-harness/plugin-context";
+import agentTeamsPlugin from "@pi-harness/plugin-agent-teams";
+import pluginDevPlugin from "@pi-harness/plugin-plugin-dev";
+import openPetsPlugin from "@pi-harness/plugin-openpets";
+import modlensPlugin from "@pi-harness/plugin-modlens";
+import tokenGuardPlugin from "@pi-harness/plugin-token-guard";
+import gitTimeCapsulePlugin from "@pi-harness/plugin-git-time-capsule";
+import dependencyCheckerPlugin from "@pi-harness/plugin-dependency-checker";
+import atFilePlugin from "@pi-harness/plugin-at-file";
+import failLoggerPlugin from "@pi-harness/plugin-fail-logger";
+import testHarnessPlugin from "@pi-harness/plugin-test-harness";
+import sessionInsightsPlugin from "@pi-harness/plugin-session-insights";
+import cleanerPlugin from "@pi-harness/plugin-cleaner";
+import i18nPairPlugin from "@pi-harness/plugin-i18n-pair";
+import sqlLensPlugin from "@pi-harness/plugin-sql-lens";
+import dockerSandboxPlugin from "@pi-harness/plugin-docker-sandbox";
+import mcpClientPlugin from "@pi-harness/plugin-mcp-client";
+import browserFetchPlugin from "@pi-harness/plugin-browser-fetch";
+import webResearchPlugin from "@pi-harness/plugin-web-research";
+import browserSessionPlugin from "@pi-harness/plugin-browser-session";
+import yamlValidatorPlugin from "@pi-harness/plugin-yaml-validator";
+import readmeGenPlugin from "@pi-harness/plugin-readme-gen";
+import mockServerPlugin from "@pi-harness/plugin-mock-server";
+import cliNotifierPlugin from "@pi-harness/plugin-cli-notifier";
+import obsidianSyncPlugin from "@pi-harness/plugin-obsidian-sync";
+import contextDoctorPlugin from "@pi-harness/plugin-context-doctor";
+import historyCompressorPlugin from "@pi-harness/plugin-history-compressor";
+import reviewerBotPlugin from "@pi-harness/plugin-reviewer-bot";
+import autoModePlugin from "@pi-harness/plugin-auto-mode";
+import planExecutePlugin from "@pi-harness/plugin-plan-execute";
+import pluginFinderPlugin from "@pi-harness/plugin-plugin-finder";
+import memoryPlugin from "@pi-harness/plugin-memory";
+import graphMemoryPlugin from "@pi-harness/plugin-graph-memory";
+import taskboardPlugin from "@pi-harness/plugin-taskboard";
+import canvasDrawPlugin from "@pi-harness/plugin-canvas-draw";
+import imageCompressorPlugin from "@pi-harness/plugin-image-compressor";
+import workspaceSearchPlugin from "@pi-harness/plugin-workspace-search";
+import promptGuardPlugin from "@pi-harness/plugin-prompt-guard";
+import code2SkillPlugin from "@pi-harness/plugin-code2skill";
+import tabManagerPlugin from "@pi-harness/plugin-tab-manager";
+import genUiPlugin from "@pi-harness/plugin-genui";
+import anchoredStandardPlugin from "@pi-harness/plugin-anchored-standard";
+import telemetryBlockerPlugin from "@pi-harness/plugin-telemetry-blocker";
+import changeVerifierPlugin from "@pi-harness/plugin-change-verifier";
+import { buildSynapseGraph } from "@pi-harness/plugin-synapse";
+import synapsePlugin from "@pi-harness/plugin-synapse";
+import { inspectGuardInput } from "@pi-harness/plugin-hol-guard";
+import holGuardPlugin from "@pi-harness/plugin-hol-guard";
+import pluginRadarPlugin from "@pi-harness/plugin-plugin-radar";
+import pluginCheckPlugin, { type PluginCheckReport, type PluginCheckScanReport } from "@pi-harness/plugin-plugin-check";
+import annotationPlugin from "@pi-harness/plugin-annotation";
+import costMeterPlugin from "@pi-harness/plugin-cost-meter";
+import skillCatalogPlugin from "@pi-harness/plugin-skill-catalog";
+import skillGuardPlugin from "@pi-harness/plugin-skill-guard";
+import undoSavepointPlugin from "@pi-harness/plugin-undo-savepoint";
+import mcpPanelPlugin from "@pi-harness/plugin-mcp-panel";
 
 function firstTool(registry: PiToolRegistry): ToolDefinition {
   const [tool] = registry.snapshot().customTools;
@@ -259,7 +259,7 @@ describe("Pi domain plugins", () => {
     const panels = await context.piPluginUi.snapshot();
     expect(panels).toHaveLength(1);
     expect(panels[0]?.id).toBe("synapse-panel");
-    expect(panels[0]?.pluginId).toBe("@pi-harness/core/plugins/synapse");
+    expect(panels[0]?.pluginId).toBe("@pi-harness/plugin-synapse");
     expect(panels[0]?.data).toEqual({ nodes: [], edges: [], orphanCount: 0, refreshes: 0 });
   });
 
@@ -450,7 +450,7 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toEqual([
       {
         id: "context-insight-panel",
-        pluginId: "@pi-harness/core/plugins/context",
+        pluginId: "@pi-harness/plugin-context",
         title: "上下文洞察",
         description: "查看当前上下文占用、消息规模和压缩事件。",
         icon: "◒",
@@ -4770,7 +4770,7 @@ describe("Pi domain plugins", () => {
       {} as never,
     );
     const previewContent = preview.content[0];
-    expect(previewContent?.type === "text" ? previewContent.text : "").toContain("@pi-harness/core/plugins/mcp-client");
+    expect(previewContent?.type === "text" ? previewContent.text : "").toContain("@pi-harness/plugin-mcp-client");
     const denied = tool.execute("apply-denied", { action: "apply", serverId: "docs", command: ["node", "server.js"] }, undefined, undefined, {} as never);
     await expect(denied).rejects.toThrow(/confirm=true/);
     const applied = await tool.execute(

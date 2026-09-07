@@ -124,7 +124,7 @@ Pi Harness reads and hot-refreshes profile files but does not persist Loader mut
 
 ## Selected core production plugins
 
-Pi Harness ships the production-oriented plugins below. The built-in `default` profile enables the entries listed in [`packages/core/profiles/default/cordis.yml`](packages/core/profiles/default/cordis.yml); other core plugins, such as Graph Memory, can be added to a project-owned profile when needed. Plugin panels expose the latest bounded result and the limits applied by the backend.
+Pi Harness ships the production-oriented plugins below. The built-in `default` profile enables the entries listed in [`packages/cli/profiles/default/cordis.yml`](packages/cli/profiles/default/cordis.yml); other core plugins, such as Graph Memory, can be added to a project-owned profile when needed. Plugin panels expose the latest bounded result and the limits applied by the backend.
 
 This catalog is a selection, not the complete set. The authoritative list of what the web console loads is its profile, [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml), and [`packages/core/src/plugins`](../packages/core/src/plugins) holds every built-in plugin; most entries in that profile have no section here. An undocumented entry is enabled on exactly the same terms as a documented one — it can register tools the model may call, subscribe to session events, and persist state under `PI_AGENT_DIR` — so read the profile and the plugin source rather than reading this catalog as the full behavior of a default install.
 
@@ -256,7 +256,7 @@ An advanced profile may select a trusted absolute CLI file and set a 1–300 sec
 
 ```yaml
 - id: modlens
-  name: "@pi-harness/core/plugins/modlens"
+  name: "@pi-harness/plugin-modlens"
   config:
     cliPath: /absolute/path/to/trusted/modlens-cli.mjs
     timeoutMs: 180000
@@ -453,7 +453,7 @@ Docker output is stripped of terminal/control characters and retained as a UTF-8
 
 ```yaml
 - id: browser-fetch
-  name: "@pi-harness/core/plugins/browser-fetch"
+  name: "@pi-harness/plugin-browser-fetch"
   config:
     allowPrivate: false
     timeoutMs: 20000
@@ -478,7 +478,7 @@ google-chrome \
 
 ```yaml
 - id: browser-session
-  name: "@pi-harness/core/plugins/browser-session"
+  name: "@pi-harness/plugin-browser-session"
   config:
     endpoint: "http://127.0.0.1:9222"
 ```
@@ -495,7 +495,7 @@ Every discovery or CDP request has a 15-second timeout and honors caller cancell
 
 ```yaml
 - id: plugin-stars
-  name: "@pi-harness/core/plugins/plugin-stars"
+  name: "@pi-harness/plugin-plugin-stars"
   config:
     sourceUrl: "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json"
     limit: 10
@@ -639,7 +639,7 @@ Discovery uses `opendir` and examines at most 4,096 directory entries. It accept
 
 ```yaml
 - id: recall-unread
-  name: "@pi-harness/core/plugins/recall-unread"
+  name: "@pi-harness/plugin-recall-unread"
   config:
     maxSessions: 100
 ```
@@ -697,7 +697,7 @@ The default warning threshold is 75%, and the default message threshold is 64 Ki
 
 ```yaml
 - id: context-doctor
-  name: "@pi-harness/core/plugins/context-doctor"
+  name: "@pi-harness/plugin-context-doctor"
   config:
     warnPercent: 75
     maxMessageBytes: 65536
@@ -748,7 +748,7 @@ Token Guard has no Agent tool; it observes Pi lifecycle events and asks the acti
 
 ```yaml
 - id: token-guard
-  name: "@pi-harness/core/plugins/token-guard"
+  name: "@pi-harness/plugin-token-guard"
   config:
     maxPercent: 90
     maxRunTokens: 0
@@ -784,7 +784,7 @@ MCP Client connects only to local stdio servers started from an executable argv.
 
 ```yaml
 - id: mcp-client
-  name: "@pi-harness/core/plugins/mcp-client"
+  name: "@pi-harness/plugin-mcp-client"
   config:
     servers:
       - id: docs

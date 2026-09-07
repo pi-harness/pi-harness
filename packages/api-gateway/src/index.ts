@@ -17,7 +17,6 @@ import {
   createMarketplaceStatisticsLoader,
   paginateMarketplace,
   searchMarketplace,
-  needsMarketplacePackageInstall,
   marketplaceNpmPackageName,
   sortMarketplaceByRecommendation,
   type MarketplacePlugin,
@@ -1155,15 +1154,9 @@ export default {
           let profileBefore: string | undefined;
           let entryId: string | undefined;
           try {
-            if (needsMarketplacePackageInstall(plugin)) {
-              const specifier = `${marketplaceNpmPackageName(plugin.packageName)}@${plugin.version}`;
-              await runProcess("npm", ["install", "--save-exact", "--package-lock=false", specifier], installDirectory);
-            }
+            const specifier = `${marketplaceNpmPackageName(plugin.packageName)}@${plugin.version}`;
+            await runProcess("npm", ["install", "--save-exact", "--package-lock=false", specifier], installDirectory);
             profileBefore = await appendMarketplaceProfile(configPath, plugin);
-            if (!needsMarketplacePackageInstall(plugin)) {
-              sendJson(response, 200, { plugin, installed: false, restartRequired: true });
-              return;
-            }
             entryId = await loader.create({
               id: `marketplace-${plugin.id}`,
               name: plugin.packageName,
@@ -1286,8 +1279,7 @@ export default {
           entry.parent.tree.write();
           try {
             await updateMarketplaceProfile(configPath, profileEntryId, { remove: true });
-            if (needsMarketplacePackageInstall(plugin))
-              await runProcess("npm", ["uninstall", "--package-lock=false", marketplaceNpmPackageName(plugin.packageName)], installDirectory);
+            await runProcess("npm", ["uninstall", "--package-lock=false", marketplaceNpmPackageName(plugin.packageName)], installDirectory);
             sendJson(response, 200, { uninstalled: true, id: payload.id });
           } catch (error) {
             await writeFile(configPath, profileBefore, "utf8").catch(() => {});

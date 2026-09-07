@@ -6,7 +6,7 @@ import { PluginPanelCard } from "../src/react-room.js";
 function renderPanel(data: unknown): string {
   return renderToStaticMarkup(
     createElement(PluginPanelCard, {
-      panel: { id: "plugin-stars-panel", pluginId: "@pi-harness/core/plugins/plugin-stars", title: "Plugin Stars", data },
+      panel: { id: "plugin-stars-panel", pluginId: "@pi-harness/plugin-plugin-stars", title: "Plugin Stars", data },
     }),
   );
 }

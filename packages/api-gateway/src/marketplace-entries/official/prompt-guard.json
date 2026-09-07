@@ -1,6 +1,6 @@
 {
   "id": "prompt-guard",
-  "packageName": "@pi-harness/core/plugins/prompt-guard",
+  "packageName": "@pi-harness/plugin-prompt-guard",
   "version": "0.1.28",
   "name": "Prompt Guard",
   "description": "Detect prompt override, secret exfiltration, remote payloads, and hidden-instruction indicators without retaining input text.",
@@ -16,7 +16,7 @@
   "capabilities": ["prompt safety", "injection detection"],
   "hooks": ["session event", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/prompt-guard",
+    "name": "@pi-harness/plugin-prompt-guard",
     "config": {}
   }
 }

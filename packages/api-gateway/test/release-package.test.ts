@@ -59,7 +59,7 @@ describe("release package", () => {
     expect((core.dependencies as Record<string, string>)["@pi-harness/plugin-api"]).toBe(rootManifest.version);
 
     const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-    expect(workflow).toContain("for workspace in packages/plugin-api packages/core .; do");
+    expect(workflow).toContain("for workspace in packages/plugin-api packages/core $(node scripts/build-plugins.mjs --order) .; do");
     expect(workflow).toContain("for package_name in @pi-harness/plugin-api @pi-harness/core @pi-harness/pi-harness; do");
   });
 

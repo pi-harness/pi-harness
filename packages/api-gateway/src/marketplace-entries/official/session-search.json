@@ -1,6 +1,6 @@
 {
   "id": "session-search",
-  "packageName": "@pi-harness/core/plugins/session-search",
+  "packageName": "@pi-harness/plugin-session-search",
   "version": "0.1.28",
   "name": "Session Search",
   "description": "Search persisted Pi JSONL sessions for matching user or assistant text without modifying session files.",
@@ -16,7 +16,7 @@
   "capabilities": ["session search", "history lookup", "read-only scan"],
   "hooks": ["session manager", "JSONL sessions", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/session-search",
+    "name": "@pi-harness/plugin-session-search",
     "config": {}
   }
 }

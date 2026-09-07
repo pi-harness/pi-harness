@@ -8,7 +8,7 @@ function renderPanel(data: unknown): string {
     createElement(PluginPanelCard, {
       panel: {
         id: "readme-gen-panel",
-        pluginId: "@pi-harness/core/plugins/readme-gen",
+        pluginId: "@pi-harness/plugin-readme-gen",
         title: "README Generator",
         data,
       },

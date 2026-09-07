@@ -1,6 +1,6 @@
 {
   "id": "fail-logger",
-  "packageName": "@pi-harness/core/plugins/fail-logger",
+  "packageName": "@pi-harness/plugin-fail-logger",
   "version": "0.1.28",
   "name": "Failure Logger",
   "description": "Aggregate bounded extension, Agent, and non-aborted compaction failures through descriptor-safe event inspection, safe diagnostic summaries, and occurrence counts without retaining full payloads.",
@@ -23,7 +23,7 @@
   ],
   "hooks": ["extension error", "agent end", "compaction end", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/fail-logger",
+    "name": "@pi-harness/plugin-fail-logger",
     "config": {}
   }
 }

@@ -1,6 +1,6 @@
 {
   "id": "sql-lens",
-  "packageName": "@pi-harness/core/plugins/sql-lens",
+  "packageName": "@pi-harness/plugin-sql-lens",
   "version": "0.1.28",
   "name": "SQL Lens",
   "description": "Inspect workspace-contained SQLite databases with strict descriptor-safe inputs, a single read-only statement, bounded results, symlink and replacement checks, timed worker execution, cancellation, and fail-closed panel reporting.",
@@ -23,7 +23,7 @@
   ],
   "hooks": ["SQL read-only tool", "workspace SQLite files", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/sql-lens",
+    "name": "@pi-harness/plugin-sql-lens",
     "config": {
       "timeoutMs": 5000
     }

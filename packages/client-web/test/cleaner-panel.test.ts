@@ -8,7 +8,7 @@ function renderPanel(data: unknown): string {
     createElement(PluginPanelCard, {
       panel: {
         id: "cleaner-panel",
-        pluginId: "@pi-harness/core/plugins/cleaner",
+        pluginId: "@pi-harness/plugin-cleaner",
         title: "Harness Cleaner",
         data,
       },

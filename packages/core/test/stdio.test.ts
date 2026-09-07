@@ -3,7 +3,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { afterEach, describe, expect, test } from "vitest";
 import { provideStdioContext, type PiHarnessStdio } from "../src/stdio.js";
 import stdioPlugin from "../src/plugins/stdio.js";
-import { createTestRuntimeContext } from "./runtime-fixture.js";
+import { createTestRuntimeContext } from "../src/test-harness.js";
 
 const contexts: Context[] = [];
 

@@ -6,7 +6,7 @@ import { PluginPanelCard } from "../src/react-room.js";
 function renderPanel(data: unknown): string {
   return renderToStaticMarkup(
     createElement(PluginPanelCard, {
-      panel: { id: "browser-fetch-panel", pluginId: "@pi-harness/core/plugins/browser-fetch", title: "Browser Fetch", data },
+      panel: { id: "browser-fetch-panel", pluginId: "@pi-harness/plugin-browser-fetch", title: "Browser Fetch", data },
     }),
   );
 }

@@ -30,6 +30,32 @@
     "prepack": "node scripts/copy-marketplace-entries.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
+  "devDependencies": {
+    "@pi-harness/plugin-browser-fetch": "0.1.28",
+    "@pi-harness/plugin-browser-session": "0.1.28",
+    "@pi-harness/plugin-cleaner": "0.1.28",
+    "@pi-harness/plugin-context": "0.1.28",
+    "@pi-harness/plugin-context-doctor": "0.1.28",
+    "@pi-harness/plugin-cost-meter": "0.1.28",
+    "@pi-harness/plugin-dependency-checker": "0.1.28",
+    "@pi-harness/plugin-docker-sandbox": "0.1.28",
+    "@pi-harness/plugin-fail-logger": "0.1.28",
+    "@pi-harness/plugin-genui": "0.1.28",
+    "@pi-harness/plugin-git-time-capsule": "0.1.28",
+    "@pi-harness/plugin-graph-memory": "0.1.28",
+    "@pi-harness/plugin-i18n-pair": "0.1.28",
+    "@pi-harness/plugin-mcp-client": "0.1.28",
+    "@pi-harness/plugin-openpets": "0.1.28",
+    "@pi-harness/plugin-plugin-dev": "0.1.28",
+    "@pi-harness/plugin-plugin-stars": "0.1.28",
+    "@pi-harness/plugin-recall-unread": "0.1.28",
+    "@pi-harness/plugin-session-bridge": "0.1.28",
+    "@pi-harness/plugin-skill-guard": "0.1.28",
+    "@pi-harness/plugin-sql-lens": "0.1.28",
+    "@pi-harness/plugin-token-guard": "0.1.28",
+    "@pi-harness/plugin-turn-rewind": "0.1.28",
+    "@pi-harness/plugin-yaml-validator": "0.1.28"
+  },
   "engines": {
     "node": ">=22.19.0"
   }

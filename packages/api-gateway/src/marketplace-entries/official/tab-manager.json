@@ -1,6 +1,6 @@
 {
   "id": "tab-manager",
-  "packageName": "@pi-harness/core/plugins/tab-manager",
+  "packageName": "@pi-harness/plugin-tab-manager",
   "version": "0.1.28",
   "name": "Session Tabs",
   "description": "Organize active Pi sessions into named tabs and switch between them without losing session identity.",
@@ -16,7 +16,7 @@
   "capabilities": ["session tabs", "session switching", "workspace context"],
   "hooks": ["session registry", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/tab-manager",
+    "name": "@pi-harness/plugin-tab-manager",
     "config": {}
   }
 }

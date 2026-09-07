@@ -20,7 +20,7 @@ function renderDependencyPanel(report: Record<string, unknown>): string {
     createElement(PluginPanelCard, {
       panel: {
         id: "dependency-checker-panel",
-        pluginId: "@pi-harness/core/plugins/dependency-checker",
+        pluginId: "@pi-harness/plugin-dependency-checker",
         title: "Dependency Checker",
         data: { report },
       },

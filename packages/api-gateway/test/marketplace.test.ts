@@ -6,7 +6,6 @@ import {
   attachMarketplaceStatistics,
   createMarketplaceStatisticsLoader,
   marketplaceNpmPackageName,
-  needsMarketplacePackageInstall,
   paginateMarketplace,
   searchMarketplace,
   sortMarketplaceByRecommendation,
@@ -474,13 +473,11 @@ describe("plugin marketplace registry", () => {
     expect(official.get("better-sidebar")?.category.id).toBe("developer");
   });
 
-  test("recognizes bundled core plugin subpaths without requiring an npm install", () => {
-    const bundled = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "skill-guard");
-    const external = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "cordis-timer");
-    expect(bundled).toBeDefined();
-    expect(external).toBeDefined();
-    expect(needsMarketplacePackageInstall(bundled!)).toBe(false);
-    expect(needsMarketplacePackageInstall(external!)).toBe(true);
+  test("lists every plugin as an installable npm package rather than a launcher subpath", () => {
+    const subpaths = MARKETPLACE_PLUGINS.filter((plugin) => plugin.packageName.includes("/plugins/"));
+    expect(subpaths).toEqual([]);
+    expect(MARKETPLACE_PLUGINS.every((plugin) => marketplaceNpmPackageName(plugin.packageName) === plugin.packageName)).toBe(true);
+    expect(MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "skill-guard")?.packageName).toBe("@pi-harness/plugin-skill-guard");
   });
 
   test("filters by query and capability without mutating the registry", () => {
@@ -510,7 +507,8 @@ describe("plugin marketplace registry", () => {
   });
 
   test("maps plugin entry points to their published npm package", () => {
-    expect(marketplaceNpmPackageName("@pi-harness/core/plugins/agent-teams")).toBe("@pi-harness/core");
+    expect(marketplaceNpmPackageName("@pi-harness/plugin-agent-teams")).toBe("@pi-harness/plugin-agent-teams");
+    expect(marketplaceNpmPackageName("@example-scope/toolkit/plugins/subpath")).toBe("@example-scope/toolkit");
     expect(marketplaceNpmPackageName("@deepseek-ai/cordis-plugin-timer")).toBe("@deepseek-ai/cordis-plugin-timer");
     expect(marketplaceNpmPackageName("unscoped-package/runtime")).toBe("unscoped-package");
   });

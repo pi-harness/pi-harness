@@ -1,6 +1,6 @@
 {
   "id": "synapse",
-  "packageName": "@pi-harness/core/plugins/synapse",
+  "packageName": "@pi-harness/plugin-synapse",
   "version": "0.1.28",
   "name": "Synapse",
   "description": "Visualize session relationships and linked work items without changing the transcript.",
@@ -16,7 +16,7 @@
   "capabilities": ["session map", "context"],
   "hooks": ["session event", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/synapse",
+    "name": "@pi-harness/plugin-synapse",
     "config": {}
   }
 }

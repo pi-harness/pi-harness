@@ -17,7 +17,8 @@
     "pih": "./dist/bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "profiles"
   ],
   "type": "module",
   "main": "./dist/main.js",

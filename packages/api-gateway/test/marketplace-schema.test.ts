@@ -130,7 +130,7 @@ describe("marketplace entry schema", () => {
     expect(validate(schema, { ...validEntry(), category: { id: "Not Kebab", label: "x" } })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), category: { id: "collaboration", label: " " } })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), packageName: "Not/Valid Name" })).not.toEqual([]);
-    expect(validate(schema, { ...validEntry(), profile: { name: "@pi-harness/core/plugins/agent-teams", config: [] } })).not.toEqual([]);
+    expect(validate(schema, { ...validEntry(), profile: { name: "@pi-harness/plugin-agent-teams", config: [] } })).not.toEqual([]);
     expect(validate(schema, { ...groupEntry(), profile: { name: "@deepseek-ai/cordis-plugin-group", group: true, config: {} } })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), capabilities: [] })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), repository: "http://example.com" })).not.toEqual([]);

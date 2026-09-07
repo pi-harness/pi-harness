@@ -6,7 +6,7 @@ import { PluginPanelCard } from "../src/react-room.js";
 function renderPanel(data: unknown): string {
   return renderToStaticMarkup(
     createElement(PluginPanelCard, {
-      panel: { id: "docker-sandbox-panel", pluginId: "@pi-harness/core/plugins/docker-sandbox", title: "Docker Sandbox", data },
+      panel: { id: "docker-sandbox-panel", pluginId: "@pi-harness/plugin-docker-sandbox", title: "Docker Sandbox", data },
     }),
   );
 }

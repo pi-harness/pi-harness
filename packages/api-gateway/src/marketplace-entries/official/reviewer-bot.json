@@ -1,6 +1,6 @@
 {
   "id": "reviewer-bot",
-  "packageName": "@pi-harness/core/plugins/reviewer-bot",
+  "packageName": "@pi-harness/plugin-reviewer-bot",
   "version": "0.1.28",
   "name": "Reviewer Bot",
   "description": "Review the current Git diff for risky changes, unfinished markers, and large files without modifying the workspace.",
@@ -16,7 +16,7 @@
   "capabilities": ["code review", "git diff", "risk detection"],
   "hooks": ["workspace Git", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/reviewer-bot",
+    "name": "@pi-harness/plugin-reviewer-bot",
     "config": {}
   }
 }

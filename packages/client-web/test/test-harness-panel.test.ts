@@ -10,7 +10,7 @@ function renderPanel(data: unknown): string {
     createElement(PluginPanelCard, {
       panel: {
         id: "test-harness-panel",
-        pluginId: "@pi-harness/core/plugins/test-harness",
+        pluginId: "@pi-harness/plugin-test-harness",
         title: "Test Harness",
         data,
       },

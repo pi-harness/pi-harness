@@ -1,6 +1,6 @@
 {
   "id": "auto-mode",
-  "packageName": "@pi-harness/core/plugins/auto-mode",
+  "packageName": "@pi-harness/plugin-auto-mode",
   "version": "0.1.28",
   "name": "Auto Mode",
   "description": "Execute argv commands under a safe policy that blocks shell wrappers and requires confirmation for risky operations.",
@@ -16,7 +16,7 @@
   "capabilities": ["command policy", "confirmation gate", "safe execution"],
   "hooks": ["argv execution", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/auto-mode",
+    "name": "@pi-harness/plugin-auto-mode",
     "config": {
       "mode": "safe",
       "timeoutMs": 30000
