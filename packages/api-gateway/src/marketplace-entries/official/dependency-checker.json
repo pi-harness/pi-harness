@@ -11,17 +11,9 @@
   "status": "verified",
   "category": {
     "id": "developer",
-    "label": "开发效率"
+    "label": "开发工具"
   },
-  "capabilities": [
-    "2000-declaration local presence scan",
-    "4096-entry workspace-contained virtualenv scan",
-    "npm common-intersection conflict detection",
-    "bounded Python numeric constraint analysis",
-    "unresolved constraint and directive reporting",
-    "optional dependency reporting",
-    "descriptor-safe normalized panel"
-  ],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["dependency check tool", "workspace manifest read", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-dependency-checker",

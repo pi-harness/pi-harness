@@ -13,7 +13,7 @@
     "id": "discovery",
     "label": "发现与生态"
   },
-  "capabilities": ["plugin search", "Pi registry keyword", "registry lookup", "install handoff"],
+  "capabilities": ["network-access"],
   "hooks": ["npm registry", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-plugin-finder",

@@ -13,7 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["prompt templates", "tagged prompts", "session persistence"],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session storage", "bounded input", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-prompt-library",

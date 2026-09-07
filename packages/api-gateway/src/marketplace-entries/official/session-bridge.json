@@ -13,15 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "strict bounded handoff format",
-    "five-part review preview",
-    "confirmed context import",
-    "active-session targeting",
-    "duplicate import protection",
-    "bounded operation status",
-    "bounded normalized panel"
-  ],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session bridge tools", "active session manager", "custom context messages", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-session-bridge",

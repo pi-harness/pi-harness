@@ -11,9 +11,9 @@
   "status": "verified",
   "category": {
     "id": "security",
-    "label": "安全防护"
+    "label": "安全"
   },
-  "capabilities": ["command safety", "credential detection", "audit", "advisory"],
+  "capabilities": ["read-only"],
   "hooks": ["tool execution", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-hol-guard",

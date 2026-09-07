@@ -40,14 +40,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("plugin-stars")?.description).toMatch(
       /curated.*raw\.githubusercontent\.com.*descriptor-safe.*bounded.*cancellable.*fail-closed.*panel/iu,
     );
-    expect(official.get("plugin-stars")?.capabilities).toEqual([
-      "curated GitHub ranking search",
-      "strict bounded snapshot validation",
-      "redirect-free source fetch",
-      "cancellable request lifecycle",
-      "bounded panel inventory",
-      "validated fail-closed panel reporting",
-    ]);
+    expect(official.get("plugin-stars")?.capabilities).toEqual(["network-access"]);
     expect(official.get("plugin-stars")?.hooks).toEqual(["ranking search tool", "raw GitHub snapshot", "plugin UI"]);
     expect(official.get("plugin-stars")?.profile.config).toEqual({
       sourceUrl: "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json",
@@ -56,135 +49,58 @@ describe("plugin marketplace registry", () => {
     });
     expect(official.get("vision-toolkit")?.category.id).toBe("multimodal");
     expect(official.get("vision-toolkit")?.description).toMatch(/signature-verified.*PNG.*JPEG.*GIF.*WebP.*bounded header.*cancellable.*local/iu);
-    expect(official.get("vision-toolkit")?.capabilities).toEqual([
-      "bounded workspace image catalog",
-      "signature-verified image metadata",
-      "PNG JPEG GIF and WebP dimensions",
-      "cancellable bounded traversal",
-      "bounded normalized panel",
-    ]);
+    expect(official.get("vision-toolkit")?.capabilities).toEqual(["read-only", "reads-files"]);
     expect(official.get("vision-toolkit")?.hooks).toEqual(["image metadata tools", "workspace access", "plugin UI"]);
     expect(official.get("vision-toolkit")?.profile.config).toEqual({});
     expect(official.get("session-bridge")?.category.id).toBe("workflow");
     expect(official.get("session-bridge")?.description).toMatch(/preview.*export.*confirmed import.*strictly validated.*bounded.*LLM context.*duplicate/iu);
-    expect(official.get("session-bridge")?.capabilities).toEqual([
-      "strict bounded handoff format",
-      "five-part review preview",
-      "confirmed context import",
-      "active-session targeting",
-      "duplicate import protection",
-      "bounded operation status",
-      "bounded normalized panel",
-    ]);
+    expect(official.get("session-bridge")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("session-bridge")?.hooks).toEqual(["session bridge tools", "active session manager", "custom context messages", "plugin UI"]);
     expect(official.get("session-bridge")?.profile.config).toEqual({});
     expect(official.get("skill-guard")?.category.id).toBe("security");
     expect(official.get("skill-guard")?.description).toMatch(/loaded Skill entry.*bounded heuristic.*does not disable/iu);
-    expect(official.get("skill-guard")?.capabilities).toEqual([
-      "bounded loaded-entry audit",
-      "instruction-override heuristics",
-      "secret-exfiltration heuristics",
-      "destructive-command and obfuscation heuristics",
-      "descriptor-safe cancellable scans",
-      "bounded normalized panel",
-    ]);
+    expect(official.get("skill-guard")?.capabilities).toEqual(["read-only", "reads-files"]);
     expect(official.get("skill-guard")?.hooks).toEqual(["skill scan tool", "resource loader", "plugin UI"]);
     expect(official.get("skill-guard")?.profile.config).toEqual({});
     expect(official.get("cost-meter")?.category.id).toBe("observability");
     expect(official.get("cost-meter")?.description).toMatch(/runtime-reported.*UTC daily increments.*bounded local ledger/iu);
-    expect(official.get("cost-meter")?.capabilities).toEqual([
-      "UTC daily cost ledger",
-      "session cost snapshots",
-      "daily budget monitoring",
-      "bounded local persistence",
-    ]);
+    expect(official.get("cost-meter")?.capabilities).toEqual(["session-data", "reads-files", "writes-files"]);
     expect(official.get("cost-meter")?.hooks).toEqual(["agent end", "cost report tool", "plugin UI"]);
     expect(official.get("cost-meter")?.profile.config).toEqual({ dailyBudget: 0, maxEntries: 365 });
     expect(official.get("skill-catalog")?.category.id).toBe("discovery");
     expect(official.get("prompt-guard")?.category.id).toBe("security");
     expect(official.get("browser-fetch")?.category.id).toBe("web");
     expect(official.get("browser-fetch")?.description).toMatch(/bounded.*text.*descriptor-safe.*DNS.*pinn.*redirect.*private.*timeout.*validated.*panel/iu);
-    expect(official.get("browser-fetch")?.capabilities).toEqual([
-      "bounded textual HTTP fetch",
-      "DNS rebinding protection",
-      "per-hop SSRF validation",
-      "cancellable request lifecycle",
-      "bounded browser preview",
-      "validated fail-closed panel reporting",
-    ]);
+    expect(official.get("browser-fetch")?.capabilities).toEqual(["network-access"]);
     expect(official.get("browser-fetch")?.profile.config).toEqual({ allowPrivate: false, timeoutMs: 20_000 });
     expect(official.get("web-research")?.category.id).toBe("web");
     expect(official.get("mcp-client")?.category.id).toBe("tools");
     expect(official.get("mcp-client")?.description).toMatch(/MCP stdio.*bounded.*pagination.*tool.*resource.*prompt.*cancellable.*lifecycle/iu);
-    expect(official.get("mcp-client")?.capabilities).toEqual([
-      "bounded MCP stdio transport",
-      "bounded inventory pagination",
-      "tool resource and prompt bridging",
-      "persistent server lifecycle",
-      "cancellable queued requests",
-    ]);
+    expect(official.get("mcp-client")?.capabilities).toEqual(["runs-commands"]);
     expect(official.get("mcp-client")?.hooks).toEqual(["MCP stdio tools", "managed server lifecycle", "plugin UI"]);
     expect(official.get("mcp-client")?.profile.config).toEqual({ servers: [] });
     expect(official.get("at-file")?.category.id).toBe("context");
     expect(official.get("at-file")?.description).toMatch(/bounded 256 KiB.*UTF-8.*canonical.*untrusted.*closing-tag.*cancellable.*sequential/iu);
-    expect(official.get("at-file")?.capabilities).toEqual([
-      "256 KiB strict UTF-8 text attachments",
-      "canonical workspace path confinement",
-      "no-follow regular-file reads",
-      "untrusted context framing",
-      "closing-tag neutralization",
-      "cancellable sequential execution",
-      "descriptor-safe normalized panel",
-    ]);
+    expect(official.get("at-file")?.capabilities).toEqual(["read-only", "reads-files"]);
     expect(official.get("at-file")?.hooks).toEqual(["file context tool", "workspace file read", "plugin UI"]);
     expect(official.get("at-file")?.profile.config).toEqual({});
     expect(official.get("dependency-checker")?.category.id).toBe("developer");
     expect(official.get("dependency-checker")?.description).toMatch(/bounded.*offline.*read-only.*package\.json.*requirements.*presence.*unresolved/iu);
-    expect(official.get("dependency-checker")?.capabilities).toEqual([
-      "2000-declaration local presence scan",
-      "4096-entry workspace-contained virtualenv scan",
-      "npm common-intersection conflict detection",
-      "bounded Python numeric constraint analysis",
-      "unresolved constraint and directive reporting",
-      "optional dependency reporting",
-      "descriptor-safe normalized panel",
-    ]);
+    expect(official.get("dependency-checker")?.capabilities).toEqual(["read-only", "reads-files"]);
     expect(official.get("dependency-checker")?.hooks).toEqual(["dependency check tool", "workspace manifest read", "plugin UI"]);
     expect(official.get("token-guard")?.category.id).toBe("observability");
     expect(official.get("token-guard")?.description).toMatch(/descriptor-safe.*one abort.*per run.*context.*billed run-token.*cached.*normalized panel/iu);
-    expect(official.get("token-guard")?.capabilities).toEqual([
-      "strict context percentage budget",
-      "optional billed run-token budget",
-      "one abort request per run",
-      "resilient descriptor-safe monitoring",
-      "bounded streaming inspection cadence",
-      "bounded abort error status",
-      "cached normalized panel",
-    ]);
+    expect(official.get("token-guard")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("token-guard")?.hooks).toEqual(["Pi session lifecycle", "active runtime abort", "session usage and statistics", "plugin UI"]);
     expect(official.get("token-guard")?.profile.config).toEqual({ maxPercent: 90, maxRunTokens: 0 });
     expect(official.get("recall-unread")?.category.id).toBe("workflow");
     expect(official.get("recall-unread")?.description).toMatch(/read-only.*bounded.*strict UTF-8.*current workspace.*unanswered.*cached/iu);
-    expect(official.get("recall-unread")?.capabilities).toEqual([
-      "bounded current-workspace JSONL discovery",
-      "strict UTF-8 no-follow session reads",
-      "unanswered-tail detection",
-      "cached startup and manual rescans",
-      "descriptor-safe cancellable queries",
-      "bounded normalized panel",
-    ]);
+    expect(official.get("recall-unread")?.capabilities).toEqual(["read-only", "session-data", "reads-files"]);
     expect(official.get("recall-unread")?.hooks).toEqual(["recall unread tool", "native session storage", "active session manager", "plugin UI"]);
     expect(official.get("recall-unread")?.profile.config).toEqual({});
     expect(official.get("turn-rewind")?.category.id).toBe("workflow");
     expect(official.get("turn-rewind")?.description).toMatch(/bounded.*current branch.*queued.*cancellable.*native session tree/iu);
-    expect(official.get("turn-rewind")?.capabilities).toEqual([
-      "bounded current-branch candidate scan",
-      "settled-state queued navigation",
-      "preserved native session branches",
-      "optional branch summarization",
-      "cancellable serialized rewinds",
-      "bounded normalized operation panel",
-    ]);
+    expect(official.get("turn-rewind")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("turn-rewind")?.hooks).toEqual(["session rewind tool", "active session tree", "agent settled lifecycle", "plugin UI"]);
     expect(official.get("turn-rewind")?.profile.config).toEqual({});
     expect(official.get("context-doctor")?.category.id).toBe("observability");
@@ -198,82 +114,41 @@ describe("plugin marketplace registry", () => {
     expect(official.get("image-compressor")?.category.id).toBe("multimodal");
     expect(official.get("code2skill")?.category.id).toBe("tools");
     expect(official.get("code2skill")?.description).toMatch(/selected workspace source files/iu);
-    expect(official.get("code2skill")?.capabilities).toEqual(["bounded skill packaging", "source file preservation", "SKILL.md generation"]);
+    expect(official.get("code2skill")?.capabilities).toEqual(["reads-files", "writes-files"]);
     expect(official.get("workspace-search")?.category.id).toBe("context");
     expect(official.get("plugin-check")?.category.id).toBe("security");
     expect(official.get("test-harness")?.category.id).toBe("testing");
     expect(official.get("test-harness")?.description).toMatch(
       /five fixed npm script.*trusted workspace.*12 KiB.*UTF-8.*untrusted.*timeout.*cancellable process-tree/iu,
     );
-    expect(official.get("test-harness")?.capabilities).toEqual([
-      "five-script verification allowlist",
-      "real npm exit status and signal reporting",
-      "12 KiB UTF-8-safe output tail",
-      "terminal-control sanitization and untrusted framing",
-      "configurable bounded timeout",
-      "cancellable process-tree cleanup",
-      "descriptor-safe normalized panel",
-    ]);
+    expect(official.get("test-harness")?.capabilities).toEqual(["runs-commands"]);
     expect(official.get("test-harness")?.hooks).toEqual(["project verification tool", "workspace npm scripts", "plugin UI"]);
     expect(official.get("test-harness")?.profile.config).toEqual({ timeoutMs: 120_000 });
     expect(official.get("git-time-capsule")?.category.id).toBe("workflow");
     expect(official.get("git-time-capsule")?.description).toMatch(/unstaged tracked Git diff.*byte.*validated.*reverse/iu);
-    expect(official.get("git-time-capsule")?.capabilities).toEqual([
-      "byte-exact validated unstaged diff capture",
-      "exclusive no-clobber capsule publication",
-      "confirmed deterministic reverse apply",
-      "bounded 256-capsule inventory",
-      "cancellable serialized Git operations",
-      "descriptor-safe normalized panel",
-    ]);
+    expect(official.get("git-time-capsule")?.capabilities).toEqual(["reads-files", "writes-files", "runs-commands"]);
     expect(official.get("git-time-capsule")?.hooks).toEqual(["Git snapshot tool", "Git restore tool", "plugin UI"]);
     expect(official.get("git-time-capsule")?.profile.config).toEqual({ timeoutMs: 15_000 });
     expect(official.get("graph-memory")?.description).toMatch(/bounded typed.*directed relations.*atomic.*cross-session/iu);
-    expect(official.get("graph-memory")?.capabilities).toEqual([
-      "bounded typed nodes",
-      "validated directed relations",
-      "ranked graph search",
-      "atomic locked persistence",
-    ]);
+    expect(official.get("graph-memory")?.capabilities).toEqual(["reads-files", "writes-files"]);
     expect(official.get("graph-memory")?.hooks).toEqual(["graph memory tools", "local graph file", "plugin UI"]);
     expect(official.get("graph-memory")?.profile.config).toEqual({ fileName: "graph-memory.json", maxNodes: 2_000, maxRelations: 5_000 });
     expect(official.get("yaml-validator")?.category.id).toBe("developer");
     expect(official.get("yaml-validator")?.description).toMatch(/workspace-contained.*UTF-8.*multi-document.*bounded.*cancellable/iu);
-    expect(official.get("yaml-validator")?.capabilities).toEqual([
-      "workspace-contained bounded reads",
-      "strict UTF-8 multi-document YAML",
-      "line-aware error and warning diagnostics",
-      "cancellable validation lifecycle",
-      "bounded panel previews",
-    ]);
+    expect(official.get("yaml-validator")?.capabilities).toEqual(["read-only", "reads-files"]);
     expect(official.get("yaml-validator")?.hooks).toEqual(["YAML validation tool", "workspace files", "plugin UI"]);
     expect(official.get("yaml-validator")?.profile.config).toEqual({});
     expect(official.get("browser-session")?.category.id).toBe("web");
     expect(official.get("browser-session")?.category).toEqual(official.get("browser-fetch")?.category);
     expect(official.get("browser-session")?.description).toMatch(/loopback-only.*descriptor-safe.*bounded.*cancellable.*screenshot.*validated.*panel/iu);
-    expect(official.get("browser-session")?.capabilities).toEqual([
-      "loopback-only CDP endpoint",
-      "bounded tab discovery",
-      "navigation read click and screenshot tools",
-      "cancellable request lifecycle",
-      "bounded panel previews",
-      "validated fail-closed panel reporting",
-    ]);
+    expect(official.get("browser-session")?.capabilities).toEqual(["network-access"]);
     expect(official.get("browser-session")?.hooks).toEqual(["browser session tools", "Chrome DevTools Protocol", "plugin UI"]);
     expect(official.get("browser-session")?.profile.config).toEqual({ endpoint: "http://127.0.0.1:9222" });
     expect(official.get("docker-sandbox")?.category.id).toBe("security");
     expect(official.get("docker-sandbox")?.description).toMatch(
       /descriptor-safe.*local-only.*no container network.*read-only workspace.*CPU.*memory.*PID.*sanitized output.*strict panel.*cancellation cleanup/iu,
     );
-    expect(official.get("docker-sandbox")?.capabilities).toEqual([
-      "local-only image execution",
-      "no-network containers",
-      "read-only workspace by default",
-      "CPU memory and PID limits",
-      "sanitized bounded output",
-      "strict panel reporting",
-      "cancellation cleanup",
-    ]);
+    expect(official.get("docker-sandbox")?.capabilities).toEqual(["reads-files", "writes-files", "runs-commands"]);
     expect(official.get("docker-sandbox")?.hooks).toEqual(["sandbox execution tool", "Docker CLI", "plugin UI"]);
     expect(official.get("docker-sandbox")?.profile.config).toEqual({});
     expect(official.get("mock-server")?.category.id).toBe("tools");
@@ -281,27 +156,14 @@ describe("plugin marketplace registry", () => {
     expect(official.get("sql-lens")?.description).toMatch(
       /workspace.*SQLite.*strict.*descriptor-safe.*single.*read-only.*bounded.*symlink.*timed.*cancellation.*fail-closed.*panel/iu,
     );
-    expect(official.get("sql-lens")?.capabilities).toEqual([
-      "single-statement SQLite inspection",
-      "isolated read-only query worker",
-      "bounded rows cells and result bytes",
-      "workspace and symlink safety checks",
-      "timeout and cancellation termination",
-      "validated fail-closed panel reporting",
-    ]);
+    expect(official.get("sql-lens")?.capabilities).toEqual(["reads-files", "runs-commands"]);
     expect(official.get("sql-lens")?.hooks).toEqual(["SQL read-only tool", "workspace SQLite files", "plugin UI"]);
     expect(official.get("sql-lens")?.profile.config).toEqual({ timeoutMs: 5_000 });
     expect(official.get("i18n-pair")?.category.id).toBe("workflow");
     expect(official.get("i18n-pair")?.description).toMatch(
       /strict read-only.*bounded JSON locale.*no-follow workspace.*collision-safe missing.*extra.*stable failures.*cancellation.*validated panel/iu,
     );
-    expect(official.get("i18n-pair")?.capabilities).toEqual([
-      "collision-safe locale key parity",
-      "strict bounded workspace-only JSON reads",
-      "no-follow symbolic-link safety",
-      "stable sequential cancellable inspection",
-      "validated bounded panel reporting",
-    ]);
+    expect(official.get("i18n-pair")?.capabilities).toEqual(["read-only", "reads-files"]);
     expect(official.get("i18n-pair")?.hooks).toEqual(["i18n check tool", "workspace locale files", "plugin UI"]);
     expect(official.get("i18n-pair")?.profile.config).toEqual({});
     expect(official.get("plugin-finder")?.category.id).toBe("discovery");
@@ -309,15 +171,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("readme-gen")?.description).toMatch(
       /strictly bounded manifest.*descriptor-safe loader.*Markdown-safe.*confirmed.*no-clobber atomic.*explicit overwrite.*cancellable/iu,
     );
-    expect(official.get("readme-gen")?.capabilities).toEqual([
-      "bounded manifest metadata",
-      "descriptor-safe loader inventory",
-      "Markdown-safe rendering",
-      "confirmed no-clobber atomic writes",
-      "explicit overwrite confirmation",
-      "cancellable sequential tools",
-      "bounded normalized operation panel",
-    ]);
+    expect(official.get("readme-gen")?.capabilities).toEqual(["reads-files", "writes-files"]);
     expect(official.get("readme-gen")?.hooks).toEqual([
       "README report and write tools",
       "workspace manifest and files",
@@ -332,28 +186,14 @@ describe("plugin marketplace registry", () => {
     expect(official.get("openpets")?.description).toMatch(
       /bounded.*companion state.*validated.*session entr.*without retaining message contents.*persistence/iu,
     );
-    expect(official.get("openpets")?.capabilities).toEqual([
-      "bounded durable companion state",
-      "validated session recovery",
-      "descriptor-safe pet actions",
-      "session event reactions",
-      "persistence health panel",
-    ]);
+    expect(official.get("openpets")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("openpets")?.hooks).toEqual(["session events", "pet reaction tool", "session storage", "plugin UI"]);
     expect(official.get("openpets")?.profile.config).toEqual({});
     expect(official.get("session-insights")?.category.id).toBe("observability");
     expect(official.get("session-insights")?.description).toMatch(
       /descriptor-safe.*validated.*cached.*session.*statistics.*confirmed.*settled.*compaction.*model.*usage.*cost.*cancellable/iu,
     );
-    expect(official.get("session-insights")?.capabilities).toEqual([
-      "validated detached session statistics",
-      "message token cache cost and context accounting",
-      "cached active-session panel",
-      "confirmed settled-session compaction",
-      "dedicated compaction cancellation",
-      "single-flight bounded operation status",
-      "normalized fail-closed browser view",
-    ]);
+    expect(official.get("session-insights")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("session-insights")?.hooks).toEqual(["session report tool", "active runtime session", "Pi session lifecycle", "plugin UI"]);
     expect(official.get("session-insights")?.profile.config).toEqual({});
     expect(official.get("mcp-panel")?.category.id).toBe("tools");
@@ -361,31 +201,14 @@ describe("plugin marketplace registry", () => {
     expect(official.get("fail-logger")?.description).toMatch(
       /bounded.*extension.*Agent.*non-aborted compaction.*descriptor-safe event inspection.*safe diagnostic.*occurrence counts/iu,
     );
-    expect(official.get("fail-logger")?.capabilities).toEqual([
-      "bounded failure aggregation",
-      "descriptor-safe event inspection",
-      "abort-aware compaction diagnostics",
-      "occurrence counting",
-      "safe diagnostic summaries",
-      "capacity visibility",
-    ]);
+    expect(official.get("fail-logger")?.capabilities).toEqual(["read-only"]);
     expect(official.get("fail-logger")?.hooks).toEqual(["extension error", "agent end", "compaction end", "plugin UI"]);
     expect(official.get("genui")?.description).toMatch(/bounded.*text, badge, and decimal progress.*plain text/iu);
-    expect(official.get("genui")?.capabilities).toEqual([
-      "bounded structured cards",
-      "typed text badge and progress blocks",
-      "decimal progress validation",
-      "plain-text HTML handling",
-    ]);
+    expect(official.get("genui")?.capabilities).toEqual(["read-only"]);
     expect(official.get("genui")?.hooks).toEqual(["GenUI render tool", "plugin UI"]);
     expect(official.get("plugin-dev")?.category.id).toBe("developer");
     expect(official.get("plugin-dev")?.description).toMatch(/defer.*session resource.*agent.*settled.*single.*reload.*bounded.*trusted.*development/iu);
-    expect(official.get("plugin-dev")?.capabilities).toEqual([
-      "settled-session resource reload",
-      "single-flight reload guard",
-      "bounded reload status",
-      "cancellable caller wait",
-    ]);
+    expect(official.get("plugin-dev")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("plugin-dev")?.hooks).toEqual(["session resource reload tool", "Pi session lifecycle", "plugin UI"]);
     expect(official.get("plugin-dev")?.profile.config).toEqual({});
     expect(official.get("session-export")?.category.id).toBe("workflow");
@@ -403,25 +226,12 @@ describe("plugin marketplace registry", () => {
     expect(official.get("context-insights")?.description).toMatch(
       /descriptor-safe.*bounded message composition.*cached.*active-session.*lifecycle.*normalized browser/iu,
     );
-    expect(official.get("context-insights")?.capabilities).toEqual([
-      "descriptor-safe bounded message composition",
-      "resilient context usage inspection",
-      "active-session lifecycle counters",
-      "cached session-aware panel",
-      "bounded normalized browser view",
-    ]);
+    expect(official.get("context-insights")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("context-insights")?.hooks).toEqual(["context inspection tool", "active runtime session", "Pi session lifecycle", "plugin UI"]);
     expect(official.get("context-insights")?.profile.config).toEqual({});
     expect(official.get("context-doctor")?.category.id).toBe("observability");
     expect(official.get("context-doctor")?.description).toMatch(/descriptor-safe.*bounded.*queued.*agent.*settled.*confirmed.*model.*cost.*cancellable/iu);
-    expect(official.get("context-doctor")?.capabilities).toEqual([
-      "descriptor-safe bounded context audit",
-      "pressure oversized uninspectable and tool-error diagnostics",
-      "confirmed settled-session compaction",
-      "dedicated compaction cancellation",
-      "single-flight bounded operation status",
-      "cached normalized panel",
-    ]);
+    expect(official.get("context-doctor")?.capabilities).toEqual(["read-only", "session-data"]);
     expect(official.get("context-doctor")?.hooks).toEqual([
       "context doctor tool",
       "session messages and usage",
@@ -431,40 +241,27 @@ describe("plugin marketplace registry", () => {
     ]);
     expect(official.get("context-doctor")?.profile.config).toEqual({});
     expect(official.get("cordis-group")?.category.id).toBe("composition");
-    expect(official.get("cordis-group")?.capabilities).toEqual(["nested plugin composition", "transactional rollback", "lifecycle ownership"]);
+    expect(official.get("cordis-group")?.capabilities).toEqual(["read-only"]);
     expect(official.get("cordis-group")?.hooks).toEqual(["loader entry tree"]);
     expect(official.get("cordis-logger-console")?.category.id).toBe("observability");
-    expect(official.get("cordis-logger-console")?.capabilities).toEqual(["bounded console logging", "per-logger severity filtering", "safe recent-log panel"]);
+    expect(official.get("cordis-logger-console")?.capabilities).toEqual(["read-only"]);
     expect(official.get("cordis-logger-console")?.hooks).toEqual(["Cordis logger exporter", "plugin UI"]);
     expect(official.get("cordis-logger-console")?.profile.config).toEqual({ levels: { default: 2 }, maxLength: 8_192 });
     expect(official.get("cordis-timer")?.category.id).toBe("runtime");
-    expect(official.get("cordis-timer")?.capabilities).toEqual([
-      "scheduling",
-      "lifecycle-owned cancellation",
-      "async interval iteration",
-      "throttle and debounce",
-    ]);
+    expect(official.get("cordis-timer")?.capabilities).toEqual(["read-only"]);
     expect(official.get("cordis-timer")?.hooks).toEqual(["Cordis timer service", "plugin UI"]);
     expect(official.get("prompt-library")?.category.id).toBe("workflow");
     expect(official.get("cleaner")?.category.id).toBe("developer");
     expect(official.get("cleaner")?.description).toMatch(
       /strict.*descriptor-safe.*display-safe.*bounded.*Git capsule.*explicit confirmation.*retention.*symlink.*replacement.*cancellable.*fail-closed/iu,
     );
-    expect(official.get("cleaner")?.capabilities).toEqual([
-      "strict configuration and parameters",
-      "bounded capsule inventory",
-      "display-safe capsule filtering",
-      "confirmed retention cleanup",
-      "symlink and replacement defenses",
-      "cancellable serialized cleanup",
-      "fail-closed normalized panel",
-    ]);
+    expect(official.get("cleaner")?.capabilities).toEqual(["reads-files", "writes-files"]);
     expect(official.get("cleaner")?.hooks).toEqual(["capsule cleanup tool", "agent capsule directory", "plugin UI"]);
     expect(official.get("cleaner")?.profile.config).toEqual({});
     expect(official.get("cli-notifier")?.category.id).toBe("workflow");
     expect(official.get("cli-notifier")?.description).toMatch(/local desktop notifications/iu);
     expect(official.get("cli-notifier")?.description).not.toMatch(/webhook/iu);
-    expect(official.get("cli-notifier")?.capabilities).toEqual(["desktop notification", "completion notice", "failure and abort notice"]);
+    expect(official.get("cli-notifier")?.capabilities).toEqual(["runs-commands"]);
     expect(official.get("cli-notifier")?.hooks).toEqual(["agent end", "compaction error", "plugin UI"]);
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");
     expect(official.get("tab-manager")?.category.id).toBe("workflow");
@@ -481,7 +278,7 @@ describe("plugin marketplace registry", () => {
   });
 
   test("filters by query and capability without mutating the registry", () => {
-    const result = searchMarketplace("timer", "scheduling");
+    const result = searchMarketplace("timer", "read-only");
     expect(result.map((plugin) => plugin.packageName)).toEqual(["@deepseek-ai/cordis-plugin-timer"]);
     expect(searchMarketplace("does-not-exist")).toEqual([]);
     expect(MARKETPLACE_PLUGINS.length).toBeGreaterThan(3);
@@ -503,7 +300,44 @@ describe("plugin marketplace registry", () => {
       pageSize: 2,
       hasNext: MARKETPLACE_PLUGINS.length > 4,
     });
-    expect(MARKETPLACE_CAPABILITIES).toContain("scheduling");
+  });
+
+  // The filter is the first thing a reader touches before installing anything, so what it offers has to be a fixed set that says what a plugin does to the machine, and every entry has to answer it.
+  test("describes every entry with the same closed capability vocabulary", () => {
+    const vocabulary = MARKETPLACE_CAPABILITIES.map((capability) => capability.id);
+    expect(vocabulary).toEqual(["read-only", "session-data", "reads-files", "writes-files", "runs-commands", "local-server", "network-access", "model-calls"]);
+    expect(MARKETPLACE_CAPABILITIES.every((capability) => capability.label !== "" && capability.count > 0)).toBe(true);
+    expect(MARKETPLACE_CAPABILITIES.reduce((sum, capability) => sum + capability.count, 0)).toBe(
+      MARKETPLACE_PLUGINS.reduce((sum, plugin) => sum + plugin.capabilities.length, 0),
+    );
+    for (const plugin of MARKETPLACE_PLUGINS) {
+      expect(plugin.capabilities.length).toBeGreaterThan(0);
+      expect(plugin.capabilities.filter((capability) => vocabulary.includes(capability))).toEqual(plugin.capabilities);
+      expect(new Set(plugin.capabilities).size).toBe(plugin.capabilities.length);
+      // A plugin that says it changes nothing cannot also say it writes, executes, listens, dials out, or spends money.
+      if (plugin.capabilities.includes("read-only"))
+        expect(
+          plugin.capabilities.some((capability) => ["writes-files", "runs-commands", "local-server", "network-access", "model-calls"].includes(capability)),
+        ).toBe(false);
+    }
+  });
+
+  // The tabs take their label from whichever entry happens to be read first, so two spellings of one category would make the console's own vocabulary depend on file order.
+  test("spells each category the same way in every entry", () => {
+    const labels = new Map<string, string>();
+    for (const plugin of MARKETPLACE_PLUGINS) {
+      expect(labels.get(plugin.category.id) ?? plugin.category.label).toBe(plugin.category.label);
+      labels.set(plugin.category.id, plugin.category.label);
+    }
+    expect(labels.size).toBe(MARKETPLACE_CATEGORIES.length);
+  });
+
+  // The ids are what the filter and the URL carry, and the labels are what the reader sees, so a search for either has to find the same plugin.
+  test("finds a plugin by a capability id and by its label", () => {
+    const byId = searchMarketplace("local-server");
+    expect(byId.map((plugin) => plugin.id)).toEqual(["mock-server"]);
+    expect(searchMarketplace("监听本地端口").map((plugin) => plugin.id)).toEqual(["mock-server"]);
+    expect(searchMarketplace("", "local-server").map((plugin) => plugin.id)).toEqual(["mock-server"]);
   });
 
   test("maps plugin entry points to their published npm package", () => {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { failedRefreshLabels } from "../src/control-room.js";
 import { DESIGN_EVENTS, DESIGN_PLUGINS, DESIGN_SESSIONS, DESIGN_WORKSPACES, DESIGN_TURNS, DESIGN_PROVIDERS, DESIGN_TOML } from "../src/design-contract.js";
-import { marketplaceCategoryTabs, marketplaceDetailPath, marketplaceStatisticItems, readMarketplaceDetailId } from "../src/marketplace-navigation.js";
+import {
+  marketplaceCapabilityLabeller,
+  marketplaceCategoryTabs,
+  marketplaceDetailPath,
+  marketplaceStatisticItems,
+  readMarketplaceDetailId,
+} from "../src/marketplace-navigation.js";
 
 describe("Pi Harness design contract", () => {
   it("keeps the workspace and session surfaces represented", () => {
@@ -43,6 +49,18 @@ describe("Pi Harness design contract", () => {
       { id: "workflow", label: "工作流", count: 3 },
       { id: "security", label: "安全", count: 2 },
     ]);
+  });
+
+  it("names a capability the way the catalogue does and falls back to the raw id", () => {
+    const label = marketplaceCapabilityLabeller([
+      { id: "read-only", label: "只读运行" },
+      { id: "runs-commands", label: "执行本机命令" },
+    ]);
+    expect(label("read-only")).toBe("只读运行");
+    expect(label("runs-commands")).toBe("执行本机命令");
+    // An id the catalogue has not described yet reads as itself rather than as a blank chip, which is what the moment before the first response looks like.
+    expect(label("writes-files")).toBe("writes-files");
+    expect(marketplaceCapabilityLabeller([])("read-only")).toBe("read-only");
   });
 
   it("labels npm statistics without presenting them as user ratings", () => {

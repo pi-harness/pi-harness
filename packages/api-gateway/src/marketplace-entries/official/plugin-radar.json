@@ -13,7 +13,7 @@
     "id": "discovery",
     "label": "发现与生态"
   },
-  "capabilities": ["plugin discovery", "lifecycle"],
+  "capabilities": ["network-access"],
   "hooks": ["context lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-plugin-radar",

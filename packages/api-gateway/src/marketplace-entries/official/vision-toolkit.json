@@ -13,13 +13,7 @@
     "id": "multimodal",
     "label": "视觉与多模态"
   },
-  "capabilities": [
-    "bounded workspace image catalog",
-    "signature-verified image metadata",
-    "PNG JPEG GIF and WebP dimensions",
-    "cancellable bounded traversal",
-    "bounded normalized panel"
-  ],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["image metadata tools", "workspace access", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-vision-toolkit",

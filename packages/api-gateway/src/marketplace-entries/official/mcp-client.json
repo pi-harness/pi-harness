@@ -11,15 +11,9 @@
   "status": "verified",
   "category": {
     "id": "tools",
-    "label": "工具集成"
+    "label": "工具"
   },
-  "capabilities": [
-    "bounded MCP stdio transport",
-    "bounded inventory pagination",
-    "tool resource and prompt bridging",
-    "persistent server lifecycle",
-    "cancellable queued requests"
-  ],
+  "capabilities": ["runs-commands"],
   "hooks": ["MCP stdio tools", "managed server lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-mcp-client",

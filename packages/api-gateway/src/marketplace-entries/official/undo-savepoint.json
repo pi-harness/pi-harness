@@ -13,7 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["savepoint", "recovery"],
+  "capabilities": ["reads-files", "writes-files"],
   "hooks": ["tool execution", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-undo-savepoint",

@@ -13,14 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "bounded current-workspace JSONL discovery",
-    "strict UTF-8 no-follow session reads",
-    "unanswered-tail detection",
-    "cached startup and manual rescans",
-    "descriptor-safe cancellable queries",
-    "bounded normalized panel"
-  ],
+  "capabilities": ["read-only", "session-data", "reads-files"],
   "hooks": ["recall unread tool", "native session storage", "active session manager", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-recall-unread",

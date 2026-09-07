@@ -79,9 +79,14 @@ export interface ClientMarketplaceCategory {
   readonly label: string;
   readonly count: number;
 }
+export interface ClientMarketplaceCapability {
+  readonly id: string;
+  readonly label: string;
+  readonly count: number;
+}
 export interface ClientMarketplacePage {
   readonly items: readonly ClientMarketplacePlugin[];
-  readonly capabilities: readonly string[];
+  readonly capabilities: readonly ClientMarketplaceCapability[];
   readonly categories: readonly ClientMarketplaceCategory[];
   readonly total: number;
   readonly page: number;

@@ -13,15 +13,7 @@
     "id": "context",
     "label": "上下文管理"
   },
-  "capabilities": [
-    "256 KiB strict UTF-8 text attachments",
-    "canonical workspace path confinement",
-    "no-follow regular-file reads",
-    "untrusted context framing",
-    "closing-tag neutralization",
-    "cancellable sequential execution",
-    "descriptor-safe normalized panel"
-  ],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["file context tool", "workspace file read", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-at-file",

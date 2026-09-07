@@ -69,6 +69,36 @@ export interface MarketplaceCategory {
   readonly count: number;
 }
 
+export interface MarketplaceCapability {
+  readonly id: string;
+  readonly label: string;
+  readonly count: number;
+}
+
+/** What a plugin does to the machine it is installed on, ordered from the least invasive to the most, so a reader can decide from the badges alone. This replaced free text, which produced 299 values across 78 entries with 284 of them held by a single plugin: the filter listed nearly one option per plugin and nothing could be compared against anything else. Every value here is derived from the plugin's own imports, including those it inherits from a plugin it depends on. */
+const MARKETPLACE_CAPABILITY_VOCABULARY: readonly { readonly id: string; readonly label: string }[] = [
+  { id: "read-only", label: "只读运行" },
+  { id: "session-data", label: "读取会话内容" },
+  { id: "reads-files", label: "读取本机文件" },
+  { id: "writes-files", label: "写入本机文件" },
+  { id: "runs-commands", label: "执行本机命令" },
+  { id: "local-server", label: "监听本地端口" },
+  { id: "network-access", label: "访问网络" },
+  { id: "model-calls", label: "额外调用模型" },
+];
+
+/** A badge that says a plugin changes nothing is a claim about trust, so an entry that also carries one of these is rejected rather than shown. */
+const MARKETPLACE_EFFECT_CAPABILITIES: readonly string[] = ["writes-files", "runs-commands", "local-server", "network-access", "model-calls"];
+
+const marketplaceCapabilityLabels = new Map(MARKETPLACE_CAPABILITY_VOCABULARY.map((capability) => [capability.id, capability.label]));
+
+function isMarketplaceCapabilityList(value: unknown): value is readonly string[] {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  const capabilities = value.filter((entry): entry is string => typeof entry === "string" && marketplaceCapabilityLabels.has(entry));
+  if (capabilities.length !== value.length || new Set(capabilities).size !== capabilities.length) return false;
+  return !capabilities.includes("read-only") || !capabilities.some((entry) => MARKETPLACE_EFFECT_CAPABILITIES.includes(entry));
+}
+
 const npmPackagePattern = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+(?:\/[a-z0-9._~-]+)*$/;
 const entryIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -106,9 +136,7 @@ function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
     categoryIdPattern.test(category.id) &&
     typeof category.label === "string" &&
     category.label.trim() !== "" &&
-    Array.isArray(value.capabilities) &&
-    value.capabilities.length > 0 &&
-    value.capabilities.every((entry) => typeof entry === "string" && entry.trim() !== "") &&
+    isMarketplaceCapabilityList(value.capabilities) &&
     Array.isArray(value.hooks) &&
     value.hooks.length > 0 &&
     value.hooks.every((entry) => typeof entry === "string" && entry.trim() !== "") &&
@@ -143,11 +171,17 @@ function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
     });
   const ids = new Set<string>();
   const packages = new Set<string>();
+  // The category tabs are built from whichever entry is read first, so two entries that spell the same category differently would make the label depend on file order.
+  const categoryLabels = new Map<string, string>();
   for (const plugin of plugins) {
     if (ids.has(plugin.id)) throw new Error(`Duplicate marketplace id: ${plugin.id}`);
     if (packages.has(plugin.packageName)) throw new Error(`Duplicate marketplace package: ${plugin.packageName}`);
+    const categoryLabel = categoryLabels.get(plugin.category.id);
+    if (categoryLabel !== undefined && categoryLabel !== plugin.category.label)
+      throw new Error(`Conflicting marketplace category label for ${plugin.category.id}: ${categoryLabel} and ${plugin.category.label}`);
     ids.add(plugin.id);
     packages.add(plugin.packageName);
+    categoryLabels.set(plugin.category.id, plugin.category.label);
   }
   return plugins;
 }
@@ -320,7 +354,9 @@ export function searchMarketplace(query = "", capability = "", category = ""): r
   const normalizedCapability = capability.trim().toLowerCase();
   const normalizedCategory = category.trim().toLowerCase();
   return MARKETPLACE_PLUGINS.filter((plugin) => {
-    const searchable = [plugin.name, plugin.packageName, plugin.description, plugin.author, ...plugin.capabilities, ...plugin.hooks].join(" ").toLowerCase();
+    // The capability labels are searched alongside their ids: the ids are what the filter and the URL carry, and the labels are what the reader sees on the card.
+    const capabilities = plugin.capabilities.flatMap((item) => [item, marketplaceCapabilityLabels.get(item) ?? item]);
+    const searchable = [plugin.name, plugin.packageName, plugin.description, plugin.author, ...capabilities, ...plugin.hooks].join(" ").toLowerCase();
     return (
       (normalizedQuery === "" || searchable.includes(normalizedQuery)) &&
       (normalizedCapability === "" || plugin.capabilities.some((item) => item.toLowerCase() === normalizedCapability)) &&
@@ -342,7 +378,11 @@ export function paginateMarketplace(items: readonly MarketplacePlugin[], page = 
   };
 }
 
-export const MARKETPLACE_CAPABILITIES = [...new Set(MARKETPLACE_PLUGINS.flatMap((plugin) => plugin.capabilities))].sort();
+// Kept in vocabulary order rather than sorted, so the filter reads from the least invasive option to the most, and an unused capability is left out rather than offering a filter that returns nothing.
+export const MARKETPLACE_CAPABILITIES: readonly MarketplaceCapability[] = MARKETPLACE_CAPABILITY_VOCABULARY.map((capability) => ({
+  ...capability,
+  count: MARKETPLACE_PLUGINS.filter((plugin) => plugin.capabilities.includes(capability.id)).length,
+})).filter((capability) => capability.count > 0);
 export const MARKETPLACE_CATEGORIES: readonly MarketplaceCategory[] = [
   ...new Map(MARKETPLACE_PLUGINS.map((plugin) => [plugin.category.id, { id: plugin.category.id, label: plugin.category.label, count: 0 }])).values(),
 ]

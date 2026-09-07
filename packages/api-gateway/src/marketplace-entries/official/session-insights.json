@@ -13,15 +13,7 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": [
-    "validated detached session statistics",
-    "message token cache cost and context accounting",
-    "cached active-session panel",
-    "confirmed settled-session compaction",
-    "dedicated compaction cancellation",
-    "single-flight bounded operation status",
-    "normalized fail-closed browser view"
-  ],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session report tool", "active runtime session", "Pi session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-session-insights",

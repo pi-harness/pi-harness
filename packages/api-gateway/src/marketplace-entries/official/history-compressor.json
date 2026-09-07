@@ -11,9 +11,9 @@
   "status": "verified",
   "category": {
     "id": "context",
-    "label": "上下文"
+    "label": "上下文管理"
   },
-  "capabilities": ["history compaction", "context budget", "automatic cleanup"],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["agent end", "context usage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-history-compressor",

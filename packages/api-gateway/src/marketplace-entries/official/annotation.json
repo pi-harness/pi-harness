@@ -13,7 +13,7 @@
     "id": "context",
     "label": "上下文管理"
   },
-  "capabilities": ["annotations", "context"],
+  "capabilities": ["read-only"],
   "hooks": ["plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-annotation",

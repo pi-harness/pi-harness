@@ -13,7 +13,7 @@
     "id": "collaboration",
     "label": "会话协作"
   },
-  "capabilities": ["collaboration ledger", "tasks", "mailbox notes", "dependency graph", "cycle detection"],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-agent-teams",

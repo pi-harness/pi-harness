@@ -13,14 +13,7 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": [
-    "bounded failure aggregation",
-    "descriptor-safe event inspection",
-    "abort-aware compaction diagnostics",
-    "occurrence counting",
-    "safe diagnostic summaries",
-    "capacity visibility"
-  ],
+  "capabilities": ["read-only"],
   "hooks": ["extension error", "agent end", "compaction end", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-fail-logger",

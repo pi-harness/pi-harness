@@ -2122,11 +2122,11 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=scheduling&category=runtime&page=0&pageSize=1");
+    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=read-only&category=runtime&page=0&pageSize=1");
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       items?: readonly { packageName?: unknown; status?: unknown }[];
-      capabilities?: readonly unknown[];
+      capabilities?: readonly { id?: unknown; label?: unknown; count?: unknown }[];
       categories?: readonly { id?: unknown; label?: unknown; count?: unknown }[];
       total?: number;
       page?: number;
@@ -2136,7 +2136,7 @@ describe("API gateway plugin", () => {
     expect(payload.items).toHaveLength(1);
     expect(payload.items?.[0]).toMatchObject({ packageName: "@deepseek-ai/cordis-plugin-timer", status: "verified" });
     expect(payload).toMatchObject({ total: 1, page: 0, pageSize: 1, hasNext: false });
-    expect(payload.capabilities).toContain("scheduling");
+    expect(payload.capabilities).toEqual(expect.arrayContaining([expect.objectContaining({ id: "read-only", label: "只读运行" })]));
     expect(payload.categories).toEqual(expect.arrayContaining([expect.objectContaining({ id: "runtime", label: "运行时", count: 1 })]));
     const tooLong = await fetch(context.webServer.url + "/api/marketplace?q=" + "x".repeat(121));
     expect(tooLong.status).toBe(400);

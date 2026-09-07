@@ -13,7 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["Obsidian notes", "session export", "knowledge capture"],
+  "capabilities": ["reads-files", "writes-files"],
   "hooks": ["vault path", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-obsidian-sync",

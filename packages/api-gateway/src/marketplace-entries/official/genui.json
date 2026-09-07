@@ -13,7 +13,7 @@
     "id": "interface",
     "label": "界面增强"
   },
-  "capabilities": ["bounded structured cards", "typed text badge and progress blocks", "decimal progress validation", "plain-text HTML handling"],
+  "capabilities": ["read-only"],
   "hooks": ["GenUI render tool", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-genui",

@@ -11,9 +11,9 @@
   "status": "verified",
   "category": {
     "id": "security",
-    "label": "安全防护"
+    "label": "安全"
   },
-  "capabilities": ["skill isolation", "prompt injection defense", "safe context injection"],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["skill guard", "bounded content", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-reverse-skill",

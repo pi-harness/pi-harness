@@ -13,7 +13,7 @@
     "id": "observability",
     "label": "可观测性"
   },
-  "capabilities": ["UTC daily cost ledger", "session cost snapshots", "daily budget monitoring", "bounded local persistence"],
+  "capabilities": ["session-data", "reads-files", "writes-files"],
   "hooks": ["agent end", "cost report tool", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-cost-meter",

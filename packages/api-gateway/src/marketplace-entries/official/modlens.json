@@ -13,7 +13,7 @@
     "id": "multimodal",
     "label": "视觉与多模态"
   },
-  "capabilities": ["native vision", "OCR/layout evidence"],
+  "capabilities": ["reads-files", "writes-files", "runs-commands"],
   "hooks": ["tool execution", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-modlens",

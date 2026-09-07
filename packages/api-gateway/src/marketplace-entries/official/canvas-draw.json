@@ -11,9 +11,9 @@
   "status": "verified",
   "category": {
     "id": "multimodal",
-    "label": "多模态"
+    "label": "视觉与多模态"
   },
-  "capabilities": ["Mermaid flowchart", "nodes and edges", "visual planning"],
+  "capabilities": ["read-only"],
   "hooks": ["plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-canvas-draw",

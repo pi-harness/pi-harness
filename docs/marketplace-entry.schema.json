@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Pi Harness marketplace entry",
-  "description": "Structural contract for one JSON file under packages/api-gateway/src/marketplace-entries. It mirrors isMarketplacePlugin in packages/api-gateway/src/marketplace.ts, which is the authoritative validator and runs when the API gateway module is imported. One rule cannot be expressed here and is enforced only at runtime: profile.name must equal packageName.",
+  "description": "Structural contract for one JSON file under packages/api-gateway/src/marketplace-entries. It mirrors isMarketplacePlugin in packages/api-gateway/src/marketplace.ts, which is the authoritative validator and runs when the API gateway module is imported. Two rules cannot be expressed here and are enforced only at runtime: profile.name must equal packageName, and every entry sharing a category id must spell its label the same way.",
   "type": "object",
   "required": [
     "id",
@@ -20,6 +20,18 @@
     "profile"
   ],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "required": ["capabilities"], "properties": { "capabilities": { "contains": { "const": "read-only" } } } },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "not": { "contains": { "enum": ["writes-files", "runs-commands", "local-server", "network-access", "model-calls"] } }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
     "packageName": { "type": "string", "pattern": "^(?:@[a-z0-9._~-]+/)?[a-z0-9._~-]+(?:/[a-z0-9._~-]+)*$" },
@@ -37,7 +49,14 @@
       "additionalProperties": false,
       "properties": { "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }, "label": { "type": "string", "pattern": "\\S" } }
     },
-    "capabilities": { "type": "array", "items": { "type": "string", "pattern": "\\S" }, "minItems": 1, "uniqueItems": true },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "enum": ["read-only", "session-data", "reads-files", "writes-files", "runs-commands", "local-server", "network-access", "model-calls"]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "hooks": { "type": "array", "items": { "type": "string", "pattern": "\\S" }, "minItems": 1, "uniqueItems": true },
     "profile": {
       "type": "object",

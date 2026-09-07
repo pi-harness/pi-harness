@@ -6,6 +6,7 @@ import {
   type ClientApi,
   type ClientCommand,
   type ClientFile,
+  type ClientMarketplaceCapability,
   type ClientMarketplaceCategory,
   type ClientMarketplacePlugin,
   type ClientModel,
@@ -22,7 +23,13 @@ import { compactThinkingEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { messageText, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
-import { marketplaceCategoryTabs, marketplaceDetailPath, marketplaceStatisticItems, readMarketplaceDetailId } from "./marketplace-navigation.js";
+import {
+  marketplaceCapabilityLabeller,
+  marketplaceCategoryTabs,
+  marketplaceDetailPath,
+  marketplaceStatisticItems,
+  readMarketplaceDetailId,
+} from "./marketplace-navigation.js";
 import { loadMarketplaceCatalog } from "./marketplace-catalog.js";
 import { pluginStarsPanelView } from "./plugin-stars-view.js";
 import { pluginDevPanelView } from "./plugin-dev-view.js";
@@ -74,7 +81,7 @@ interface RoomData {
   plugins: readonly ClientPlugin[];
   pluginPanels: readonly ClientPluginPanel[];
   marketplace: readonly ClientMarketplacePlugin[];
-  marketplaceCapabilities: readonly string[];
+  marketplaceCapabilities: readonly ClientMarketplaceCapability[];
   marketplaceCategories: readonly ClientMarketplaceCategory[];
   marketplaceTotal: number;
   marketplacePage: number;
@@ -5179,6 +5186,7 @@ function Plugins({
   plugins,
   panels,
   catalog,
+  capabilityLabel,
   restartPendingPackages,
   onMarketplace,
   onOpenDetail,
@@ -5189,6 +5197,7 @@ function Plugins({
   plugins: readonly ClientPlugin[];
   panels: readonly ClientPluginPanel[];
   catalog: readonly ClientMarketplacePlugin[];
+  capabilityLabel: (id: string) => string;
   restartPendingPackages: ReadonlySet<string>;
   onMarketplace: () => void;
   onOpenDetail: (plugin: ClientPlugin) => void;
@@ -5225,13 +5234,13 @@ function Plugins({
         metadata?.name,
         displayPluginName(plugin.name),
         metadata?.category.label,
-        ...(metadata?.capabilities ?? []),
+        ...(metadata?.capabilities ?? []).map(capabilityLabel),
         plugin.category?.label,
         capability(plugin.name),
       ];
       return matchesPluginQuery(query, fields);
     });
-  }, [catalogByPackage, categoryFilter, installedPlugins, query]);
+  }, [capabilityLabel, catalogByPackage, categoryFilter, installedPlugins, query]);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [categoryFilter, query]);
@@ -5294,7 +5303,7 @@ function Plugins({
             {visiblePlugins.map((plugin) => {
               const metadata = catalogByPackage.get(plugin.name);
               const categoryLabel = metadata?.category.label ?? plugin.category?.label;
-              const capabilityLabel = capability(plugin.name);
+              const shortName = capability(plugin.name);
               const pluginTitle = metadata?.name ?? displayPluginName(plugin.name);
               const cardContent = installedPluginCardContent(plugin, metadata);
               return (
@@ -5307,7 +5316,7 @@ function Plugins({
                           <strong>{pluginTitle}</strong>
                           <span className={`plugin-state ${plugin.enabled ? "active" : ""}`}>{plugin.enabled ? "运行中" : "已停用"}</span>
                           {categoryLabel && <span className="capability">{categoryLabel}</span>}
-                          {categoryLabel !== capabilityLabel && <span className="capability">{capabilityLabel}</span>}
+                          {categoryLabel !== shortName && <span className="capability">{shortName}</span>}
                         </div>
                         <div className="plugin-actions">
                           {plugin.removable ? (
@@ -5424,6 +5433,7 @@ function InstalledPluginDetail({
   plugin,
   panel,
   metadata,
+  capabilityLabel,
   onBack,
   onToggle,
   onUninstall,
@@ -5431,6 +5441,7 @@ function InstalledPluginDetail({
   plugin: ClientPlugin;
   panel?: ClientPluginPanel;
   metadata?: ClientMarketplacePlugin;
+  capabilityLabel: (id: string) => string;
   onBack: () => void;
   onToggle: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean }>;
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
@@ -5533,10 +5544,10 @@ function InstalledPluginDetail({
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
               <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-                <h2 className="text-[13px] font-semibold text-[#20252b]">插件能力</h2>
+                <h2 className="text-[13px] font-semibold text-[#20252b]">影响范围</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {(metadata?.capabilities.length ? metadata.capabilities : [capability(plugin.name)]).map((item) => (
-                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 font-mono text-[11px] text-[#61666b]" key={item}>
+                  {(metadata?.capabilities.length ? metadata.capabilities.map(capabilityLabel) : [capability(plugin.name)]).map((item) => (
+                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 text-[11px] text-[#61666b]" key={item}>
                       {item}
                     </span>
                   ))}
@@ -5625,6 +5636,7 @@ export function Marketplace({
   page,
   hasNext,
   query,
+  capabilityLabel,
   capabilityFilter,
   categoryFilter,
   onQueryChange,
@@ -5639,12 +5651,13 @@ export function Marketplace({
   onInstall,
 }: {
   plugins: readonly ClientMarketplacePlugin[];
-  capabilities: readonly string[];
+  capabilities: readonly ClientMarketplaceCapability[];
   categories: readonly ClientMarketplaceCategory[];
   total: number;
   page: number;
   hasNext: boolean;
   query: string;
+  capabilityLabel: (id: string) => string;
   capabilityFilter: string;
   categoryFilter: string;
   onQueryChange: (value: string) => void;
@@ -5704,14 +5717,19 @@ export function Marketplace({
             className="marketplace-search"
             aria-label="搜索插件"
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="搜索名称、包名、能力…"
+            placeholder="搜索名称、包名、影响范围…"
             value={query}
           />
-          <select className="marketplace-filter" aria-label="按能力筛选" onChange={(event) => onCapabilityChange(event.target.value)} value={capabilityFilter}>
-            <option value="">全部能力</option>
+          <select
+            className="marketplace-filter"
+            aria-label="按影响范围筛选"
+            onChange={(event) => onCapabilityChange(event.target.value)}
+            value={capabilityFilter}
+          >
+            <option value="">全部影响</option>
             {capabilities.map((item) => (
-              <option key={item} value={item}>
-                {item}
+              <option key={item.id} value={item.id}>
+                {item.label}（{item.count}）
               </option>
             ))}
           </select>
@@ -5772,8 +5790,8 @@ export function Marketplace({
                   <p className="marketplace-description">{plugin.description}</p>
                   <div className="marketplace-tags">
                     {plugin.capabilities.map((item) => (
-                      <span className="rounded bg-[#f1f4f9] px-1.5 py-px font-mono text-[10px] text-[#61666b]" key={item}>
-                        {item}
+                      <span className="rounded bg-[#f1f4f9] px-1.5 py-px text-[10px] text-[#61666b]" key={item}>
+                        {capabilityLabel(item)}
                       </span>
                     ))}
                     {plugin.hooks.map((item) => (
@@ -5859,12 +5877,14 @@ function MarketplaceDetail({
   plugin,
   installed,
   restartPending,
+  capabilityLabel,
   onInstall,
   onBack,
 }: {
   plugin: ClientMarketplacePlugin;
   installed: boolean;
   restartPending: boolean;
+  capabilityLabel: (id: string) => string;
   onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
   onBack: () => void;
 }) {
@@ -5945,11 +5965,11 @@ function MarketplaceDetail({
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
               <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-                <h2 className="text-[13px] font-semibold text-[#20252b]">插件能力</h2>
+                <h2 className="text-[13px] font-semibold text-[#20252b]">影响范围</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {plugin.capabilities.map((item) => (
-                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 font-mono text-[11px] text-[#61666b]" key={item}>
-                      {item}
+                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 text-[11px] text-[#61666b]" key={item}>
+                      {capabilityLabel(item)}
                     </span>
                   ))}
                 </div>
@@ -7131,6 +7151,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
   // Kept apart from installedPackages, which feeds the sidebar count and the 已安装 list: a plugin waiting for a restart is on disk and in the profile but not loaded, so counting it as installed would claim it is running.
   const harnessProcess = data.status?.processStartedAt ?? "";
+  const capabilityLabel = useMemo(() => marketplaceCapabilityLabeller(data.marketplaceCapabilities), [data.marketplaceCapabilities]);
   const [restartPending, setRestartPending] = useState<RestartPendingState>(() => readRestartPendingPackages(browserStorage()));
   const markRestartPending = (packageName: string) => {
     setRestartPending((current) =>
@@ -7768,6 +7789,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   ) : page === "plugins" && installedPluginId && installedPlugin ? (
     <InstalledPluginDetail
       metadata={installedPluginMetadata}
+      capabilityLabel={capabilityLabel}
       onBack={() => pushInstalledPluginRoute(undefined)}
       onToggle={async (plugin) => {
         const result = await api.togglePlugin(plugin.id, !plugin.enabled);
@@ -7801,6 +7823,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     </section>
   ) : page === "plugins" ? (
     <Plugins
+      capabilityLabel={capabilityLabel}
       plugins={data.plugins}
       panels={data.pluginPanels}
       catalog={marketplaceCatalog.length ? marketplaceCatalog : data.marketplace}
@@ -7826,6 +7849,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     marketplacePluginId && marketplaceDetail?.id === marketplacePluginId ? (
       <MarketplaceDetail
         plugin={marketplaceDetail}
+        capabilityLabel={capabilityLabel}
         installed={installedPackages.has(marketplaceDetail.packageName)}
         restartPending={restartPending.packages.has(marketplaceDetail.packageName)}
         onBack={() => pushMarketplacePluginRoute(undefined)}
@@ -7858,6 +7882,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       <Marketplace
         plugins={data.marketplace}
         capabilities={data.marketplaceCapabilities}
+        capabilityLabel={capabilityLabel}
         categories={data.marketplaceCategories}
         total={data.marketplaceTotal}
         page={data.marketplacePage}

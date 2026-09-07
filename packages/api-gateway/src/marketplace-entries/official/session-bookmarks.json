@@ -13,7 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["session bookmarks", "session navigation", "durable labels"],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session manager", "native label entries", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-session-bookmarks",

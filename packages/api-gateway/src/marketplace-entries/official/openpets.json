@@ -11,15 +11,9 @@
   "status": "verified",
   "category": {
     "id": "web",
-    "label": "网页"
+    "label": "网页与研究"
   },
-  "capabilities": [
-    "bounded durable companion state",
-    "validated session recovery",
-    "descriptor-safe pet actions",
-    "session event reactions",
-    "persistence health panel"
-  ],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session events", "pet reaction tool", "session storage", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-openpets",

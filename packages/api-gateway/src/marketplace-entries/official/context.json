@@ -13,13 +13,7 @@
     "id": "context",
     "label": "上下文管理"
   },
-  "capabilities": [
-    "descriptor-safe bounded message composition",
-    "resilient context usage inspection",
-    "active-session lifecycle counters",
-    "cached session-aware panel",
-    "bounded normalized browser view"
-  ],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["context inspection tool", "active runtime session", "Pi session lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-context",

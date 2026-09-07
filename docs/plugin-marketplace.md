@@ -5,7 +5,7 @@ The marketplace is a reviewed index of Cordis plugins that can be loaded by a Pi
 ## Add a plugin
 
 1. Publish the package to npm and include a public repository, license, README, and lifecycle-safe tests.
-2. Verify that the package exports a Cordis plugin and document its `config`, injected services, capabilities, and hooks.
+2. Verify that the package exports a Cordis plugin and document its `config`, injected services, and hooks. Read its imports to decide its `capabilities`, including those it inherits from any plugin it depends on.
 3. Add one JSON file under [`packages/api-gateway/src/marketplace-entries`](../packages/api-gateway/src/marketplace-entries), using `official` or `community` as the first directory. Validate it against [`marketplace-entry.schema.json`](./marketplace-entry.schema.json); `npm test` runs the same schema check over every shipped entry and also imports the registry through the runtime validator. The build copies these shards into the package; there is no hand-maintained aggregate registry.
 4. Run `npm test`, `npm run lint`, and `git diff --check`, then open a pull request. Marketplace entries are reviewed like code; a package is not listed just because it exists on npm.
 
@@ -13,7 +13,24 @@ The `version` field is pinned deliberately. A version change is a reviewable mar
 
 ## Entry contract
 
-Each entry has a stable kebab-case `id`, an npm `packageName` (a bare package such as `@pi-harness/plugin-<name>`, or a subpath such as `@scope/toolkit/plugins/<name>` for a package that exports several plugins) and exact semver `version`, a human-readable `name` and `description`, `author`, public `https://` `repository` and `license`, `official` or `community` `source`, `verified` or `experimental` `status`, a `category` with a kebab-case `id` and a display `label`, non-empty `capabilities` and `hooks` tag arrays, and the Cordis `profile` entry the installer writes into the project profile. `profile.name` must equal `packageName`; `profile.config` is an object, or an array of child entries when `profile.group` is `true`. The JSON Schema is the structural half of this contract; `isMarketplacePlugin` in [`packages/api-gateway/src/marketplace.ts`](../packages/api-gateway/src/marketplace.ts) is authoritative, runs when the API gateway is imported, and rejects the whole registry (and therefore `npm test`) on any invalid file. Keep credentials, tokens, download counts, and unverifiable claims out of the registry; download and quality statistics are fetched from npm at runtime, never stored in entries.
+Each entry has a stable kebab-case `id`, an npm `packageName` (a bare package such as `@pi-harness/plugin-<name>`, or a subpath such as `@scope/toolkit/plugins/<name>` for a package that exports several plugins) and exact semver `version`, a human-readable `name` and `description`, `author`, public `https://` `repository` and `license`, `official` or `community` `source`, `verified` or `experimental` `status`, a `category` with a kebab-case `id` and a display `label`, a non-empty `capabilities` array drawn from the closed vocabulary below and a non-empty `hooks` tag array, and the Cordis `profile` entry the installer writes into the project profile. `profile.name` must equal `packageName`; `profile.config` is an object, or an array of child entries when `profile.group` is `true`. The JSON Schema is the structural half of this contract; `isMarketplacePlugin` in [`packages/api-gateway/src/marketplace.ts`](../packages/api-gateway/src/marketplace.ts) is authoritative, runs when the API gateway is imported, and rejects the whole registry (and therefore `npm test`) on any invalid file. Every entry sharing a `category.id` must also spell its `label` the same way, because the console's category tabs take the label from whichever entry is read first. Keep credentials, tokens, download counts, and unverifiable claims out of the registry; download and quality statistics are fetched from npm at runtime, never stored in entries.
+
+### Capabilities
+
+`capabilities` says what a plugin does to the machine it is installed on, not what it is for — that is what `name`, `description`, and `category` are for. It is a closed vocabulary so that the console's filter stays a decision a reader can make, and so that two entries describing the same effect say it the same way. The values, from the least invasive to the most:
+
+| Value            | Console label | Meaning                                                                             |
+| ---------------- | ------------- | ----------------------------------------------------------------------------------- |
+| `read-only`      | 只读运行      | Writes nothing, runs nothing, opens no socket, and calls no model.                  |
+| `session-data`   | 读取会话内容  | Reads the conversation through `piSession` or `piRuntime`.                          |
+| `reads-files`    | 读取本机文件  | Reads files from the workspace or the harness home.                                 |
+| `writes-files`   | 写入本机文件  | Creates, changes, or deletes files.                                                 |
+| `runs-commands`  | 执行本机命令  | Starts a child process, including `git`, `npm`, and `docker`.                       |
+| `local-server`   | 监听本地端口  | Binds a local port.                                                                 |
+| `network-access` | 访问网络      | Sends a request off the machine.                                                    |
+| `model-calls`    | 额外调用模型  | Calls the model itself, which costs the user tokens beyond the turn they asked for. |
+
+Derive the values from the package's own imports, and add whatever it inherits from a `@pi-harness/plugin-*` package it depends on: a plugin that lists workspace files through `plugin-workspace-navigator` runs `git`, so it carries `runs-commands` even though its own source never spawns anything. `read-only` is a claim about trust, so it cannot appear beside `writes-files`, `runs-commands`, `local-server`, `network-access`, or `model-calls`; the schema and the runtime validator both reject that combination.
 
 ## Install and enable
 

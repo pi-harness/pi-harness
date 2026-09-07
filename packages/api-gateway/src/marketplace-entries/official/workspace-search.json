@@ -11,9 +11,9 @@
   "status": "verified",
   "category": {
     "id": "context",
-    "label": "上下文"
+    "label": "上下文管理"
   },
-  "capabilities": ["workspace search", "file discovery", "context lookup"],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["workspace files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-workspace-search",

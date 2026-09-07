@@ -13,7 +13,7 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": ["architecture map", "workspace scan", "dependency map", "Mermaid"],
+  "capabilities": ["reads-files", "runs-commands"],
   "hooks": ["workspace files", "package manifest", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-archify",

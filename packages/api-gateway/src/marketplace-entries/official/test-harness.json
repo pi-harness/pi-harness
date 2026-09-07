@@ -11,17 +11,9 @@
   "status": "verified",
   "category": {
     "id": "testing",
-    "label": "测试"
+    "label": "测试与质量"
   },
-  "capabilities": [
-    "five-script verification allowlist",
-    "real npm exit status and signal reporting",
-    "12 KiB UTF-8-safe output tail",
-    "terminal-control sanitization and untrusted framing",
-    "configurable bounded timeout",
-    "cancellable process-tree cleanup",
-    "descriptor-safe normalized panel"
-  ],
+  "capabilities": ["runs-commands"],
   "hooks": ["project verification tool", "workspace npm scripts", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-test-harness",
