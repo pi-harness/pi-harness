@@ -103,9 +103,11 @@ for (const marketplacePath of marketplacePaths) {
   const internal = [...packageNames].some((packageName) => entry.packageName === packageName || entry.packageName?.startsWith(`${packageName}/`));
   if (!internal) continue;
   // Rewrite only the top-level version line so the formatter-approved layout of the entry (inline short arrays, key order) survives a release; re-serialising with JSON.stringify expanded every array and broke the CI formatting check after each release commit.
-  const updated = source.replace(/^ {2}"version": "[^"]*"/mu, `  "version": "${version}"`);
-  if (updated === source) throw new Error(`${marketplacePath} has no top-level version field to update`);
-  await writeFile(marketplacePath, updated);
+  const versionPattern = /^ {2}"version": "[^"]*"/mu;
+  if (!versionPattern.test(source)) throw new Error(`${marketplacePath} has no top-level version field to update`);
+  const updated = source.replace(versionPattern, `  "version": "${version}"`);
+  // A re-dispatched release re-runs against a checkout that already carries the target version, so an unchanged entry is a no-op rather than a failure.
+  if (updated !== source) await writeFile(marketplacePath, updated);
 }
 const marketplaceDestination = "packages/api-gateway/dist/marketplace-entries";
 await rm(marketplaceDestination, { recursive: true, force: true });

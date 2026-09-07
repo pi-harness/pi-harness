@@ -1,3 +1,4 @@
+import type * as ChildProcess from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,6 +7,21 @@ import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import mcpClientPlugin from "../src/plugins/mcp-client.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+
+// Only the plugin holds a reference to the servers it spawns, so recording the real children is the only way to assert how their stdio streams are wired.
+const spawnedChildren = vi.hoisted(() => [] as ChildProcess.ChildProcessWithoutNullStreams[]);
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof ChildProcess>();
+  return {
+    ...actual,
+    spawn: (...args: Parameters<typeof actual.spawn>) => {
+      const child = actual.spawn(...args);
+      spawnedChildren.push(child as ChildProcess.ChildProcessWithoutNullStreams);
+      return child;
+    },
+  };
+});
 
 const temporaryDirectories: string[] = [];
 
@@ -1055,6 +1071,34 @@ process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline 
       await fixture.context.fiber.dispose();
       await pending.catch(() => undefined);
       await stopping?.catch(() => undefined);
+    }
+  });
+
+  test("routes a failed stdin write into the pending request instead of an unhandled error", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-mcp-client-stdin-"));
+    temporaryDirectories.push(cwd);
+    const requested = join(cwd, "stdin-requested");
+    const server = await writeServer(
+      cwd,
+      `import { writeFileSync } from "node:fs"; let buffer = ""; const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n"); process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline = buffer.indexOf("\\n"); if (newline < 0) break; const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line.trim()) continue; const message = JSON.parse(line); if (message.method === "initialize") send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "stdin", version: "1" } } }); else if (message.method === "tools/list") writeFileSync(${JSON.stringify(requested)}, "yes"); } });`,
+    );
+    const fixture = await createFixture({ servers: [{ id: "stdin", command: [process.execPath, server] }] });
+    spawnedChildren.length = 0;
+    let pending: Promise<unknown> | undefined;
+    try {
+      await tool(fixture.tools, "mcp_server_start").execute("start", { serverId: "stdin" }, undefined, undefined, {} as never);
+      const child = spawnedChildren.at(-1);
+      if (child === undefined) throw new Error("the managed server was not spawned");
+      expect(child.stdin.listenerCount("error")).toBeGreaterThan(0);
+      pending = tool(fixture.tools, "mcp_list_tools").execute("list", { serverId: "stdin" }, undefined, undefined, {} as never);
+      void pending.catch(() => undefined);
+      await vi.waitFor(() => expect(existsSync(requested)).toBe(true));
+      // A queued write whose child is killed fails with EPIPE on the stdin socket, which the child process emitter never receives.
+      child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE", syscall: "write" }));
+      await expect(pending).rejects.toThrow(/stdin failed.*EPIPE/iu);
+    } finally {
+      await fixture.context.fiber.dispose();
+      await pending?.catch(() => undefined);
     }
   });
 });

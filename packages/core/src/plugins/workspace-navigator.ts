@@ -1,3 +1,4 @@
+import type { Dirent, Stats } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { relative, resolve } from "node:path";
@@ -70,7 +71,15 @@ export async function listWorkspaceNodes(root: string, options: WorkspaceNodeOpt
       }
       return;
     }
-    const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
+    // An unreadable subdirectory or an entry that disappears between readdir and lstat degrades to a truncated tree, because a partial listing is more useful to the caller than losing every node collected so far. The workspace root still fails loudly: an empty tree for a missing or unreadable root would be a misleading success.
+    let entries: Dirent[];
+    try {
+      entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
+    } catch (error) {
+      if (directory === workspace) throw error;
+      truncated = true;
+      return;
+    }
     for (const entry of entries) {
       if (nodes.length >= maxNodes) {
         truncated = true;
@@ -79,7 +88,13 @@ export async function listWorkspaceNodes(root: string, options: WorkspaceNodeOpt
       if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
       const target = resolve(directory, entry.name);
       if (!relative(workspace, target) || relative(workspace, target).startsWith(`..${"/"}`)) continue;
-      const metadata = await lstat(target);
+      let metadata: Stats;
+      try {
+        metadata = await lstat(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") truncated = true;
+        continue;
+      }
       if (metadata.isSymbolicLink()) continue;
       const path = relative(workspace, target);
       if (metadata.isDirectory()) {

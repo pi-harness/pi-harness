@@ -84,6 +84,57 @@ describe("reviewer bot", () => {
     });
   });
 
+  test("attributes lines and findings to non-ASCII and spaced paths", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "file.txt"), "changed\n");
+    await writeFile(join(root, "文件.txt"), 'alpha\napi_key: "AKIA1234567890ABC"\nTODO: finish\n');
+    await writeFile(join(root, "my file.txt"), "spaced\n");
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await expect(tool.execute("review", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: {
+        files: [
+          { path: "file.txt", added: 1, removed: 1 },
+          { path: "my file.txt", added: 1, removed: 0 },
+          { path: "文件.txt", added: 3, removed: 0 },
+        ],
+        findings: [
+          { kind: "secret", path: "文件.txt" },
+          { kind: "todo", path: "文件.txt" },
+        ],
+        changedFiles: 3,
+        addedLines: 5,
+        removedLines: 1,
+      },
+    });
+  });
+
+  test("attributes lines and findings to paths git C-quotes", async () => {
+    const { root, tool } = await fixture();
+    // core.quotepath=false only stops non-ASCII from being escaped; a quote, a backslash, a tab or any other control byte still makes git wrap the whole `b/<path>` in a C-quoted string in the diff header and in --name-only. U+0001 additionally has no single-letter escape, so it arrives as a three-digit octal one.
+    await writeFile(join(root, 'we"ird.txt'), 'alpha\napi_key: "AKIA1234567890ABC"\n');
+    await writeFile(join(root, "back\\slash.txt"), "one\ntwo\n");
+    await writeFile(join(root, "tab\there \u0001ctl.txt"), "TODO: finish\n");
+    await writeFile(join(root, "file.txt"), "changed\n");
+    await execFileAsync("git", ["add", "-A"], { cwd: root });
+    await expect(tool.execute("review", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: {
+        files: [
+          { path: "back\\slash.txt", added: 2, removed: 0 },
+          { path: "file.txt", added: 1, removed: 1 },
+          { path: "tab\there \u0001ctl.txt", added: 1, removed: 0 },
+          { path: 'we"ird.txt', added: 2, removed: 0 },
+        ],
+        findings: [
+          { kind: "todo", path: "tab\there \u0001ctl.txt" },
+          { kind: "secret", path: 'we"ird.txt' },
+        ],
+        changedFiles: 4,
+        addedLines: 6,
+        removedLines: 1,
+      },
+    });
+  });
+
   test("cleans up registrations on disposal", async () => {
     const { context, tools, panels } = await fixture();
     await context.fiber.dispose();

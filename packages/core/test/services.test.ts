@@ -260,7 +260,7 @@ describe("Pi domain plugins", () => {
     expect(panels).toHaveLength(1);
     expect(panels[0]?.id).toBe("synapse-panel");
     expect(panels[0]?.pluginId).toBe("@pi-harness/core/plugins/synapse");
-    expect(panels[0]?.data).toEqual({ nodes: [], edges: [], orphanCount: 0, refreshes: 1 });
+    expect(panels[0]?.data).toEqual({ nodes: [], edges: [], orphanCount: 0, refreshes: 0 });
   });
 
   test("classifies hol-guard preflight input without retaining the source", () => {
@@ -3961,7 +3961,8 @@ describe("Pi domain plugins", () => {
         const tools = new PiToolRegistry();
         context.provide("piTools", tools);
         context.provide("piPluginUi", panels);
-        await context.plugin(browserSessionPlugin, { endpoint });
+        // The fixture page is served from loopback, which is exactly the private-network target browser_navigate refuses unless the operator opts in, so this integration run needs the same escape hatch a local development server would.
+        await context.plugin(browserSessionPlugin, { endpoint, allowPrivate: true });
         const registered = tools.snapshot().customTools;
         const tabsTool = registered.find((tool) => tool.name === "browser_tabs");
         const navigateTool = registered.find((tool) => tool.name === "browser_navigate");
@@ -3994,6 +3995,23 @@ describe("Pi domain plugins", () => {
     },
     30_000,
   );
+
+  // Guards the escape hatch the Chrome integration test above turns on: without allowPrivate the same navigation must still be refused, and the refusal happens before any DevTools traffic so this needs no browser.
+  test("blocks browser session navigation to loopback and link-local targets without allowPrivate", async () => {
+    const { context } = await createContext();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(browserSessionPlugin, { endpoint: "http://127.0.0.1:9222" });
+    const navigateTool = tools.snapshot().customTools.find((tool) => tool.name === "browser_navigate");
+    expect(navigateTool).toBeDefined();
+    for (const url of ["http://127.0.0.1:1/", "http://169.254.169.254/latest/meta-data/"]) {
+      await expect(navigateTool!.execute("call-blocked", { targetId: "tab-1", url }, undefined, undefined, {} as never)).rejects.toThrow(
+        /private or local network/iu,
+      );
+    }
+  });
 
   test("validates YAML files with line-aware diagnostics without modifying them", async () => {
     const { context, cwd } = await createContext();

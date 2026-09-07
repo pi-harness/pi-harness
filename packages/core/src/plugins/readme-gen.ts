@@ -385,9 +385,9 @@ async function writeReadmeFileInternal(
   }
   if (signal !== undefined) throwIfCancelled(signal);
   try {
+    // No explicit mode: a README is a committed project file, so regenerating it keeps the bits it already has and only a README this creates falls back to the owner-only default.
     await atomicWriteFile(target, markdown, {
       encoding: "utf8",
-      mode: 0o600,
       overwrite,
       ...(signal === undefined ? {} : { signal }),
     });

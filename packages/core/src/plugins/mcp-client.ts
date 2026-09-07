@@ -436,7 +436,7 @@ function promptResultContent(result: JsonObject): AgentContent[] {
   });
 }
 
-function validateCommand(command: string[]): void {
+export function validateCommand(command: readonly string[]): void {
   if (command.length === 0) throw new Error("MCP server command cannot be empty");
   if (command.length > maxCommandArgs) throw new Error(`MCP server command cannot exceed ${maxCommandArgs} arguments`);
   if (command.some((part) => part.includes("\0"))) throw new Error("MCP server command arguments must not contain NUL characters");
@@ -610,8 +610,11 @@ function stdioRouter(child: ChildProcessWithoutNullStreams): StdioRouter {
     }
   };
   const onError = (error: Error): void => fail(error);
+  const onStdinError = (error: Error): void => fail(new Error(`MCP server stdin failed: ${error.message}`, { cause: error }));
   const onClose = (code: number | null): void => fail(new Error(`MCP server exited before responding${code === null ? "" : ` (code ${code})`}`));
   child.stdout.on("data", onData);
+  // A queued stdin write can still fail with EPIPE while the server is being terminated, and the child process emitter never receives stdio socket errors, so this listener stays attached for the child's lifetime to keep an unhandled "error" event from crashing the host process.
+  child.stdin.on("error", onStdinError);
   child.once("error", onError);
   child.once("close", onClose);
   stdioRouters.set(child, router);

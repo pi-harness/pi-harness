@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
+import { lstat, mkdir, opendir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -12,6 +12,8 @@ const maxTabs = 24;
 const maxStateFileBytes = 1024 * 1024;
 const lockRetryMs = 25;
 const lockTimeoutMs = 10_000;
+const staleLockMs = 30_000;
+const maxLockOwnerBytes = 1024;
 type Tab = { id: string; label: string; sessionPath: string; pinned: boolean; updatedAt: string };
 type TabState = { tabs: Tab[]; activeId: string | null };
 
@@ -78,18 +80,111 @@ async function persist(path: string, state: TabState): Promise<void> {
   }
 }
 
+function tabLockOwnerIsAlive(value: unknown): boolean | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const pid = (value as Record<string, unknown>).pid;
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : true;
+  }
+}
+
+function sameFile(left: Awaited<ReturnType<typeof lstat>>, right: Awaited<ReturnType<typeof lstat>>): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function reclaimStaleTabLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
+  if (Date.now() - Number(lockMetadata.mtimeMs) <= staleLockMs) return false;
+  let directory;
+  try {
+    directory = await opendir(lockPath, { bufferSize: 1 });
+  } catch {
+    return false;
+  }
+  let ownerName: string | undefined;
+  try {
+    const owner = await directory.read();
+    const extra = await directory.read();
+    if (owner === null || extra !== null || !/^[a-z0-9-]{1,64}\.owner$/iu.test(owner.name)) return false;
+    ownerName = owner.name;
+  } finally {
+    await directory.close().catch(() => undefined);
+  }
+  const ownerPath = resolve(lockPath, ownerName);
+  let ownerMetadata;
+  try {
+    ownerMetadata = await lstat(ownerPath);
+  } catch {
+    return false;
+  }
+  if (!ownerMetadata.isFile() || ownerMetadata.isSymbolicLink() || Date.now() - Number(ownerMetadata.mtimeMs) <= staleLockMs) return false;
+  let owner: unknown;
+  try {
+    owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Session tab lock owner")) as unknown;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) return false;
+  }
+  if (tabLockOwnerIsAlive(owner) === true) return false;
+  let currentLockMetadata;
+  let currentOwnerMetadata;
+  try {
+    [currentLockMetadata, currentOwnerMetadata] = await Promise.all([lstat(lockPath), lstat(ownerPath)]);
+  } catch {
+    return false;
+  }
+  if (!sameFile(lockMetadata, currentLockMetadata) || !sameFile(ownerMetadata, currentOwnerMetadata)) return false;
+  try {
+    await unlink(ownerPath);
+    await rmdir(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function acquireTabLock(lockPath: string): Promise<() => Promise<void>> {
   await mkdir(dirname(lockPath), { recursive: true });
   const deadline = Date.now() + lockTimeoutMs;
   while (true) {
     try {
-      await mkdir(lockPath);
+      await mkdir(lockPath, { mode: 0o700 });
+      const token = randomUUID();
+      const ownerPath = resolve(lockPath, `${token}.owner`);
+      try {
+        await writeFile(ownerPath, JSON.stringify({ pid: process.pid, token }), { encoding: "utf8", mode: 0o600, flag: "wx" });
+      } catch (error) {
+        await rmdir(lockPath).catch(() => undefined);
+        throw new Error("Could not establish session tab store lock ownership", { cause: error });
+      }
       return async () => {
-        await rm(lockPath, { recursive: true, force: true });
+        // A reclaimed lock has already been handed to another owner, so unlink our own marker first and never remove a directory we no longer hold.
+        try {
+          await unlink(ownerPath);
+        } catch (error) {
+          throw new Error("Session tab store lock ownership was lost before release", { cause: error });
+        }
+        try {
+          await rmdir(lockPath);
+        } catch (error) {
+          throw new Error("Could not safely release the session tab store lock", { cause: error });
+        }
       };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline)
-        throw new Error("Timed out waiting for session tab store lock", { cause: error });
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw new Error("Could not acquire session tab store lock", { cause: error });
+      let metadata;
+      try {
+        metadata = await lstat(lockPath);
+      } catch (inspectionError) {
+        if ((inspectionError as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Error("Could not inspect session tab store lock", { cause: inspectionError });
+      }
+      if (metadata.isSymbolicLink()) throw new Error("Session tab store lock must not be a symbolic link", { cause: error });
+      if (!metadata.isDirectory()) throw new Error("Session tab store lock must be a directory", { cause: error });
+      if (await reclaimStaleTabLock(lockPath, metadata)) continue;
+      if (Date.now() >= deadline) throw new Error("Timed out waiting for session tab store lock", { cause: error });
       await new Promise<void>((resolve) => setTimeout(resolve, lockRetryMs));
     }
   }
@@ -151,7 +246,14 @@ export default {
         promptSnippet: "organize open Pi sessions as named tabs",
         parameters: Type.Object(
           {
-            action: Type.Union(["pin", "unpin", "rename", "activate", "remove", "list"]),
+            action: Type.Union([
+              Type.Literal("pin"),
+              Type.Literal("unpin"),
+              Type.Literal("rename"),
+              Type.Literal("activate"),
+              Type.Literal("remove"),
+              Type.Literal("list"),
+            ]),
             sessionPath: Type.Optional(Type.String()),
             label: Type.Optional(Type.String()),
           },
@@ -198,7 +300,7 @@ export default {
             const id = targetPath === active.sessionPath ? active.id : basename(targetPath, extname(targetPath));
             const tab = await mutate((current) => upsert(current, id, targetPath, params.label, true));
             return { content: [{ type: "text", text: `Pinned session tab: ${tab.label}` }], details: tab };
-          } else {
+          } else if (params.action === "unpin") {
             await mutate((current) => {
               const target = current.tabs.find((tab) => tab.sessionPath === targetPath);
               if (target === undefined) throw new Error("Session tab not found");
@@ -206,7 +308,7 @@ export default {
               target.updatedAt = new Date().toISOString();
               current.activeId = target.id;
             });
-          }
+          } else throw new Error("session_tab_manage action must be pin, unpin, rename, activate, remove, or list");
           return { content: [{ type: "text", text: `Session tabs: ${state.tabs.length}.` }], details: state };
         },
       }),

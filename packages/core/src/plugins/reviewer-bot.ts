@@ -38,8 +38,57 @@ function outputOf(error: unknown, key: "stdout" | "stderr"): string {
 }
 
 async function git(cwd: string, args: readonly string[], maxBuffer: number, timeoutMs: number): Promise<string> {
-  const result = await execFileAsync("git", [...args], { cwd, maxBuffer, timeout: timeoutMs });
+  // core.quotepath=false keeps non-ASCII paths as literal UTF-8 instead of octal escapes; it does nothing for the ASCII bytes git always escapes, which is why the diff headers still have to be unquoted below.
+  const result = await execFileAsync("git", ["-c", "core.quotepath=false", ...args], { cwd, maxBuffer, timeout: timeoutMs });
   return result.stdout;
+}
+
+const quotedEscapes = new Map<string, number>([
+  ["a", 7],
+  ["b", 8],
+  ["f", 12],
+  ["n", 10],
+  ["r", 13],
+  ["t", 9],
+  ["v", 11],
+  ["\\", 92],
+  ['"', 34],
+]);
+
+// Git C-quotes a diff header path that contains a double quote, a backslash or a control byte, and the escapes stand for raw bytes, so they are decoded into a byte buffer and read back as UTF-8.
+function decodeQuotedPath(value: string): string | undefined {
+  const characters = [...value];
+  if (characters[0] !== '"') return undefined;
+  const encoder = new TextEncoder();
+  const bytes: number[] = [];
+  for (let index = 1; index < characters.length; index += 1) {
+    const character = characters[index]!;
+    if (character === '"') return Buffer.from(bytes).toString("utf8");
+    if (character !== "\\") {
+      for (const byte of encoder.encode(character)) bytes.push(byte);
+      continue;
+    }
+    const escape = characters[index + 1];
+    if (escape === undefined) return undefined;
+    const simple = quotedEscapes.get(escape);
+    if (simple !== undefined) {
+      bytes.push(simple);
+      index += 1;
+      continue;
+    }
+    const octal = characters.slice(index + 1, index + 4).join("");
+    if (!/^[0-7]{3}$/u.test(octal)) return undefined;
+    bytes.push(Number.parseInt(octal, 8));
+    index += 3;
+  }
+  return undefined;
+}
+
+// Git appends a TAB and optional metadata after an unquoted diff header path that contains a space, so the header path stops at the first TAB. `/dev/null` and anything that does not carry the expected side prefix yields undefined, which leaves the current attribution alone.
+function headerPath(line: string, prefix: "a/" | "b/"): string | undefined {
+  const rest = line.slice(4);
+  const decoded = rest.startsWith('"') ? decodeQuotedPath(rest) : rest.split("\t")[0];
+  return decoded !== undefined && decoded.startsWith(prefix) ? decoded.slice(prefix.length) : undefined;
 }
 
 export default {
@@ -57,7 +106,8 @@ export default {
       try {
         [diff, names] = await Promise.all([
           git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--no-ext-diff", "--unified=0"], maxDiffBytes, timeoutMs),
-          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff"], maxDiffBytes, timeoutMs),
+          // -z is the only --name-only form git never quotes, so the listing always carries the same literal paths the decoded diff headers do.
+          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff", "-z"], maxDiffBytes, timeoutMs),
         ]);
       } catch (error) {
         const timedOut = typeof error === "object" && error !== null && "killed" in error && (error as { killed?: unknown }).killed === true;
@@ -68,25 +118,27 @@ export default {
           { cause: error },
         );
       }
-      const paths = names
-        .split("\n")
-        .map((path) => path.trim())
-        .filter(Boolean)
-        .slice(0, maxFiles);
+      const paths = names.split("\0").filter(Boolean).slice(0, maxFiles);
       const fileMap = new Map<string, ReviewFile>();
       let addedLines = 0;
       let removedLines = 0;
       let currentPath: string | undefined;
       for (const line of diff.split("\n")) {
-        if (line.startsWith("+++ b/")) {
-          currentPath = line.slice(6);
-          if (!fileMap.has(currentPath)) fileMap.set(currentPath, { path: currentPath, added: 0, removed: 0 });
+        if (line.startsWith("+++ ")) {
+          const path = headerPath(line, "b/");
+          if (path !== undefined) {
+            currentPath = path;
+            if (!fileMap.has(path)) fileMap.set(path, { path, added: 0, removed: 0 });
+          }
           continue;
         }
         // A deleted file only carries a `--- a/` header (its `+++` side is /dev/null), so the removed lines must be attributed from here.
-        if (line.startsWith("--- a/")) {
-          currentPath = line.slice(6);
-          if (!fileMap.has(currentPath)) fileMap.set(currentPath, { path: currentPath, added: 0, removed: 0 });
+        if (line.startsWith("--- ")) {
+          const path = headerPath(line, "a/");
+          if (path !== undefined) {
+            currentPath = path;
+            if (!fileMap.has(path)) fileMap.set(path, { path, added: 0, removed: 0 });
+          }
           continue;
         }
         if (line.startsWith("+")) {

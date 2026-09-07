@@ -97,6 +97,36 @@ describe("stdio application plugin", () => {
     expect(stdio.errors.join("")).toContain("provider failed");
   });
 
+  test("neutralizes terminal escape sequences in a provider error message", async () => {
+    const errorMessage = "Upstream error: \u001B]52;c;cm0gLXJmIC8=\u0007 then \u001B[2J";
+    const { context } = await createTestRuntimeContext([fauxAssistantMessage("", { stopReason: "error", errorMessage })]);
+    contexts.push(context);
+    const stdio = captureStdio("trigger error");
+    provideStdioContext(context, stdio);
+    await context.plugin(stdioPlugin);
+
+    const exitCode = await context.piApplication.run();
+
+    expect(exitCode).toBe(1);
+    expect(stdio.errors).toHaveLength(1);
+    expect(stdio.errors[0]).toContain("Upstream error:");
+    expect(stdio.errors[0]?.replace(/\n$/u, "")).not.toMatch(/[\p{Cc}\p{Bidi_Control}]/u);
+  });
+
+  test("keeps a zero-width joiner emoji sequence intact in a provider error message", async () => {
+    const errorMessage = "Upstream error: \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} crashed";
+    const { context } = await createTestRuntimeContext([fauxAssistantMessage("", { stopReason: "error", errorMessage })]);
+    contexts.push(context);
+    const stdio = captureStdio("trigger error");
+    provideStdioContext(context, stdio);
+    await context.plugin(stdioPlugin);
+
+    const exitCode = await context.piApplication.run();
+
+    expect(exitCode).toBe(1);
+    expect(stdio.errors).toEqual([`${errorMessage}\n`]);
+  });
+
   test("reports non-error resource diagnostics instead of dropping them", async () => {
     const { context } = await createTestRuntimeContext([]);
     contexts.push(context);
@@ -216,6 +246,37 @@ describe("stdio application plugin", () => {
     expect(stdio.errors[0]?.split("\n").filter(Boolean)).toHaveLength(1);
     expect(stdio.errors[0]).not.toContain("\0");
     expect(stdio.errors[0]?.length).toBeLessThanOrEqual(2_590);
+  });
+
+  test("neutralizes terminal escape sequences in resource diagnostics and extension failures", async () => {
+    const { context } = await createTestRuntimeContext([]);
+    contexts.push(context);
+    (context.piResources.diagnostics as unknown as Array<{ type: "warning"; message: string }>).push({
+      type: "warning",
+      message: "loaded \u001B]52;c;cm0gLXJmIC8=\u0007 skill",
+    });
+    const stdio = captureStdio("");
+    provideStdioContext(context, stdio);
+    await context.plugin(stdioPlugin);
+
+    context.emit("pi/extension-error", { extensionPath: "plugin\u001B[2J.ts", event: "load", error: "boom \u001B[1;1H\u009Bm \u202Espoofed" });
+
+    expect(stdio.errors).toHaveLength(2);
+    expect(stdio.errors[0]).toContain("Resource warning:");
+    expect(stdio.errors[1]).toContain("Extension error");
+    for (const line of stdio.errors) expect(line.replace(/\n$/u, "")).not.toMatch(/[\p{Cc}\p{Bidi_Control}]/u);
+  });
+
+  test("keeps a zero-width joiner emoji sequence intact in an extension failure", async () => {
+    const { context } = await createTestRuntimeContext([]);
+    contexts.push(context);
+    const stdio = captureStdio("");
+    provideStdioContext(context, stdio);
+    await context.plugin(stdioPlugin);
+
+    context.emit("pi/extension-error", { extensionPath: "plugin.ts", event: "load", error: "\u{1F468}\u{200D}\u{1F4BB} crashed" });
+
+    expect(stdio.errors).toEqual(["Extension error (plugin.ts): \u{1F468}\u{200D}\u{1F4BB} crashed\n"]);
   });
 
   test("removes session and extension listeners when disposed", async () => {

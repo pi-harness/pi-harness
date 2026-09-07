@@ -88,4 +88,24 @@ describe("MCP panel", () => {
 
     expect(await readFile(join(root, "patch.yml.bak"), "utf8")).toBe(profileAfterFirstApply);
   });
+
+  test("refuses commands the MCP loader rejects at activation", async () => {
+    const { root, tool } = await fixture();
+    await expect(
+      tool.execute("preview-shell", { action: "preview", serverId: "shell-server", command: ["bash", "-c", "my-server"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/shell wrappers are not allowed/iu);
+    await expect(
+      tool.execute(
+        "apply-shell",
+        { action: "apply", serverId: "shell-server", command: ["bash", "-c", "my-server"], confirm: true },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/shell wrappers are not allowed/iu);
+    await expect(
+      tool.execute("preview-nul", { action: "preview", serverId: "nul-server", command: ["server", "a\0b"] }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/NUL characters/iu);
+    await expect(readFile(join(root, "patch.yml"), "utf8")).rejects.toThrow(/ENOENT/u);
+  });
 });

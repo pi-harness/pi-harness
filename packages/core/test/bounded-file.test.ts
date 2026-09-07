@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { readBoundedFile, readBoundedTextFile } from "../src/bounded-file.js";
+
+const execFileAsync = promisify(execFile);
 
 const temporaryDirectories: string[] = [];
 
@@ -43,6 +47,16 @@ describe("bounded file reads", () => {
     await expect(readBoundedFile(directory, 100, "Input file")).rejects.toThrow(/regular file/iu);
     await expect(readBoundedFile(link, 100, "Input file")).rejects.toThrow(/symbolic link/iu);
   });
+
+  test("rejects a named pipe without waiting for a writer", async () => {
+    if (process.platform === "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-bounded-file-"));
+    temporaryDirectories.push(root);
+    const pipe = join(root, "pipe");
+    await execFileAsync("mkfifo", [pipe]);
+
+    await expect(readBoundedFile(pipe, 100, "Input file")).rejects.toThrow(/regular file/iu);
+  }, 5_000);
 
   test("rejects invalid UTF-8 instead of returning replacement characters", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-bounded-file-"));

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   createClientApi,
@@ -5845,6 +5845,30 @@ function MarketplaceDetail({
   );
 }
 
+// Every config refresh path has to feed the source editor as well, otherwise the textarea keeps pre-reload text and the next 保存源码 overwrites the file that was just read from disk.
+export async function reloadRuntimeConfig(
+  api: Pick<ClientApi, "reloadConfig">,
+  apply: {
+    config: (value: ClientPiConfig) => void;
+    sourceDraft: (source: string) => void;
+    state: (message: string) => void;
+    busy: (value: boolean) => void;
+  },
+): Promise<void> {
+  apply.busy(true);
+  apply.state("重载中…");
+  try {
+    const value = await api.reloadConfig();
+    apply.config(value);
+    apply.sourceDraft(value.source);
+    apply.state("已从磁盘重载");
+  } catch (cause: unknown) {
+    apply.state(cause instanceof Error ? cause.message : String(cause));
+  } finally {
+    apply.busy(false);
+  }
+}
+
 function Settings({
   data,
   api,
@@ -6203,14 +6227,12 @@ function Settings({
                     className="primary"
                     disabled={configBusy}
                     onClick={() => {
-                      setConfigBusy(true);
-                      setConfigState("重载中…");
-                      void api
-                        .reloadConfig()
-                        .then(setConfig)
-                        .then(() => setConfigState("已从磁盘重载"))
-                        .catch((cause: unknown) => setConfigState(cause instanceof Error ? cause.message : String(cause)))
-                        .finally(() => setConfigBusy(false));
+                      void reloadRuntimeConfig(api, {
+                        config: setConfig,
+                        sourceDraft: setConfigSourceDraft,
+                        state: setConfigState,
+                        busy: setConfigBusy,
+                      });
                     }}
                     type="button"
                   >
@@ -6760,6 +6782,72 @@ function GlobalSearch({
   );
 }
 
+// message_update frames carry per-token deltas that this client already applies locally, and the gateway never retains them, so refreshing the whole 11-endpoint snapshot for each of them is pure amplification.
+export function shouldRefreshForRuntimeEvent(payload: Record<string, unknown>): boolean {
+  const event = payload.event;
+  if (typeof event !== "object" || event === null) return true;
+  return (event as Record<string, unknown>).type !== "message_update";
+}
+
+// The event stream must outlive every handler identity change, otherwise typing in a filter box closes the EventSource and the deltas emitted during the reconnect window are lost for good.
+export function subscribeRuntimeEvents(
+  api: Pick<ClientApi, "subscribeEvents">,
+  handler: { readonly current: (payload: Record<string, unknown>) => void },
+): () => void {
+  return api.subscribeEvents((payload) => handler.current(payload));
+}
+
+type MarketplaceDetailPlan =
+  | { readonly kind: "clear" }
+  | { readonly kind: "show"; readonly plugin: ClientMarketplacePlugin }
+  | { readonly kind: "keep" }
+  | { readonly kind: "fetch" };
+
+// `loaded` is every plugin already in memory (the visible page plus the fully paginated catalog); `resolvedId` is the detail already resolved for this route, which keeps a poll from blanking the page and refetching it.
+export function marketplaceDetailPlan(
+  pluginId: string | undefined,
+  loaded: readonly ClientMarketplacePlugin[],
+  resolvedId: string | undefined,
+): MarketplaceDetailPlan {
+  if (pluginId === undefined) return { kind: "clear" };
+  const plugin = loaded.find((item) => item.id === pluginId);
+  if (plugin !== undefined) return { kind: "show", plugin };
+  return resolvedId === pluginId ? { kind: "keep" } : { kind: "fetch" };
+}
+
+// Memoised on primitive props so a poll that returns an identical transcript does not re-run marked + DOMPurify over every turn.
+export const ChatTurnArticle = memo(function ChatTurnArticle({
+  role,
+  text,
+  thinking,
+  onMouseUp,
+}: {
+  role: "user" | "assistant";
+  text: string;
+  thinking: string;
+  onMouseUp: () => void;
+}) {
+  return (
+    <article className={`turn ${role === "user" ? "user" : "text"}`}>
+      {role === "user" ? (
+        <UserMessageBubble text={text} />
+      ) : (
+        <>
+          {thinking && (
+            <details className="reasoning message-reasoning">
+              <summary className="reasoning-head">思考</summary>
+              <div className="reasoning-body">
+                <MarkdownMessage text={thinking} />
+              </div>
+            </details>
+          )}
+          {text && <MarkdownMessage onMouseUp={onMouseUp} text={text} />}
+        </>
+      )}
+    </article>
+  );
+});
+
 export function ControlRoomView({ api = createClientApi(), appVersion }: { api?: ClientApi; appVersion?: string }) {
   const initialQueryState = useMemo(readQueryState, []);
   const [data, setData] = useState<RoomData>({
@@ -6818,7 +6906,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [installedPluginId, setInstalledPluginId] = useState<string | undefined>(initialQueryState.installedPlugin);
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
-  const [permission, setPermission] = useState(true);
   const [promptError, setPromptError] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState("");
@@ -6836,6 +6923,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const stickToBottomRef = useRef(true);
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const refreshQueuedRef = useRef(false);
+  const resolvedMarketplaceDetailIdRef = useRef<string | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
@@ -7007,15 +7095,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
   useEffect(() => {
-    if (marketplacePluginId === undefined) {
+    const plan = marketplaceDetailPlan(marketplacePluginId, [...data.marketplace, ...marketplaceCatalog], resolvedMarketplaceDetailIdRef.current);
+    if (plan.kind === "keep") return;
+    if (plan.kind === "clear") {
+      resolvedMarketplaceDetailIdRef.current = undefined;
       setMarketplaceDetail(undefined);
       setMarketplaceDetailPending(false);
       setMarketplaceDetailError("");
       return;
     }
-    const visible = data.marketplace.find((plugin) => plugin.id === marketplacePluginId);
-    if (visible !== undefined) {
-      setMarketplaceDetail(visible);
+    if (plan.kind === "show") {
+      resolvedMarketplaceDetailIdRef.current = marketplacePluginId;
+      setMarketplaceDetail(plan.plugin);
       setMarketplaceDetailPending(false);
       setMarketplaceDetailError("");
       return;
@@ -7028,6 +7119,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       .listMarketplace("", "", 0, 100)
       .then((result) => {
         if (cancelled) return;
+        // Only a real answer marks the route resolved; a failed request stays retryable on the next poll.
+        resolvedMarketplaceDetailIdRef.current = marketplacePluginId;
         const plugin = result.items.find((item) => item.id === marketplacePluginId);
         if (plugin === undefined) setMarketplaceDetailError("没有找到这个市场插件，它可能已下架。");
         else setMarketplaceDetail(plugin);
@@ -7041,10 +7134,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => {
       cancelled = true;
     };
-  }, [api, data.marketplace, marketplacePluginId]);
+  }, [api, data.marketplace, marketplaceCatalog, marketplacePluginId]);
   useEffect(() => {
     if (installedPluginId === undefined) {
       setInstalledPluginMetadata(undefined);
+      return;
+    }
+    const known = marketplaceCatalog.find((item) => item.packageName === installedPluginId);
+    if (known !== undefined) {
+      setInstalledPluginMetadata(known);
       return;
     }
     let cancelled = false;
@@ -7060,7 +7158,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => {
       cancelled = true;
     };
-  }, [api, installedPluginId]);
+  }, [api, installedPluginId, marketplaceCatalog]);
   const refresh = useCallback(async () => {
     const results = await Promise.allSettled([
       api.getStatus(),
@@ -7115,7 +7213,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [refresh]);
   const handleRuntimeEvent = useCallback(
     (payload: Record<string, unknown>) => {
-      scheduleRefresh();
+      if (shouldRefreshForRuntimeEvent(payload)) scheduleRefresh();
       const event = payload.event;
       if (typeof event !== "object" || event === null) return;
       const runtimeEvent = event as Record<string, unknown>;
@@ -7137,6 +7235,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     },
     [scheduleRefresh],
   );
+  const handleRuntimeEventRef = useRef(handleRuntimeEvent);
+  const refreshRef = useRef(refresh);
   const createNewSession = useCallback(
     async (workspace?: ClientWorkspace) => {
       setPromptError("");
@@ -7182,18 +7282,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     await pickDirectory();
   }, [pickDirectory]);
   useEffect(() => {
+    handleRuntimeEventRef.current = handleRuntimeEvent;
+    refreshRef.current = refresh;
+  }, [handleRuntimeEvent, refresh]);
+  useEffect(() => {
     void refresh();
-    const unsubscribe = api.subscribeEvents(handleRuntimeEvent);
-    const timer = window.setInterval(() => void refresh(), 5000);
+  }, [refresh]);
+  useEffect(() => subscribeRuntimeEvents(api, handleRuntimeEventRef), [api]);
+  useEffect(() => {
+    const timer = window.setInterval(() => void refreshRef.current(), 5000);
     return () => {
-      unsubscribe();
       window.clearInterval(timer);
       if (refreshTimerRef.current !== undefined) {
         window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = undefined;
       }
     };
-  }, [api, handleRuntimeEvent, refresh]);
+  }, []);
   useEffect(() => {
     if (data.status?.status !== "running") setStreamingAssistant(undefined);
   }, [data.status?.status]);
@@ -7262,6 +7367,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [commandOpen, details, globalSearchOpen, sessionDialog]);
   const events = data.session?.events ?? [];
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
+  const chatTurns = useMemo(() => projectChatTurns(data.session?.messages ?? []), [data.session?.messages]);
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     const frame = window.requestAnimationFrame(() => {
@@ -7298,12 +7404,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       .finally(() => setPendingPrompt(""))
       .finally(() => setPromptBusy(false));
   };
-  const captureAnnotationSelection = () => {
+  const captureAnnotationSelection = useCallback(() => {
     window.requestAnimationFrame(() => {
       const selected = window.getSelection()?.toString().trim() ?? "";
       if (selected.length > 0) setAnnotationSelection(selected.slice(0, 4_000));
     });
-  };
+  }, []);
   const addAnnotation = () => {
     const quote = annotationSelection.trim();
     if (!quote) return;
@@ -7585,27 +7691,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         ref={chatScrollRef}
       >
         {data.session?.messages.length ? (
-          projectChatTurns(data.session.messages).map((turn, index) => {
-            return (
-              <article className={`turn ${turn.role === "user" ? "user" : "text"}`} key={index}>
-                {turn.role === "user" ? (
-                  <UserMessageBubble text={turn.text} />
-                ) : (
-                  <>
-                    {turn.thinking && (
-                      <details className="reasoning message-reasoning">
-                        <summary className="reasoning-head">思考</summary>
-                        <div className="reasoning-body">
-                          <MarkdownMessage text={turn.thinking} />
-                        </div>
-                      </details>
-                    )}
-                    {turn.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={turn.text} />}
-                  </>
-                )}
-              </article>
-            );
-          })
+          chatTurns.map((turn, index) => (
+            <ChatTurnArticle key={index} onMouseUp={captureAnnotationSelection} role={turn.role} text={turn.text} thinking={turn.thinking} />
+          ))
         ) : (
           <Workspace
             status={data.status}
@@ -7820,9 +7908,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <option value="">暂无可用模型</option>
                 )}
               </select>
-              <button className="tool-chip" onClick={() => setPermission((current) => !current)} type="button">
-                ● {permission ? "改动前询问" : "自动允许"}
-              </button>
               <button className="tool-chip" onClick={openCommandCompletion} type="button">
                 ／ 命令
               </button>

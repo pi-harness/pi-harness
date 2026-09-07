@@ -101,10 +101,12 @@ export default {
             title: Type.String({ minLength: 1, maxLength: maxTitleLength }),
             blocks: Type.Array(
               Type.Object({
-                type: Type.Union(["text", "badge", "progress"]),
+                type: Type.Union([Type.Literal("text"), Type.Literal("badge"), Type.Literal("progress")]),
                 label: Type.String({ minLength: 1, maxLength: maxLabelLength }),
                 value: Type.String({ minLength: 1, maxLength: maxValueLength }),
-                tone: Type.Optional(Type.Union(["neutral", "info", "success", "warning", "danger"])),
+                tone: Type.Optional(
+                  Type.Union([Type.Literal("neutral"), Type.Literal("info"), Type.Literal("success"), Type.Literal("warning"), Type.Literal("danger")]),
+                ),
               }),
               { minItems: 1, maxItems: maxBlocks },
             ),

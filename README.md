@@ -19,7 +19,7 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
-The web console listens on `http://127.0.0.1:3141` by default. For a terminal workflow:
+The web console listens on `http://127.0.0.1:3141` by default. It boots with `everyapi/deepseek-v4-flash` and model selection is fail-closed, so the provider must be registered in `PI_AGENT_DIR` first: provision it with `everyapi use pi-harness`, or set `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` to a model that agent directory already knows. For a terminal workflow:
 
 ```sh
 pih "Summarize the current directory"
@@ -58,13 +58,15 @@ Profiles are Cordis Loader entry arrays. Each entry has a unique `id` and module
 
 Common environment variables:
 
-| Variable                          | Purpose                                             | Default       |
-| --------------------------------- | --------------------------------------------------- | ------------- |
-| `PI_HARNESS_HOST`                 | Web bind host                                       | `127.0.0.1`   |
-| `PI_HARNESS_PORT`                 | Web bind port                                       | `3141`        |
-| `PI_AGENT_DIR`                    | Pi state and credentials directory                  | `~/.pi/agent` |
-| `PI_HARNESS_ALLOW_REMOTE`         | Allow a non-loopback host when set to `1`           | unset         |
-| `PI_HARNESS_DISABLE_UPDATE_CHECK` | Disable the background update check when set to `1` | unset         |
+| Variable                          | Purpose                                             | Default             |
+| --------------------------------- | --------------------------------------------------- | ------------------- |
+| `PI_HARNESS_HOST`                 | Web bind host                                       | `127.0.0.1`         |
+| `PI_HARNESS_PORT`                 | Web bind port                                       | `3141`              |
+| `PI_AGENT_DIR`                    | Pi state and credentials directory                  | `~/.pi/agent`       |
+| `PI_HARNESS_PROVIDER`             | Web console model provider                          | `everyapi`          |
+| `PI_HARNESS_MODEL`                | Web console model id                                | `deepseek-v4-flash` |
+| `PI_HARNESS_ALLOW_REMOTE`         | Allow a non-loopback host when set to `1`           | unset               |
+| `PI_HARNESS_DISABLE_UPDATE_CHECK` | Disable the background update check when set to `1` | unset               |
 
 ## Architecture
 
@@ -93,7 +95,7 @@ npm run build
 npm run test:package
 ```
 
-The complete reference documents every built-in plugin, API route, configuration rule, resource limit, failure mode, and security boundary: [README.reference.md](docs/README.reference.md).
+The reference documents the selected plugin catalog, every HTTP API route, configuration rules, resource limits, failure modes, and security boundaries: [README.reference.md](docs/README.reference.md). Core ships more plugins than the catalog describes; [`packages/core/src/plugins`](packages/core/src/plugins) is the complete set and [`apps/web/profile/cordis.yml`](apps/web/profile/cordis.yml) is what the web console enables by default.
 
 ## Star history
 

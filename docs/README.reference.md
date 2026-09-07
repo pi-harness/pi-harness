@@ -14,11 +14,12 @@ Pi Harness is a plugin-first web host for [Pi](https://github.com/earendil-works
 - [CLI and profiles](#cli)
 - [Core plugins](#selected-core-production-plugins)
 - [Author a plugin](#author-a-plugin)
+- [HTTP API routes](#http-api-routes)
 - [Security boundaries](#failure-and-security-boundaries)
 - [Development and release](#development)
 - [Workspace layout](#workspace-layout)
 
-The localized guides cover the common installation and operation paths. This English README remains the canonical reference for the complete plugin catalog, configuration schema, API routes, limits, and security behavior.
+The localized guides cover the common installation and operation paths. This English README remains the canonical reference for the documented plugin catalog, the configuration schema, the complete API route inventory, limits, and security behavior. The plugin catalog below is a selection: [`packages/core/src/plugins`](../packages/core/src/plugins) holds every built-in plugin, and [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) lists the ones the web console enables by default.
 
 ## Requirements
 
@@ -53,9 +54,9 @@ npm ci
 npm run web
 ```
 
-The web launcher builds the Vite browser bundle, starts the Cordis host, and prints a local URL (by default `http://127.0.0.1:3141`). Set `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, and `PI_AGENT_DIR` to change the bind address, port, or Pi state directory. The browser surface is served by the bundled `@pi-harness/web-app` plugin and talks to the bundled `@pi-harness/api-gateway` over `/api/status`, `/api/session`, `/api/sessions`, `/api/session/new`, `/api/session/open`, `/api/models`, `/api/model`, `/api/files`, `/api/prompt`, `/api/abort`, and the `/api/events` Server-Sent Events stream. The launcher refuses non-loopback hosts unless `PI_HARNESS_ALLOW_REMOTE=1` is explicitly set on a trusted network; the API is intended for local use and has no user authentication layer.
+The web launcher builds the Vite browser bundle, starts the Cordis host, and prints a local URL (by default `http://127.0.0.1:3141`). Set `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, and `PI_AGENT_DIR` to change the bind address, port, or Pi state directory. The browser surface is served by the bundled `@pi-harness/web-app` plugin and talks to the bundled `@pi-harness/api-gateway` over `/api/status`, `/api/session`, `/api/sessions`, `/api/session/new`, `/api/session/open`, `/api/models`, `/api/model`, `/api/files`, `/api/prompt`, `/api/abort`, and the `/api/events` Server-Sent Events stream; [HTTP API routes](#http-api-routes) lists every registered route, including the mutating ones the console uses for plugins, providers, files, and sessions. The launcher refuses non-loopback hosts unless `PI_HARNESS_ALLOW_REMOTE=1` is explicitly set on a trusted network; the API is intended for local use and has no user authentication layer.
 
-The default profile selects `deepseek/deepseek-v4-flash`, stores JSONL sessions under `$PI_AGENT_DIR/sessions`, and loads Pi resources from the current project and agent directory. `PI_AGENT_DIR` defaults to `~/.pi/agent`. When the EveryAPI CLI is installed, launch the integrated web surface with `everyapi use pi-harness`; it provisions an isolated Pi agent directory with the EveryAPI provider catalog and starts Pi Harness on its local loopback URL.
+The web profile ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) selects `everyapi/deepseek-v4-flash`, stores JSONL sessions under `$PI_AGENT_DIR/sessions`, and loads Pi resources from the current project and agent directory. `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` override that selection; the built-in CLI `default` profile selects `deepseek/deepseek-v4-flash` instead. Model selection is fail-closed, so a provider that is not registered in the active agent directory aborts startup with `Pi model is not registered: <provider>/<model>` rather than falling back to another provider. Provision the catalog with the EveryAPI CLI (`everyapi use pi-harness`, which prepares an isolated Pi agent directory with the EveryAPI provider catalog and starts Pi Harness on its local loopback URL), or point `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` at a model already registered in `PI_AGENT_DIR`, which defaults to `~/.pi/agent`.
 
 ## Architecture
 
@@ -124,6 +125,8 @@ Pi Harness reads and hot-refreshes profile files but does not persist Loader mut
 ## Selected core production plugins
 
 Pi Harness ships the production-oriented plugins below. The built-in `default` profile enables the entries listed in [`packages/core/profiles/default/cordis.yml`](packages/core/profiles/default/cordis.yml); other core plugins, such as Graph Memory, can be added to a project-owned profile when needed. Plugin panels expose the latest bounded result and the limits applied by the backend.
+
+This catalog is a selection, not the complete set. The authoritative list of what the web console loads is its profile, [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml), and [`packages/core/src/plugins`](../packages/core/src/plugins) holds every built-in plugin; most entries in that profile have no section here. An undocumented entry is enabled on exactly the same terms as a documented one — it can register tools the model may call, subscribe to session events, and persist state under `PI_AGENT_DIR` — so read the profile and the plugin source rather than reading this catalog as the full behavior of a default install.
 
 | Plugin             | Tools                                                                                     | Purpose                                                                                                             |
 | ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -830,8 +833,55 @@ Custom tools are a startup contract. The runtime leases an immutable tool snapsh
 
 This uses Cordis injection for deterministic ordering. A late contribution fails startup instead of being silently omitted from the active AgentSession. When HMR unloads a tool marker, Cordis first disposes the dependent runtime and releases its snapshot; the reloaded tool plugin can then register against the same lifecycle-owned registry.
 
+## HTTP API routes
+
+Every route the bundled `@pi-harness/api-gateway` plugin registers is listed below. All of them are served on the same loopback port as the browser console and none of them has an authentication layer, so any local process — including a browser page that passes the `Host` and `Origin` checks — can reach them. A route that accepts a specific method answers every other method with `405`.
+
+| Route                      | Methods   | Behavior                                                                                                                     |
+| -------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `/api/status`              | GET       | Runtime, session, and model status snapshot with buffered agent events.                                                      |
+| `/api/config`              | GET, POST | Read the Pi settings snapshot; `POST` writes the default provider, model, and related settings through the settings manager. |
+| `/api/config/reload`       | POST      | Re-reads `settings.json` from the agent directory.                                                                           |
+| `/api/config/source`       | POST      | Replaces `$PI_AGENT_DIR/settings.json` with the posted JSON document (at most 128 KiB) and reloads it.                       |
+| `/api/models`              | GET       | Registered model catalog for the active runtime.                                                                             |
+| `/api/providers`           | GET       | Configured providers and their credential state.                                                                             |
+| `/api/providers/add`       | POST      | Stores a provider entry, including its base URL and API key, in the Pi settings file.                                        |
+| `/api/providers/test`      | POST      | Checks whether one provider is reachable and authenticated.                                                                  |
+| `/api/providers/refresh`   | POST      | Re-queries one provider's available models.                                                                                  |
+| `/api/plugins`             | GET       | Loader entries with their ids, module names, and status.                                                                     |
+| `/api/plugin-ui`           | GET       | Latest bounded panel snapshots contributed by plugins.                                                                       |
+| `/api/marketplace`         | GET       | Marketplace catalog search over the bundled entries.                                                                         |
+| `/api/marketplace/install` | POST      | Runs `npm install` for the requested package in the profile's install directory and adds a Loader entry for it.              |
+| `/api/plugins/toggle`      | POST      | Enables or disables a marketplace entry and rewrites the profile YAML.                                                       |
+| `/api/plugins/uninstall`   | POST      | Removes a marketplace entry from the profile and runs `npm uninstall` for its package.                                       |
+| `/api/commands`            | GET       | Commands registered by Pi extensions.                                                                                        |
+| `/api/workspaces`          | GET       | Sibling workspace directories of the active working directory.                                                               |
+| `/api/workspaces/pick`     | POST      | Opens the native macOS directory picker; other platforms receive `501`.                                                      |
+| `/api/model`               | POST      | Switches the active model selection.                                                                                         |
+| `/api/files`               | GET       | Bounded `git status` for the active workspace.                                                                               |
+| `/api/files/diff`          | GET       | `git diff` for one workspace-relative path; a path that escapes the workspace is rejected.                                   |
+| `/api/files/commit`        | POST      | Commits the requested workspace paths.                                                                                       |
+| `/api/files/revert`        | POST      | Discards workspace changes for the requested paths and requires `confirm: true`.                                             |
+| `/api/events`              | GET       | Server-Sent Events stream of agent events.                                                                                   |
+| `/api/prompt`              | POST      | Starts a prompt run on the active session.                                                                                   |
+| `/api/abort`               | POST      | Aborts the active run.                                                                                                       |
+| `/api/session`             | GET       | Active session file, messages, entries, and buffered events.                                                                 |
+| `/api/session/new`         | POST      | Starts a new session; rejected with `409` while a prompt is streaming.                                                       |
+| `/api/session/open`        | POST      | Opens a stored session from the session directory.                                                                           |
+| `/api/session/rename`      | POST      | Renames a stored session; names are limited to 120 characters.                                                               |
+| `/api/session/delete`      | POST      | Deletes a stored session and requires `confirm: true`.                                                                       |
+| `/api/session/metadata`    | POST      | Updates the archived and pinned flags of a stored session.                                                                   |
+| `/api/sessions/batch`      | POST      | Applies delete, archive, unarchive, pin, or unpin to at most 100 stored sessions.                                            |
+| `/api/session/fork`        | POST      | Forks a stored session into a new one.                                                                                       |
+| `/api/session/import`      | POST      | Imports a bounded session document; rejected with `409` while a prompt is streaming.                                         |
+| `/api/session/export`      | GET       | Downloads one stored session as newline-delimited JSON.                                                                      |
+| `/api/sessions`            | GET       | Paginated stored session list, at most 100 entries per page.                                                                 |
+
+The session and file routes validate their paths against the session directory and the active workspace before touching the filesystem, and the marketplace mutations are serialized so a second install, toggle, or uninstall receives `409` while one is running.
+
 ## Failure and security boundaries
 
+- The routes in [HTTP API routes](#http-api-routes) are unauthenticated. The mutating ones install and uninstall npm packages, rewrite the profile YAML and `settings.json`, store provider API keys, commit or discard workspace files, and delete stored sessions, so binding the console to anything but loopback exposes all of that.
 - A profile can load arbitrary Node.js modules. Treat profile files and plugin packages as executable code.
 - Project-local Pi resources under the invocation directory's `.pi/` — extensions, settings, and system-prompt overrides — are executable code owned by whoever wrote the repository. They are loaded only when the project is trusted: a decision recorded by Pi's own trust store for that directory, or `trustProject: true` on the `pi-resources` entry. An untrusted project is reported on stderr and its resources are skipped, so `cd`-ing into a cloned repository and running `pih` does not execute its extensions.
 - Extensions under `PI_AGENT_DIR` are user-owned and always load. `session_shutdown` runs before the Pi session is disposed, so an extension's session-scoped resources are released on every exit path.

@@ -1,11 +1,37 @@
+import type * as ChildProcess from "node:child_process";
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import sqlLensPlugin, { Config } from "../src/plugins/sql-lens.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+
+// Only the plugin holds a reference to the process it spawns, so recording the real children is the only way to assert that an abandoned query is gone from the operating system.
+const spawnedChildren = vi.hoisted(() => [] as ChildProcess.ChildProcess[]);
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof ChildProcess>();
+  return {
+    ...actual,
+    spawn: (...args: Parameters<typeof actual.spawn>) => {
+      const child = actual.spawn(...args);
+      spawnedChildren.push(child);
+      return child;
+    },
+  };
+});
+
+function isRunning(pid: number | undefined): boolean {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
 
 const temporaryDirectories: string[] = [];
 
@@ -166,6 +192,21 @@ describe("SQL Lens production boundaries", () => {
       );
       expect((many.details as { rows: unknown[] }).rows).toHaveLength(100);
       expect(many.details).toMatchObject({ truncated: true, scannedRows: 101 });
+
+      // A result near the byte limit arrives in several pipe chunks, so this also proves the query process flushes its whole response before exiting.
+      const bulk = await fixture.tool.execute(
+        "bulk",
+        {
+          database: "data.db",
+          query: "WITH RECURSIVE count(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM count WHERE x < 200) SELECT x, printf('%.9000c', 'y') AS wide FROM count",
+        },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      const bulkRows = (bulk.details as { rows: Array<{ x: number; wide: string }> }).rows;
+      expect(bulkRows).toHaveLength(100);
+      expect(bulkRows.at(-1)?.wide).toHaveLength(9_000);
     } finally {
       await fixture.context.fiber.dispose();
     }
@@ -212,16 +253,44 @@ describe("SQL Lens production boundaries", () => {
     }
   });
 
-  test("terminates an expensive aggregate when the configured timeout expires", async () => {
+  test("kills the query process when the configured timeout expires so an expensive aggregate stops burning CPU", async () => {
     const fixture = await createFixture({ timeoutMs: 100 });
     const query = "WITH RECURSIVE count(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM count WHERE x < 100000000) SELECT sum(x) AS total FROM count";
+    const alreadySpawned = spawnedChildren.length;
+    const startedAt = Date.now();
     try {
       await expect(fixture.tool.execute("timeout", { database: "data.db", query }, undefined, undefined, {} as never)).rejects.toThrow(
         /timed out after 100ms/iu,
       );
+      // The aggregate needs more than ten seconds of CPU, so the rejection may only arrive once the operating system has actually reaped the query process.
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+      const children = spawnedChildren.slice(alreadySpawned);
+      expect(children).toHaveLength(1);
+      expect(children[0]?.signalCode).toBe("SIGKILL");
+      expect(isRunning(children[0]?.pid)).toBe(false);
       await expect(fixture.panels.snapshot()).resolves.toMatchObject([
         { data: { status: { state: "failed", error: "SQL Lens query timed out after 100ms" }, timeoutMs: 100 } },
       ]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("stops a cancelled query process instead of leaving it pinned inside SQLite", async () => {
+    const fixture = await createFixture({ timeoutMs: 30_000 });
+    const query = "WITH RECURSIVE count(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM count WHERE x < 100000000) SELECT sum(x) AS total FROM count";
+    const alreadySpawned = spawnedChildren.length;
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new Error("SQL caller cancelled the aggregate")), 100);
+    const startedAt = Date.now();
+    try {
+      await expect(fixture.tool.execute("cancel", { database: "data.db", query }, controller.signal, undefined, {} as never)).rejects.toThrow(
+        /cancelled the aggregate/iu,
+      );
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+      const children = spawnedChildren.slice(alreadySpawned);
+      expect(children).toHaveLength(1);
+      expect(isRunning(children[0]?.pid)).toBe(false);
     } finally {
       await fixture.context.fiber.dispose();
     }

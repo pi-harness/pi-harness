@@ -1,10 +1,28 @@
-import { mkdtemp } from "node:fs/promises";
+import type * as FsPromises from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import tabManagerPlugin from "../src/plugins/tab-manager.js";
 import { provideLaunchContext, PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+
+// Lets one test seize the store lock while a mutation is mid-write, which is the only moment a reclaimed owner can be observed.
+const fs = vi.hoisted(() => ({ beforeRename: undefined as (() => Promise<void>) | undefined }));
+
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof FsPromises>("node:fs/promises");
+  return {
+    ...actual,
+    default: actual,
+    async rename(...args: Parameters<typeof actual.rename>) {
+      const hook = fs.beforeRename;
+      fs.beforeRename = undefined;
+      if (hook !== undefined) await hook();
+      return actual.rename(...args);
+    },
+  };
+});
 
 const contexts: Context[] = [];
 
@@ -25,6 +43,7 @@ async function fixture() {
 }
 
 afterEach(async () => {
+  fs.beforeRename = undefined;
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
 });
 
@@ -85,6 +104,93 @@ describe("tab manager", () => {
     ).rejects.toThrow(/already exists/iu);
     await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { tabs: [{ id: "shared", sessionPath: join(root, "a", "shared.jsonl") }] },
+    });
+  });
+
+  test("reclaims a stale session tab lock owned by a dead process after restart", async () => {
+    const { root, tool } = await fixture();
+    const lockPath = join(root, "session-tabs.json.lock");
+    const ownerPath = join(lockPath, "abandoned.owner");
+    await mkdir(lockPath);
+    await writeFile(ownerPath, JSON.stringify({ pid: 999_999_999, token: "abandoned" }), "utf8");
+    const old = new Date(Date.now() - 60_000);
+    await utimes(ownerPath, old, old);
+    await utimes(lockPath, old, old);
+    const pending = tool.execute("pin", { action: "pin", label: "Recovered" }, undefined, undefined, {} as never);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const outcome = await Promise.race([
+        pending.then(() => "completed"),
+        new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve("waiting"), 500);
+        }),
+      ]);
+      expect(outcome).toBe("completed");
+      await expect(pending).resolves.toMatchObject({ details: { label: "Recovered", pinned: true } });
+      await expect(lstat(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      await rm(lockPath, { recursive: true, force: true });
+      await pending.catch(() => undefined);
+    }
+  });
+
+  test("does not reclaim a stale session tab lock owned by a live process", async () => {
+    const { root, tool } = await fixture();
+    const lockPath = join(root, "session-tabs.json.lock");
+    const ownerPath = join(lockPath, "live.owner");
+    const owner = JSON.stringify({ pid: process.pid, token: "live" });
+    await mkdir(lockPath);
+    await writeFile(ownerPath, owner, "utf8");
+    const old = new Date(Date.now() - 60_000);
+    await utimes(ownerPath, old, old);
+    await utimes(lockPath, old, old);
+    const pending = tool.execute("pin", { action: "pin", label: "Blocked" }, undefined, undefined, {} as never);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const outcome = await Promise.race([
+        pending.then(() => "completed"),
+        new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve("waiting"), 500);
+        }),
+      ]);
+      expect(outcome).toBe("waiting");
+      await expect(readFile(ownerPath, "utf8")).resolves.toBe(owner);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      await rm(lockPath, { recursive: true, force: true });
+      await pending.catch(() => undefined);
+    }
+  });
+
+  test("does not delete a session tab lock that another owner reclaimed mid-mutation", async () => {
+    const { root, tool } = await fixture();
+    const lockPath = join(root, "session-tabs.json.lock");
+    const seizedOwnerPath = join(lockPath, "seized.owner");
+    const seizedOwner = JSON.stringify({ pid: process.pid, token: "seized" });
+    fs.beforeRename = async () => {
+      await rm(lockPath, { recursive: true, force: true });
+      await mkdir(lockPath, { mode: 0o700 });
+      await writeFile(seizedOwnerPath, seizedOwner, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    };
+    await expect(tool.execute("pin", { action: "pin", label: "Racy" }, undefined, undefined, {} as never)).rejects.toThrow(/ownership was lost/iu);
+    await expect(readFile(seizedOwnerPath, "utf8")).resolves.toBe(seizedOwner);
+    await rm(lockPath, { recursive: true, force: true });
+  });
+
+  test("enumerates the supported actions and rejects anything else", async () => {
+    const { tool } = await fixture();
+    expect(tool.parameters).toMatchObject({
+      properties: {
+        action: {
+          anyOf: [{ const: "pin" }, { const: "unpin" }, { const: "rename" }, { const: "activate" }, { const: "remove" }, { const: "list" }],
+        },
+      },
+    });
+    await tool.execute("pin", { action: "pin", label: "Current" }, undefined, undefined, {} as never);
+    await expect(tool.execute("close", { action: "close" }, undefined, undefined, {} as never)).rejects.toThrow(/action must be/iu);
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { tabs: [{ label: "Current", pinned: true }] },
     });
   });
 

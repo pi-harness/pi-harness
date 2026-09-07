@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -67,6 +67,36 @@ describe("atomicWriteFile", () => {
     expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
     await expect(readFile(target, "utf8")).resolves.toMatch(/^(?:first|second)$/u);
     expect((await readdir(root)).filter((name) => name.startsWith(".target.txt.") && name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("keeps the existing permission bits of the file it replaces", async () => {
+    if (process.platform === "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-atomic-write-"));
+    temporaryDirectories.push(root);
+    const target = join(root, "build.sh");
+    await writeFile(target, "old", "utf8");
+    await chmod(target, 0o755);
+
+    await atomicWriteFile(target, "new", { encoding: "utf8" });
+
+    await expect(readFile(target, "utf8")).resolves.toBe("new");
+    expect((await stat(target)).mode & 0o777).toBe(0o755);
+  });
+
+  test("creates a new file privately and honours an explicit mode", async () => {
+    if (process.platform === "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-atomic-write-"));
+    temporaryDirectories.push(root);
+    const created = join(root, "created.txt");
+    const pinned = join(root, "pinned.txt");
+    await writeFile(pinned, "old", "utf8");
+    await chmod(pinned, 0o755);
+
+    await atomicWriteFile(created, "content", { encoding: "utf8" });
+    await atomicWriteFile(pinned, "content", { encoding: "utf8", mode: 0o600 });
+
+    expect((await stat(created)).mode & 0o777).toBe(0o600);
+    expect((await stat(pinned)).mode & 0o777).toBe(0o600);
   });
 
   test("cleans its exclusive temporary file when the final rename fails", async () => {

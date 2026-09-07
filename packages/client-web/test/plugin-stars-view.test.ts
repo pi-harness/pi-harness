@@ -62,6 +62,36 @@ describe("plugin stars view", () => {
     });
   });
 
+  it("keeps a leaderboard carrying more results than the visible ranking rows", () => {
+    const view = pluginStarsPanelView({
+      source: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json",
+      limit: 10,
+      timeoutMs: 15_000,
+      latest: {
+        source: "fixture",
+        generatedAt: "2026-09-05T00:00:00Z",
+        total: 10,
+        query: "",
+        fetchedAt: "2026-09-05T00:01:00Z",
+        results: Array.from({ length: 10 }, (_, index) => ({
+          fullName: `owner/plugin-${index}`,
+          name: `plugin-${index}`,
+          stars: 100 - index,
+          htmlUrl: `https://github.com/owner/plugin-${index}`,
+          updatedAt: "2026-09-05",
+        })),
+      },
+      inventory: { total: 10, shown: 10, truncated: false },
+      limits: { responseBytes: 2_097_152, sourceItems: 1_000, resultItems: 10, panelItems: 20, queryCharacters: 120, timeoutMs: 15_000 },
+    });
+
+    expect(view.malformed).toBe(false);
+    expect(view.latest?.results).toHaveLength(8);
+    expect(view.latest?.results[0]).toMatchObject({ rank: 1, fullName: "owner/plugin-0", stars: 100 });
+    expect(view.latest?.results[7]).toMatchObject({ rank: 8, fullName: "owner/plugin-7", stars: 93 });
+    expect(view.inventory).toEqual({ total: 10, shown: 8, truncated: true });
+  });
+
   it("fails closed for hostile panel values, repository rows, and inventory counts", () => {
     const long = "x".repeat(10_000);
     const view = pluginStarsPanelView({

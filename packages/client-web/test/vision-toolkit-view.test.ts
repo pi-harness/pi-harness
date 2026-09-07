@@ -59,6 +59,51 @@ describe("Vision Toolkit panel view", () => {
     });
   });
 
+  test("keeps a catalog whose issue came from an unreadable subdirectory", () => {
+    const view = visionToolkitPanelView({
+      status: { state: "completed", operation: "catalog", count: 3, truncated: false, at: "2026-09-06T00:00:00.000Z" },
+      report: {
+        assets: Array.from({ length: 3 }, (_, index) => ({
+          path: `design/hero-${index}.png`,
+          mimeType: "image/png",
+          bytes: 24,
+          width: 320,
+          height: 180,
+          headerTruncated: false,
+        })),
+        issues: [{ path: "protected", reason: "EACCES: permission denied" }],
+        inspectedCandidates: 3,
+        scannedEntries: 4,
+        scannedDirectories: 2,
+        truncated: false,
+        issuesTruncated: false,
+      },
+      supportedTypes: ["gif", "jpeg", "jpg", "png", "webp"],
+      limits: {
+        imageBytes: 20_971_520,
+        headerBytes: 262_144,
+        pathCharacters: 4_096,
+        assets: 100,
+        imageCandidates: 256,
+        scannedEntries: 4_096,
+        scannedDirectories: 512,
+        depth: 16,
+        issues: 20,
+        issueCharacters: 500,
+        agentTextBytes: 16_384,
+      },
+    });
+
+    expect(view.truncated).toBe(false);
+    expect(view.report?.assets).toHaveLength(3);
+    expect(view.report).toMatchObject({
+      issues: [{ path: "protected", reason: "EACCES: permission denied" }],
+      inspectedCandidates: 3,
+      scannedEntries: 4,
+      scannedDirectories: 2,
+    });
+  });
+
   test("fails closed without invoking accessors or revoked proxies", () => {
     let getterCalls = 0;
     const accessor = Object.defineProperty({}, "report", {

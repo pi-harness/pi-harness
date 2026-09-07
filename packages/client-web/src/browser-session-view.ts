@@ -74,6 +74,16 @@ function safeText(value: unknown, maximum: number, allowEmpty = true): string | 
   return value;
 }
 
+// Tab titles and page text come straight from the browser, which legitimately produces line breaks and format code points such as the zero width joiner inside emoji; those fields are display-only, so unsafe code points are replaced rather than failing the whole panel.
+function sanitizedText(value: unknown, maximum: number, allowLineBreaks = false): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if ([...value].length > maximum || new TextEncoder().encode(value).byteLength > maximum) return undefined;
+  let output = "";
+  for (const character of value)
+    output += (allowLineBreaks && (character === "\t" || character === "\n" || character === "\r")) || !unsafeUnicode.test(character) ? character : "�";
+  return output;
+}
+
 function integer(value: unknown, minimum: number, maximum: number): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : undefined;
 }
@@ -86,7 +96,7 @@ function tabView(value: unknown): BrowserSessionTab | undefined {
   const source = ownDataRecord(value, tabKeys);
   if (source === undefined || !exact(source, tabKeys)) return undefined;
   const targetId = safeText(source.targetId, 512, false);
-  const title = safeText(source.title, 4_096);
+  const title = sanitizedText(source.title, 4_096);
   const url = safeText(source.url, 8_192);
   return targetId === undefined || title === undefined || url === undefined ? undefined : { targetId, title, url };
 }
@@ -123,14 +133,14 @@ function latestView(value: unknown, limits: BrowserSessionPanelView["limits"]): 
   const source = ownDataRecord(value, latestKeys);
   if (source === undefined || ![...Object.keys(source)].every((key) => latestKeys.has(key))) return undefined;
   const targetId = safeText(source.targetId, 512, false);
-  const title = safeText(source.title, 4_096);
+  const title = sanitizedText(source.title, 4_096);
   const url = safeText(source.url, 8_192);
   if (targetId === undefined || title === undefined || url === undefined) return undefined;
   if (source.status !== undefined && safeText(source.status, 64, false) === undefined) return undefined;
   if (source.truncated !== undefined && typeof source.truncated !== "boolean") return undefined;
   if (source.previewTruncated !== undefined && typeof source.previewTruncated !== "boolean") return undefined;
   if (source.clicked !== undefined && typeof source.clicked !== "boolean") return undefined;
-  const rawText = source.text === undefined ? undefined : safeText(source.text, 128 * 1024, true);
+  const rawText = source.text === undefined ? undefined : sanitizedText(source.text, 128 * 1024, true);
   if (source.text !== undefined && rawText === undefined) return undefined;
   const screenshot = source.screenshot === undefined ? undefined : screenshotView(source.screenshot);
   if (source.screenshot !== undefined && screenshot === undefined) return undefined;

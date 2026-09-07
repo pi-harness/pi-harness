@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Readable, Writable } from "node:stream";
 import { describe, expect, test } from "vitest";
-import { runCli, type CliEnvironment } from "../src/main.js";
+import { DUPLICATE_SIGNAL_WINDOW_MS, runCli, type CliEnvironment } from "../src/main.js";
 
 interface TestEnvironment extends CliEnvironment {
   readonly stdin: Readable;
@@ -200,6 +200,8 @@ describe("runCli", () => {
     await waitForFileContent(join(profile.directory, "marker.txt"), "started");
 
     environment.emitSignal("SIGINT");
+    // A deliberate second Ctrl-C is hundreds of milliseconds after the first; only a repeat inside DUPLICATE_SIGNAL_WINDOW_MS is treated as one keypress delivered twice.
+    await new Promise((resolve) => setTimeout(resolve, DUPLICATE_SIGNAL_WINDOW_MS + 10));
     environment.emitSignal("SIGINT");
 
     expect(environment.forcedExitCodes).toEqual([130]);

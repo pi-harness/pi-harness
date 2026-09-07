@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  * @property {string} name
  * @property {string} version
  * @property {Record<string, string>} dependencies
+ * @property {Record<string, string>=} bin
  */
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -67,6 +68,14 @@ try {
   if (!isPackageManifest(parsedHarnessManifest) || !isPackageManifest(parsedAgentManifest)) throw new Error("Packed package contains an invalid manifest");
   const harnessManifest = /** @type {PackageManifest} */ (parsedHarnessManifest);
   const agentManifest = /** @type {PackageManifest} */ (parsedAgentManifest);
+
+  // The tarball ships build output that is not tracked in git, so an unbuilt or misdeclared `files` allowlist would otherwise publish bin links pointing at nothing.
+  const binTargets = Object.entries(harnessManifest.bin ?? {});
+  if (binTargets.length === 0) throw new Error("Packed package declares no bin entrypoints");
+  for (const [binName, binTarget] of binTargets) {
+    if (typeof binTarget !== "string") throw new Error(`Packed package bin ${binName} is not a path`);
+    if (!existsSync(join(harnessRoot, binTarget))) throw new Error(`Packed package is missing the ${binName} entrypoint ${binTarget}`);
+  }
 
   const expectedAgentVersion = harnessManifest.dependencies["@earendil-works/pi-coding-agent"];
   if (agentManifest.version !== expectedAgentVersion)

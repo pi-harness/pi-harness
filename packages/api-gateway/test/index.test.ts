@@ -1,17 +1,44 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
 import timerPlugin from "@deepseek-ai/cordis-plugin-timer";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import webServerPlugin from "@pi-harness/host-webserver";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/core";
+import type { MarketplacePlugin } from "../src/marketplace.js";
 import apiPlugin from "../src/index.js";
+
+// Every shipped catalog entry that npm has to install names a bare package, so `packageName` and its npm package name coincide and the install route cannot show whether it narrows the specifier. This entry is the case where the two differ: a deep import path whose npm package is only the first two segments. It is hoisted because the module mock below reads it while the test module body is still in its temporal dead zone.
+const { subpathPlugin } = vi.hoisted(() => ({
+  subpathPlugin: {
+    id: "subpath-toolkit",
+    packageName: "@example-scope/toolkit/plugins/subpath",
+    version: "1.2.3",
+    name: "Subpath toolkit",
+    description: "Catalog entry whose profile name is a deep import of its npm package",
+    author: "example",
+    repository: "https://example.invalid/toolkit",
+    license: "MIT",
+    source: "community",
+    status: "experimental",
+    category: { id: "tools", label: "工具" },
+    capabilities: ["subpath-install"],
+    hooks: ["apply"],
+    profile: { name: "@example-scope/toolkit/plugins/subpath", config: {} },
+  } satisfies MarketplacePlugin,
+}));
+
+// Only `MARKETPLACE_PLUGINS` is widened: the search and pagination helpers close over the module's own catalog, so the listing endpoints keep serving exactly the shipped entries.
+vi.mock("../src/marketplace.js", async (importOriginal) => {
+  const actual = await importOriginal<{ MARKETPLACE_PLUGINS: readonly MarketplacePlugin[] }>();
+  return { ...actual, MARKETPLACE_PLUGINS: [...actual.MARKETPLACE_PLUGINS, subpathPlugin] };
+});
 
 const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];
@@ -2554,7 +2581,7 @@ describe("API gateway plugin", () => {
       expect(failed.status).toBe(500);
       await expect(failed.json()).resolves.toEqual({ error: "fatal: index file corrupt" });
 
-      await writeFile(shim, "#!/bin/sh\nprintf ' M tracked.txt\\n'\nseq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/'\n", { mode: 0o755 });
+      await writeFile(shim, "#!/bin/sh\n{ printf ' M tracked.txt\\n'; seq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/'; } | tr '\\n' '\\0'\n", { mode: 0o755 });
       const truncated = await fetch(context.webServer.url + "/api/files");
       expect(truncated.status).toBe(200);
       const payload = (await truncated.json()) as { items: { path: string }[]; truncated?: boolean };
@@ -2780,5 +2807,412 @@ describe("API gateway plugin", () => {
     expect(targetFiles).toHaveLength(1);
     await expect(readFile(join(targetDir, targetFiles[0] ?? ""), "utf8")).resolves.toContain("x".repeat(100 * 1024));
     await expect(stat(join(directory, "escape.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("decodes a request body whose multi-byte characters straddle chunk boundaries", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "utf8-body-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const prompts: string[] = [];
+    context.provide("piRuntime", {
+      session,
+      prompt: (prompt: string) => {
+        prompts.push(prompt);
+        return Promise.resolve();
+      },
+    } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const prompt = "汉字".repeat(64);
+    const encoded = new TextEncoder().encode(JSON.stringify({ prompt }));
+    // Cuts the first 汉 in half, so a decoder that works chunk by chunk emits U+FFFD instead of the character.
+    const split = 12;
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoded.slice(0, split));
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+        controller.enqueue(encoded.slice(split));
+        controller.close();
+      },
+    });
+    const response = await fetch(context.webServer.url + "/api/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    expect(response.status).toBe(200);
+    expect(prompts).toEqual([prompt]);
+  });
+
+  test("keeps a message that a later trajectory event repeats instead of reporting it as circular", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    type Listener = (event: { type: string; [key: string]: unknown }) => void;
+    const listeners = new Set<Listener>();
+    const message = { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 2 };
+    const cyclic: Record<string, unknown> = { type: "turn_end" };
+    cyclic.self = cyclic;
+    const session = {
+      sessionId: "shared-message-session",
+      sessionFile: undefined,
+      messages: [] as Array<Record<string, unknown>>,
+      isStreaming: false,
+      subscribe(listener: Listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    context.provide("piRuntime", {
+      session,
+      prompt: () => {
+        // Pi pushes the very object carried by the event into the message list, so both fields of the response reference one instance.
+        session.messages.push(message);
+        listeners.forEach((listener) => listener({ type: "message_end", message }));
+        listeners.forEach((listener) => listener(cyclic as { type: string }));
+        return Promise.resolve();
+      },
+    } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    await fetch(context.webServer.url + "/api/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "hello" }),
+    });
+    const response = await fetch(context.webServer.url + "/api/session");
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { messages: unknown[]; events: Array<Record<string, unknown>> };
+    expect(payload.messages).toEqual([message]);
+    expect(payload.events[0]).toEqual({ type: "message_end", message });
+    expect(payload.events[1]).toEqual({ type: "turn_end", self: "[Circular]" });
+  });
+
+  test("returns git status paths verbatim when they hold spaces, non-ASCII characters or a rename", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-quoted-paths-"));
+    temporaryDirectories.push(directory);
+    await execFile("git", ["init", "-q"], { cwd: directory });
+    await execFile("git", ["config", "user.email", "pi-harness@test.invalid"], { cwd: directory });
+    await execFile("git", ["config", "user.name", "Pi Harness Test"], { cwd: directory });
+    await writeFile(join(directory, "notes draft.md"), "before\n", "utf8");
+    await writeFile(join(directory, "old name.md"), "keep\n", "utf8");
+    await execFile("git", ["add", "-A"], { cwd: directory });
+    await execFile("git", ["commit", "-qm", "initial"], { cwd: directory });
+    await writeFile(join(directory, "notes draft.md"), "after\n", "utf8");
+    await execFile("git", ["mv", "old name.md", "renamed name.md"], { cwd: directory });
+    await writeFile(join(directory, "汉字.txt"), "新建\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "quoted-paths-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/files");
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { items: { path: string; status: string; label: string }[] };
+    expect(payload.items).toHaveLength(3);
+    expect(payload.items).toEqual(
+      expect.arrayContaining([
+        { path: "notes draft.md", status: "M", label: "modified" },
+        { path: "renamed name.md", status: "R", label: "modified" },
+        { path: "汉字.txt", status: "??", label: "untracked" },
+      ]),
+    );
+
+    const modified = payload.items.find((item) => item.status === "M");
+    const diff = await fetch(context.webServer.url + "/api/files/diff?path=" + encodeURIComponent(modified?.path ?? ""));
+    expect(diff.status).toBe(200);
+    const diffPayload = (await diff.json()) as { path: string; diff: string };
+    expect(diffPayload.path).toBe("notes draft.md");
+    expect(diffPayload.diff).toContain("after");
+
+    const commit = await fetch(context.webServer.url + "/api/files/commit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["notes draft.md", "汉字.txt"], message: "Commit quoted paths" }),
+    });
+    expect(commit.status).toBe(200);
+    const after = await execFile("git", ["status", "--short", "-z"], { cwd: directory });
+    expect(after.stdout).not.toContain("notes draft.md");
+    expect(after.stdout).not.toContain("汉字.txt");
+  });
+
+  test("refuses to delete a session outside the session directory or without confirmation", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-session-delete-"));
+    temporaryDirectories.push(directory);
+    const sessionDir = join(directory, "sessions");
+    await mkdir(sessionDir);
+    const victim = join(directory, "secrets.jsonl");
+    await writeFile(victim, "keep me\n", "utf8");
+    const note = join(sessionDir, "notes.txt");
+    await writeFile(note, "keep me\n", "utf8");
+    const target = join(sessionDir, "2026-08-30T00-00-00-000Z_target.jsonl");
+    await writeFile(target, "{}\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "session-delete-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => sessionDir, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (body: unknown) =>
+      fetch(context.webServer.url + "/api/session/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    const pinned = await fetch(context.webServer.url + "/api/session/metadata", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: target, pinned: true }),
+    });
+    expect(pinned.status).toBe(200);
+
+    const outside = await post({ path: victim, confirm: true });
+    expect(outside.status).toBe(400);
+    await expect(outside.json()).resolves.toEqual({ error: "Invalid session path" });
+    // The literal `..` segment has to survive onto the wire: path.join would collapse it into the plain `outside` path and the request would no longer escape anything.
+    const traversalPath = `${sessionDir}${sep}..${sep}secrets.jsonl`;
+    expect(traversalPath).not.toBe(victim);
+    const traversal = await post({ path: traversalPath, confirm: true });
+    expect(traversal.status).toBe(400);
+    await expect(traversal.json()).resolves.toEqual({ error: "Invalid session path" });
+    const suffix = await post({ path: note, confirm: true });
+    expect(suffix.status).toBe(400);
+    const unconfirmed = await post({ path: target });
+    expect(unconfirmed.status).toBe(400);
+    await expect(unconfirmed.json()).resolves.toEqual({ error: "confirm must be true to delete a session" });
+    await expect(readFile(victim, "utf8")).resolves.toBe("keep me\n");
+    await expect(readFile(note, "utf8")).resolves.toBe("keep me\n");
+    await expect(readFile(target, "utf8")).resolves.toBe("{}\n");
+
+    const deleted = await post({ path: target, confirm: true });
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toMatchObject({ deleted: true, path: target });
+    await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(JSON.parse(await readFile(join(sessionDir, ".pi-harness-session-meta.json"), "utf8"))).toEqual({});
+  });
+
+  test("keeps batch deletion going past a failing session and persists the metadata it did remove", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-batch-delete-"));
+    temporaryDirectories.push(directory);
+    const first = join(directory, "2026-08-30T00-00-00-000Z_first.jsonl");
+    const missing = join(directory, "2026-08-30T00-00-01-000Z_missing.jsonl");
+    const stuck = join(directory, "2026-08-30T00-00-02-000Z_stuck.jsonl");
+    const last = join(directory, "2026-08-30T00-00-03-000Z_last.jsonl");
+    await writeFile(first, "{}\n", "utf8");
+    await writeFile(last, "{}\n", "utf8");
+    // A directory cannot be unlinked, which is the closest reproducible stand-in for a session the harness is not allowed to remove.
+    await mkdir(stuck);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "batch-delete-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => directory, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    for (const path of [first, missing, stuck, last]) {
+      const pinned = await fetch(context.webServer.url + "/api/session/metadata", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, pinned: true }),
+      });
+      expect(pinned.status).toBe(200);
+    }
+
+    const response = await fetch(context.webServer.url + "/api/sessions/batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", paths: [first, missing, stuck, last], confirm: true }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ action: "delete", count: 3, failed: [{ path: stuck }] });
+    await expect(stat(first)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(last)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await stat(stuck)).isDirectory()).toBe(true);
+    expect(JSON.parse(await readFile(join(directory, ".pi-harness-session-meta.json"), "utf8"))).toEqual({ [stuck]: { pinned: true } });
+  });
+
+  test("installs a marketplace package into the package that owns the profile rather than the launch directory", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-npm-install-"));
+    temporaryDirectories.push(directory);
+    const harnessDir = join(directory, "harness");
+    const profileDir = join(harnessDir, "profile");
+    const workspace = join(directory, "workspace");
+    const shimDirectory = join(directory, "bin");
+    await mkdir(profileDir, { recursive: true });
+    await mkdir(workspace);
+    await mkdir(shimDirectory);
+    await writeFile(join(harnessDir, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(profileDir, "cordis.yml");
+    await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    const npmLog = join(directory, "npm.log");
+    await writeFile(join(shimDirectory, "npm"), `#!/bin/sh\nprintf '%s|%s\\n' "$(pwd)" "$*" >> ${JSON.stringify(npmLog)}\n`, { mode: 0o755 });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "npm-install-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, configPath, args: [], requestExit() {} });
+    const created: Array<{ name?: unknown }> = [];
+    context.reflect.provide("loader", {
+      entries: () => [],
+      create: (options: { name?: unknown }) => {
+        created.push(options);
+        return Promise.resolve("marketplace-entry");
+      },
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "cordis-timer" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: true, plugin: { id: "cordis-timer" } });
+    const invocations = (await readFile(npmLog, "utf8")).trim().split("\n");
+    expect(invocations).toHaveLength(1);
+    const [invocationCwd, invocationArgs] = (invocations[0] ?? "").split("|");
+    expect(await realpath(invocationCwd ?? "")).toBe(await realpath(harnessDir));
+    expect(invocationArgs).toMatch(/^install --save-exact --package-lock=false @deepseek-ai\/cordis-plugin-timer@\d/);
+    expect(created).toHaveLength(1);
+    await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@deepseek-ai/cordis-plugin-timer"');
+    await expect(stat(join(workspace, "package.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("hands npm the package name rather than the deep import path the profile entry uses", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-npm-subpath-"));
+    temporaryDirectories.push(directory);
+    const harnessDir = join(directory, "harness");
+    const profileDir = join(harnessDir, "profile");
+    const shimDirectory = join(directory, "bin");
+    await mkdir(profileDir, { recursive: true });
+    await mkdir(shimDirectory);
+    await writeFile(join(harnessDir, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(profileDir, "cordis.yml");
+    await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    const npmLog = join(directory, "npm.log");
+    await writeFile(join(shimDirectory, "npm"), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(npmLog)}\n`, { mode: 0o755 });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "npm-subpath-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: harnessDir, agentDir: harnessDir, configPath, args: [], requestExit() {} });
+    const created: Array<{ name?: unknown }> = [];
+    context.reflect.provide("loader", {
+      entries: () => [],
+      create: (options: { name?: unknown }) => {
+        created.push(options);
+        return Promise.resolve("marketplace-entry");
+      },
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: subpathPlugin.id }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: true, plugin: { id: subpathPlugin.id } });
+    // `npm install @example-scope/toolkit/plugins/subpath@1.2.3` is not a specifier npm can resolve, so the deep import path must be narrowed to its package before it reaches the process.
+    expect((await readFile(npmLog, "utf8")).trim()).toBe("install --save-exact --package-lock=false @example-scope/toolkit@1.2.3");
+    expect(created).toEqual([expect.objectContaining({ name: "@example-scope/toolkit/plugins/subpath" })]);
+    await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@example-scope/toolkit/plugins/subpath"');
+  });
+
+  test("removes the files npm created when the installed marketplace plugin fails to load", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-npm-rollback-"));
+    temporaryDirectories.push(directory);
+    const harnessDir = join(directory, "harness");
+    const profileDir = join(harnessDir, "profile");
+    const shimDirectory = join(directory, "bin");
+    await mkdir(profileDir, { recursive: true });
+    await mkdir(shimDirectory);
+    await writeFile(join(harnessDir, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(profileDir, "cordis.yml");
+    const profileBefore = '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n';
+    await writeFile(configPath, profileBefore, "utf8");
+    await writeFile(join(shimDirectory, "npm"), '#!/bin/sh\nprintf \'{ "lockfileVersion": 3 }\\n\' > "$(pwd)/package-lock.json"\n', { mode: 0o755 });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "npm-rollback-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: harnessDir, agentDir: harnessDir, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", {
+      entries: () => [],
+      create: () => Promise.reject(new Error("plugin entry failed to load")),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "cordis-timer" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ error: "plugin entry failed to load" });
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profileBefore);
+    await expect(readFile(join(harnessDir, "package.json"), "utf8")).resolves.toBe('{ "name": "harness" }\n');
+    await expect(stat(join(harnessDir, "package-lock.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

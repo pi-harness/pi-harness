@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
@@ -27,6 +27,47 @@ describe("workspace navigator", () => {
         truncated: true,
       });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the nodes collected so far when a directory cannot be read", async () => {
+    if (process.platform === "win32" || typeof process.getuid !== "function" || process.getuid() === 0) return;
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-navigator-"));
+    await mkdir(join(root, "locked"));
+    await writeFile(join(root, "zzz.txt"), "later\n", "utf8");
+    await chmod(join(root, "locked"), 0o000);
+    try {
+      await expect(listWorkspaceNodes(root, { maxDepth: 3, maxNodes: 10 })).resolves.toMatchObject({
+        nodes: [
+          { kind: "directory", path: "locked", depth: 1 },
+          { kind: "file", path: "zzz.txt", depth: 1 },
+        ],
+        truncated: true,
+      });
+    } finally {
+      await chmod(join(root, "locked"), 0o700);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the nodes collected so far when an entry cannot be inspected", async () => {
+    if (process.platform === "win32" || typeof process.getuid !== "function" || process.getuid() === 0) return;
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-navigator-"));
+    await mkdir(join(root, "sealed"));
+    await writeFile(join(root, "sealed", "child.txt"), "hidden\n", "utf8");
+    await writeFile(join(root, "zzz.txt"), "later\n", "utf8");
+    await chmod(join(root, "sealed"), 0o400);
+    try {
+      await expect(listWorkspaceNodes(root, { maxDepth: 3, maxNodes: 10 })).resolves.toMatchObject({
+        nodes: [
+          { kind: "directory", path: "sealed", depth: 1 },
+          { kind: "file", path: "zzz.txt", depth: 1 },
+        ],
+        truncated: true,
+      });
+    } finally {
+      await chmod(join(root, "sealed"), 0o700);
       await rm(root, { recursive: true, force: true });
     }
   });

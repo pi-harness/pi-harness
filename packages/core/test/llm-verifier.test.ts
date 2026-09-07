@@ -73,4 +73,51 @@ describe("llm verifier", () => {
       await context.fiber.dispose();
     }
   });
+
+  test("forwards cancellation to the model and stops the batch after an aborted turn", async () => {
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    const model = { provider: "everyapi", id: "verifier-model" };
+    const turn = new AbortController();
+    const signals: (AbortSignal | undefined)[] = [];
+    context.provide("piModelRuntime", {
+      provider: "everyapi",
+      model: "verifier-model",
+      runtime: {
+        getModel: () => model,
+        complete: (_model: unknown, _request: unknown, options?: { signal?: AbortSignal }) => {
+          signals.push(options?.signal);
+          turn.abort(new Error("Turn was cancelled"));
+          return Promise.resolve({ content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Evidence matches the claim." }] });
+        },
+      },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(llmVerifierPlugin, {});
+      const batchTool = tools.snapshot().customTools.find((candidate) => candidate.name === "llm_verify_batch");
+      await expect(
+        batchTool!.execute(
+          "call-1",
+          {
+            items: [
+              { claim: "The first claim", evidence: "first evidence" },
+              { claim: "The second claim", evidence: "second evidence" },
+              { claim: "The third claim", evidence: "third evidence" },
+            ],
+          },
+          turn.signal,
+          undefined,
+          {} as never,
+        ),
+      ).rejects.toThrow(/Turn was cancelled/u);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.aborted).toBe(true);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ id: "llm-verifier-panel", data: { latest: null, history: { total: 0 } } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
 });

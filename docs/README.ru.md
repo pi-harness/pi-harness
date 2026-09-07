@@ -27,7 +27,9 @@ npm run web
 
 При запуске Pi Harness в фоне проверяет наличие совместимой новой версии `@pi-harness/core`. Запуск не блокируется: при обновлении выводится команда, а сетевые ошибки игнорируются. Для обновления выполните `npm update --global @pi-harness/pi-harness`; проверку можно отключить через `PI_HARNESS_DISABLE_UPDATE_CHECK=1`.
 
-Основные переменные окружения: `PI_HARNESS_HOST`, `PI_HARNESS_PORT` и `PI_AGENT_DIR`. Адрес по умолчанию — `http://127.0.0.1:3141`.
+Основные переменные окружения: `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL`. Адрес по умолчанию — `http://127.0.0.1:3141`.
+
+Profile веб-консоли ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) по умолчанию выбирает `everyapi/deepseek-v4-flash`. Выбор модели работает по принципу fail-closed: если этот провайдер не зарегистрирован в активном `PI_AGENT_DIR`, запуск прерывается ошибкой `Pi model is not registered: <provider>/<model>`, а не переключается на другого провайдера. Поэтому после чистой установки сначала подготовьте каталог моделей: выполните `everyapi use pi-harness`, если установлен CLI EveryAPI, — он создаёт изолированный каталог Pi agent с каталогом провайдеров EveryAPI и запускает Pi Harness, — либо укажите в `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL` модель, уже зарегистрированную в этом каталоге. Встроенный в CLI profile `default` выбирает `deepseek/deepseek-v4-flash`.
 
 ## CLI
 
@@ -52,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Полный каталог плагинов, конфигурация, API, ограничения и границы безопасности описаны в [полной английской справке](README.reference.md).
+Выборочный каталог плагинов, конфигурация, все маршруты HTTP API, ограничения и границы безопасности описаны в [английской справке](README.reference.md). Core содержит больше плагинов, чем описано в этом каталоге: полный набор — [`packages/core/src/plugins`](../packages/core/src/plugins), а список включённых веб-консолью по умолчанию — [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml).
 
 ## Лицензия
 

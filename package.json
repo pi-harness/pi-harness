@@ -35,7 +35,7 @@
     "format:check": "vp fmt . --check",
     "prepack": "npm run build:web",
     "test:package": "node scripts/test-packed-package.mjs",
-    "clean": "npm run clean --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present && node -e \"for (const target of ['packages/api-gateway/dist','packages/bundle-web-app/dist','packages/client-web/dist','packages/host-webserver/dist','apps/web/dist','apps/web/server-dist']) require('node:fs').rmSync(target,{recursive:true,force:true})\"",
     "lint": "npm run build && npm run lint:check",
     "lint:check": "node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js .",
     "test": "npm run build && vitest run",

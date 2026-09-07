@@ -135,7 +135,8 @@ function runView(value: unknown): DockerSandboxRunView | undefined {
     return undefined;
   const command: string[] = [];
   for (const argument of commandRaw) {
-    const text = safeText(argument, maxArgumentInputLength);
+    // The plugin accepts tab and line breaks inside arguments (for example `python3 -c` scripts) and the renderer escapes them with JSON.stringify.
+    const text = safeText(argument, maxArgumentInputLength, false, true);
     if (text === undefined || text.length === 0) return undefined;
     command.push(text);
   }

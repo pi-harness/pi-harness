@@ -58,7 +58,7 @@ const patterns: readonly Pattern[] = [
     score: 6,
     message: "检测到可能破坏工作区或磁盘的命令。",
     pattern:
-      /\b(?:rm\s+(?:-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*|--recursive\s+--force|--force\s+--recursive)|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|mkfs(?:\.[a-z0-9]+)?|dd\s+if=)\b/iu,
+      /\b(?:rm\s+(?:-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*|--recursive\s+--force|--force\s+--recursive)\b|git\s+reset\s+--hard\b|git\s+clean\s+-[a-z]*f|mkfs(?:\.[a-z0-9]+)?\b|dd\s+if=)/iu,
   },
   {
     code: "obfuscated_payload",

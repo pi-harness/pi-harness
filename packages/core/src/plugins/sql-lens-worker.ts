@@ -1,19 +1,28 @@
-import { lstatSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { parentPort, workerData } from "node:worker_threads";
 
 type WorkerInput = {
   database: string;
   query: string;
-  device: number | bigint;
-  inode: number | bigint;
+  device: string;
+  inode: string;
   limits: { databaseBytes: number; rows: number; columns: number; stringLength: number; resultBytes: number; blobPreviewBytes: number };
 };
 
 type BlobCell = { type: "blob"; bytes: number; previewBase64: string; truncated: boolean };
 type SqlCell = null | string | number | BlobCell;
 
-const input = workerData as WorkerInput;
+function readRequest(): WorkerInput {
+  const parsed: unknown = JSON.parse(readFileSync(0, "utf8"));
+  if (parsed === null || typeof parsed !== "object") throw new Error("SQL Lens worker received a malformed request");
+  const request = parsed as Partial<WorkerInput>;
+  if (typeof request.database !== "string" || typeof request.query !== "string" || typeof request.device !== "string" || typeof request.inode !== "string")
+    throw new Error("SQL Lens worker received a malformed request");
+  if (request.limits === null || typeof request.limits !== "object") throw new Error("SQL Lens worker received malformed limits");
+  return parsed as WorkerInput;
+}
+
+const input = readRequest();
 const allowedPragmas = new Set([
   "table_info",
   "table_xinfo",
@@ -103,7 +112,7 @@ function validateStatementKind(sourceSql: string): void {
 
 function metadataMatches(): boolean {
   const metadata = lstatSync(input.database);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.dev !== input.device || metadata.ino !== input.inode) return false;
+  if (!metadata.isFile() || metadata.isSymbolicLink() || String(metadata.dev) !== input.device || String(metadata.ino) !== input.inode) return false;
   let totalBytes = metadata.size;
   for (const suffix of ["-wal", "-shm", "-journal"]) {
     try {
@@ -138,6 +147,8 @@ function normalizeCell(value: SQLOutputValue): { value: SqlCell; truncated: bool
       truncated: value.byteLength > preview.byteLength,
     };
   }
+  // JSON transport turns Infinity and NaN into null, so non-finite REAL values are reported as text instead of silently becoming empty cells.
+  if (typeof value === "number" && !Number.isFinite(value)) return { value: String(value), truncated: false };
   return { value, truncated: false };
 }
 
@@ -195,8 +206,9 @@ function run() {
   }
 }
 
+// The response is written to stdout and the process is left to exit on its own so the pipe flushes; the parent kills this process outright when it runs out of time.
 try {
-  parentPort?.postMessage({ ok: true, report: run() });
+  process.stdout.write(JSON.stringify({ ok: true, report: run() }));
 } catch (error) {
-  parentPort?.postMessage({ ok: false, error: error instanceof Error ? error.message.slice(0, 2_000) : "SQL Lens worker failed" });
+  process.stdout.write(JSON.stringify({ ok: false, error: error instanceof Error ? error.message.slice(0, 2_000) : "SQL Lens worker failed" }));
 }

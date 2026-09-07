@@ -8,7 +8,8 @@ export async function readBoundedFile(path: string, maxBytes: number, label: str
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new Error("Bounded file size must be a non-negative safe integer");
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    // O_NOFOLLOW only rejects symbolic links. Without O_NONBLOCK a FIFO or a blocking device node would suspend the open until a writer appears, so the regular-file check below would never run and the libuv thread serving the call would be lost for the life of the process.
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const metadata = await handle.stat();
     if (!metadata.isFile()) throw new BoundedFileTypeError(`${label} must be a regular file`);
     if (metadata.size > maxBytes) throw new BoundedFileSizeError(`${label} exceeds the ${maxBytes}-byte limit`);

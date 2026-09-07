@@ -256,6 +256,7 @@
       config:
         host: !!js process.env.PI_HARNESS_HOST ?? '127.0.0.1'
         port: !!js Number(process.env.PI_HARNESS_PORT ?? 3141)
+        allowedHosts: !!js (process.env.PI_HARNESS_ALLOWED_HOSTS ?? '').split(',').filter((entry) => entry !== '')
 - id: api
   name: "@pi-harness/api-gateway"
   config: {}

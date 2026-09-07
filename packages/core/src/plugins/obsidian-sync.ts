@@ -47,7 +47,8 @@ export default {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
-      await atomicWriteFile(target, content, { encoding: "utf8", mode: 0o600 });
+      // No explicit mode: a vault note is a user document, so replacing one keeps whatever bits the user gave it and only a note this creates falls back to atomicWriteFile's owner-only default.
+      await atomicWriteFile(target, content, { encoding: "utf8" });
       last = { relativePath, absolutePath: target, bytes: Buffer.byteLength(content, "utf8") };
       return last;
     };

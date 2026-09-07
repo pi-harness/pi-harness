@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -34,5 +34,36 @@ describe("release package", () => {
     expect(workflow).toContain("npm publish --access public");
     expect(workflow).toContain("Verify package availability");
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
+  });
+
+  it("cleans every compiled workspace output", async () => {
+    // `tsc` never removes stale emit, so an output directory that no clean script touches keeps publishing files whose sources are gone.
+    const rootManifest = await readJson("package.json");
+    const rootClean = (rootManifest.scripts as Record<string, string>).clean ?? "";
+    const outputs: string[] = [];
+
+    for (const root of ["packages", "apps", "examples"]) {
+      for (const entry of await readdir(resolve(repositoryRoot, root), { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const workspace = `${root}/${entry.name}`;
+        const buildConfigPath = resolve(repositoryRoot, workspace, "tsconfig.build.json");
+        const hasBuildConfig = await stat(buildConfigPath).then(
+          () => true,
+          () => false,
+        );
+        if (!hasBuildConfig) continue;
+        const buildConfig = JSON.parse(await readFile(buildConfigPath, "utf8")) as { compilerOptions?: { outDir?: string } };
+        const outDir = buildConfig.compilerOptions?.outDir;
+        expect(outDir, `${workspace}/tsconfig.build.json declares no outDir`).toBeDefined();
+        const workspaceManifest = await readJson(`${workspace}/package.json`);
+        const workspaceClean = (workspaceManifest.scripts as Record<string, string> | undefined)?.clean;
+        outputs.push(`${workspace}/${outDir ?? ""}`);
+        expect(workspaceClean !== undefined || rootClean.includes(`${workspace}/${outDir ?? ""}`), `${workspace}/${outDir ?? ""} survives npm run clean`).toBe(
+          true,
+        );
+      }
+    }
+
+    expect(outputs.length).toBeGreaterThan(0);
   });
 });

@@ -1,7 +1,7 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
@@ -18,6 +18,7 @@ import {
   paginateMarketplace,
   searchMarketplace,
   needsMarketplacePackageInstall,
+  marketplaceNpmPackageName,
   sortMarketplaceByRecommendation,
   type MarketplacePlugin,
 } from "./marketplace.js";
@@ -55,17 +56,18 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
   response.end(body);
 }
 
+// A multi-byte UTF-8 sequence can straddle a chunk boundary, so the raw bytes are collected and decoded once; decoding each chunk on its own would replace the split sequence with U+FFFD.
 async function bodyText(request: IncomingMessage, maxBytes = DEFAULT_BODY_LIMIT_BYTES): Promise<string> {
-  const chunks: string[] = [];
+  const chunks: Buffer[] = [];
   let length = 0;
   for await (const chunk of request) {
     const input: string | Uint8Array = chunk as string | Uint8Array;
-    const value = typeof input === "string" ? input : Buffer.from(input).toString("utf8");
-    length += Buffer.byteLength(value);
+    const buffer = typeof input === "string" ? Buffer.from(input, "utf8") : Buffer.isBuffer(input) ? input : Buffer.from(input);
+    length += buffer.length;
     if (length > maxBytes) throw new PayloadTooLargeError();
-    chunks.push(value);
+    chunks.push(buffer);
   }
-  return chunks.join("");
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function errorText(error: unknown): string {
@@ -80,9 +82,14 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
   if (value instanceof Date) return value.toISOString();
   if (typeof value !== "object") return Object.prototype.toString.call(value);
   if (seen.has(value)) return "[Circular]";
+  // Only the ancestors of the current node stay marked: a sibling that repeats the same object (Pi pushes one AgentMessage instance into both the message list and its events) is legitimate data, not a cycle.
   seen.add(value);
-  if (Array.isArray(value)) return value.map((item) => jsonSafe(item, seen));
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonSafe(item, seen)]));
+  try {
+    if (Array.isArray(value)) return value.map((item) => jsonSafe(item, seen));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonSafe(item, seen)]));
+  } finally {
+    seen.delete(value);
+  }
 }
 
 function createStatus(services: ApiServices, events: readonly AgentSessionEvent[]) {
@@ -350,6 +357,7 @@ function sanitizeLogValue(value: unknown, state: LogSanitizeState, depth = 0): u
   if (typeof value !== "object") return Object.prototype.toString.call(value);
   if (depth >= loggerPanelDepthLimit) return "[Max Depth]";
   if (state.seen.has(value)) return "[Circular]";
+  // Unmarked once its subtree is done, so an object logged twice as a sibling is rendered twice instead of being mistaken for a cycle.
   state.seen.add(value);
 
   try {
@@ -379,6 +387,8 @@ function sanitizeLogValue(value: unknown, state: LogSanitizeState, depth = 0): u
     return Object.fromEntries(entries);
   } catch {
     return "[Unavailable]";
+  } finally {
+    state.seen.delete(value);
   }
 }
 
@@ -530,17 +540,18 @@ interface GitStatusResult {
   readonly truncated: boolean;
 }
 
+// `-z` is what makes the paths usable: without it git wraps any path holding a space, a quote or a non-ASCII byte in C-style quoting, and the quoted form is not a pathspec git will accept back on diff, add or ls-files.
 function gitStatus(cwd: string): Promise<GitStatusResult> {
   return new Promise((resolveStatus, rejectStatus) => {
-    execFile("git", ["status", "--short", "--untracked-files=all"], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 512 * 1024 }, (error, stdout, stderr) => {
+    execFile("git", ["status", "--short", "-z", "--untracked-files=all"], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 512 * 1024 }, (error, stdout, stderr) => {
       if (error === null) {
         resolveStatus({ output: stdout, truncated: false });
         return;
       }
       const termination = gitTermination(error);
       if (termination === "output-limit") {
-        // Keep the complete lines that arrived before the kill; the final line may have been cut mid-path.
-        resolveStatus({ output: stdout.slice(0, stdout.lastIndexOf("\n") + 1), truncated: true });
+        // Keep the complete records that arrived before the kill; the final one may have been cut mid-path.
+        resolveStatus({ output: stdout.slice(0, stdout.lastIndexOf("\0") + 1), truncated: true });
         return;
       }
       if (termination === undefined && error.code === 128 && /not a git repository/i.test(stderr)) {
@@ -608,6 +619,26 @@ async function isDirectory(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+// The loader resolves a bare plugin specifier from the profile file upwards (`createRequire(profilePath).resolve(name)`), never from the shell the harness was started in, so a marketplace package has to land in the package that owns the profile or it installs successfully and then fails to load.
+async function marketplaceInstallDirectory(configPath: string, fallback: string): Promise<string> {
+  let directory = dirname(resolve(configPath));
+  let parent = dirname(directory);
+  while (parent !== directory) {
+    if (await isFile(join(directory, "package.json"))) return directory;
+    directory = parent;
+    parent = dirname(directory);
+  }
+  return fallback;
 }
 
 function pickDirectory(): Promise<string> {
@@ -1073,15 +1104,17 @@ export default {
             sendJson(response, 409, { error: "Plugin is already installed", plugin });
             return;
           }
-          const packageJsonPath = join(services.launch.cwd, "package.json");
-          const packageLockPath = join(services.launch.cwd, "package-lock.json");
+          const installDirectory = await marketplaceInstallDirectory(configPath, services.launch.cwd);
+          const packageJsonPath = join(installDirectory, "package.json");
+          const packageLockPath = join(installDirectory, "package-lock.json");
           const packageJsonBefore = await readFile(packageJsonPath, "utf8").catch(() => undefined);
           const packageLockBefore = await readFile(packageLockPath, "utf8").catch(() => undefined);
           let profileBefore: string | undefined;
           let entryId: string | undefined;
           try {
             if (needsMarketplacePackageInstall(plugin)) {
-              await runProcess("npm", ["install", "--save-exact", "--package-lock=false", `${plugin.packageName}@${plugin.version}`], services.launch.cwd);
+              const specifier = `${marketplaceNpmPackageName(plugin.packageName)}@${plugin.version}`;
+              await runProcess("npm", ["install", "--save-exact", "--package-lock=false", specifier], installDirectory);
             }
             profileBefore = await appendMarketplaceProfile(configPath, plugin);
             if (!needsMarketplacePackageInstall(plugin)) {
@@ -1101,8 +1134,11 @@ export default {
           } catch (error) {
             if (entryId !== undefined) await loader.remove(entryId).catch(() => {});
             if (profileBefore !== undefined) await writeFile(configPath, profileBefore, "utf8").catch(() => {});
-            if (packageJsonBefore !== undefined) await writeFile(packageJsonPath, packageJsonBefore, "utf8").catch(() => {});
-            if (packageLockBefore !== undefined) await writeFile(packageLockPath, packageLockBefore, "utf8").catch(() => {});
+            // A manifest npm created for this install is removed rather than left behind; restoring is only possible when one existed before.
+            if (packageJsonBefore === undefined) await unlink(packageJsonPath).catch(() => {});
+            else await writeFile(packageJsonPath, packageJsonBefore, "utf8").catch(() => {});
+            if (packageLockBefore === undefined) await unlink(packageLockPath).catch(() => {});
+            else await writeFile(packageLockPath, packageLockBefore, "utf8").catch(() => {});
             sendJson(response, 502, { error: errorText(error) });
           }
         } catch (error) {
@@ -1198,15 +1234,17 @@ export default {
           }
           const profileEntryId = entry.options.id;
           const profileBefore = await readFile(configPath, "utf8");
-          const packageJsonPath = join(services.launch.cwd, "package.json");
-          const packageLockPath = join(services.launch.cwd, "package-lock.json");
+          const installDirectory = await marketplaceInstallDirectory(configPath, services.launch.cwd);
+          const packageJsonPath = join(installDirectory, "package.json");
+          const packageLockPath = join(installDirectory, "package-lock.json");
           const packageJsonBefore = await readFile(packageJsonPath, "utf8").catch(() => undefined);
           const packageLockBefore = await readFile(packageLockPath, "utf8").catch(() => undefined);
           await entry.parent.remove(entry.options.id);
           entry.parent.tree.write();
           try {
             await updateMarketplaceProfile(configPath, profileEntryId, { remove: true });
-            if (needsMarketplacePackageInstall(plugin)) await runProcess("npm", ["uninstall", "--package-lock=false", plugin.packageName], services.launch.cwd);
+            if (needsMarketplacePackageInstall(plugin))
+              await runProcess("npm", ["uninstall", "--package-lock=false", marketplaceNpmPackageName(plugin.packageName)], installDirectory);
             sendJson(response, 200, { uninstalled: true, id: payload.id });
           } catch (error) {
             await writeFile(configPath, profileBefore, "utf8").catch(() => {});
@@ -1309,18 +1347,20 @@ export default {
           sendJson(response, 500, { error: errorText(error) });
           return;
         }
-        const items = status.output
-          .split("\n")
-          .map((line) => line.trimEnd())
-          .filter((line) => line.length > 0)
-          .map((line) => {
-            const status = line.slice(0, 2).trim() || "??";
-            return {
-              path: line.slice(3),
-              status,
-              label: status === "??" ? "untracked" : status.includes("D") ? "deleted" : status.includes("A") ? "added" : "modified",
-            };
+        const records = status.output.split("\0");
+        const items: { path: string; status: string; label: string }[] = [];
+        for (let index = 0; index < records.length; index += 1) {
+          const record = records[index] ?? "";
+          if (record.length < 4) continue;
+          const code = record.slice(0, 2).trim() || "??";
+          // Rename and copy records carry the original path in a second NUL-terminated field, which is not a workspace change of its own.
+          if (code.startsWith("R") || code.startsWith("C")) index += 1;
+          items.push({
+            path: record.slice(3),
+            status: code,
+            label: code === "??" ? "untracked" : code.includes("D") ? "deleted" : code.includes("A") ? "added" : "modified",
           });
+        }
         sendJson(response, 200, { items, ...(status.truncated ? { truncated: true } : {}) });
       },
     });
@@ -1803,19 +1843,43 @@ export default {
             sendJson(response, 409, { error: "Cannot batch-delete the active session" });
             return;
           }
-          await mutateSessionMetadata(manager, context.logger, async (metadata) => {
+          if (action === "delete") {
+            // The unlinks run outside the metadata mutation: a failure halfway through must not discard the key removals for the files that are already gone from disk.
+            const removed: string[] = [];
+            const failed: { path: string; error: string }[] = [];
             for (const path of paths) {
-              if (action === "delete") {
+              try {
                 await unlink(path);
-                delete metadata[path];
-              } else {
-                const current = metadata[path] ?? {};
-                metadata[path] = {
-                  ...current,
-                  ...(action === "archive" || action === "unarchive" ? { archived: action === "archive" } : {}),
-                  ...(action === "pin" || action === "unpin" ? { pinned: action === "pin" } : {}),
-                };
+                removed.push(path);
+              } catch (error) {
+                // A session another tab already deleted leaves nothing to unlink, but its metadata entry still has to go.
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") removed.push(path);
+                else failed.push({ path, error: errorText(error) });
               }
+            }
+            await mutateSessionMetadata(manager, context.logger, (metadata) => {
+              for (const path of removed) delete metadata[path];
+            });
+            if (failed.length > 0) {
+              sendJson(response, 409, {
+                error: `Some sessions could not be deleted: ${failed.map((item) => item.path).join(", ")}`,
+                action,
+                count: removed.length,
+                failed,
+              });
+              return;
+            }
+            sendJson(response, 200, { action, count: removed.length });
+            return;
+          }
+          await mutateSessionMetadata(manager, context.logger, (metadata) => {
+            for (const path of paths) {
+              const current = metadata[path] ?? {};
+              metadata[path] = {
+                ...current,
+                ...(action === "archive" || action === "unarchive" ? { archived: action === "archive" } : {}),
+                ...(action === "pin" || action === "unpin" ? { pinned: action === "pin" } : {}),
+              };
             }
           });
           sendJson(response, 200, { action, count: paths.length });

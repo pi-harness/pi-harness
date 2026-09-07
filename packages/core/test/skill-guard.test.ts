@@ -48,6 +48,15 @@ describe("skill guard", () => {
     );
   });
 
+  test("detects destructive commands whose arguments continue past the matched flag", () => {
+    for (const text of ["dd if=/dev/zero of=/dev/sda", "dd if=/dev/urandom of=/dev/disk0 bs=1m", "git clean -fd", "git clean -xfd ."]) {
+      const report = inspectSkillText(text, "hostile");
+      expect(report.risk).toBe("blocked");
+      expect(report.findings.map((finding) => finding.code)).toContain("destructive_command");
+    }
+    expect(inspectSkillText("Read the mkfsomething design notes before editing.", "local-skill").risk).toBe("safe");
+  });
+
   test("declares a bounded descriptor-safe query and publishes explicit scan inventory", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-skill-guard-"));
     temporaryDirectories.push(cwd);

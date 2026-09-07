@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { hostname as machineHostname, networkInterfaces } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 
 export interface WebRoute {
@@ -9,6 +10,8 @@ export interface WebRoute {
 export interface WebServerConfig {
   readonly host?: string;
   readonly port?: number;
+  // Extra hostnames accepted in the Host header, on top of loopback names, the bound address and (for a wildcard bind) this machine's own addresses and hostname. Needed when the harness is reached through a proxy or a DNS name the machine itself does not know about.
+  readonly allowedHosts?: readonly string[];
 }
 
 export interface WebServer {
@@ -67,17 +70,51 @@ function parseHttpAuthority(value: string): Authority | undefined {
   return { hostname: url.hostname, port: url.port === "" ? 80 : Number(url.port) };
 }
 
-// Browsers send the Origin header on every cross-origin request and on all non-GET/HEAD requests, so requiring it to match the (already validated) Host header blocks cross-site requests from pages the user visits. Requests without an Origin header (same-origin navigations, EventSource, curl, Node fetch) pass. The Host check defeats DNS rebinding: a page on attacker.example that resolves to 127.0.0.1 arrives with Host: attacker.example, which is neither loopback nor the configured bind host.
-function rejectForeignRequest(request: IncomingMessage, response: ServerResponse, configuredHost: string, boundPort: number): boolean {
+// Normalizes a configured host or allowlist entry the same way parseHttpAuthority normalizes a header value, so IPv6 forms and letter case compare equal. Returns undefined for values that are not a valid host.
+function canonicalHostname(host: string): string | undefined {
+  try {
+    return new URL("http://" + hostForUrl(host)).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+// A wildcard bind answers on every local address, so the names a browser may legitimately put in the Host header are this machine's own addresses and hostname. They are read per request because DHCP and interface changes rewrite them while the server runs. An interface-scoped IPv6 address ("fe80::1%en0") is compared without its zone id, which is what a URL host carries.
+function localHostnames(): Set<string> {
+  const names = new Set<string>();
+  const own = canonicalHostname(machineHostname());
+  if (own !== undefined) names.add(own);
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      const name = canonicalHostname(entry.address.split("%")[0] ?? entry.address);
+      if (name !== undefined) names.add(name);
+    }
+  }
+  return names;
+}
+
+function isHostnameAllowed(hostname: string, configuredHost: string, allowedHosts: readonly string[]): boolean {
+  if (LOOPBACK_HOSTNAMES.has(hostname)) return true;
+  if (allowedHosts.some((entry) => canonicalHostname(entry) === hostname)) return true;
+  if (!WILDCARD_HOSTS.has(configuredHost)) return hostname === hostForUrl(configuredHost).toLowerCase();
+  return localHostnames().has(hostname);
+}
+
+// Browsers send the Origin header on every cross-origin request and on all non-GET/HEAD requests, so requiring it to match the (already validated) Host header blocks cross-site requests from pages the user visits. Requests without an Origin header (same-origin navigations, EventSource, curl, Node fetch) pass. The Host check defeats DNS rebinding: a page on attacker.example that resolves to one of this machine's addresses arrives with Host: attacker.example, which is neither loopback, nor the bind address, nor an address or hostname this machine owns. The check stays on for a wildcard bind, where only the machine's own addresses (or an operator-supplied allowedHosts entry) are accepted, because the Origin check cannot help: a rebinding page sends a matching Origin and Host pair.
+function rejectForeignRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  configuredHost: string,
+  boundPort: number,
+  allowedHosts: readonly string[],
+): boolean {
   const hostHeader = request.headers.host;
   const authority = hostHeader === undefined ? undefined : parseHttpAuthority(hostHeader);
   if (authority === undefined) {
     sendError(response, 400, "Invalid Host header");
     return true;
   }
-  const hostnameAllowed =
-    WILDCARD_HOSTS.has(configuredHost) || LOOPBACK_HOSTNAMES.has(authority.hostname) || authority.hostname === hostForUrl(configuredHost).toLowerCase();
-  if (!hostnameAllowed || authority.port !== boundPort) {
+  if (!isHostnameAllowed(authority.hostname, configuredHost, allowedHosts) || authority.port !== boundPort) {
     sendError(response, 400, "Host header does not match the web server address");
     return true;
   }
@@ -96,12 +133,13 @@ export default {
   async apply(context: Context, config: WebServerConfig) {
     const host = config.host ?? "127.0.0.1";
     const port = config.port ?? DEFAULT_WEB_SERVER_PORT;
+    const allowedHosts = config.allowedHosts ?? [];
     const routes = new Map<string, WebRoute["handler"]>();
     let fallback: WebRoute["handler"] | undefined;
     // Assigned once listen() completes; tests bind port 0 so the configured port is not the one clients address.
     let boundPort = 0;
     const server = createServer((request, response) => {
-      if (rejectForeignRequest(request, response, host, boundPort)) return;
+      if (rejectForeignRequest(request, response, host, boundPort, allowedHosts)) return;
       const path = new URL(request.url ?? "/", "http://" + hostForUrl(host)).pathname;
       const handler = routes.get(path) ?? fallback;
       if (handler === undefined) {

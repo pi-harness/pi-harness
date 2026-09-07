@@ -50,6 +50,37 @@ describe("SQL Lens panel view", () => {
     });
   });
 
+  test("keeps a result set larger than the panel row cap", () => {
+    const view = sqlLensPanelView({
+      status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
+      timeoutMs: 5_000,
+      latest: {
+        database: "data.db",
+        query: "SELECT id, name FROM users LIMIT 50",
+        columns: ["id", "name"],
+        rows: Array.from({ length: 20 }, (_, index) => ({ id: index + 1, name: `user-${index + 1}` })),
+        truncated: false,
+        scannedRows: 50,
+        rowInventory: { scanned: 50, returned: 50, shown: 20, truncated: true, displayLimit: 20 },
+      },
+      limits: {
+        queryLength: 65_536,
+        databaseBytes: 268_435_456,
+        rows: 100,
+        columns: 128,
+        stringLength: 16_384,
+        resultBytes: 1_048_576,
+        blobPreviewBytes: 256,
+        panelRows: 20,
+      },
+    });
+
+    expect(view.malformed).toBe(false);
+    expect(view.latest?.rows).toHaveLength(12);
+    expect(view.latest?.rows[0]).toEqual({ id: 1, name: "user-1" });
+    expect(view.latest?.rowInventory).toEqual({ scanned: 50, returned: 50, shown: 20, truncated: true, displayLimit: 20 });
+  });
+
   test("fails closed for contradictory payloads without inventing zero-valued results", () => {
     const base = {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },

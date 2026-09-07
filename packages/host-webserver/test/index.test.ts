@@ -1,15 +1,22 @@
 import { Context } from "@deepseek-ai/cordis";
 import { request as httpRequest } from "node:http";
+import { hostname as machineHostname, networkInterfaces } from "node:os";
 import { afterEach, describe, expect, test } from "vitest";
 import webServerPlugin, { DEFAULT_WEB_SERVER_PORT, type WebServer } from "../src/index.js";
 
 const contexts: Context[] = [];
 
+function firstLocalIpv4(): string | undefined {
+  return Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .find((entry) => entry.family === "IPv4" && !entry.internal)?.address;
+}
+
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
 });
 
-async function startServer(config: { host?: string; port: number }): Promise<WebServer> {
+async function startServer(config: { host?: string; port: number; allowedHosts?: readonly string[] }): Promise<WebServer> {
   const context = new Context();
   contexts.push(context);
   await context.plugin(webServerPlugin, config);
@@ -163,12 +170,36 @@ describe("web server plugin", () => {
     expect(health.calls).toBe(3);
   });
 
-  test("accepts the configured non-loopback host and any hostname on a wildcard bind", async () => {
+  test("accepts only this machine's own names on a wildcard bind so DNS rebinding still fails", async () => {
     const wildcard = await startServer({ host: "0.0.0.0", port: 0 });
-    registerHealth(wildcard);
-    await expect(rawRequest(wildcard, { host: "workstation.lan:" + wildcard.port })).resolves.toMatchObject({ status: 200 });
-    await expect(rawRequest(wildcard, { host: "workstation.lan:" + (wildcard.port + 1) })).resolves.toMatchObject({ status: 400 });
+    const health = registerHealth(wildcard);
 
+    await expect(rawRequest(wildcard, { host: "attacker.example:" + wildcard.port })).resolves.toEqual({
+      status: 400,
+      body: JSON.stringify({ error: "Host header does not match the web server address" }),
+    });
+    await expect(rawRequest(wildcard, { host: "workstation.lan:" + wildcard.port })).resolves.toMatchObject({ status: 400 });
+    expect(health.calls).toBe(0);
+
+    await expect(rawRequest(wildcard, { host: "127.0.0.1:" + wildcard.port })).resolves.toMatchObject({ status: 200 });
+    await expect(rawRequest(wildcard, { host: machineHostname() + ":" + wildcard.port })).resolves.toMatchObject({ status: 200 });
+    const localIpv4 = firstLocalIpv4();
+    if (localIpv4 !== undefined) await expect(rawRequest(wildcard, { host: localIpv4 + ":" + wildcard.port })).resolves.toMatchObject({ status: 200 });
+    await expect(rawRequest(wildcard, { host: machineHostname() + ":" + (wildcard.port + 1) })).resolves.toMatchObject({ status: 400 });
+  });
+
+  test("accepts hostnames named by allowedHosts on a wildcard bind", async () => {
+    const proxied = await startServer({ host: "0.0.0.0", port: 0, allowedHosts: ["Console.lan"] });
+    registerHealth(proxied);
+
+    await expect(rawRequest(proxied, { host: "console.lan:" + proxied.port })).resolves.toMatchObject({ status: 200 });
+    await expect(rawRequest(proxied, { host: "console.lan:" + proxied.port, origin: "http://console.lan:" + proxied.port }, "POST")).resolves.toMatchObject({
+      status: 200,
+    });
+    await expect(rawRequest(proxied, { host: "other.lan:" + proxied.port })).resolves.toMatchObject({ status: 400 });
+  });
+
+  test("serves an IPv6 bind at its bracketed URL", async () => {
     const ipv6 = await startServer({ host: "::1", port: 0 });
     registerHealth(ipv6);
     expect(ipv6.url).toBe("http://[::1]:" + ipv6.port);
