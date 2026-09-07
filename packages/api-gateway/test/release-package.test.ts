@@ -32,10 +32,35 @@ describe("release package", () => {
     expect(clientManifest.private).toBe(true);
 
     const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-    expect(workflow).toContain("npm publish --workspace @pi-harness/core --access public");
+    expect(workflow).toContain('npm publish --workspace "$package_name" --access public');
     expect(workflow).toContain("npm publish --access public");
     expect(workflow).toContain("Verify package availability");
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
+  });
+
+  it("publishes the plugin API as its own package before the packages that depend on it", async () => {
+    const rootManifest = await readJson("package.json");
+    const rootDependencies = rootManifest.dependencies as Record<string, string>;
+    const manifest = await readJson("packages/plugin-api/package.json");
+
+    expect(manifest.name).toBe("@pi-harness/plugin-api");
+    expect(manifest.private, "the plugin API is the package a plugin author installs directly").toBeUndefined();
+    expect(manifest.version).toBe(rootManifest.version);
+    expect(manifest.files).toEqual(["dist", "README.md"]);
+    expect((manifest.publishConfig as Record<string, string>).access).toBe("public");
+
+    // The runtimes are peers here for the same reason they are peers in core: a second copy detaches the Context augmentation.
+    expect(manifest.dependencies, "plugin API runtimes must stay peers so a plugin shares the harness copy").toBeUndefined();
+    const peers = manifest.peerDependencies as Record<string, string>;
+    expect(Object.keys(peers).sort()).toEqual([...corePeerRuntimeNames]);
+    for (const name of corePeerRuntimeNames) expect(peers[name], `${name} peer range must pin the version the launcher installs`).toBe(rootDependencies[name]);
+
+    const core = await readJson("packages/core/package.json");
+    expect((core.dependencies as Record<string, string>)["@pi-harness/plugin-api"]).toBe(rootManifest.version);
+
+    const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
+    expect(workflow).toContain("for workspace in packages/plugin-api packages/core .; do");
+    expect(workflow).toContain("for package_name in @pi-harness/plugin-api @pi-harness/core @pi-harness/pi-harness; do");
   });
 
   it("keeps the runtimes in the core type surface as peers so a plugin author resolves one copy", async () => {
