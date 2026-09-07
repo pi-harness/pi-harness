@@ -135,28 +135,6 @@ jobs:
             fi
           done
 
-      - name: Verify package availability
-        env:
-          PACKAGE_VERSION: ${{ steps.metadata.outputs.version }}
-        run: |
-          package_version="${PACKAGE_VERSION}"
-          for package_name in @pi-harness/plugin-api @pi-harness/core @pi-harness/pi-harness; do
-            for attempt in $(seq 1 60); do
-              published_version=$(npm view "$package_name@$package_version" version --prefer-online --registry=https://registry.npmjs.org 2>/dev/null || true)
-              if [ "$published_version" = "$package_version" ]; then
-                npm pack "$package_name@$package_version" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP" --registry=https://registry.npmjs.org
-                echo "$package_name@$package_version is publicly installable"
-                break
-              fi
-              if [ "$attempt" = 60 ]; then
-                echo "$package_name@$package_version was not available from npm after 10 minutes" >&2
-                exit 1
-              fi
-              echo "Waiting for $package_name@$package_version to become publicly available ($attempt/60)"
-              sleep 10
-            done
-          done
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -167,3 +145,27 @@ jobs:
           else
             gh release create "$tag" --verify-tag --title "$tag" --generate-notes
           fi
+
+      # Runs after the release because npm's CDN takes minutes to serve a freshly published tarball, and that delay says nothing about whether the release itself is good: the tag is already pushed and every package already returned a successful publish. Gating the release on this check is what left v0.1.25 and v0.1.27 published on npm and tagged on main with no GitHub Release at all.
+      - name: Verify package availability
+        env:
+          PACKAGE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          package_version="${PACKAGE_VERSION}"
+          budget_seconds=1800
+          poll_seconds=10
+          deadline=$(( $(date +%s) + budget_seconds ))
+          for package_name in @pi-harness/plugin-api @pi-harness/core @pi-harness/pi-harness; do
+            attempt=0
+            until published_version=$(npm view "$package_name@$package_version" version --prefer-online --registry=https://registry.npmjs.org 2>/dev/null) && [ "$published_version" = "$package_version" ]; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "$package_name@$package_version was not available from npm within $(( budget_seconds / 60 )) minutes" >&2
+                exit 1
+              fi
+              attempt=$(( attempt + 1 ))
+              echo "Waiting for $package_name@$package_version to become publicly available (attempt $attempt, $(( (deadline - $(date +%s)) / 60 ))m of budget left)"
+              sleep "$poll_seconds"
+            done
+            npm pack "$package_name@$package_version" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP" --registry=https://registry.npmjs.org
+            echo "$package_name@$package_version is publicly installable"
+          done

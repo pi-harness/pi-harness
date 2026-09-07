@@ -63,6 +63,14 @@ describe("release package", () => {
     expect(workflow).toContain("for package_name in @pi-harness/plugin-api @pi-harness/core @pi-harness/pi-harness; do");
   });
 
+  it("creates the GitHub Release before waiting on npm's CDN", async () => {
+    const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
+
+    // Availability is CDN propagation latency, not a publish failure. Ordering the wait first made a slow tarball skip the release step outright, so the tag shipped without one.
+    expect(workflow.indexOf("- name: Create GitHub Release")).toBeLessThan(workflow.indexOf("- name: Verify package availability"));
+    expect(workflow).not.toContain("seq 1 60");
+  });
+
   it("keeps the runtimes in the core type surface as peers so a plugin author resolves one copy", async () => {
     const rootManifest = await readJson("package.json");
     const rootDependencies = rootManifest.dependencies as Record<string, string>;
