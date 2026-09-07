@@ -514,6 +514,44 @@ describe("stdio run outcome", () => {
     expect(stdio.errors).toEqual(["Agent request failed\n"]);
   });
 
+  test("follows a missing credential rejection with instructions this launcher can honour", async () => {
+    const runtime = createRuntime();
+    runtime.prompt = () =>
+      Promise.reject(
+        new Error("No API key found for deepseek. Use /login to log into a provider via OAuth or API key. See: /usr/local/lib/node_modules/docs/providers.md"),
+      );
+    const stdio = createStdio("prompt");
+    const application = new StdioApplication(runtime, createLaunch(["--prompt", "hi"]), stdio);
+
+    await expect(application.run()).resolves.toBe(1);
+    expect(stdio.errors).toHaveLength(2);
+    expect(stdio.errors[0]).toContain("No API key found for deepseek");
+    expect(stdio.errors[1]).toContain("pih has no /login command");
+    expect(stdio.errors[1]).toContain("/tmp/auth.json");
+    expect(stdio.errors[1]).toContain("everyapi use pi-harness");
+    expect(stdio.errors[1]?.split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  test("leaves an unrelated provider rejection without credential instructions", async () => {
+    const runtime = createRuntime();
+    runtime.prompt = () => Promise.reject(new Error("Upstream provider returned 503"));
+    const stdio = createStdio("prompt");
+    const application = new StdioApplication(runtime, createLaunch(["--prompt", "hi"]), stdio);
+
+    await expect(application.run()).resolves.toBe(1);
+    expect(stdio.errors).toEqual(["Upstream provider returned 503\n"]);
+  });
+
+  test("follows a settled authentication failure with the same credential instructions", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "error", errorMessage: "Authentication failed for deepseek" }]);
+    const run = application.run();
+    application.writeSessionEvent(assistantText("partial"));
+
+    await expect(run).resolves.toBe(1);
+    expect(stdio.errors.join("")).toContain("Authentication failed for deepseek");
+    expect(stdio.errors.at(-1)).toContain("pih has no /login command");
+  });
+
   test("reports a response truncated by the model output limit as a failure", async () => {
     const { application, stdio } = createApplication([{ role: "assistant", stopReason: "length" }]);
     const run = application.run();

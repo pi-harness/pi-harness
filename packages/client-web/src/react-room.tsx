@@ -249,8 +249,105 @@ const capability = (name: string): string => {
   ];
   return entries.find(([needle]) => name.includes(needle))?.[1] ?? "运行时";
 };
-// The runtime leases the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools joins on the next start rather than immediately.
-const RESTART_REQUIRED_NOTICE = "已写入 profile，重启 Pi Harness 后生效。";
+// The runtime leases the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools joins on the next start rather than immediately. The notice names no start command because the harness is reachable through more than one of them, and it covers enabling as well as installing because both actions share it.
+const RESTART_REQUIRED_NOTICE =
+  "改动已写入 profile（~/.pi-harness/profiles/<profile>/cordis.yml）。控制台无法自行重启，请回到启动 Pi Harness 的终端按 Ctrl-C，再用原来的命令重新启动；在那之前这次改动不会生效，刚安装的插件也不会出现在「已安装」列表里。";
+
+// The HTTP API answers in English because it is a public contract, while every label in this console is Chinese, so the fixed error strings the plugin endpoints can return are translated here and told what to do next. Anything else is passed through untouched.
+const PLUGIN_ACTION_ERROR_TEXT = new Map([
+  ["Another marketplace plugin change is already running", "已有插件操作正在进行，请等它完成后重试。"],
+  ["Plugin installation is unavailable for this runtime", "当前运行时不支持安装插件：请用带 profile 的方式启动 Pi Harness 后重试。"],
+  ["Plugin configuration is unavailable for this runtime", "当前运行时不支持修改插件配置：请用带 profile 的方式启动 Pi Harness 后重试。"],
+  ["Plugin is already installed", "这个插件已经安装过了，可以在「已安装」列表里管理它。"],
+  ["Marketplace plugin was not found", "插件市场里没有这个插件，它可能已经下架，请刷新页面。"],
+  ["Installed plugin was not found", "运行配置里没有这个插件，它可能已被移除，请刷新页面。"],
+  ["Built-in plugins cannot be changed", "内置插件由运行时管理，不能启用或停用。"],
+  ["Only marketplace plugins can be uninstalled", "只有从插件市场安装的插件才能卸载。"],
+]);
+
+export function pluginActionErrorText(message: string): string {
+  const text = message.trim();
+  const mapped = PLUGIN_ACTION_ERROR_TEXT.get(text);
+  if (mapped !== undefined) return mapped;
+  const status = /^Request failed with status (\d+)$/u.exec(text);
+  if (status !== null) return `请求失败（HTTP ${status[1]}）：请确认 Pi Harness 仍在运行，然后重试。`;
+  return message;
+}
+
+// Ctrl-C is the reflex for stopping a runaway agent, but the same chord is the copy shortcut everywhere else in the browser, so it only interrupts when a run is actually in flight and nothing is selected. Cmd is excluded on purpose: matching it would swallow macOS Cmd+C. A textarea or an input keeps a selection that window.getSelection() does not report, so the focused field is asked directly.
+export function shouldInterruptRun(
+  event: { readonly ctrlKey: boolean; readonly metaKey: boolean; readonly shiftKey: boolean; readonly key: string; readonly target: EventTarget | null },
+  running: boolean,
+  selectedText: string,
+): boolean {
+  if (!running || !event.ctrlKey || event.metaKey || event.shiftKey || event.key.toLowerCase() !== "c") return false;
+  if (selectedText.trim().length > 0) return false;
+  const field = event.target as { selectionStart?: unknown; selectionEnd?: unknown } | null;
+  return !(typeof field?.selectionStart === "number" && typeof field.selectionEnd === "number" && field.selectionStart !== field.selectionEnd);
+}
+
+// Picking a command out of a palette adds to what the user already wrote instead of replacing it: the draft is the reason they went looking for the command name in the first place.
+export function insertCommandDraft(draft: string, caret: number, value: string): { text: string; caret: number } {
+  const position = Math.max(0, Math.min(caret, draft.length));
+  const before = draft.slice(0, position);
+  const insertion = `${before && !/\s$/u.test(before) ? " " : ""}${value} `;
+  return { text: `${before}${insertion}${draft.slice(position)}`, caret: before.length + insertion.length };
+}
+
+// A plugin that needs a restart is installed on disk but absent from every list the gateway builds from the loader, so the console remembers it here to keep saying so across reloads. localStorage is already scoped to the origin serving this console, and one origin is one harness process, so the set needs no key of its own; the profile path the gateway installs into is not exposed over the API.
+const RESTART_PENDING_STORAGE_KEY = "pi-harness.restart-pending-plugins";
+
+// The set is only true of the process that was running when the install happened. It is stored with that process's identity so the next start clears it: by then the plugin has either loaded, and shows up as installed, or it has not, and the card has to become installable again rather than stay disabled forever.
+export interface RestartPendingState {
+  readonly process: string;
+  readonly packages: ReadonlySet<string>;
+}
+
+const EMPTY_RESTART_PENDING: RestartPendingState = { packages: new Set(), process: "" };
+
+export function readRestartPendingPackages(storage: Pick<Storage, "getItem"> | undefined): RestartPendingState {
+  if (storage === undefined) return EMPTY_RESTART_PENDING;
+  try {
+    const raw = storage.getItem(RESTART_PENDING_STORAGE_KEY);
+    if (raw === null) return EMPTY_RESTART_PENDING;
+    const parsed: unknown = JSON.parse(raw);
+    // A value written before the process identity existed names no process, which reads as a foreign one and is therefore dropped on the first status the console receives.
+    const record = (Array.isArray(parsed) ? { packages: parsed, process: "" } : parsed) as { packages?: unknown; process?: unknown };
+    const packages = Array.isArray(record.packages) ? record.packages.filter((item): item is string => typeof item === "string") : [];
+    return { packages: new Set(packages), process: typeof record.process === "string" ? record.process : "" };
+  } catch {
+    return EMPTY_RESTART_PENDING;
+  }
+}
+
+export function writeRestartPendingPackages(storage: Pick<Storage, "setItem"> | undefined, state: RestartPendingState): void {
+  if (storage === undefined) return;
+  try {
+    storage.setItem(RESTART_PENDING_STORAGE_KEY, JSON.stringify({ packages: [...state.packages], process: state.process }));
+  } catch {
+    // A console that cannot persist the pending set still has to run, so a full or blocked storage is not an error the user can act on.
+  }
+}
+
+/** Keeps the set only while it still describes the process the console is talking to. An empty identity means the status has not arrived yet, and the set is left alone until it does. */
+export function restartPendingForProcess(state: RestartPendingState, process: string): RestartPendingState {
+  if (process === "" || state.process === process) return state;
+  return state.packages.size === 0 ? { packages: state.packages, process } : { packages: new Set(), process };
+}
+
+// The same set instance comes back when nothing was installed since the last render, so the state that holds it does not change identity on every refresh.
+export function withoutInstalledPackages(pending: ReadonlySet<string>, installed: ReadonlySet<string>): ReadonlySet<string> {
+  const remaining = [...pending].filter((packageName) => !installed.has(packageName));
+  return remaining.length === pending.size ? pending : new Set(remaining);
+}
+
+function browserStorage(): Storage | undefined {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
 
 const displayPluginName = (name: string): string => {
   const officialName = new Map([
@@ -4991,7 +5088,7 @@ function PluginUninstallDialog({
         <code>{pluginName}</code>
         {error && (
           <p className="plugin-confirm-error" role="alert">
-            {error}
+            {pluginActionErrorText(error)}
           </p>
         )}
         <footer>
@@ -5082,6 +5179,7 @@ function Plugins({
   plugins,
   panels,
   catalog,
+  restartPendingPackages,
   onMarketplace,
   onOpenDetail,
   onToml,
@@ -5091,6 +5189,7 @@ function Plugins({
   plugins: readonly ClientPlugin[];
   panels: readonly ClientPluginPanel[];
   catalog: readonly ClientMarketplacePlugin[];
+  restartPendingPackages: ReadonlySet<string>;
   onMarketplace: () => void;
   onOpenDetail: (plugin: ClientPlugin) => void;
   onToml: () => void;
@@ -5265,13 +5364,25 @@ function Plugins({
               );
             })}
             {!installedPlugins.length ? (
-              <div className="empty-state">还没有安装可管理的插件。去插件市场安装一个吧。</div>
+              <div className="empty-state">
+                {restartPendingPackages.size
+                  ? `已有 ${restartPendingPackages.size} 个插件安装完成并写入 profile，重启 Pi Harness 后会出现在这里。`
+                  : "还没有安装可管理的插件。去插件市场安装一个吧。"}
+              </div>
             ) : !visiblePlugins.length ? (
               <div className="empty-state">没有匹配当前搜索与分类条件的已安装插件。</div>
             ) : null}
           </div>
-          {pluginError && <p className="plugin-action-error">{pluginError}</p>}
-          {pluginNotice && <p className="plugin-action-notice">{pluginNotice}</p>}
+          {pluginError && (
+            <p className="plugin-action-error" role="alert">
+              {pluginActionErrorText(pluginError)}
+            </p>
+          )}
+          {pluginNotice && (
+            <p aria-live="polite" className="plugin-action-notice">
+              {pluginNotice}
+            </p>
+          )}
           {panels.length > installedPlugins.length && (
             <section className="mt-4 border-t border-[#e3e7ee] pt-4">
               <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -5410,7 +5521,7 @@ function InstalledPluginDetail({
             </p>
             {error && (
               <p className="mt-3 text-[12px] text-[#b42318]" role="alert">
-                操作失败：{error}
+                操作失败：{pluginActionErrorText(error)}
               </p>
             )}
             {notice && (
@@ -5506,7 +5617,7 @@ function InstalledPluginDetail({
   );
 }
 
-function Marketplace({
+export function Marketplace({
   plugins,
   capabilities,
   categories,
@@ -5524,6 +5635,7 @@ function Marketplace({
   onBack,
   onToml,
   installedPackages,
+  restartPendingPackages,
   onInstall,
 }: {
   plugins: readonly ClientMarketplacePlugin[];
@@ -5543,19 +5655,21 @@ function Marketplace({
   onBack: () => void;
   onToml: () => void;
   installedPackages: ReadonlySet<string>;
+  restartPendingPackages: ReadonlySet<string>;
   onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
 }) {
   const [installing, setInstalling] = useState<string>();
   const [installError, setInstallError] = useState("");
-  const [installNotice, setInstallNotice] = useState("");
+  // The notice states what the pending set means, so it is read from that set rather than remembered here: leaving the marketplace unmounts this panel, and a restart that empties the set has to take the notice with it instead of leaving a message telling the user to do what they already did.
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const showInstallNotice = !noticeDismissed && restartPendingPackages.size > 0;
   const categoryTabs = useMemo(() => marketplaceCategoryTabs(categories), [categories]);
   const install = async (plugin: ClientMarketplacePlugin) => {
     setInstallError("");
-    setInstallNotice("");
+    setNoticeDismissed(false);
     setInstalling(plugin.id);
     try {
-      const result = await onInstall(plugin);
-      if (result.restartRequired === true) setInstallNotice(RESTART_REQUIRED_NOTICE);
+      await onInstall(plugin);
     } catch (error) {
       setInstallError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -5602,6 +5716,22 @@ function Marketplace({
             ))}
           </select>
           <span className="marketplace-count">{total} 个已审核条目 · 推荐排序</span>
+          {/* The result of an install belongs next to the button that started it: the card grid below scrolls, so a message under it is thousands of pixels away from the card the user clicked. The region is always in the markup so a screen reader announces the message that lands in it. */}
+          <div aria-live="polite" className="marketplace-toolbar-message">
+            {installError && (
+              <p className="marketplace-message error" role="alert">
+                安装失败：{pluginActionErrorText(installError)}
+              </p>
+            )}
+            {showInstallNotice && (
+              <p className="marketplace-message notice">
+                {RESTART_REQUIRED_NOTICE}
+                <button className="marketplace-message-dismiss" onClick={() => setNoticeDismissed(true)} type="button">
+                  知道了
+                </button>
+              </p>
+            )}
+          </div>
         </div>
         <PluginCategoryNav activeCategory={categoryFilter} categories={categoryTabs} label="插件分类" onChange={onCategoryChange} />
         <div className="marketplace-scroll">
@@ -5679,16 +5809,25 @@ function Marketplace({
                   <a href={plugin.repository} target="_blank" rel="noreferrer">
                     查看源码 ↗
                   </a>
-                  <button disabled={installedPackages.has(plugin.packageName) || installing !== undefined} onClick={() => void install(plugin)} type="button">
-                    {installedPackages.has(plugin.packageName) ? "已安装" : installing === plugin.id ? "安装中…" : "安装"}
+                  {/* A plugin that asked for a restart is installed on disk but missing from the loader, so the button says so rather than inviting the same install again. */}
+                  <button
+                    disabled={installedPackages.has(plugin.packageName) || restartPendingPackages.has(plugin.packageName) || installing !== undefined}
+                    onClick={() => void install(plugin)}
+                    type="button"
+                  >
+                    {installedPackages.has(plugin.packageName)
+                      ? "已安装"
+                      : restartPendingPackages.has(plugin.packageName)
+                        ? "重启后生效"
+                        : installing === plugin.id
+                          ? "安装中…"
+                          : "安装"}
                   </button>
                 </footer>
               </article>
             ))}
             {!plugins.length && <div className="empty-state">没有匹配的插件。</div>}
           </div>
-          {installNotice && <p className="mt-2 text-[11px] text-[#3565c5]">{installNotice}</p>}
-          {installError && <p className="mt-2 text-[11px] text-[#b42318]">安装失败：{installError}</p>}
           <div className="marketplace-pagination">
             <button className="marketplace-pagination-button" disabled={page === 0} onClick={() => onPageChange(page - 1)} type="button">
               上一页
@@ -5719,11 +5858,13 @@ function Marketplace({
 function MarketplaceDetail({
   plugin,
   installed,
+  restartPending,
   onInstall,
   onBack,
 }: {
   plugin: ClientMarketplacePlugin;
   installed: boolean;
+  restartPending: boolean;
   onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
   onBack: () => void;
 }) {
@@ -5784,14 +5925,22 @@ function MarketplaceDetail({
                 </code>
               </div>
               <div className="plugin-detail-actions">
-                <button className="plugin-detail-action primary" disabled={installed || busy} onClick={() => void install()} type="button">
-                  {installed ? "已安装" : busy ? "安装中…" : "安装插件"}
+                <button className="plugin-detail-action primary" disabled={installed || restartPending || busy} onClick={() => void install()} type="button">
+                  {installed ? "已安装" : restartPending ? "重启后生效" : busy ? "安装中…" : "安装插件"}
                 </button>
               </div>
             </div>
             <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">{plugin.description}</p>
-            {notice && <p className="mt-3 text-[12px] text-[#3565c5]">{notice}</p>}
-            {error && <p className="mt-3 text-[12px] text-[#b42318]">安装失败：{error}</p>}
+            {notice && (
+              <p aria-live="polite" className="mt-3 text-[12px] text-[#3565c5]">
+                {notice}
+              </p>
+            )}
+            {error && (
+              <p className="mt-3 text-[12px] text-[#b42318]" role="alert">
+                安装失败：{pluginActionErrorText(error)}
+              </p>
+            )}
           </header>
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
@@ -6552,7 +6701,7 @@ const filterCommands = (commands: readonly ClientCommand[], query: string): read
   return commands.filter((command) => `${command.invocationName} ${command.description ?? ""}`.toLowerCase().includes(normalized));
 };
 
-function CommandPalette({
+export function CommandPalette({
   commands,
   query,
   activeIndex,
@@ -6595,7 +6744,11 @@ function CommandPalette({
             );
           })
         ) : (
-          <div className="empty-state">{commands.length ? "没有匹配的命令。" : "当前运行时没有可用的命令注册清单。"}</div>
+          <div className="empty-state">
+            {commands.length
+              ? "没有匹配的命令。"
+              : "还没有加载任何命令。命令由 pi 扩展注册：把扩展放进 ~/.pi/agent/extensions（或已信任工作区的 .pi/extensions）后重启 Pi Harness。"}
+          </div>
         )}
       </div>
     </div>
@@ -6835,11 +6988,13 @@ export const ChatTurnArticle = memo(function ChatTurnArticle({
   role,
   text,
   thinking,
+  stopped = false,
   onMouseUp,
 }: {
   role: "user" | "assistant";
   text: string;
   thinking: string;
+  stopped?: boolean;
   onMouseUp: () => void;
 }) {
   return (
@@ -6857,6 +7012,8 @@ export const ChatTurnArticle = memo(function ChatTurnArticle({
             </details>
           )}
           {text && <MarkdownMessage onMouseUp={onMouseUp} text={text} />}
+          {/* An interrupted turn otherwise looks exactly like one that finished on its own, and the aborted flag the prompt call returns is gone after a reload, so the marker is read back from the stored message. */}
+          {stopped && <p className="turn-stopped">已中断</p>}
         </>
       )}
     </article>
@@ -6972,6 +7129,28 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
   const promptCompletionActiveIndex = Math.min(promptCompletionIndex, Math.max(promptCompletionItems.length - 1, 0));
   const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
+  // Kept apart from installedPackages, which feeds the sidebar count and the 已安装 list: a plugin waiting for a restart is on disk and in the profile but not loaded, so counting it as installed would claim it is running.
+  const harnessProcess = data.status?.processStartedAt ?? "";
+  const [restartPending, setRestartPending] = useState<RestartPendingState>(() => readRestartPendingPackages(browserStorage()));
+  const markRestartPending = (packageName: string) => {
+    setRestartPending((current) =>
+      current.process === harnessProcess && current.packages.has(packageName)
+        ? current
+        : { packages: new Set([...(current.process === harnessProcess ? current.packages : []), packageName]), process: harnessProcess },
+    );
+  };
+  useEffect(() => {
+    setRestartPending((current) => restartPendingForProcess(current, harnessProcess));
+  }, [harnessProcess]);
+  useEffect(() => {
+    setRestartPending((current) => {
+      const packages = withoutInstalledPackages(current.packages, installedPackages);
+      return packages === current.packages ? current : { packages, process: current.process };
+    });
+  }, [installedPackages]);
+  useEffect(() => {
+    writeRestartPendingPackages(browserStorage(), restartPending);
+  }, [restartPending]);
   const workspaceReady =
     !workspaceChooserOpen && Boolean(selectedWorkspacePath || data.status?.cwd || data.workspaces.find((workspace) => workspace.current)?.path || data.session);
   const installedPluginCount = useMemo(() => {
@@ -7338,8 +7517,20 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, [commandOpen, commandQuery]);
+  const stopRun = useCallback(() => {
+    setPromptError("");
+    void api
+      .abort()
+      .then(refresh)
+      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
+  }, [api, refresh]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (shouldInterruptRun(event, data.status?.status === "running", window.getSelection()?.toString() ?? "")) {
+        event.preventDefault();
+        stopRun();
+        return;
+      }
       if (event.key === "Escape") {
         if (sessionDialog) {
           setSessionDialog(undefined);
@@ -7379,10 +7570,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commandOpen, details, globalSearchOpen, sessionDialog]);
+  }, [commandOpen, data.status?.status, details, globalSearchOpen, sessionDialog, stopRun]);
   const events = data.session?.events ?? [];
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
   const chatTurns = useMemo(() => projectChatTurns(data.session?.messages ?? []), [data.session?.messages]);
+  // Every streamed delta has to re-stick, not just the finished turn: without the streaming lengths in here the viewport freezes while the answer keeps growing below the fold and only jumps to the bottom once the turn ends and the message count changes.
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     const frame = window.requestAnimationFrame(() => {
@@ -7390,7 +7582,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       if (element) element.scrollTop = element.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [data.session?.messages.length, data.status?.events, pendingPrompt, promptBusy]);
+  }, [data.session?.messages.length, data.status?.events, streamingAssistant?.text.length, streamingAssistant?.thinking.length, pendingPrompt, promptBusy]);
   const filteredSessions = data.sessions.filter(
     (session) =>
       !search ||
@@ -7612,6 +7804,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       plugins={data.plugins}
       panels={data.pluginPanels}
       catalog={marketplaceCatalog.length ? marketplaceCatalog : data.marketplace}
+      restartPendingPackages={restartPending.packages}
       onMarketplace={() => pushMarketplacePluginRoute(undefined)}
       onOpenDetail={(plugin) => pushInstalledPluginRoute(plugin.name)}
       onToml={() => {
@@ -7634,10 +7827,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       <MarketplaceDetail
         plugin={marketplaceDetail}
         installed={installedPackages.has(marketplaceDetail.packageName)}
+        restartPending={restartPending.packages.has(marketplaceDetail.packageName)}
         onBack={() => pushMarketplacePluginRoute(undefined)}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
+          if (result.restartRequired === true) markRestartPending(plugin.packageName);
           return result;
         }}
       />
@@ -7690,9 +7885,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           setSettings("toml");
         }}
         installedPackages={installedPackages}
+        restartPendingPackages={restartPending.packages}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
+          if (result.restartRequired === true) markRestartPending(plugin.packageName);
           return result;
         }}
       />
@@ -7709,7 +7906,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       >
         {data.session?.messages.length ? (
           chatTurns.map((turn, index) => (
-            <ChatTurnArticle key={index} onMouseUp={captureAnnotationSelection} role={turn.role} text={turn.text} thinking={turn.thinking} />
+            <ChatTurnArticle
+              key={index}
+              onMouseUp={captureAnnotationSelection}
+              role={turn.role}
+              stopped={turn.stopped}
+              text={turn.text}
+              thinking={turn.thinking}
+            />
           ))
         ) : (
           <Workspace
@@ -7871,7 +8075,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setWorkspaceChooserOpen(true);
                 }
               }}
-              placeholder={workspaceReady ? "描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令" : "先选择工作区，再描述要做的改动"}
+              placeholder={
+                workspaceReady ? `描述要做的改动，⌘↵ 发送；@ 引用文件${data.commands.length ? "，/ 调用命令" : ""}` : "先选择工作区，再描述要做的改动"
+              }
               readOnly={!workspaceReady}
               ref={promptInputRef}
               rows={2}
@@ -7925,9 +8131,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <option value="">暂无可用模型</option>
                 )}
               </select>
-              <button className="tool-chip" onClick={openCommandCompletion} type="button">
-                ／ 命令
-              </button>
+              {/* The title rides on the wrapper because a disabled button never shows one, and the empty runtime is exactly when the explanation is needed. */}
+              <span className="tool-chip-hint" title={data.commands.length ? "插入斜杠并列出命令" : "当前运行时还没有注册任何命令"}>
+                <button className="tool-chip" disabled={!data.commands.length} onClick={openCommandCompletion} type="button">
+                  ／ 命令
+                </button>
+              </span>
               <span className="composer-hint">⌘↵ 发送 · ⌘K 命令 · ⌃C 中断</span>
               <button
                 aria-label={promptBusy ? "发送中" : "发送消息"}
@@ -7981,11 +8190,27 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return tokens.length ? Object.fromEntries(tokens) : undefined;
   }, [themeStudioData]);
   const activeTheme = typeof themeStudioData?.theme === "string" ? themeStudioData.theme : undefined;
-  const useCommand = (value: string) => {
-    setDraft(value);
-    setCommandOpen(false);
-    setCommandQuery("");
-  };
+  const insertCommand = useCallback(
+    (value: string) => {
+      const input = promptInputRef.current;
+      // selectionStart is read off the field instead of the promptCaret state because the state goes stale as soon as the caret is moved with the mouse, while the field keeps reporting its caret after a dialog blurs it.
+      const replacement = insertCommandDraft(draft, input?.selectionStart ?? draft.length, value);
+      setDraft(replacement.text);
+      setPromptCaret(replacement.caret);
+      setPromptCompletionSuppressed(false);
+      setCommandOpen(false);
+      setCommandQuery("");
+      // useModalFocus returns focus to whatever was focused before the dialog opened, and it does that in its own animation frame during unmount, so the composer takes focus back one frame later instead of being overwritten.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const target = promptInputRef.current;
+          target?.focus();
+          target?.setSelectionRange(replacement.caret, replacement.caret);
+        }),
+      );
+    },
+    [draft],
+  );
   return (
     <div className="app-frame" data-theme={activeTheme} style={themeStyle}>
       <aside className="sidebar">
@@ -8025,7 +8250,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setCommandIndex((index) => (index - 1 + visibleCommands.length) % visibleCommands.length);
                 } else if (event.key === "Enter" && visibleCommands.length) {
                   event.preventDefault();
-                  useCommand(`/${visibleCommands[commandIndex]?.invocationName ?? ""}`);
+                  insertCommand(`/${visibleCommands[commandIndex]?.invocationName ?? ""}`);
                 }
               }}
               placeholder={commandOpen ? "输入命令名称或描述" : "搜索会话 · ⌘K 命令"}
@@ -8038,7 +8263,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 activeIndex={commandIndex}
                 commands={data.commands}
                 onActiveIndexChange={setCommandIndex}
-                onUse={useCommand}
+                onUse={insertCommand}
                 query={commandQuery}
               />
             )}
@@ -8472,17 +8697,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <div className="run-indicator running">
               <span className="run-dot"></span>
               <span>运行中 · Pi agent</span>
-              <button
-                className="stop-button"
-                onClick={() => {
-                  setPromptError("");
-                  void api
-                    .abort()
-                    .then(refresh)
-                    .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
-                }}
-                type="button"
-              >
+              <button className="stop-button" onClick={stopRun} title="停止当前运行（⌃C）" type="button">
                 停止
               </button>
             </div>
@@ -8648,7 +8863,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             setDetails({ type: "file", path: file.path, status: file.status });
           }}
           onOpenSession={openSession}
-          onUse={setDraft}
+          onUse={insertCommand}
           sessions={data.sessions}
         />
       )}

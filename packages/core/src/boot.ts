@@ -181,11 +181,19 @@ const FIBER_PENDING = 0 as FiberState.PENDING;
 const FIBER_ACTIVE = 2 as FiberState.ACTIVE;
 const FIBER_FAILED = 3 as FiberState.FAILED;
 
+/** Startup failures are read by a user whose profile is misconfigured, and Cordis loader and fiber frames tell that user nothing they can act on, so the frames are kept behind PI_HARNESS_DEBUG=1 and the message chain alone is reported by default. */
 function formatError(error: unknown): string {
   if (error instanceof AggregateError) return error.errors.map(formatError).join("\n");
   if (!(error instanceof Error)) return String(error);
-  const own = error.stack ?? error.message;
+  const own = process.env.PI_HARNESS_DEBUG === "1" ? (error.stack ?? error.message) : describeError(error);
   return error.cause === undefined ? own : `${own}\ncaused by: ${formatError(error.cause)}`;
+}
+
+/** Dropping the frames also drops the constructor name the stack led with, so a `TypeError` keeps it here, and an error thrown with no message at all reports its name rather than nothing. */
+function describeError(error: Error): string {
+  const name = error.name === "" ? "Error" : error.name;
+  if (error.message === "") return name;
+  return name === "Error" ? error.message : `${name}: ${error.message}`;
 }
 
 async function assertEntriesActivated(context: Context): Promise<void> {

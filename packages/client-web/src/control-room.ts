@@ -1,5 +1,7 @@
 export interface ClientStatus {
   readonly status: string;
+  /** Identifies the harness process answering this console, so state the console holds on behalf of the next start can be dropped once that start has happened. */
+  readonly processStartedAt?: string;
   readonly model: string;
   readonly messages: number;
   readonly events: number;

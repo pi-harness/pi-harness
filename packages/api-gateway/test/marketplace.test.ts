@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   MARKETPLACE_CAPABILITIES,
   MARKETPLACE_CATEGORIES,
@@ -656,6 +656,104 @@ describe("plugin marketplace registry", () => {
       new Map([["@deepseek-ai/cordis-plugin-timer", { downloads30d: 1_000, quality: 0.9, updatedAt: "2026-08-30T13:14:00.557Z" }]]),
     );
     expect(requests).toBe(3);
+  });
+
+  test("serves the statistics already cached and warms the missing ones in the background", async () => {
+    const requests: string[] = [];
+    const fetcher = (url: string): Promise<Response> => {
+      requests.push(url);
+      if (url.startsWith("https://registry.npmjs.org/-/v1/search"))
+        return Promise.resolve(
+          Response.json({
+            objects: [
+              {
+                package: { name: new URL(url).searchParams.get("text"), date: "2026-08-30T13:14:00.557Z" },
+                score: { detail: { quality: 0.9 } },
+              },
+            ],
+          }),
+        );
+      return Promise.resolve(Response.json({ downloads: 4_200 }));
+    };
+    const load = createMarketplaceStatisticsLoader({ fetcher, ttlMs: 60_000 });
+    const plugin = MARKETPLACE_PLUGINS.find((item) => item.id === "cordis-timer")!;
+
+    expect(load.readCached([plugin])).toEqual({ ready: false, statistics: new Map() });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+
+    expect(load.readCached([plugin])).toEqual({
+      ready: true,
+      statistics: new Map([["@deepseek-ai/cordis-plugin-timer", { downloads30d: 4_200, quality: 0.9, updatedAt: "2026-08-30T13:14:00.557Z" }]]),
+    });
+    expect(requests).toHaveLength(2);
+  });
+
+  test("stays ready once a lookup has expired so the catalogue is not reordered back to its unsorted form mid-session", async () => {
+    let timestamp = 1_000;
+    const fetcher = (url: string): Promise<Response> => {
+      if (url.startsWith("https://registry.npmjs.org/-/v1/search"))
+        return Promise.resolve(Response.json({ objects: [{ package: { name: "@deepseek-ai/cordis-plugin-timer" }, score: { detail: { quality: 0.5 } } }] }));
+      return Promise.resolve(Response.json({ downloads: 10 }));
+    };
+    const load = createMarketplaceStatisticsLoader({ fetcher, now: () => timestamp, ttlMs: 100 });
+    const plugin = MARKETPLACE_PLUGINS.find((item) => item.id === "cordis-timer")!;
+
+    await load([plugin]);
+    timestamp += 101;
+
+    // The entry is stale and is refreshed in the background, but it has been looked up, so the caller keeps sorting on statistics instead of dropping the whole grid back to catalogue order for one poll.
+    const cached = load.readCached([plugin]);
+    expect(cached.ready).toBe(true);
+    expect(cached.statistics.size).toBe(0);
+  });
+
+  test("keeps the npm fan-out below the configured concurrency instead of asking for every package at once", async () => {
+    let active = 0;
+    let peak = 0;
+    const fetcher = async (): Promise<Response> => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      active -= 1;
+      return Response.json({ objects: [] });
+    };
+    const base = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "cordis-timer")!;
+    const plugins = Array.from({ length: 12 }, (_, index) => ({ ...base, id: `bulk-${index}`, packageName: `bulk-package-${index}` }));
+    const load = createMarketplaceStatisticsLoader({ concurrency: 3, fetcher });
+
+    await load(plugins);
+
+    expect(peak).toBe(3);
+  });
+
+  test("backs off further on every consecutive npm failure so an open console stops re-issuing the same lookups", async () => {
+    let timestamp = 1_000;
+    let requests = 0;
+    const fetcher = (): Promise<Response> => {
+      requests += 1;
+      throw new Error("npm unavailable");
+    };
+    const load = createMarketplaceStatisticsLoader({ failureMaxTtlMs: 400, failureTtlMs: 100, fetcher, now: () => timestamp });
+    const plugin = MARKETPLACE_PLUGINS.find((item) => item.id === "cordis-timer")!;
+
+    await load([plugin]);
+    timestamp += 101;
+    await load([plugin]);
+    expect(requests).toBe(2);
+
+    // The second failure doubles the retry window, so the poll that would have retried under a flat window finds the cache still valid.
+    timestamp += 101;
+    await load([plugin]);
+    expect(requests).toBe(2);
+
+    timestamp += 100;
+    await load([plugin]);
+    expect(requests).toBe(3);
+
+    // The window is capped rather than doubling forever, so the package is retried again once the ceiling elapses.
+    timestamp += 401;
+    await load([plugin]);
+    expect(requests).toBe(4);
   });
 
   test("sorts recommendations before pagination using verification, npm quality, downloads and recency", () => {

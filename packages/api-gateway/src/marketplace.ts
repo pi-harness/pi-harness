@@ -29,11 +29,25 @@ export interface MarketplaceStatistics {
 export type MarketplaceStatisticsFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface MarketplaceStatisticsLoaderOptions {
+  readonly concurrency?: number;
+  readonly failureMaxTtlMs?: number;
   readonly failureTtlMs?: number;
   readonly fetcher?: MarketplaceStatisticsFetcher;
   readonly now?: () => number;
   readonly timeoutMs?: number;
   readonly ttlMs?: number;
+}
+
+export interface MarketplaceCachedStatistics {
+  /** False until every catalogued package has been looked up once. A caller that reorders on statistics uses this to reorder once, when the set is complete, rather than on every poll while the background warm-up trickles in. */
+  readonly ready: boolean;
+  readonly statistics: ReadonlyMap<string, MarketplaceStatistics>;
+}
+
+export interface MarketplaceStatisticsLoader {
+  (plugins: readonly MarketplacePlugin[]): Promise<ReadonlyMap<string, MarketplaceStatistics>>;
+  // Returns only what is already cached and warms the misses in the background, so a request never waits on the npm registry.
+  readonly readCached: (plugins: readonly MarketplacePlugin[]) => MarketplaceCachedStatistics;
 }
 
 interface NpmPackageStatisticsResult {
@@ -199,35 +213,82 @@ async function fetchNpmPackageStatistics(packageName: string, fetcher: Marketpla
   return { failed, statistics };
 }
 
-export function createMarketplaceStatisticsLoader(options: MarketplaceStatisticsLoaderOptions = {}) {
+export function createMarketplaceStatisticsLoader(options: MarketplaceStatisticsLoaderOptions = {}): MarketplaceStatisticsLoader {
   const fetcher = options.fetcher ?? ((url: string, init?: RequestInit) => globalThis.fetch(url, init));
   const failureTtlMs = options.failureTtlMs ?? 60_000;
+  // Consecutive failures double the retry window up to this ceiling: an open console polls the catalog every few seconds, so a flat failure window would send one registry lookup per catalogued package every minute for as long as the tab stays open.
+  const failureMaxTtlMs = options.failureMaxTtlMs ?? 30 * 60_000;
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? 3_000;
   const ttlMs = options.ttlMs ?? 6 * 60 * 60 * 1_000;
-  const cache = new Map<string, { readonly expiresAt: number; readonly result: NpmPackageStatisticsResult }>();
+  // The registry answers an unthrottled fan-out over the whole catalogue with 429s, so lookups queue behind a small number of slots instead of leaving at once.
+  const concurrency = Math.max(1, Math.trunc(options.concurrency ?? 4));
+  const cache = new Map<string, { readonly expiresAt: number; readonly failures: number; readonly result: NpmPackageStatisticsResult }>();
   const inFlight = new Map<string, Promise<NpmPackageStatisticsResult>>();
+  const waiting: (() => void)[] = [];
+  let active = 0;
+  const acquireSlot = async (): Promise<void> => {
+    if (active < concurrency) {
+      active += 1;
+      return;
+    }
+    await new Promise<void>((resolveSlot) => waiting.push(resolveSlot));
+  };
+  const releaseSlot = (): void => {
+    const next = waiting.shift();
+    if (next === undefined) active -= 1;
+    else next();
+  };
+  const failureTtl = (failures: number): number => Math.min(failureTtlMs * 2 ** Math.min(failures - 1, 20), failureMaxTtlMs);
   const loadPackage = async (packageName: string): Promise<NpmPackageStatisticsResult> => {
     const timestamp = now();
     const cached = cache.get(packageName);
     if (cached !== undefined && cached.expiresAt > timestamp) return cached.result;
     const pending = inFlight.get(packageName);
     if (pending !== undefined) return pending;
-    const request = fetchNpmPackageStatistics(packageName, fetcher, timeoutMs);
+    // The slot is taken inside the promise so the in-flight entry is still registered synchronously and concurrent callers keep sharing one request.
+    const request = (async () => {
+      await acquireSlot();
+      try {
+        return await fetchNpmPackageStatistics(packageName, fetcher, timeoutMs);
+      } finally {
+        releaseSlot();
+      }
+    })();
     inFlight.set(packageName, request);
     try {
       const result = await request;
-      cache.set(packageName, { expiresAt: now() + (result.failed ? failureTtlMs : ttlMs), result });
+      const failures = result.failed ? (cached?.failures ?? 0) + 1 : 0;
+      cache.set(packageName, { expiresAt: now() + (result.failed ? failureTtl(failures) : ttlMs), failures, result });
       return result;
     } finally {
       if (inFlight.get(packageName) === request) inFlight.delete(packageName);
     }
   };
-  return async (plugins: readonly MarketplacePlugin[]): Promise<ReadonlyMap<string, MarketplaceStatistics>> => {
-    const packageNames = [...new Set(plugins.map((plugin) => marketplaceNpmPackageName(plugin.packageName)))].sort();
-    const entries = await Promise.all(packageNames.map(async (packageName) => [packageName, await loadPackage(packageName)] as const));
+  const packageNames = (plugins: readonly MarketplacePlugin[]): readonly string[] =>
+    [...new Set(plugins.map((plugin) => marketplaceNpmPackageName(plugin.packageName)))].sort();
+  const load = async (plugins: readonly MarketplacePlugin[]): Promise<ReadonlyMap<string, MarketplaceStatistics>> => {
+    const entries = await Promise.all(packageNames(plugins).map(async (packageName) => [packageName, await loadPackage(packageName)] as const));
     return new Map(entries.flatMap(([packageName, result]) => (result.statistics === undefined ? [] : [[packageName, result.statistics] as const])));
   };
+  const readCached = (plugins: readonly MarketplacePlugin[]): MarketplaceCachedStatistics => {
+    const timestamp = now();
+    const statistics = new Map<string, MarketplaceStatistics>();
+    // Readiness tracks whether a package has ever been looked up, not whether its entry is fresh, so an expiring entry refreshes in the background without dropping the catalogue back to an unsorted order.
+    let ready = true;
+    for (const packageName of packageNames(plugins)) {
+      const cached = cache.get(packageName);
+      if (cached === undefined) ready = false;
+      if (cached !== undefined && cached.expiresAt > timestamp) {
+        if (cached.result.statistics !== undefined) statistics.set(packageName, cached.result.statistics);
+        continue;
+      }
+      // A prewarm has nobody to report to, and a catalogue sorted without npm statistics is not worth crashing the process over an unhandled rejection.
+      void loadPackage(packageName).catch(() => {});
+    }
+    return { ready, statistics };
+  };
+  return Object.assign(load, { readCached });
 }
 
 export function attachMarketplaceStatistics(

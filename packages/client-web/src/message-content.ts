@@ -29,6 +29,7 @@ export interface ChatTurn {
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly thinking: string;
+  readonly stopped: boolean;
 }
 
 export function projectChatTurns(messages: readonly Record<string, unknown>[]): readonly ChatTurn[] {
@@ -39,12 +40,21 @@ export function projectChatTurns(messages: readonly Record<string, unknown>[]): 
     if (!role) continue;
     const text = messageText(message);
     const thinking = role === "assistant" ? messageThinking(message) : "";
-    if (!text && !thinking) continue;
+    // The runtime records an interrupted run on the message it closed, and that message often carries no content at all, so the flag is carried over to the turn it belongs to instead of being dropped along with the empty text.
+    const stopped = role === "assistant" && message.stopReason === "aborted";
     const previous = turns.at(-1);
+    if (!text && !thinking) {
+      if (!stopped) continue;
+      // An interrupt that lands before the model has written anything belongs to a turn of its own: without one the user sees their prompt followed by nothing, with no sign that the run ended rather than stalled.
+      if (previous?.role === "assistant") turns[turns.length - 1] = { ...previous, stopped: true };
+      else turns.push({ role, text, thinking, stopped });
+      continue;
+    }
     if (role === "assistant" && previous?.role === "assistant") {
-      turns[turns.length - 1] = { role, text: previous.text + text, thinking: previous.thinking + thinking };
+      // The merged turn keeps the flag either part carried: an interrupted run whose last message happens to be a normal one is still an interrupted run.
+      turns[turns.length - 1] = { role, text: previous.text + text, thinking: previous.thinking + thinking, stopped: previous.stopped || stopped };
     } else {
-      turns.push({ role, text, thinking });
+      turns.push({ role, text, thinking, stopped });
     }
   }
   return turns;

@@ -70,10 +70,18 @@ const processExit = new Promise<void>((resolve) => {
 });
 let harness: Awaited<ReturnType<typeof bootHarness>> | undefined;
 const exitCodeFor = (signal: NodeJS.Signals): number => (signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143);
+// The Cordis loader wraps this failure in its own entry path and stack, none of which a user with an unprovisioned agent directory can act on, so the recognized case reports the remedy first and keeps exactly one line naming the model that is missing. Every other failure is still reported in full, because nothing here knows what it means.
+const UNREGISTERED_EVERYAPI_MODEL = /Pi model is not registered: (everyapi\/[^\s"'`,;)\]]+)/u;
+// This launcher takes no arguments and has no help output, so the one place a user can learn that the frames are still available is the failure that dropped them.
+const DEBUG_HINT = "Set PI_HARNESS_DEBUG=1 and start again to keep the stack frames.";
 const formatStartupError = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
-  if (!/Pi model is not registered: everyapi\//u.test(message)) return message;
-  return `${message}\n\nThe EveryAPI model catalog is not provisioned in PI_AGENT_DIR. Start with \`everyapi use pi-harness\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
+  const debug = process.env.PI_HARNESS_DEBUG === "1";
+  const unregistered = UNREGISTERED_EVERYAPI_MODEL.exec(message);
+  if (unregistered === null) return debug ? message : `${message}\n${DEBUG_HINT}`;
+  const remedy = `The EveryAPI model catalog is not provisioned in PI_AGENT_DIR. Start with \`everyapi use pi-harness\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
+  // Under the debug flag the message already carries the frames bootHarness kept, and a reader who asked for them wants the remedy as well as the detail, not instead of it.
+  return debug ? `${remedy}\n${message}` : `${remedy}\nPi model is not registered: ${unregistered[1]}`;
 };
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   if (shuttingDown) return;
