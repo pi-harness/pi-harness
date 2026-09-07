@@ -54,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Выборочный каталог плагинов, конфигурация, все маршруты HTTP API, ограничения и границы безопасности описаны в [английской справке](README.reference.md). Core содержит больше плагинов, чем описано в этом каталоге: полный набор — [`packages/core/src/plugins`](../packages/core/src/plugins), а список включённых веб-консолью по умолчанию — [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml).
+Выборочный каталог плагинов, конфигурация, все маршруты HTTP API, ограничения и границы безопасности описаны в [английской справке](README.reference.md). Core содержит больше плагинов, чем описано в этом каталоге: полный набор — [`packages/plugins`](../packages/plugins), а список включённых веб-консолью по умолчанию — [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml).
 
 ## Лицензия
 

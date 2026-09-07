@@ -6,6 +6,7 @@ import Group from "@deepseek-ai/cordis-plugin-group";
 import Include from "@deepseek-ai/cordis-plugin-include";
 import Loader, { type EntryOptions } from "@deepseek-ai/cordis-plugin-loader";
 import HardenedTimerService from "./cordis-timer.js";
+import { resolvePluginEntry } from "./plugin-resolve.js";
 
 const maxLoaderEntries = 512;
 const maxLoaderGroupDepth = 16;
@@ -144,12 +145,14 @@ class ReadonlyInclude extends Include {
     if (isTimerSpecifier(name)) return HardenedTimerService;
     if (this.ctx.loader.internal !== undefined || name.startsWith("cordis:") || name.startsWith(".") || name.startsWith("/") || name.includes("://"))
       return super.import(name, getOuterStack);
-    let resolved: string;
+    let resolved: string | undefined;
     try {
       resolved = createRequire(this.filename).resolve(name);
     } catch {
-      return super.import(name, getOuterStack);
+      // The CJS resolver reports a package whose "exports" declares no "require" condition as not exported, which is every ESM-only plugin, so a marketplace package installed beside the profile has to be located under the import conditions instead of being handed straight to the loader.
+      resolved = resolvePluginEntry(this.filename, name);
     }
+    if (resolved === undefined) return super.import(name, getOuterStack);
     return super.import(pathToFileURL(resolved).href, getOuterStack);
   }
 }

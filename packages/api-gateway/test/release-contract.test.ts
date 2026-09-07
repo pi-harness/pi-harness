@@ -70,7 +70,8 @@ describe("release contract", () => {
 
   test("prepack builds every workspace that a root bin points at", () => {
     const root = readJson("package.json") as { bin: Record<string, string>; scripts: Record<string, string> };
-    expect(root.scripts.prepack).toBe("npm run build:web");
+    // The rest of prepack prepares the manifests the tarball ships, which package-install.test.ts owns; this test only cares that the build still runs before anything is packed.
+    expect(root.scripts.prepack).toContain("npm run build:web");
     const built = [...root.scripts["build:web"]!.matchAll(/npm run build -w (\S+)/gu)].map((match) => match[1]);
     for (const target of Object.values(root.bin)) expect(built, `${target} is not built by build:web`).toContain(workspaceNameFor(target));
     expect(built.indexOf("@pi-harness/core")).toBeLessThan(built.indexOf("@pi-harness/cli"));

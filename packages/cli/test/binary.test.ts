@@ -10,7 +10,11 @@ const BIN = join(import.meta.dirname, "..", "dist", "bin.js");
 
 async function pih(args: string[], cwd: string, agentDir: string): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
-    const result = await run(process.execPath, [BIN, ...args], { cwd, env: { ...process.env, PI_AGENT_DIR: agentDir }, timeout: 30_000 });
+    const result = await run(process.execPath, [BIN, ...args], {
+      cwd,
+      env: { ...process.env, PI_AGENT_DIR: agentDir, PI_HARNESS_HOME: join(agentDir, "harness-home") },
+      timeout: 30_000,
+    });
     return { ...result, code: 0 };
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; code?: number };

@@ -22,7 +22,7 @@ describe("broken output pipe", () => {
 
     const producer = spawn(process.execPath, [BIN, "--config", configPath, "--prompt", "hi"], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, PI_AGENT_DIR: directory },
+      env: { ...process.env, PI_AGENT_DIR: directory, PI_HARNESS_HOME: join(directory, "harness-home") },
     });
     let stderr = "";
     producer.stderr.setEncoding("utf8");

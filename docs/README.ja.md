@@ -54,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-抜粋されたプラグインカタログ、設定、すべての HTTP API ルート、制限事項、セキュリティ境界は [英語の完全リファレンス](README.reference.md) を参照してください。core にはカタログが説明するより多くのプラグインが同梱されています。完全な一覧は [`packages/core/src/plugins`](../packages/core/src/plugins)、Web コンソールが既定で有効化するものは [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) です。
+抜粋されたプラグインカタログ、設定、すべての HTTP API ルート、制限事項、セキュリティ境界は [英語の完全リファレンス](README.reference.md) を参照してください。core にはカタログが説明するより多くのプラグインが同梱されています。完全な一覧は [`packages/plugins`](../packages/plugins)、Web コンソールが既定で有効化するものは [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) です。
 
 ## ライセンス
 

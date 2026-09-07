@@ -671,7 +671,7 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
-// The loader resolves a bare plugin specifier from the profile file upwards (`createRequire(profilePath).resolve(name)`), never from the shell the harness was started in, so a marketplace package has to land in the package that owns the profile or it installs successfully and then fails to load.
+// The loader resolves a bare plugin specifier by walking node_modules from the profile file upwards, never from the shell the harness was started in, so a marketplace package has to land in the package that owns the profile or it installs successfully and then fails to load. Under a built-in profile that package is the harness home, which is why the launcher boots a copy there instead of the read-only one inside its own installation.
 async function marketplaceInstallDirectory(configPath: string, fallback: string): Promise<string> {
   let directory = dirname(resolve(configPath));
   let parent = dirname(directory);

@@ -44,6 +44,7 @@ async function runLauncher(
   probe?: (consoleUrl: string) => Promise<void>,
 ): Promise<LauncherRun> {
   const agentDir = await makeTempDir("agent");
+  const harnessHome = await makeTempDir("home");
   const child = spawn(process.execPath, [BIN], {
     stdio: ["ignore", "pipe", "pipe"],
     ...(spawnCwd === undefined ? {} : { cwd: spawnCwd }),
@@ -51,6 +52,7 @@ async function runLauncher(
       ...process.env,
       PI_HARNESS_PORT: "0",
       PI_AGENT_DIR: agentDir,
+      PI_HARNESS_HOME: harnessHome,
       PI_HARNESS_PROVIDER: "anthropic",
       PI_HARNESS_MODEL: "claude-sonnet-4-5",
       ...extraEnv,
@@ -95,12 +97,14 @@ async function runLauncher(
 // Runs the built launcher until it exits on its own, for the startup guards that must abort before a console URL is ever printed.
 async function runLauncherToExit(extraEnv: Record<string, string>): Promise<LauncherExit> {
   const agentDir = await makeTempDir("guard");
+  const harnessHome = await makeTempDir("guard-home");
   const child = spawn(process.execPath, [BIN], {
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
       PI_HARNESS_PORT: "0",
       PI_AGENT_DIR: agentDir,
+      PI_HARNESS_HOME: harnessHome,
       PI_HARNESS_PROVIDER: "anthropic",
       PI_HARNESS_MODEL: "claude-sonnet-4-5",
       PI_HARNESS_DISABLE_UPDATE_CHECK: "1",
@@ -198,6 +202,7 @@ describe("web launcher", () => {
 
   test("keeps serving and shuts down gracefully when a closed stdout pipe breaks the console URL write", async () => {
     const agentDir = await makeTempDir("epipe");
+    const harnessHome = await makeTempDir("epipe-home");
     const port = await reserveLoopbackPort();
     const child = spawn(process.execPath, [BIN], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -205,6 +210,7 @@ describe("web launcher", () => {
         ...process.env,
         PI_HARNESS_PORT: String(port),
         PI_AGENT_DIR: agentDir,
+        PI_HARNESS_HOME: harnessHome,
         PI_HARNESS_PROVIDER: "anthropic",
         PI_HARNESS_MODEL: "claude-sonnet-4-5",
         PI_HARNESS_DISABLE_UPDATE_CHECK: "1",
