@@ -249,6 +249,9 @@ const capability = (name: string): string => {
   ];
   return entries.find(([needle]) => name.includes(needle))?.[1] ?? "运行时";
 };
+// The runtime leases the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools joins on the next start rather than immediately.
+const RESTART_REQUIRED_NOTICE = "已写入 profile，重启 Pi Harness 后生效。";
+
 const displayPluginName = (name: string): string => {
   const officialName = new Map([
     ["@pi-harness/plugin-context", "Context insights"],
@@ -5091,7 +5094,7 @@ function Plugins({
   onMarketplace: () => void;
   onOpenDetail: (plugin: ClientPlugin) => void;
   onToml: () => void;
-  onToggle: (plugin: ClientPlugin) => Promise<void>;
+  onToggle: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean }>;
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const catalogByPackage = useMemo(() => new Map(catalog.map((plugin) => [plugin.packageName, plugin])), [catalog]);
@@ -5101,6 +5104,7 @@ function Plugins({
   const [categoryFilter, setCategoryFilter] = useState("");
   const [busyPlugin, setBusyPlugin] = useState<string>();
   const [pluginError, setPluginError] = useState("");
+  const [pluginNotice, setPluginNotice] = useState("");
   const [pendingUninstall, setPendingUninstall] = useState<ClientPlugin>();
   const scrollRef = useRef<HTMLDivElement>(null);
   const installedCategories = useMemo(() => {
@@ -5135,11 +5139,13 @@ function Plugins({
   useEffect(() => {
     if (categoryFilter && !installedCategories.some((category) => category.id === categoryFilter)) setCategoryFilter("");
   }, [categoryFilter, installedCategories]);
-  const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<void>): Promise<boolean> => {
+  const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean } | void>): Promise<boolean> => {
     setPluginError("");
+    setPluginNotice("");
     setBusyPlugin(plugin.id);
     try {
-      await action(plugin);
+      const result = await action(plugin);
+      if (result?.restartRequired === true) setPluginNotice(RESTART_REQUIRED_NOTICE);
       return true;
     } catch (error) {
       setPluginError(error instanceof Error ? error.message : String(error));
@@ -5265,6 +5271,7 @@ function Plugins({
             ) : null}
           </div>
           {pluginError && <p className="plugin-action-error">{pluginError}</p>}
+          {pluginNotice && <p className="plugin-action-notice">{pluginNotice}</p>}
           {panels.length > installedPlugins.length && (
             <section className="mt-4 border-t border-[#e3e7ee] pt-4">
               <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -5314,18 +5321,21 @@ function InstalledPluginDetail({
   panel?: ClientPluginPanel;
   metadata?: ClientMarketplacePlugin;
   onBack: () => void;
-  onToggle: (plugin: ClientPlugin) => Promise<void>;
+  onToggle: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean }>;
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const [busyAction, setBusyAction] = useState<"toggle" | "uninstall">();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState(false);
   const title = metadata?.name ?? displayPluginName(plugin.name);
-  const run = async (action: "toggle" | "uninstall", callback: () => Promise<void>) => {
+  const run = async (action: "toggle" | "uninstall", callback: () => Promise<{ restartRequired?: boolean } | void>) => {
     setError("");
+    setNotice("");
     setBusyAction(action);
     try {
-      await callback();
+      const result = await callback();
+      if (result?.restartRequired === true) setNotice(RESTART_REQUIRED_NOTICE);
       return true;
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -5401,6 +5411,11 @@ function InstalledPluginDetail({
             {error && (
               <p className="mt-3 text-[12px] text-[#b42318]" role="alert">
                 操作失败：{error}
+              </p>
+            )}
+            {notice && (
+              <p className="mt-3 text-[12px] text-[#8a5a00]" role="status">
+                {notice}
               </p>
             )}
           </header>
@@ -5540,7 +5555,7 @@ function Marketplace({
     setInstalling(plugin.id);
     try {
       const result = await onInstall(plugin);
-      if (result.restartRequired === true) setInstallNotice("已写入 profile，重启 Pi Harness 后生效。");
+      if (result.restartRequired === true) setInstallNotice(RESTART_REQUIRED_NOTICE);
     } catch (error) {
       setInstallError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -5721,7 +5736,7 @@ function MarketplaceDetail({
     setBusy(true);
     try {
       const result = await onInstall(plugin);
-      if (result.restartRequired === true) setNotice("已写入 profile，重启 Pi Harness 后生效。");
+      if (result.restartRequired === true) setNotice(RESTART_REQUIRED_NOTICE);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -7563,8 +7578,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       metadata={installedPluginMetadata}
       onBack={() => pushInstalledPluginRoute(undefined)}
       onToggle={async (plugin) => {
-        await api.togglePlugin(plugin.id, !plugin.enabled);
+        const result = await api.togglePlugin(plugin.id, !plugin.enabled);
         await refresh();
+        return result;
       }}
       onUninstall={async (plugin) => {
         await api.uninstallPlugin(plugin.id);
@@ -7603,8 +7619,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         setSettings("toml");
       }}
       onToggle={async (plugin) => {
-        await api.togglePlugin(plugin.id, !plugin.enabled);
+        const result = await api.togglePlugin(plugin.id, !plugin.enabled);
         await refresh();
+        return result;
       }}
       onUninstall={async (plugin) => {
         await api.uninstallPlugin(plugin.id);

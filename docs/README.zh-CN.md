@@ -62,7 +62,7 @@ npm run build
 
 主包和独立的 `@pi-harness/core` 都可发布。只修复内置插件时，发布兼容的 core patch 版本即可；主包通过 `^0.1.x` 依赖获取更新。
 
-节选的插件目录、配置示例、全部 HTTP API 路由、资源限制和安全边界请参阅 [英文完整参考](README.reference.md)。core 附带的插件比该目录收录的更多：[`packages/plugins`](../packages/plugins) 是完整集合，[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) 是 Web 控制台默认启用的清单。
+节选的插件目录、配置示例、全部 HTTP API 路由、资源限制和安全边界请参阅 [英文完整参考](README.reference.md)。core 附带的插件比该目录收录的更多：[`packages/plugins`](../packages/plugins) 是完整集合，其中每个插件都和社区插件一样从插件中心安装。全新安装只启用基础设施，也就是 [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) 的内容。
 
 ## 许可证
 

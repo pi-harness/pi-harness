@@ -10,7 +10,7 @@ import timerPlugin from "@deepseek-ai/cordis-plugin-timer";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import webServerPlugin from "@pi-harness/host-webserver";
-import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/core";
+import { PiPluginUiRegistry, PiToolRegistry, PiToolRegistryLeasedError } from "@pi-harness/core";
 import type { MarketplacePlugin } from "../src/marketplace.js";
 import apiPlugin from "../src/index.js";
 import type * as FsPromises from "node:fs/promises";
@@ -2190,10 +2190,165 @@ describe("API gateway plugin", () => {
     }
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ installed: true, plugin: { id: "skill-guard" } });
+    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: false, plugin: { id: "skill-guard" } });
     expect((await readFile(npmLog, "utf8")).trim()).toMatch(/^install --save-exact --package-lock=false @pi-harness\/plugin-skill-guard@\d/u);
     expect(created).toEqual([expect.objectContaining({ name: "@pi-harness/plugin-skill-guard" })]);
     await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/plugin-skill-guard"');
+  });
+
+  // A plugin registers its tools while it activates, and pi-runtime takes the tool registry when it activates, so an installed entry only works if it sits ahead of the runtime inside the runtime's own group.
+  test("installs a marketplace plugin into the runtime's group ahead of the runtime", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-placement-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    await writeFile(
+      configPath,
+      '- id: agent\n  name: cordis:group\n  group: true\n  config:\n    - id: tools\n      name: "@pi-harness/core/plugins/tools"\n      config: {}\n    - id: runtime\n      name: "@pi-harness/core/plugins/runtime"\n      config: {}\n',
+      "utf8",
+    );
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-placement-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const runtimeOptions = { id: "runtime", name: "@pi-harness/core/plugins/runtime", config: {} };
+    const runtimeGroup = { data: [{ id: "tools", name: "@pi-harness/core/plugins/tools", config: {} }, runtimeOptions] };
+    const loaderEntries = [
+      // The loader addresses a nested group by its qualified id, while the profile file names the same entry by its own id.
+      { id: "profile:agent", options: { id: "agent", name: "cordis:group" }, subgroup: runtimeGroup },
+      { id: "profile:runtime", options: runtimeOptions, parent: runtimeGroup },
+    ];
+    const created: Array<[unknown, unknown, unknown]> = [];
+    context.reflect.provide("loader", {
+      entries: () => loaderEntries,
+      create: (options: unknown, parent: unknown, position: unknown) => {
+        created.push([options, parent, position]);
+        return Promise.resolve("marketplace-entry");
+      },
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "skill-guard" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: false });
+    expect(created).toEqual([[expect.objectContaining({ id: "marketplace-skill-guard", name: "@pi-harness/plugin-skill-guard" }), "profile:agent", 1]]);
+    await expect(readFile(configPath, "utf8")).resolves.toBe(
+      '- id: agent\n  name: cordis:group\n  group: true\n  config:\n    - id: tools\n      name: "@pi-harness/core/plugins/tools"\n      config: {}\n    - id: marketplace-skill-guard\n      name: "@pi-harness/plugin-skill-guard"\n      config: {}\n    - id: runtime\n      name: "@pi-harness/core/plugins/runtime"\n      config: {}\n',
+    );
+  });
+
+  // The runtime snapshots the tool set when it takes the registry, so a plugin that contributes tools cannot join a harness that is already running. Rolling the install back would leave the user unable to install it at all, so the package and the profile row stay and the console asks for a restart.
+  test("keeps an installed plugin in place when the runtime already leased the tool registry", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-leased-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness", "dependencies": {} }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-leased-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const removed: string[] = [];
+    context.reflect.provide("loader", {
+      entries: () => [],
+      create: () => Promise.resolve("marketplace-entry"),
+      // The loader wraps an activation failure in its own error chain, which is what the gateway has to see through.
+      resolve: () => ({
+        fiber: {
+          await: () => Promise.reject(new Error("failed to apply loader entry", { cause: new PiToolRegistryLeasedError("skill_scan") })),
+        },
+      }),
+      remove: (id: string) => {
+        removed.push(id);
+        return Promise.resolve();
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "skill-guard" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: true, plugin: { id: "skill-guard" } });
+    expect(removed).toEqual(["marketplace-entry"]);
+    await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/plugin-skill-guard"');
+    await expect(readFile(join(directory, "package.json"), "utf8")).resolves.toBe('{ "name": "harness", "dependencies": {} }\n');
+  });
+
+  // Reverting the profile here would leave a plugin that can be switched off but never on again, so the change stays and the plugin comes back on the next start.
+  test("keeps a re-enabled plugin enabled in the profile when the runtime already leased the tool registry", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-toggle-leased-"));
+    temporaryDirectories.push(directory);
+    const configPath = join(directory, "profile.yml");
+    const loaderEntry = {
+      id: "profile:marketplace-skill-guard",
+      options: { id: "marketplace-skill-guard", name: "@pi-harness/plugin-skill-guard", config: {} },
+      update: () => Promise.reject(new Error("failed to apply loader entry", { cause: new PiToolRegistryLeasedError("skill_scan") })),
+    };
+    await writeFile(
+      configPath,
+      '- id: marketplace-skill-guard\n  name: "@pi-harness/plugin-skill-guard"\n  disabled: true\n  config: {}\n- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n',
+      "utf8",
+    );
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "plugin-toggle-leased-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", {
+      *entries() {
+        yield loaderEntry;
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "marketplace-skill-guard", enabled: true }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ restartRequired: true, plugin: { id: "marketplace-skill-guard" } });
+    await expect(readFile(configPath, "utf8")).resolves.not.toContain("disabled: true");
   });
 
   test("locks marketplace installation before reading a request body", async () => {

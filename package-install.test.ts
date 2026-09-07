@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 const root = dirname(fileURLToPath(import.meta.url));
 
-// Every profile the tarball ships. A profile entry names a package by its bare specifier, so the loader can only import it if the launcher installed it, which is what makes these files part of the dependency contract rather than mere configuration.
+// Every profile the tarball ships. A profile entry names a package by its bare specifier, so the loader can only import it if the launcher installed it, which is what makes these files part of the distribution contract rather than mere configuration.
 const shippedProfiles = [
   "apps/web/profile/cordis.yml",
   ...readdirSync(join(root, "packages/cli/profiles")).map((name) => `packages/cli/profiles/${name}/cordis.yml`),
@@ -15,7 +15,7 @@ const shippedProfiles = [
 
 // The profile carries !!js tags that a plain YAML parse rejects, and an entry always names its package on a quoted name line, so the specifiers are read directly.
 const profilePlugins = (profile: string): string[] => [
-  ...new Set([...readFileSync(join(root, profile), "utf8").matchAll(/name: "(@pi-harness\/plugin-[a-z0-9-]+)"/gu)].map((match) => match[1] ?? "")),
+  ...new Set([...readFileSync(resolve(root, profile), "utf8").matchAll(/name: "(@pi-harness\/plugin-[a-z0-9-]+)"/gu)].map((match) => match[1] ?? "")),
 ];
 
 describe("global package install contract", () => {
@@ -45,25 +45,22 @@ describe("global package install contract", () => {
   });
 });
 
-describe("shipped profile dependency contract", () => {
-  test("reads the plugin entries out of the profiles it checks", () => {
-    // A profile format change that stopped matching would make every assertion below vacuously true, so the reader is checked against the profile that carries the full set.
-    expect(profilePlugins("apps/web/profile/cordis.yml").length).toBeGreaterThan(50);
+describe("shipped profile contract", () => {
+  test("reads the plugin entries out of a profile", () => {
+    // A profile format change that stopped matching would make every assertion below vacuously true, so the reader is checked against a profile that does name a plugin.
+    const fixture = join(mkdtempSync(join(tmpdir(), "pi-harness-profile-")), "cordis.yml");
+    writeFileSync(fixture, '- id: hello\n  name: "@pi-harness/plugin-hello"\n  config: {}\n', "utf8");
+    expect(profilePlugins(fixture)).toEqual(["@pi-harness/plugin-hello"]);
   });
 
-  test.each(shippedProfiles)("%s enables only plugins the launcher installs", (profile) => {
-    const dependencies = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {};
-    const enabled = profilePlugins(profile);
+  test.each(shippedProfiles)("%s enables no pluggable plugin", (profile) => {
+    // Official plugins are ordinary npm packages a user installs from the plugin center, exactly like a community one. A shipped profile that enables one turns it into something the launcher has to bundle, so a fresh install arrives carrying plugins nobody asked for.
+    expect(profilePlugins(profile)).toEqual([]);
+  });
 
-    // A plugin the profile enables but the launcher does not depend on is missing from a global install, and the harness fails to boot on the first entry it cannot import.
-    expect(enabled.filter((name) => dependencies[name] === undefined)).toEqual([]);
-    for (const name of enabled) {
-      const workspace = join(root, "packages/plugins", name.slice("@pi-harness/plugin-".length), "package.json");
-      expect(existsSync(workspace), `${name} is enabled by ${profile} but has no workspace`).toBe(true);
-      expect(dependencies[name], `${name} is declared at a version the workspace does not build`).toBe(
-        (JSON.parse(readFileSync(workspace, "utf8")) as { version: string }).version,
-      );
-    }
+  test("the launcher depends on no pluggable plugin", () => {
+    const dependencies = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {};
+    expect(Object.keys(dependencies).filter((name) => name.startsWith("@pi-harness/plugin-"))).toEqual([]);
   });
 });
 
@@ -72,12 +69,17 @@ describe("published manifest preparation", () => {
     execFileSync(process.execPath, [join(root, "scripts/prepare-published-manifest.mjs"), mode], { cwd });
   };
 
-  const createTree = (manifest: unknown): { cwd: string; manifestPath: string } => {
+  const createTree = (manifest: unknown, gateway?: unknown): { cwd: string; manifestPath: string; gatewayPath: string } => {
     const cwd = mkdtempSync(join(tmpdir(), "pi-harness-published-manifest-"));
     mkdirSync(join(cwd, "apps/web"), { recursive: true });
     const manifestPath = join(cwd, "apps/web/package.json");
     writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`, "utf8");
-    return { cwd, manifestPath };
+    const gatewayPath = join(cwd, "packages/api-gateway/package.json");
+    if (gateway !== undefined) {
+      mkdirSync(join(cwd, "packages/api-gateway"), { recursive: true });
+      writeFileSync(gatewayPath, `${JSON.stringify(gateway, undefined, 2)}\n`, "utf8");
+    }
+    return { cwd, manifestPath, gatewayPath };
   };
 
   test("drops the dependency lists a user can never install and puts them back", () => {
@@ -97,6 +99,23 @@ describe("published manifest preparation", () => {
     expect(stripped).toEqual({ name: "@pi-harness/web", private: true, type: "module" });
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
     expect(existsSync(join(cwd, "published-manifest.backup.json"))).toBe(false);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("drops the API gateway's test-only plugin dependencies and keeps the rest of its manifest", () => {
+    // These resolve from the registry rather than failing, so leaving them in would hand every install two dozen plugins the user never asked for.
+    const { cwd, gatewayPath } = createTree(
+      { name: "@pi-harness/web", private: true },
+      { name: "@pi-harness/api-gateway", version: "0.1.30", devDependencies: { "@pi-harness/plugin-cleaner": "0.1.29" } },
+    );
+    const before = readFileSync(gatewayPath, "utf8");
+
+    run(cwd, "--strip");
+    const stripped = JSON.parse(readFileSync(gatewayPath, "utf8")) as Record<string, unknown>;
+    run(cwd, "--restore");
+
+    expect(stripped).toEqual({ name: "@pi-harness/api-gateway", version: "0.1.30" });
+    expect(readFileSync(gatewayPath, "utf8")).toBe(before);
     rmSync(cwd, { recursive: true, force: true });
   });
 

@@ -90,6 +90,25 @@ function assertPiToolName(name: unknown): asserts name is string {
     throw new Error(`Pi tool name must contain 1-${MAX_PI_TOOL_NAME_LENGTH} non-whitespace, non-control characters`);
 }
 
+// A tool the runtime never saw is not a failure the console can retry away: the runtime snapshots its tool set when it acquires the registry, so a plugin installed into a running harness contributes its tools on the next start. The console distinguishes that from a plugin that is genuinely broken, which is why this carries a marker rather than being a bare Error.
+export class PiToolRegistryLeasedError extends Error {
+  readonly piToolRegistryLeased = true;
+
+  constructor(toolName: string) {
+    super(`Pi tool registry is leased by pi-runtime; declare a Cordis injection that activates ${toolName} before pi-runtime`);
+    this.name = "PiToolRegistryLeasedError";
+  }
+}
+
+// The loader wraps a plugin's activation error in its own Error chain, so the marker is looked for along the whole chain rather than on the value the caller happens to hold.
+export function isPiToolRegistryLeasedError(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current instanceof Error && depth < 16; current = current.cause, depth += 1) {
+    if ((current as { piToolRegistryLeased?: unknown }).piToolRegistryLeased === true) return true;
+    if (current instanceof AggregateError && current.errors.some((nested) => isPiToolRegistryLeasedError(nested))) return true;
+  }
+  return false;
+}
+
 export class PiToolRegistry {
   readonly #names: string[];
   readonly #customTools = new Map<string, ToolDefinition>();
@@ -111,7 +130,7 @@ export class PiToolRegistry {
 
   register(tool: ToolDefinition): () => void {
     assertPiToolName(tool.name);
-    if (this.#leases > 0) throw new Error(`Pi tool registry is leased by pi-runtime; declare a Cordis injection that activates ${tool.name} before pi-runtime`);
+    if (this.#leases > 0) throw new PiToolRegistryLeasedError(tool.name);
     if (this.#names.includes(tool.name) || this.#customTools.has(tool.name)) throw new Error(`Pi tool is already registered: ${tool.name}`);
     if (PI_BUILTIN_TOOL_NAMES.includes(tool.name)) throw new Error(`Pi tool name is reserved by a built-in tool: ${tool.name}`);
     this.#customTools.set(tool.name, tool);

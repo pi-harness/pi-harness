@@ -48,7 +48,7 @@ async function readIfPresent(path: string): Promise<string | undefined> {
 /**
  * Materializes the harness home and returns the profile path to boot.
  *
- * The shipped profile seeds the user's copy the first time and keeps updating it for as long as the copy is untouched, so a release that adds a bundled plugin still reaches an existing installation. Once the copy diverges — the marketplace appended an entry, or the user edited it — it is left alone, because it now carries state the distribution does not know about.
+ * The shipped profile seeds the user's copy the first time and keeps updating it for as long as the copy is untouched, so a release that changes what the harness boots still reaches an existing installation. Once the copy diverges — the marketplace appended an entry, or the user edited it — it is left alone, because it now carries state the distribution does not know about.
  */
 export async function prepareHarnessProfile(options: HarnessHomeOptions): Promise<string> {
   const directory = options.directory ?? harnessHomeDirectory(options.env ?? process.env, options.cwd ?? process.cwd());

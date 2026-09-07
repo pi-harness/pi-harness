@@ -12,7 +12,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
+import { isPiToolRegistryLeasedError, PiPluginUiRegistry, PiToolRegistry, PiToolRegistryLeasedError, provideLaunchContext } from "@pi-harness/plugin-api";
 import modelPlugin from "../src/plugins/model.js";
 import modelsPlugin from "../src/plugins/models.js";
 import resourcesPlugin from "../src/plugins/resources.js";
@@ -389,6 +389,36 @@ describe("Pi domain plugins", () => {
 
     lease.release();
     expect(() => tools.register(lateTool)).not.toThrow();
+  });
+
+  // The console keeps an installed plugin in place when the runtime already leased the registry, which it can only do when it recognises that failure through the error chain the loader wraps it in.
+  test("marks a leased tool registration so a caller can recognise it through the loader's error chain", () => {
+    const tools = new PiToolRegistry();
+    const lateTool = defineTool({
+      name: "late",
+      label: "Late",
+      description: "A tool registered after runtime startup.",
+      parameters: Type.Object({}),
+      execute() {
+        return Promise.resolve({ content: [{ type: "text", text: "late" }], details: undefined });
+      },
+    });
+
+    tools.acquire();
+    const leased = (() => {
+      try {
+        tools.register(lateTool);
+        return undefined;
+      } catch (error) {
+        return error;
+      }
+    })();
+
+    expect(leased).toBeInstanceOf(PiToolRegistryLeasedError);
+    expect(isPiToolRegistryLeasedError(leased)).toBe(true);
+    expect(isPiToolRegistryLeasedError(new Error("wrapped", { cause: new Error("nested", { cause: leased }) }))).toBe(true);
+    expect(isPiToolRegistryLeasedError(new AggregateError([new Error("other"), leased], "group"))).toBe(true);
+    expect(isPiToolRegistryLeasedError(new Error("plugin threw"))).toBe(false);
   });
 
   test("registers and disposes plugin UI panels with the plugin lifecycle", async () => {
@@ -3628,7 +3658,8 @@ describe("Pi domain plugins", () => {
   test("initializes a spec-compliant MCP stdio server with current client metadata", async () => {
     const { context, cwd } = await createContext();
     const server = join(cwd, "mcp-newline-fixture.mjs");
-    const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    // The client version the plugin reports is its own, and every plugin carries independent semver, so this reads the manifest the plugin reads rather than the runtime's.
+    const packageMetadata = JSON.parse(await readFile(new URL("../../plugins/mcp-client/package.json", import.meta.url), "utf8")) as { version: string };
     await writeFile(
       server,
       `let buffer = ""; let clientVersion = ""; const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n"); process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => { buffer += chunk; while (true) { const newline = buffer.indexOf("\\n"); if (newline < 0) break; const line = buffer.slice(0, newline).trim(); buffer = buffer.slice(newline + 1); if (line === "") continue; if (/^content-length:/i.test(line)) { send({ jsonrpc: "2.0", id: 1, error: { code: -32600, message: "Content-Length framing is not valid MCP stdio" } }); continue; } const message = JSON.parse(line); if (message.method === "initialize") { clientVersion = String(message.params.clientInfo.version); send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "newline-fixture", version: "1" } } }); } else if (message.method === "tools/list") send({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "metadata", description: clientVersion, inputSchema: { type: "object" } }] } }); } });`,

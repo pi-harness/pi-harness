@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { bootHarness, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
@@ -11,14 +12,17 @@ import { BUILTIN_PROFILES_DIR } from "../src/profiles.js";
 const booted: BootedHarness[] = [];
 const execFileAsync = promisify(execFile);
 
+// The shipped profiles enable infrastructure only, because an official plugin is installed from the plugin center like a community one. Exercising a plugin against a real host therefore needs a profile that enables it, so this one names the plugins these tests drive end to end.
+const PLUGIN_PROFILES_DIR = fileURLToPath(new URL("profiles", import.meta.url));
+
 afterEach(async () => {
   await Promise.all(booted.splice(0).map(async (harness) => harness.dispose()));
 });
 
-async function bootProfile(profile: string): Promise<{ harness: BootedHarness; cwd: string }> {
+async function bootProfile(profile: string, profilesDir: string = BUILTIN_PROFILES_DIR): Promise<{ harness: BootedHarness; cwd: string }> {
   const cwd = await mkdtemp(join(tmpdir(), "pi-harness-profile-cwd-"));
   const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-profile-agent-"));
-  const configPath = await resolveProfileConfig({ profile, profilesDir: BUILTIN_PROFILES_DIR });
+  const configPath = await resolveProfileConfig({ profile, profilesDir });
   const harness = await bootHarness({
     configPath,
     prepare(context) {
@@ -37,8 +41,8 @@ async function bootProfile(profile: string): Promise<{ harness: BootedHarness; c
 }
 
 describe("packaged profiles", () => {
-  test("exposes every production-profile tool with strict sequential execution metadata", async () => {
-    const { harness } = await bootProfile("default");
+  test("exposes every plugin-profile tool with strict sequential execution metadata", async () => {
+    const { harness } = await bootProfile("plugins", PLUGIN_PROFILES_DIR);
     const tools = harness.context.get("piTools")?.snapshot().customTools ?? [];
     expect(tools.length).toBeGreaterThan(0);
     for (const tool of tools) {
@@ -47,8 +51,21 @@ describe("packaged profiles", () => {
     }
   }, 30_000);
 
-  test("boots the default production profile without HMR", async () => {
-    const { harness, cwd } = await bootProfile("default");
+  test("boots the shipped default profile with infrastructure only", async () => {
+    // A fresh install must arrive with nothing pluggable switched on: every official plugin is installed from the plugin center, exactly like a community one.
+    const { harness } = await bootProfile("default");
+    const names = [...harness.context.loader.entries()].map((entry) => entry.options.name);
+
+    expect(harness.context.get("piModels")?.model.provider).toBe("deepseek");
+    expect(harness.context.get("piApplication")).toBeDefined();
+    expect(harness.context.get("piRuntime")).toBeDefined();
+    expect(names.filter((name) => name.startsWith("@pi-harness/plugin-"))).toEqual([]);
+    expect(names).toEqual(expect.arrayContaining(["@pi-harness/core/plugins/tools", "@pi-harness/core/plugins/runtime", "@pi-harness/core/plugins/stdio"]));
+    expect(harness.context.get("piTools")?.snapshot().customTools).toEqual([]);
+  }, 15_000);
+
+  test("boots the production plugin profile without HMR", async () => {
+    const { harness, cwd } = await bootProfile("plugins", PLUGIN_PROFILES_DIR);
     const names = [...harness.context.loader.entries()].map((entry) => entry.options.name);
 
     expect(harness.context.get("piModels")?.model.provider).toBe("deepseek");
@@ -92,7 +109,7 @@ describe("packaged profiles", () => {
       .get("piTools")
       ?.snapshot()
       .customTools.find((tool) => tool.name === "session_report");
-    if (sessionReportTool === undefined) throw new Error("default profile did not register session_report");
+    if (sessionReportTool === undefined) throw new Error("plugin test profile did not register session_report");
     expect(
       harness.context
         .get("piRuntime")
@@ -128,7 +145,7 @@ describe("packaged profiles", () => {
       .get("piTools")
       ?.snapshot()
       .customTools.find((tool) => tool.name === "dependency_check");
-    if (dependencyTool === undefined) throw new Error("default profile did not register dependency_check");
+    if (dependencyTool === undefined) throw new Error("plugin test profile did not register dependency_check");
     expect(
       harness.context
         .get("piRuntime")
@@ -160,7 +177,7 @@ describe("packaged profiles", () => {
       .get("piTools")
       ?.snapshot()
       .customTools.find((tool) => tool.name === "file_context");
-    if (fileContextTool === undefined) throw new Error("default profile did not register file_context");
+    if (fileContextTool === undefined) throw new Error("plugin test profile did not register file_context");
     expect(
       harness.context
         .get("piRuntime")
@@ -185,7 +202,7 @@ describe("packaged profiles", () => {
       .get("piTools")
       ?.snapshot()
       .customTools.find((tool) => tool.name === "run_project_tests");
-    if (testHarnessTool === undefined) throw new Error("default profile did not register run_project_tests");
+    if (testHarnessTool === undefined) throw new Error("plugin test profile did not register run_project_tests");
     expect(
       harness.context
         .get("piRuntime")
@@ -222,7 +239,7 @@ describe("packaged profiles", () => {
       .get("piTools")
       ?.snapshot()
       .customTools.find((tool) => tool.name === "team_task");
-    if (teamTool === undefined) throw new Error("default profile did not register team_task");
+    if (teamTool === undefined) throw new Error("plugin test profile did not register team_task");
     expect(
       harness.context
         .get("piRuntime")
@@ -240,7 +257,7 @@ describe("packaged profiles", () => {
       .get("piTools")
       ?.snapshot()
       .customTools.find((tool) => tool.name === "vision_inspect");
-    if (visionTool === undefined) throw new Error("default profile did not register vision_inspect");
+    if (visionTool === undefined) throw new Error("plugin test profile did not register vision_inspect");
     expect(
       harness.context
         .get("piRuntime")
@@ -268,7 +285,7 @@ describe("packaged profiles", () => {
     image.writeUInt32BE(18, 20);
     await writeFile(join(cwd, "profile-vision.png"), image);
     const infoTool = toolkitTools?.find((tool) => tool.name === "vision_image_info");
-    if (infoTool === undefined) throw new Error("default profile did not register vision_image_info");
+    if (infoTool === undefined) throw new Error("plugin test profile did not register vision_image_info");
     await expect(infoTool.execute("profile-vision", { path: "profile-vision.png" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { path: "profile-vision.png", width: 32, height: 18, headerTruncated: false },
     });
@@ -298,10 +315,10 @@ describe("packaged profiles", () => {
     await writeFile(join(cwd, "profile-capsule.txt"), "after\n", "utf8");
     const capture = capsuleTools?.find((tool) => tool.name === "git_snapshot");
     const restore = capsuleTools?.find((tool) => tool.name === "git_restore");
-    if (capture === undefined || restore === undefined) throw new Error("default profile did not register both Git Time Capsule tools");
+    if (capture === undefined || restore === undefined) throw new Error("plugin test profile did not register both Git Time Capsule tools");
     const captured = await capture.execute("profile-capsule", {}, undefined, undefined, {} as never);
     const capsuleName = (captured.details as { name?: unknown }).name;
-    if (typeof capsuleName !== "string") throw new Error("default profile Git snapshot did not return a capsule name");
+    if (typeof capsuleName !== "string") throw new Error("plugin test profile Git snapshot did not return a capsule name");
     await restore.execute("profile-capsule-restore", { name: capsuleName, confirm: true }, undefined, undefined, {} as never);
     await expect(readFile(join(cwd, "profile-capsule.txt"), "utf8")).resolves.toBe("before\n");
     const capsulePanel = (await harness.context.get("piPluginUi")?.snapshot())?.find((panel) => panel.id === "git-time-capsule-panel");
@@ -327,7 +344,7 @@ describe("packaged profiles", () => {
   });
 
   test("loads production README tools into the default runtime and writes a current confirmed snapshot", async () => {
-    const { harness, cwd } = await bootProfile("default");
+    const { harness, cwd } = await bootProfile("plugins", PLUGIN_PROFILES_DIR);
     const loaderNames = [...harness.context.loader.entries()].map((entry) => entry.options.name);
     const registered = harness.context
       .get("piTools")
@@ -343,7 +360,7 @@ describe("packaged profiles", () => {
     expect(runtimeNames).toEqual(expect.arrayContaining(["readme_report", "readme_write"]));
     const report = registered?.find((tool) => tool.name === "readme_report");
     const write = registered?.find((tool) => tool.name === "readme_write");
-    if (report === undefined || write === undefined) throw new Error("default profile did not register both README tools");
+    if (report === undefined || write === undefined) throw new Error("plugin test profile did not register both README tools");
 
     await writeFile(
       join(cwd, "package.json"),
@@ -393,7 +410,7 @@ describe("packaged profiles", () => {
   }, 15_000);
 
   test("loads the production I18n pair tool into the default runtime and compares real locale files", async () => {
-    const { harness, cwd } = await bootProfile("default");
+    const { harness, cwd } = await bootProfile("plugins", PLUGIN_PROFILES_DIR);
     const loaderNames = [...harness.context.loader.entries()].map((entry) => entry.options.name);
     const tool = harness.context
       .get("piTools")
@@ -407,7 +424,7 @@ describe("packaged profiles", () => {
     expect(loaderNames).toContain("@pi-harness/plugin-i18n-pair");
     expect(tool).toMatchObject({ executionMode: "sequential", parameters: { additionalProperties: false } });
     expect(runtimeNames).toContain("i18n_check");
-    if (tool === undefined) throw new Error("default profile did not register i18n_check");
+    if (tool === undefined) throw new Error("plugin test profile did not register i18n_check");
 
     await mkdir(join(cwd, "locales"), { recursive: true });
     await Promise.all([
@@ -442,7 +459,7 @@ describe("packaged profiles", () => {
   }, 15_000);
 
   test("loads the production Cleaner tool into the default runtime and removes only excess capsules", async () => {
-    const { harness } = await bootProfile("default");
+    const { harness } = await bootProfile("plugins", PLUGIN_PROFILES_DIR);
     const loaderNames = [...harness.context.loader.entries()].map((entry) => entry.options.name);
     const tool = harness.context
       .get("piTools")
@@ -457,7 +474,7 @@ describe("packaged profiles", () => {
     expect(loaderNames).toContain("@pi-harness/plugin-cleaner");
     expect(tool).toMatchObject({ executionMode: "sequential", parameters: { additionalProperties: false } });
     expect(runtimeNames).toContain("clean_harness_artifacts");
-    if (tool === undefined) throw new Error("default profile did not register clean_harness_artifacts");
+    if (tool === undefined) throw new Error("plugin test profile did not register clean_harness_artifacts");
     if (agentDir === undefined) throw new Error("default profile did not expose PI_AGENT_DIR");
 
     const capsuleDir = join(agentDir, "capsules");
@@ -486,7 +503,7 @@ describe("packaged profiles", () => {
   }, 15_000);
 
   test("loads the production SQL Lens tool into the default runtime and runs a local read-only query", async () => {
-    const { harness, cwd } = await bootProfile("default");
+    const { harness, cwd } = await bootProfile("plugins", PLUGIN_PROFILES_DIR);
     const loaderNames = [...harness.context.loader.entries()].map((entry) => entry.options.name);
     const tool = harness.context
       .get("piTools")
@@ -499,7 +516,7 @@ describe("packaged profiles", () => {
     expect(loaderNames).toContain("@pi-harness/plugin-sql-lens");
     expect(tool).toMatchObject({ executionMode: "sequential", parameters: { additionalProperties: false } });
     expect(runtimeNames).toContain("sql_readonly");
-    if (tool === undefined) throw new Error("default profile did not register sql_readonly");
+    if (tool === undefined) throw new Error("plugin test profile did not register sql_readonly");
     const { DatabaseSync } = await import("node:sqlite");
     const database = new DatabaseSync(join(cwd, "data.db"));
     database.exec("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'Ada')");

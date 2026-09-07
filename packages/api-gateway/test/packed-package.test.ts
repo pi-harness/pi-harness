@@ -73,10 +73,13 @@ const bin = { "pi-harness": "./apps/web/server-dist/bin.js", pih: "./packages/cl
 write(join(harnessRoot, "package.json"), JSON.stringify({ name: "@pi-harness/pi-harness", version: "9.9.9", bin, dependencies: { "@earendil-works/pi-coding-agent": "0.84.4" } }));
 write(join(agentRoot, "package.json"), JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "0.84.4", dependencies: {} }));
 write(join(agentRoot, "dist", "cli", "args.js"), "");
-write(join(harnessRoot, "apps", "web", "profile", "cordis.yml"), "- id: modlens\\n  name: \\"@pi-harness/plugin-modlens\\"\\n");
+const profileEntries = ["- id: webserver\\n  name: \\"@pi-harness/host-webserver\\"\\n"];
+if (process.env.PACKED_PACKAGE_FIXTURE_BUNDLED_PLUGIN === "1") profileEntries.push("- id: modlens\\n  name: \\"@pi-harness/plugin-modlens\\"\\n");
+write(join(harnessRoot, "apps", "web", "profile", "cordis.yml"), profileEntries.join(""));
 const shippedDependencies = process.env.PACKED_PACKAGE_FIXTURE_SHIPPED_DEP === "1" ? { "@pi-harness/client-web": "9.9.9" } : undefined;
 write(join(harnessRoot, "apps", "web", "package.json"), JSON.stringify({ name: "@pi-harness/web", private: true, dependencies: shippedDependencies }));
-if (process.env.PACKED_PACKAGE_FIXTURE_PROFILE_PLUGIN !== "0") write(join(harnessRoot, "node_modules", "@pi-harness", "plugin-modlens", "dist", "index.js"), "export default {};\\n");
+if (process.env.PACKED_PACKAGE_FIXTURE_PROFILE_ENTRY !== "0") write(join(harnessRoot, "node_modules", "@pi-harness", "host-webserver", "dist", "index.js"), "export default {};\\n");
+if (process.env.PACKED_PACKAGE_FIXTURE_BUNDLED_PLUGIN === "1") write(join(harnessRoot, "node_modules", "@pi-harness", "plugin-modlens", "dist", "index.js"), "export default {};\\n");
 write(join(harnessRoot, "node_modules", "@pi-harness", "core", "dist", "index.js"), process.env.PACKED_PACKAGE_FIXTURE_CORE);
 write(join(harnessRoot, "node_modules", "@pi-harness", "core", "dist", "plugin-resolve.js"), process.env.PACKED_PACKAGE_FIXTURE_RESOLVE);
 if (process.env.PACKED_PACKAGE_FIXTURE_BINS === "1") for (const target of Object.values(bin)) write(join(harnessRoot, target), "");
@@ -94,8 +97,9 @@ const runSmokeTest = async (
   fakeNpm: string,
   bins: boolean,
   marketplace = true,
-  profilePlugin = true,
+  profileEntry = true,
   shippedDependency = false,
+  bundledPlugin = false,
 ): ReturnType<typeof execFileAsync> =>
   execFileAsync(process.execPath, [resolve(repositoryRoot, "scripts/test-packed-package.mjs")], {
     env: {
@@ -105,8 +109,9 @@ const runSmokeTest = async (
       PACKED_PACKAGE_FIXTURE_CORE: fakeCoreSource,
       PACKED_PACKAGE_FIXTURE_RESOLVE: fakeResolveSource,
       PACKED_PACKAGE_FIXTURE_MARKETPLACE: marketplace ? "1" : "0",
-      PACKED_PACKAGE_FIXTURE_PROFILE_PLUGIN: profilePlugin ? "1" : "0",
+      PACKED_PACKAGE_FIXTURE_PROFILE_ENTRY: profileEntry ? "1" : "0",
       PACKED_PACKAGE_FIXTURE_SHIPPED_DEP: shippedDependency ? "1" : "0",
+      PACKED_PACKAGE_FIXTURE_BUNDLED_PLUGIN: bundledPlugin ? "1" : "0",
     },
   });
 
@@ -130,11 +135,18 @@ describe("packed package smoke test", () => {
     await expect(runSmokeTest(fakeNpm, false)).rejects.toThrow(/missing the pi-harness entrypoint \.\/apps\/web\/server-dist\/bin\.js/u);
   });
 
-  it("rejects an install whose shipped profile enables a plugin the tarball never brings in", async () => {
+  it("rejects an install whose shipped profile enables an entry the tarball never brings in", async () => {
     // The 0.1.29 launcher shipped a profile naming 45 packages it did not depend on, so a clean install failed to boot on the first entry the loader could not import.
     const fakeNpm = await createFakeNpm();
 
-    await expect(runSmokeTest(fakeNpm, true, true, false)).rejects.toThrow(/enables 1 plugin\(s\) the install does not contain: @pi-harness\/plugin-modlens/u);
+    await expect(runSmokeTest(fakeNpm, true, true, false)).rejects.toThrow(/enables 1 entr\(ies\) the install does not contain: @pi-harness\/host-webserver/u);
+  });
+
+  it("rejects an install whose shipped profile bundles a pluggable plugin", async () => {
+    // Official plugins are installed from the plugin center like community ones, so a profile entry for one would hand every fresh install a plugin the user never asked for.
+    const fakeNpm = await createFakeNpm();
+
+    await expect(runSmokeTest(fakeNpm, true, true, true, false, true)).rejects.toThrow(/enables 1 pluggable plugin\(s\): @pi-harness\/plugin-modlens/u);
   });
 
   it("rejects an install whose shipped workspace depends on a package npm can never fetch", async () => {

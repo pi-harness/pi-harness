@@ -54,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-선별된 플러그인 카탈로그, 설정, 모든 HTTP API 경로, 제한 및 보안 경계는 [영문 전체 참조 문서](README.reference.md)를 확인하세요. core에는 카탈로그가 설명하는 것보다 많은 플러그인이 들어 있습니다. 전체 집합은 [`packages/plugins`](../packages/plugins)이고, 웹 콘솔이 기본으로 활성화하는 목록은 [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)입니다.
+선별된 플러그인 카탈로그, 설정, 모든 HTTP API 경로, 제한 및 보안 경계는 [영문 전체 참조 문서](README.reference.md)를 확인하세요. core에는 카탈로그가 설명하는 것보다 많은 플러그인이 들어 있습니다. 전체 집합은 [`packages/plugins`](../packages/plugins)이며, 모두 커뮤니티 플러그인과 동일하게 플러그인 센터에서 설치합니다. 새로 설치하면 인프라만 활성화되고, 그 내용이 [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)입니다.
 
 ## 라이선스
 

@@ -98,7 +98,7 @@ npm run build
 npm run test:package
 ```
 
-The reference documents the selected plugin catalog, every HTTP API route, configuration rules, resource limits, failure modes, and security boundaries: [README.reference.md](docs/README.reference.md). Core ships more plugins than the catalog describes; [`packages/plugins`](packages/plugins) is the complete set and [`apps/web/profile/cordis.yml`](apps/web/profile/cordis.yml) is what the web console enables by default.
+The reference documents the selected plugin catalog, every HTTP API route, configuration rules, resource limits, failure modes, and security boundaries: [README.reference.md](docs/README.reference.md). Core ships more plugins than the catalog describes; [`packages/plugins`](packages/plugins) is the complete set, and every one of them is installed from the plugin center like a community plugin. A fresh install enables infrastructure only, which is what [`apps/web/profile/cordis.yml`](apps/web/profile/cordis.yml) contains.
 
 ## Star history
 

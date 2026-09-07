@@ -1,9 +1,14 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { bootHarness, type BootedHarness } from "../src/boot.js";
 import { resolvePluginEntry } from "../src/plugin-resolve.js";
+
+const execFileAsync = promisify(execFile);
 
 const booted: BootedHarness[] = [];
 
@@ -98,4 +103,36 @@ describe("bootHarness plugin resolution", () => {
 
     expect(harness.context.get("fixtureMarketplaceValue")).toBe("installed");
   });
+
+  test("loads a package the console installs into a running harness", async () => {
+    const { root, profilePath } = await createRoot();
+    await writeFile(profilePath, JSON.stringify([]), "utf8");
+    // The console installs a marketplace plugin beside the profile and then adds an entry for it to the loader's own root tree, which is a different tree from the one the profile file is mounted in.
+    await installPackage(
+      root,
+      "@fixture/installed-plugin",
+      { type: "module", exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" }, "./package.json": "./package.json" } },
+      { "dist/index.js": `export default function installedPlugin(ctx, config) { ctx.provide("fixtureInstalledValue", config.value); }\n` },
+    );
+
+    // Vitest resolves a bare specifier through its own module runner, which hides how Node resolves one, so this runs against the built harness in a real Node process.
+    const script = join(root, "install.mjs");
+    await writeFile(
+      script,
+      [
+        `import { bootHarness } from ${JSON.stringify(fileURLToPath(new URL("../dist/boot.js", import.meta.url)))};`,
+        `const harness = await bootHarness({ configPath: ${JSON.stringify(profilePath)} });`,
+        `const id = await harness.context.loader.create({ id: "marketplace-fixture", name: "@fixture/installed-plugin", config: { value: "added" } });`,
+        `await harness.context.loader.resolve(id).fiber?.await();`,
+        `console.log(harness.context.get("fixtureInstalledValue"));`,
+        `await harness.dispose();`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const { stdout } = await execFileAsync(process.execPath, [script], { timeout: 30_000 });
+
+    expect(stdout.trim()).toBe("added");
+  }, 40_000);
 });
