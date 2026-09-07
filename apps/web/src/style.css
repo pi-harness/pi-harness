@@ -557,6 +557,9 @@ button:disabled {
 .pending-turn .user-bubble {
   @apply [opacity:0.72];
 }
+.turn-stopped {
+  @apply [display:inline-block] [margin:8px_0_0] [border:1px_solid_rgba(236,_19,_19,_0.24)] [border-radius:6px] [padding:1px_7px] [color:var(--color-red)] [font:10.5px_var(--font-mono)];
+}
 .turn-markdown {
   @apply [margin:0] [min-width:0] [font-size:13.5px] [line-height:1.78];
 }
@@ -810,6 +813,10 @@ button:disabled {
 }
 .tool-chip {
   @apply [padding:0_9px] [color:#61666b] [font-family:var(--font-sans)] [font-size:11.5px];
+}
+/* Chrome and Safari drop pointer events on a disabled control and never show its title, so the chip's explanation of why it is dead sits on this wrapper instead. */
+.tool-chip-hint {
+  @apply [display:inline-flex] [min-width:0];
 }
 .composer-hint {
   @apply [flex:1] [color:#687381] [font:10px_var(--font-mono)] [text-align:right];
@@ -1652,7 +1659,7 @@ button:disabled {
   .main-header .active-heading small {
     @apply [display:none];
   }
-  .run-indicator {
+  .run-indicator > span:not(.run-dot) {
     @apply [display:none];
   }
   .view-tab {
@@ -1889,6 +1896,25 @@ button:disabled {
 }
 .marketplace-count {
   @apply [margin-left:auto] [color:var(--color-faint)] [font:10.5px_var(--font-mono)];
+}
+.marketplace-toolbar-message {
+  @apply [display:grid] [min-width:0] [flex-basis:100%] [gap:6px];
+}
+/* The region has to stay in the accessibility tree between messages, or the screen reader has nothing to attach the next announcement to, so an empty one is collapsed to nothing instead of being removed with display:none. */
+.marketplace-toolbar-message:empty {
+  @apply [flex-basis:0] [gap:0];
+}
+.marketplace-message {
+  @apply [display:flex] [min-width:0] [flex-wrap:wrap] [align-items:center] [gap:8px] [border-radius:8px] [padding:8px_10px] [font-size:11.5px] [line-height:1.7];
+}
+.marketplace-message.notice {
+  @apply [border:1px_solid_rgba(65,_118,_230,_0.28)] [background:#f4f8ff] [color:#3565c5];
+}
+.marketplace-message.error {
+  @apply [border:1px_solid_rgba(185,_28,_28,_0.24)] [background:#fff5f5] [color:var(--color-red)];
+}
+.marketplace-message-dismiss {
+  @apply [flex:none] [margin-left:auto] [border:1px_solid_currentColor] [border-radius:6px] [padding:2px_8px] [font-size:11px];
 }
 .marketplace-categories {
   @apply [display:flex] [min-width:0] [flex:1] [flex-wrap:nowrap] [gap:4px] [overflow-x:auto] [padding:8px_48px_8px_24px] [background:#fff] [scrollbar-width:none];

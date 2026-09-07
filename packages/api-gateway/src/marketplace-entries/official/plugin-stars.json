@@ -13,14 +13,7 @@
     "id": "discovery",
     "label": "发现与生态"
   },
-  "capabilities": [
-    "curated GitHub ranking search",
-    "strict bounded snapshot validation",
-    "redirect-free source fetch",
-    "cancellable request lifecycle",
-    "bounded panel inventory",
-    "validated fail-closed panel reporting"
-  ],
+  "capabilities": ["network-access"],
   "hooks": ["ranking search tool", "raw GitHub snapshot", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-plugin-stars",

@@ -11,16 +11,9 @@
   "status": "verified",
   "category": {
     "id": "security",
-    "label": "安全防护"
+    "label": "安全"
   },
-  "capabilities": [
-    "bounded loaded-entry audit",
-    "instruction-override heuristics",
-    "secret-exfiltration heuristics",
-    "destructive-command and obfuscation heuristics",
-    "descriptor-safe cancellable scans",
-    "bounded normalized panel"
-  ],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["skill scan tool", "resource loader", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-skill-guard",

@@ -13,7 +13,7 @@
     "id": "tools",
     "label": "工具"
   },
-  "capabilities": ["virtual terminal", "CLI bridge", "workspace execution"],
+  "capabilities": ["runs-commands"],
   "hooks": ["Mirage CLI", "argv execution", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-mirage-bridge",

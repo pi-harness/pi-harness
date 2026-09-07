@@ -13,14 +13,7 @@
     "id": "web",
     "label": "网页与研究"
   },
-  "capabilities": [
-    "bounded textual HTTP fetch",
-    "DNS rebinding protection",
-    "per-hop SSRF validation",
-    "cancellable request lifecycle",
-    "bounded browser preview",
-    "validated fail-closed panel reporting"
-  ],
+  "capabilities": ["network-access"],
   "hooks": ["network request", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-browser-fetch",

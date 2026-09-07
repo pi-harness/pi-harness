@@ -1,5 +1,7 @@
 export interface ClientStatus {
   readonly status: string;
+  /** Identifies the harness process answering this console, so state the console holds on behalf of the next start can be dropped once that start has happened. */
+  readonly processStartedAt?: string;
   readonly model: string;
   readonly messages: number;
   readonly events: number;
@@ -77,9 +79,14 @@ export interface ClientMarketplaceCategory {
   readonly label: string;
   readonly count: number;
 }
+export interface ClientMarketplaceCapability {
+  readonly id: string;
+  readonly label: string;
+  readonly count: number;
+}
 export interface ClientMarketplacePage {
   readonly items: readonly ClientMarketplacePlugin[];
-  readonly capabilities: readonly string[];
+  readonly capabilities: readonly ClientMarketplaceCapability[];
   readonly categories: readonly ClientMarketplaceCategory[];
   readonly total: number;
   readonly page: number;

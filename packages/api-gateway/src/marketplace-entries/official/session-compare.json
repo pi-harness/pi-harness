@@ -13,7 +13,7 @@
     "id": "discovery",
     "label": "发现与生态"
   },
-  "capabilities": ["session diff", "history comparison", "read-only scan"],
+  "capabilities": ["read-only", "session-data", "reads-files"],
   "hooks": ["session manager", "JSONL sessions", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-session-compare",

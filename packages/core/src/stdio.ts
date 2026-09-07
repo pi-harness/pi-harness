@@ -98,6 +98,17 @@ function failureMessage(value: unknown, fallback: string): string {
   return typeof rawMessage === "string" ? boundedLine(rawMessage, DIAGNOSTIC_MESSAGE_LIMIT) || fallback : fallback;
 }
 
+// Pi reports a missing credential with its own remedy, "Use /login", but this launcher reads one prompt and exits and has no slash commands at all, so the harness follows that line with instructions it can actually honour.
+const MISSING_CREDENTIAL_PATTERN = /No API key found|Authentication failed for/u;
+
+// The guidance is fixed rather than assembled from the provider named upstream so that it stays one bounded, terminal-safe line like every other diagnostic this surface writes.
+function missingCredentialGuidance(agentDir: string): string {
+  return boundedLine(
+    `pih has no /login command: set the DEEPSEEK_API_KEY environment variable (the built-in profile selects deepseek), or store the credential in ${agentDir}/auth.json, or start through \`everyapi use pi-harness\`, or edit the booted profile at <PI_HARNESS_HOME or ~/.pi-harness>/profiles/<profile>/cordis.yml to name a provider that agent directory already registers.`,
+    DIAGNOSTIC_MESSAGE_LIMIT,
+  );
+}
+
 function isPromptCancellation(value: unknown): boolean {
   return dataProperty(value, "name") === "PiHarnessStdioCancelledError";
 }
@@ -312,7 +323,9 @@ export class StdioApplication implements PiHarnessApplication {
           if (this.#wroteOutput && !this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
           return PROMPT_CANCELLED_EXIT_CODE;
         }
-        this.#stdio.writeError(`${failureMessage(error, "Agent request failed")}\n`);
+        const message = failureMessage(error, "Agent request failed");
+        this.#stdio.writeError(`${message}\n`);
+        if (MISSING_CREDENTIAL_PATTERN.test(message)) this.#stdio.writeError(`${missingCredentialGuidance(this.#launch.agentDir)}\n`);
         return 1;
       }
       if (signalIsAborted(signal)) {
@@ -344,6 +357,7 @@ export class StdioApplication implements PiHarnessApplication {
         const fallback = stopReason === "length" ? "Response was truncated by the model's output limit" : `Request ${stopReason}`;
         const errorMessage = typeof rawErrorMessage === "string" ? boundedLine(rawErrorMessage, DIAGNOSTIC_MESSAGE_LIMIT) || fallback : fallback;
         this.#stdio.writeError(`${errorMessage}\n`);
+        if (MISSING_CREDENTIAL_PATTERN.test(errorMessage)) this.#stdio.writeError(`${missingCredentialGuidance(this.#launch.agentDir)}\n`);
         return 1;
       }
       if (!this.#wroteOutput) {

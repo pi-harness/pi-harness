@@ -13,7 +13,7 @@
     "id": "tools",
     "label": "工具"
   },
-  "capabilities": ["HTTP mocks", "integration testing", "local fixtures"],
+  "capabilities": ["local-server"],
   "hooks": ["local HTTP server", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-mock-server",

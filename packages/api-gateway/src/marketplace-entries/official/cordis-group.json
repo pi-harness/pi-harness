@@ -10,7 +10,7 @@
   "source": "official",
   "status": "verified",
   "category": { "id": "composition", "label": "组合编排" },
-  "capabilities": ["nested plugin composition", "transactional rollback", "lifecycle ownership"],
+  "capabilities": ["read-only"],
   "hooks": ["loader entry tree"],
   "profile": { "name": "@deepseek-ai/cordis-plugin-group", "group": true, "config": [] }
 }

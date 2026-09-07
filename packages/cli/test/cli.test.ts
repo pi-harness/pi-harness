@@ -222,6 +222,26 @@ describe("runCli", () => {
     expect(environment.errors.join("")).toContain("not supervised");
   });
 
+  test("names the built-in profiles when --profile does not match one", async () => {
+    const environment = createEnvironment();
+
+    const exitCode = await runCli(["--profile", "prod"], environment);
+
+    expect(exitCode).toBe(2);
+    expect(environment.errors.join("")).toBe("Unknown profile: prod; expected one of default, development, or pass --config <path>\n");
+  });
+
+  test("reports a startup failure as its message rather than a JavaScript stack", async () => {
+    const profile = await createApplicationProfile(`export default { apply() { throw new Error("fixture startup failed"); } };`);
+    const environment = createEnvironment(profile.directory);
+
+    const exitCode = await runCli(["--config", profile.configPath], environment);
+
+    expect(exitCode).toBe(1);
+    expect(environment.errors.join("")).toContain("fixture startup failed");
+    expect(environment.errors.join("")).not.toMatch(/^\s+at /mu);
+  });
+
   test("returns a usage error for a missing config", async () => {
     const environment = createEnvironment();
 

@@ -47,9 +47,21 @@ Every remaining argument, including a \`--\` separator, is passed unchanged to t
 application plugin. The bundled stdio application reads its prompt from --prompt <text>,
 --prompt=<text>, a positional prompt, or stdin, and needs \`--\` before a prompt that starts
 with a dash.
+
+The profile that boots is a copy under <PI_HARNESS_HOME or ~/.pi-harness>/profiles/<name>/cordis.yml;
+edit it to change the provider and model. Provider credentials are read from auth.json in
+<PI_AGENT_DIR or ~/.pi/agent>; there is no /login command. Set PI_HARNESS_DEBUG=1 to keep the
+stack frames in a startup failure.
 `;
 
 const FLUSH_TIMEOUT_MS = 2_000;
+
+/** A failure report is a message a user can act on; the frames behind it belong to Cordis and the launcher's own async plumbing, so they are kept behind the same flag `bootHarness` uses. The hint rides along with the report because a user who needs the frames is reading this line, not the help text. */
+function errorReport(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (process.env.PI_HARNESS_DEBUG === "1") return error.stack ?? error.message;
+  return error.stack === undefined ? error.message : `${error.message}\nSet PI_HARNESS_DEBUG=1 and run again to keep the stack frames.`;
+}
 
 // A terminal broadcasts Ctrl-C to the whole foreground process group, so under `pih --profile development` this process receives SIGINT twice: once from the terminal and once relayed by the supervisor, measured under a millisecond apart. 50ms is far above that relay latency and far below the hundreds of milliseconds between two deliberate key presses, so a repeat inside the window is one keypress delivered twice and a repeat after it is still a force-quit request.
 export const DUPLICATE_SIGNAL_WINDOW_MS = 50;
@@ -78,6 +90,9 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
   }
   let configPath: string;
   try {
+    // The core resolver deliberately knows nothing about which profiles exist, so an unknown name would otherwise surface as a missing path inside the installation directory rather than as the list of names this launcher ships.
+    if (invocation.configPath === undefined && !(BUILTIN_PROFILES as readonly string[]).includes(invocation.profile ?? "default"))
+      throw new CliUsageError(`Unknown profile: ${invocation.profile ?? "default"}; expected one of ${BUILTIN_PROFILES.join(", ")}, or pass --config <path>`);
     configPath = await resolveProfileConfig({
       ...(invocation.configPath === undefined
         ? { profile: invocation.profile ?? "default", profilesDir: BUILTIN_PROFILES_DIR }
@@ -207,7 +222,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
           runtime.abort().then(
             () => undefined,
             (error: unknown) => {
-              environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+              environment.stderr.write(`${errorReport(error)}\n`);
             },
           ),
           environment.shutdownTimeoutMs,
@@ -227,7 +242,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
     }
     return result.code;
   } catch (error) {
-    environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+    environment.stderr.write(`${errorReport(error)}\n`);
     resultCode = 1;
     return 1;
   } finally {
@@ -238,7 +253,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
         harness.dispose().then(
           () => undefined,
           (error: unknown) => {
-            environment.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+            environment.stderr.write(`${errorReport(error)}\n`);
           },
         ),
         environment.shutdownTimeoutMs,

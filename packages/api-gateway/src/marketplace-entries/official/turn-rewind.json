@@ -13,14 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "bounded current-branch candidate scan",
-    "settled-state queued navigation",
-    "preserved native session branches",
-    "optional branch summarization",
-    "cancellable serialized rewinds",
-    "bounded normalized operation panel"
-  ],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session rewind tool", "active session tree", "agent settled lifecycle", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-turn-rewind",

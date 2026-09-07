@@ -2122,11 +2122,11 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=scheduling&category=runtime&page=0&pageSize=1");
+    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=read-only&category=runtime&page=0&pageSize=1");
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       items?: readonly { packageName?: unknown; status?: unknown }[];
-      capabilities?: readonly unknown[];
+      capabilities?: readonly { id?: unknown; label?: unknown; count?: unknown }[];
       categories?: readonly { id?: unknown; label?: unknown; count?: unknown }[];
       total?: number;
       page?: number;
@@ -2136,7 +2136,7 @@ describe("API gateway plugin", () => {
     expect(payload.items).toHaveLength(1);
     expect(payload.items?.[0]).toMatchObject({ packageName: "@deepseek-ai/cordis-plugin-timer", status: "verified" });
     expect(payload).toMatchObject({ total: 1, page: 0, pageSize: 1, hasNext: false });
-    expect(payload.capabilities).toContain("scheduling");
+    expect(payload.capabilities).toEqual(expect.arrayContaining([expect.objectContaining({ id: "read-only", label: "只读运行" })]));
     expect(payload.categories).toEqual(expect.arrayContaining([expect.objectContaining({ id: "runtime", label: "运行时", count: 1 })]));
     const tooLong = await fetch(context.webServer.url + "/api/marketplace?q=" + "x".repeat(121));
     expect(tooLong.status).toBe(400);
@@ -2144,6 +2144,89 @@ describe("API gateway plugin", () => {
     expect(invalidPage.status).toBe(400);
     const invalidSort = await fetch(context.webServer.url + "/api/marketplace?sort=popular");
     expect(invalidSort.status).toBe(400);
+  });
+
+  // The console renders nothing until every one of its startup requests has answered, so the recommended sort is served from the npm statistics already cached and the misses are warmed behind the response. A registry that never answers must cost the page nothing.
+  test("answers the recommended marketplace sort while the npm registry never replies", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-sort-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const originalFetch = globalThis.fetch;
+    const registryRequests: string[] = [];
+    globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith("https://registry.npmjs.org/") || url.startsWith("https://api.npmjs.org/")) {
+        registryRequests.push(url);
+        return new Promise<Response>(() => {});
+      }
+      return originalFetch(input, init);
+    };
+    try {
+      const response = await fetch(context.webServer.url + "/api/marketplace?sort=recommended&pageSize=2");
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as { items?: readonly unknown[]; page?: number; pageSize?: number };
+      expect(payload.items).toHaveLength(2);
+      expect(payload).toMatchObject({ page: 0, pageSize: 2 });
+      // The background prewarm queues behind a handful of slots instead of asking the registry about every catalogued package at once.
+      await vi.waitFor(() => expect(registryRequests.length).toBeGreaterThan(0));
+      expect(registryRequests.length).toBeLessThanOrEqual(4);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  // The message goes straight to a console user who clicked a button, so it reads as npm's own report; the command line stays on the error cause for the log.
+  test("reports a failed plugin install in npm's own words without the command line", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-install-failure-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    const profileBefore = '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n';
+    await writeFile(configPath, profileBefore, "utf8");
+    await writeFile(
+      join(shimDirectory, "npm"),
+      "#!/bin/sh\nprintf 'npm error code E404\\nnpm error 404 Not Found - GET https://registry.npmjs.org/@pi-harness/plugin-skill-guard\\nnpm error 404 The package is not in the npm registry\\nnpm error A complete log of this run can be found in: /tmp/npm-debug.log\\n' >&2\nexit 1\n",
+      { mode: 0o755 },
+    );
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "install-failure-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", { entries: () => [], create: () => Promise.resolve("marketplace-entry"), remove: () => Promise.resolve() });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "skill-guard" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(502);
+    const payload = (await response.json()) as { error?: string };
+    expect(payload.error).toBe(
+      "npm error code E404 npm error 404 Not Found - GET https://registry.npmjs.org/@pi-harness/plugin-skill-guard npm error 404 The package is not in the npm registry",
+    );
+    expect(payload.error).not.toContain("--save-exact");
+    expect(payload.error).not.toContain("npm-debug.log");
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profileBefore);
   });
 
   // An official plugin is its own npm package, so it takes the same install path a community package takes: npm first, then the profile row, then the loader entry. Nothing about `source: "official"` shortcuts any of it.
@@ -2608,6 +2691,60 @@ describe("API gateway plugin", () => {
     expect((await readFile(npmLog, "utf8")).trim()).toBe("uninstall --package-lock=false @pi-harness/plugin-skill-guard");
     await expect(readFile(configPath, "utf8")).resolves.not.toContain(entryId);
     await expect(readFile(configPath, "utf8")).resolves.toContain("- id: sibling");
+  });
+
+  test("reports a failed plugin uninstall in npm's own words without the command line", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-uninstall-failure-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nprintf 'npm error code EACCES\\nnpm error syscall unlink\\n' >&2\nexit 1\n", { mode: 0o755 });
+    const configPath = join(directory, "profile.yml");
+    const entryId = "skill-guard";
+    const loaderEntry = {
+      id: `profile:${entryId}`,
+      options: { id: entryId, name: "@pi-harness/plugin-skill-guard", config: {} },
+      parent: { tree: { write() {} }, remove: () => Promise.resolve() },
+    };
+    const profileBefore = `- id: ${entryId}\n  name: ${JSON.stringify(loaderEntry.options.name)}\n  config: {}\n- id: sibling\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n`;
+    await writeFile(configPath, profileBefore, "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "uninstall-failure-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const restored: unknown[] = [];
+    context.reflect.provide("loader", {
+      entries: () => [loaderEntry],
+      create: (options: unknown) => {
+        restored.push(options);
+        return Promise.resolve(`profile:${entryId}`);
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: entryId }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(502);
+    const payload = (await response.json()) as { error?: string };
+    expect(payload.error).toBe("npm error code EACCES npm error syscall unlink");
+    expect(payload.error).not.toContain("--package-lock=false");
+    expect(restored).toEqual([expect.objectContaining({ id: entryId, name: "@pi-harness/plugin-skill-guard" })]);
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profileBefore);
   });
 
   test("commits selected workspace files only after an explicit message", async () => {

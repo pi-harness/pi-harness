@@ -32,7 +32,8 @@ interface ApiServices {
   readonly pluginUi: PiPluginUiRegistry | undefined;
 }
 
-const loadMarketplaceStatistics = createMarketplaceStatisticsLoader();
+// The first paint waits for every console endpoint to answer, so the catalogue is sorted from whatever npm statistics are already cached and the misses are warmed in the background instead of held on to.
+const { readCached: readCachedMarketplaceStatistics } = createMarketplaceStatisticsLoader();
 
 const RUNTIME_ENTRY_NAME = "@pi-harness/core/plugins/runtime";
 
@@ -43,6 +44,8 @@ const IMPORT_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
 // Retained trajectory events are replayed to every SSE client and returned by /api/session, so the array must stay bounded.
 const MAX_RETAINED_EVENTS = 2000;
 const GIT_TIMEOUT_MS = 15_000;
+const PROCESS_FAILURE_TEXT_LIMIT = 400;
+const PROCESS_TIMEOUT_MS = 120_000;
 // Mutating commands run user hooks (pre-commit, lint-staged, test suites) and may stage large trees; killing them part-way leaves index.lock and a half-finished operation behind, so they get a far more generous bound than read-only queries.
 const GIT_MUTATION_TIMEOUT_MS = 120_000;
 
@@ -95,10 +98,14 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
   }
 }
 
+// A plugin that contributes tools only joins on the next start, so the console remembers what it installed until then. That memory is about one particular process, and the console cannot tell a restart from a reconnect on its own, so the identity of this process rides along with the status it already polls.
+const PROCESS_STARTED_AT = new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString();
+
 function createStatus(services: ApiServices, events: readonly AgentSessionEvent[]) {
   const activeModel = services.runtime.session.model ?? services.models.model;
   const cwd = activeCwd(services);
   return {
+    processStartedAt: PROCESS_STARTED_AT,
     status: services.runtime.session.isStreaming ? "running" : "ready",
     model: activeModel.provider + "/" + activeModel.id,
     messages: services.runtime.session.messages.length,
@@ -470,11 +477,28 @@ function registerPluginPanels(context: Context, services: ApiServices): () => vo
   return () => disposers.reverse().forEach((dispose) => dispose());
 }
 
+// npm ends every failure with the path to a debug log inside its own cache, which the reader of this console has no reason to open and no easy way to reach.
+const PROCESS_FAILURE_NOISE = /^npm (error|ERR!) A complete log of this run can be found in:/u;
+
+// npm reports a failure over many lines and the whole text is shown to someone who never typed the command, so the lines are joined up to a character budget and the command itself stays on the cause for diagnostics. Node's own message is never used as the fallback: it reads `Command failed: <the whole command line>`, which is exactly what this is removing.
+function processFailureText(executable: string, stderr: string, error: ExecFileException): string {
+  const text = stderr
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !PROCESS_FAILURE_NOISE.test(line))
+    .join(" ");
+  if (text === "")
+    return error.killed === true
+      ? `${executable} was stopped after ${PROCESS_TIMEOUT_MS / 1000}s`
+      : `${executable} exited with code ${error.code ?? "unknown"} and reported nothing`;
+  return text.length <= PROCESS_FAILURE_TEXT_LIMIT ? text : text.slice(0, PROCESS_FAILURE_TEXT_LIMIT) + "…";
+}
+
 function runProcess(executable: string, args: readonly string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolveProcess, rejectProcess) => {
-    execFile(executable, [...args], { cwd, timeout: 120_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(executable, [...args], { cwd, timeout: PROCESS_TIMEOUT_MS, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
-        rejectProcess(new Error(`${executable} ${args.join(" ")} failed: ${stderr || error.message}`, { cause: error }));
+        rejectProcess(new Error(processFailureText(executable, stderr, error), { cause: { command: `${executable} ${args.join(" ")}`, error } }));
         return;
       }
       resolveProcess({ stdout, stderr });
@@ -1096,7 +1120,7 @@ export default {
     });
     const disposeMarketplace = services.webServer.register({
       path: "/api/marketplace",
-      async handler(request, response) {
+      handler(request, response) {
         if (request.method !== "GET") {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
@@ -1123,10 +1147,10 @@ export default {
           return;
         }
         const filtered = searchMarketplace(query, capability, category);
+        const cached = readCachedMarketplaceStatistics(MARKETPLACE_PLUGINS);
+        // Recommendation is only applied once the whole catalogue has been looked up. Scoring a half-warm cache would reorder the grid under the reader's cursor on every poll as the background lookups land, which costs more than the few seconds the first sort is delayed.
         const items =
-          sort === "recommended"
-            ? sortMarketplaceByRecommendation(attachMarketplaceStatistics(filtered, await loadMarketplaceStatistics(MARKETPLACE_PLUGINS)))
-            : filtered;
+          sort === "recommended" && cached.ready ? sortMarketplaceByRecommendation(attachMarketplaceStatistics(filtered, cached.statistics)) : filtered;
         sendJson(response, 200, {
           ...paginateMarketplace(items, page, pageSize),
           capabilities: MARKETPLACE_CAPABILITIES,

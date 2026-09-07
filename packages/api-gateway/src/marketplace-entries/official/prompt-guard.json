@@ -11,9 +11,9 @@
   "status": "verified",
   "category": {
     "id": "security",
-    "label": "安全防护"
+    "label": "安全"
   },
-  "capabilities": ["prompt safety", "injection detection"],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session event", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-prompt-guard",

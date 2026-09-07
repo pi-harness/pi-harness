@@ -36,8 +36,51 @@ describe("message content projection", () => {
         },
       ]),
     ).toEqual([
-      { role: "user", text: "修复问题", thinking: "" },
-      { role: "assistant", text: "已修复", thinking: "先检查再确认" },
+      { role: "user", text: "修复问题", thinking: "", stopped: false },
+      { role: "assistant", text: "已修复", thinking: "先检查再确认", stopped: false },
+    ]);
+  });
+
+  test("marks the turn the user interrupted, including when the runtime closed it with an empty message", () => {
+    expect(
+      projectChatTurns([
+        { role: "user", content: [{ type: "text", text: "跑测试" }] },
+        { role: "assistant", content: [{ type: "text", text: "正在读取" }], stopReason: "aborted" },
+      ]).at(-1),
+    ).toEqual({ role: "assistant", text: "正在读取", thinking: "", stopped: true });
+
+    expect(
+      projectChatTurns([
+        { role: "assistant", content: [{ type: "text", text: "正在读取" }], stopReason: "stop" },
+        { role: "assistant", content: [], stopReason: "aborted" },
+      ]),
+    ).toEqual([{ role: "assistant", text: "正在读取", thinking: "", stopped: true }]);
+  });
+
+  test("keeps the mark when the interrupted message is merged with a later one", () => {
+    expect(
+      projectChatTurns([
+        { role: "assistant", content: [{ type: "text", text: "正在读取" }], stopReason: "aborted" },
+        { role: "assistant", content: [{ type: "text", text: "（已停止）" }], stopReason: "stop" },
+      ]),
+    ).toEqual([{ role: "assistant", text: "正在读取（已停止）", thinking: "", stopped: true }]);
+  });
+
+  test("gives an interrupt that landed before any output a turn of its own", () => {
+    expect(
+      projectChatTurns([
+        { role: "user", content: [{ type: "text", text: "跑测试" }] },
+        { role: "assistant", content: [], stopReason: "aborted" },
+      ]),
+    ).toEqual([
+      { role: "user", text: "跑测试", thinking: "", stopped: false },
+      { role: "assistant", text: "", thinking: "", stopped: true },
+    ]);
+  });
+
+  test("leaves a turn that finished on its own unmarked", () => {
+    expect(projectChatTurns([{ role: "assistant", content: [{ type: "text", text: "已完成" }], stopReason: "stop" }])).toEqual([
+      { role: "assistant", text: "已完成", thinking: "", stopped: false },
     ]);
   });
 });

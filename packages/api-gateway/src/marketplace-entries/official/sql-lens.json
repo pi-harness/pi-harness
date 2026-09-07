@@ -13,14 +13,7 @@
     "id": "tools",
     "label": "工具"
   },
-  "capabilities": [
-    "single-statement SQLite inspection",
-    "isolated read-only query worker",
-    "bounded rows cells and result bytes",
-    "workspace and symlink safety checks",
-    "timeout and cancellation termination",
-    "validated fail-closed panel reporting"
-  ],
+  "capabilities": ["reads-files", "runs-commands"],
   "hooks": ["SQL read-only tool", "workspace SQLite files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-sql-lens",

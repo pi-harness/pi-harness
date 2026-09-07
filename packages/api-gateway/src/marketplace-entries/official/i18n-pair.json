@@ -13,13 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "collision-safe locale key parity",
-    "strict bounded workspace-only JSON reads",
-    "no-follow symbolic-link safety",
-    "stable sequential cancellable inspection",
-    "validated bounded panel reporting"
-  ],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["i18n check tool", "workspace locale files", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-i18n-pair",

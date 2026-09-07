@@ -31,6 +31,9 @@ const supportedKeywords = new Set([
   "if",
   "then",
   "else",
+  "allOf",
+  "contains",
+  "not",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,6 +78,8 @@ function validate(schema: Schema, value: unknown, path = "$"): string[] {
     if (typeof schema.minItems === "number" && value.length < schema.minItems) errors.push(`${path}: fewer than ${schema.minItems} items`);
     if (schema.uniqueItems === true && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) errors.push(`${path}: items are not unique`);
     if (isRecord(schema.items)) value.forEach((item, index) => errors.push(...validate(schema.items as Schema, item, `${path}[${index}]`)));
+    if (isRecord(schema.contains) && !value.some((item) => validate(schema.contains as Schema, item, path).length === 0))
+      errors.push(`${path}: contains no item matching ${JSON.stringify(schema.contains)}`);
   }
   if (isRecord(value)) {
     const properties = isRecord(schema.properties) ? schema.properties : {};
@@ -91,6 +96,8 @@ function validate(schema: Schema, value: unknown, path = "$"): string[] {
     const branch = validate(schema.if, value, path).length === 0 ? schema.then : schema.else;
     if (isRecord(branch)) errors.push(...validate(branch, value, path));
   }
+  if (isRecord(schema.not) && validate(schema.not, value, path).length === 0) errors.push(`${path}: matches ${JSON.stringify(schema.not)}`);
+  if (Array.isArray(schema.allOf)) for (const branch of schema.allOf) if (isRecord(branch)) errors.push(...validate(branch, value, path));
   return errors;
 }
 
@@ -133,6 +140,11 @@ describe("marketplace entry schema", () => {
     expect(validate(schema, { ...validEntry(), profile: { name: "@pi-harness/plugin-agent-teams", config: [] } })).not.toEqual([]);
     expect(validate(schema, { ...groupEntry(), profile: { name: "@deepseek-ai/cordis-plugin-group", group: true, config: {} } })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), capabilities: [] })).not.toEqual([]);
+    expect(validate(schema, { ...validEntry(), capabilities: ["bounded skill packaging"] })).not.toEqual([]);
+    expect(validate(schema, { ...validEntry(), capabilities: ["read-only", "read-only"] })).not.toEqual([]);
+    // A plugin cannot claim it changes nothing and also declare an effect; the console shows that claim as a badge next to the Install button.
+    expect(validate(schema, { ...validEntry(), capabilities: ["read-only", "runs-commands"] })).not.toEqual([]);
+    expect(validate(schema, { ...validEntry(), capabilities: ["session-data", "runs-commands"] })).toEqual([]);
     expect(validate(schema, { ...validEntry(), repository: "http://example.com" })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), unexpected: true })).not.toEqual([]);
   });

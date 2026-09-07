@@ -13,7 +13,7 @@
     "id": "security",
     "label": "安全"
   },
-  "capabilities": ["secret detection", "dangerous command scan", "redacted findings"],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["workspace files", "plugin UI", "agent tool"],
   "profile": {
     "name": "@pi-harness/plugin-secure-audit",

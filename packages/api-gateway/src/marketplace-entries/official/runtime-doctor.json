@@ -13,7 +13,7 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": ["runtime diagnostics", "workspace health", "MCP status", "extension errors"],
+  "capabilities": ["read-only", "session-data", "reads-files"],
   "hooks": ["filesystem checks", "runtime services", "extension errors", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-runtime-doctor",

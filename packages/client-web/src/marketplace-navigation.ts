@@ -19,6 +19,17 @@ export function marketplaceCategoryTabs(categories: readonly MarketplaceCategory
   return [{ id: "", label: "全部", count: total }, ...categories];
 }
 
+export interface MarketplaceCapabilityLabel {
+  readonly id: string;
+  readonly label: string;
+}
+
+/** The capability ids are what the filter and the URL carry, and the labels arrive beside them in the same catalogue response, so the console names a capability the way the catalogue does rather than keeping a second copy of the vocabulary that could drift from it. An id with no label reads as itself, which is what the moment before the first response looks like. */
+export function marketplaceCapabilityLabeller(capabilities: readonly MarketplaceCapabilityLabel[]): (id: string) => string {
+  const labels = new Map(capabilities.map((capability) => [capability.id, capability.label]));
+  return (id) => labels.get(id) ?? id;
+}
+
 export interface MarketplaceStatisticsInput {
   readonly downloads30d?: number;
   readonly quality?: number;

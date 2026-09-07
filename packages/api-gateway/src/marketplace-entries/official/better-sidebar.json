@@ -13,7 +13,7 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": ["workspace overview", "Git status", "session context", "sidebar UI"],
+  "capabilities": ["session-data", "reads-files", "runs-commands"],
   "hooks": ["workspace scan", "read-only Git", "session manager", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-better-sidebar",

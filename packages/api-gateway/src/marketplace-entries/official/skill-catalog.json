@@ -13,7 +13,7 @@
     "id": "discovery",
     "label": "发现与生态"
   },
-  "capabilities": ["skills", "safe skill reading", "MCP", "diagnostics"],
+  "capabilities": ["read-only", "reads-files"],
   "hooks": ["resource loader", "skill guard", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-skill-catalog",

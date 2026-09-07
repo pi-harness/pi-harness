@@ -10,7 +10,7 @@
   "source": "official",
   "status": "verified",
   "category": { "id": "runtime", "label": "运行时" },
-  "capabilities": ["scheduling", "lifecycle-owned cancellation", "async interval iteration", "throttle and debounce"],
+  "capabilities": ["read-only"],
   "hooks": ["Cordis timer service", "plugin UI"],
   "profile": { "name": "@deepseek-ai/cordis-plugin-timer", "config": {} }
 }

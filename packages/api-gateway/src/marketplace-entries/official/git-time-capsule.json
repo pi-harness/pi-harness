@@ -13,14 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": [
-    "byte-exact validated unstaged diff capture",
-    "exclusive no-clobber capsule publication",
-    "confirmed deterministic reverse apply",
-    "bounded 256-capsule inventory",
-    "cancellable serialized Git operations",
-    "descriptor-safe normalized panel"
-  ],
+  "capabilities": ["reads-files", "writes-files", "runs-commands"],
   "hooks": ["Git snapshot tool", "Git restore tool", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-git-time-capsule",

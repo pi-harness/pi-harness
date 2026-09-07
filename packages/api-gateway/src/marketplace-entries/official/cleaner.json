@@ -13,15 +13,7 @@
     "id": "developer",
     "label": "开发工具"
   },
-  "capabilities": [
-    "strict configuration and parameters",
-    "bounded capsule inventory",
-    "display-safe capsule filtering",
-    "confirmed retention cleanup",
-    "symlink and replacement defenses",
-    "cancellable serialized cleanup",
-    "fail-closed normalized panel"
-  ],
+  "capabilities": ["reads-files", "writes-files"],
   "hooks": ["capsule cleanup tool", "agent capsule directory", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-cleaner",

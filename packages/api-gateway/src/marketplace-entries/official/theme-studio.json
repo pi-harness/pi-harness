@@ -13,7 +13,7 @@
     "id": "interface",
     "label": "界面增强"
   },
-  "capabilities": ["theme presets", "contrast modes", "session persistence"],
+  "capabilities": ["read-only", "session-data"],
   "hooks": ["session lifecycle", "React root tokens", "plugin UI"],
   "profile": {
     "name": "@pi-harness/plugin-theme-studio",
