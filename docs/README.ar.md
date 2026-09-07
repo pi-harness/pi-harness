@@ -54,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-للاطلاع على كتالوج الإضافات المنتقى والإعدادات وجميع مسارات واجهة HTTP API والحدود الأمنية، راجع [المرجع بالإنجليزية](README.reference.md). ويضم core إضافات أكثر مما يصفه ذلك الكتالوج: المجموعة الكاملة في [`packages/plugins`](../packages/plugins)، وما تُفعّله وحدة تحكم الويب افتراضياً مذكور في [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml).
+للاطلاع على كتالوج الإضافات المنتقى والإعدادات وجميع مسارات واجهة HTTP API والحدود الأمنية، راجع [المرجع بالإنجليزية](README.reference.md). ويضم core إضافات أكثر مما يصفه ذلك الكتالوج: المجموعة الكاملة في [`packages/plugins`](../packages/plugins)، وكل إضافة فيها تُثبَّت من مركز الإضافات مثل إضافات المجتمع. والتثبيت الجديد يُفعّل البنية التحتية فقط، وهو ما يحتويه [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml).
 
 ## الترخيص
 

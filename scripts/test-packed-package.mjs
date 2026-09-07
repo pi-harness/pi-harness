@@ -200,13 +200,17 @@ try {
   const importedResolve = await import(pathToFileURL(join(coreRoot, "dist", "plugin-resolve.js")).href);
   const installedResolve = /** @type {{ resolvePluginEntry: (fromFile: string, name: string) => string | undefined }} */ (importedResolve);
 
-  // The loader imports a profile entry by its bare specifier from its own file, so a bundled plugin is reachable wherever npm laid it out along that chain rather than at one fixed path. 0.1.29 shipped a profile naming 45 packages the launcher never depended on, and the harness failed to boot on the first one it could not import.
+  // The loader imports a profile entry by its bare specifier from its own file, so an entry is reachable wherever npm laid it out along that chain rather than at one fixed path. 0.1.29 shipped a profile naming 45 packages the launcher never depended on, and the harness failed to boot on the first one it could not import.
   const loaderEntry = join(harnessRoot, "node_modules", "@deepseek-ai", "cordis-plugin-loader", "lib", "index.js");
   const shippedProfile = readFileSync(join(harnessRoot, "apps", "web", "profile", "cordis.yml"), "utf8");
-  const enabledPlugins = [...new Set([...shippedProfile.matchAll(/name: "(@pi-harness\/plugin-[a-z0-9-]+)"/gu)].map((match) => match[1] ?? ""))];
-  if (enabledPlugins.length === 0) throw new Error("The installed profile names no plugin packages, so the check below would prove nothing");
-  const absent = enabledPlugins.filter((name) => installedResolve.resolvePluginEntry(loaderEntry, name) === undefined);
-  if (absent.length > 0) throw new Error(`The installed profile enables ${absent.length} plugin(s) the install does not contain: ${absent.join(", ")}`);
+  const enabledEntries = [...new Set([...shippedProfile.matchAll(/name: "(@[^"]+)"/gu)].map((match) => match[1] ?? ""))];
+  if (enabledEntries.length === 0) throw new Error("The installed profile names no packages, so the checks below would prove nothing");
+  const absent = enabledEntries.filter((name) => installedResolve.resolvePluginEntry(loaderEntry, name) === undefined);
+  if (absent.length > 0) throw new Error(`The installed profile enables ${absent.length} entr(ies) the install does not contain: ${absent.join(", ")}`);
+
+  // The shipped profile is infrastructure only. A pluggable plugin in it would be bundled into every install and switched on before the user ever opened the plugin center, which is the opposite of installing one from there.
+  const bundledPlugins = enabledEntries.filter((name) => name.startsWith("@pi-harness/plugin-"));
+  if (bundledPlugins.length > 0) throw new Error(`The installed profile enables ${bundledPlugins.length} pluggable plugin(s): ${bundledPlugins.join(", ")}`);
 
   // Everything above proves the tarball is well formed; this proves the launcher can still do the one thing that needs the tarball to be well formed at runtime. Installing a marketplace plugin runs npm inside whatever directory owns the booted profile and then imports the package from there, and both halves have failed silently before: npm refused to run inside the installed package at all, and the loader could not resolve an ESM-only package once npm had installed it.
   const harnessHome = join(temporaryRoot, "harness-home");

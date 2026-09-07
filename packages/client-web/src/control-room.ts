@@ -167,7 +167,7 @@ export interface ClientApi {
   }): Promise<{ provider: ClientProvider }>;
   listPlugins(): Promise<readonly ClientPlugin[]>;
   listPluginPanels(): Promise<readonly ClientPluginPanel[]>;
-  togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin }>;
+  togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin; restartRequired?: boolean }>;
   uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string }>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number, category?: string): Promise<ClientMarketplacePage>;
   installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean }>;
@@ -300,7 +300,7 @@ export function createClientApi(): ClientApi {
     listPlugins: async () => (await requestJson<{ items: readonly ClientPlugin[] }>("/api/plugins")).items,
     listPluginPanels: async () => (await requestJson<{ items: readonly ClientPluginPanel[] }>("/api/plugin-ui")).items,
     togglePlugin: (id, enabled) =>
-      requestJson<{ plugin: ClientPlugin }>("/api/plugins/toggle", {
+      requestJson<{ plugin: ClientPlugin; restartRequired?: boolean }>("/api/plugins/toggle", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id, enabled }),

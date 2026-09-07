@@ -98,8 +98,8 @@ describe("release contract", () => {
     expect(core.files).not.toContain("profiles");
   });
 
-  test("the published launcher declares every plugin package its shipped profiles load", () => {
-    // Every plugin in a shipped profile is now an ordinary npm package, so the package a user installs has to pull each one like any other dependency.
+  test("the published launcher declares every package its shipped profiles load, and no plugin", () => {
+    // A profile entry is imported by its bare specifier, so the package a user installs has to pull the infrastructure each entry names. Pluggable plugins are the exception by design: they are ordinary npm packages installed from the plugin center, so bundling one would put it in every install whether the user wanted it or not.
     const root = readJson("package.json") as { name: string; dependencies: Record<string, string> };
     const required = new Map<string, string>();
     for (const file of sourceFiles(resolve(repositoryRoot, "packages/cli/profiles"), ".yml")) {
@@ -107,8 +107,12 @@ describe("release contract", () => {
         required.set(packageNameOf(match[1] ?? ""), relative(repositoryRoot, file));
     }
     const external = [...required].filter(([name]) => !name.includes(":"));
-    expect(external.filter(([name]) => name.startsWith("@pi-harness/plugin-")).length).toBeGreaterThan(0);
-    for (const [name, file] of external) expect(root.dependencies[name], `${name} (loaded by ${file}) is not declared by ${root.name}`).toBeDefined();
+    expect(external.length).toBeGreaterThan(0);
+    for (const [name, file] of external) {
+      expect(name.startsWith("@pi-harness/plugin-"), `${name} (loaded by ${file}) is a pluggable plugin, which a shipped profile must not enable`).toBe(false);
+      expect(root.dependencies[name], `${name} (loaded by ${file}) is not declared by ${root.name}`).toBeDefined();
+    }
+    expect(Object.keys(root.dependencies).filter((name) => name.startsWith("@pi-harness/plugin-"))).toEqual([]);
   });
 
   test("the plugin API declares every package its sources import as a peer", () => {

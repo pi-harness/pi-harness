@@ -91,6 +91,21 @@ function isTimerSpecifier(name: string): boolean {
   return name === timerPackageName || name === timerEntryUrl;
 }
 
+// Anything else is a path, a URL, or a cordis builtin, all of which the loader already resolves correctly.
+function isBareSpecifier(name: string): boolean {
+  return !name.startsWith("cordis:") && !name.startsWith(".") && !name.startsWith("/") && !name.includes("://");
+}
+
+// A bare plugin specifier has to be resolved against the profile, because that is the package the console installs a marketplace plugin into. The loader's own resolution runs from its file inside the harness installation, which is read-only and holds no plugin the user installed.
+function resolveFromProfile(anchor: string, name: string): string | undefined {
+  try {
+    return createRequire(anchor).resolve(name);
+  } catch {
+    // The CJS resolver reports a package whose "exports" declares no "require" condition as not exported, which is every ESM-only plugin, so a marketplace package installed beside the profile has to be located under the import conditions instead of being handed straight to the loader.
+    return resolvePluginEntry(anchor, name);
+  }
+}
+
 function assertValidEntryTree(entries: unknown): asserts entries is EntryOptions[] {
   if (!Array.isArray(entries)) throw new Error("Loader profile root must be an array");
   const ids = new Map<string, string>();
@@ -143,15 +158,8 @@ class ReadonlyInclude extends Include {
 
   override import(name: string, getOuterStack?: () => string[]): unknown {
     if (isTimerSpecifier(name)) return HardenedTimerService;
-    if (this.ctx.loader.internal !== undefined || name.startsWith("cordis:") || name.startsWith(".") || name.startsWith("/") || name.includes("://"))
-      return super.import(name, getOuterStack);
-    let resolved: string | undefined;
-    try {
-      resolved = createRequire(this.filename).resolve(name);
-    } catch {
-      // The CJS resolver reports a package whose "exports" declares no "require" condition as not exported, which is every ESM-only plugin, so a marketplace package installed beside the profile has to be located under the import conditions instead of being handed straight to the loader.
-      resolved = resolvePluginEntry(this.filename, name);
-    }
+    if (this.ctx.loader.internal !== undefined || !isBareSpecifier(name)) return super.import(name, getOuterStack);
+    const resolved = resolveFromProfile(this.filename, name);
     if (resolved === undefined) return super.import(name, getOuterStack);
     return super.import(pathToFileURL(resolved).href, getOuterStack);
   }
@@ -235,7 +243,13 @@ export async function bootHarness(options: BootHarnessOptions): Promise<BootedHa
     context.baseUrl = `${pathToFileURL(dirname(configPath)).href}/`;
     await context.plugin(Loader);
     const loadPlugin = context.loader.import.bind(context.loader);
-    context.loader.import = (name, getOuterStack) => (isTimerSpecifier(name) ? HardenedTimerService : (loadPlugin(name, getOuterStack) as unknown));
+    // The console adds a marketplace plugin as an entry of the loader's own root tree rather than of the profile's include tree, so that tree needs the same profile-anchored resolution the include tree gets.
+    context.loader.import = (name, getOuterStack) => {
+      if (isTimerSpecifier(name)) return HardenedTimerService;
+      if (context.loader.internal !== undefined || !isBareSpecifier(name)) return loadPlugin(name, getOuterStack) as unknown;
+      const resolved = resolveFromProfile(configPath, name);
+      return loadPlugin(resolved === undefined ? name : pathToFileURL(resolved).href, getOuterStack) as unknown;
+    };
     if (options.onFullReload !== undefined) context.loader.exit = options.onFullReload;
     await options.prepare?.(context);
     stage = "plugin tree activation";

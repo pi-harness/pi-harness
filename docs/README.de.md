@@ -54,7 +54,7 @@ npm run lint
 npm run build
 ```
 
-Der ausgewählte Plugin-Katalog sowie Konfiguration, sämtliche HTTP-API-Routen, Limits und Sicherheitsgrenzen stehen in der [englischen Referenz](README.reference.md). Core liefert mehr Plugins aus, als dieser Katalog beschreibt: [`packages/plugins`](../packages/plugins) ist die vollständige Menge, und [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) listet die von der Web-Konsole standardmäßig aktivierten Plugins.
+Der ausgewählte Plugin-Katalog sowie Konfiguration, sämtliche HTTP-API-Routen, Limits und Sicherheitsgrenzen stehen in der [englischen Referenz](README.reference.md). Core liefert mehr Plugins aus, als dieser Katalog beschreibt: [`packages/plugins`](../packages/plugins) ist die vollständige Menge, und jedes davon wird wie ein Community-Plugin über das Plugin-Center installiert. Eine frische Installation aktiviert nur die Infrastruktur, also genau das, was in [`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml) steht.
 
 ## Lizenz
 

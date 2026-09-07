@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
-import { atomicWriteFile } from "@pi-harness/core";
+import { atomicWriteFile, isPiToolRegistryLeasedError } from "@pi-harness/core";
 import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
 import {
@@ -33,6 +33,8 @@ interface ApiServices {
 }
 
 const loadMarketplaceStatistics = createMarketplaceStatisticsLoader();
+
+const RUNTIME_ENTRY_NAME = "@pi-harness/core/plugins/runtime";
 
 const DEFAULT_BODY_LIMIT_BYTES = 64 * 1024;
 const IMPORT_CONTENT_LIMIT_BYTES = 10 * 1024 * 1024;
@@ -480,14 +482,24 @@ function runProcess(executable: string, args: readonly string[], cwd: string): P
   });
 }
 
-async function appendMarketplaceProfile(configPath: string, plugin: MarketplacePlugin): Promise<string> {
+// A plugin registers its tools before pi-runtime acquires the tool registry, so an installed entry has to sit in the runtime's own group ahead of the runtime. Appended at the end of the profile it would load after the runtime and fail on every subsequent start.
+function marketplaceProfileEntry(plugin: MarketplacePlugin, indent: string): string {
+  const child = `${indent}  `;
+  const group = plugin.profile.group === true ? `\n${child}group: true` : "";
+  return `${indent}- id: marketplace-${plugin.id}\n${child}name: ${JSON.stringify(plugin.packageName)}${group}\n${child}config: ${JSON.stringify(plugin.profile.config)}\n`;
+}
+
+async function appendMarketplaceProfile(configPath: string, plugin: MarketplacePlugin, beforeEntryId?: string): Promise<string> {
   const source = await readFile(configPath, "utf8");
   if (source.includes(`name: ${JSON.stringify(plugin.packageName)}`)) return source;
-  const entryId = `marketplace-${plugin.id}`;
-  const config = JSON.stringify(plugin.profile.config);
-  const group = plugin.profile.group === true ? "\n  group: true" : "";
-  const entry = `\n- id: ${entryId}\n  name: ${JSON.stringify(plugin.packageName)}${group}\n  config: ${config}\n`;
-  await writeFile(configPath, source.replace(/\s*$/, "") + entry, "utf8");
+  const anchor =
+    beforeEntryId === undefined ? null : source.match(new RegExp(`^([ \\t]*)- id: ${beforeEntryId.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}[ \\t]*$`, "mu"));
+  if (anchor === null) {
+    await writeFile(configPath, `${source.replace(/\s*$/u, "")}\n${marketplaceProfileEntry(plugin, "")}`, "utf8");
+    return source;
+  }
+  const start = anchor.index ?? 0;
+  await writeFile(configPath, source.slice(0, start) + marketplaceProfileEntry(plugin, anchor[1] ?? "") + source.slice(start), "utf8");
   return source;
 }
 
@@ -681,6 +693,17 @@ async function marketplaceInstallDirectory(configPath: string, fallback: string)
     parent = dirname(directory);
   }
   return fallback;
+}
+
+// Where an installed plugin belongs in the running loader: inside the group that owns pi-runtime, immediately ahead of it. A profile without a runtime entry (the stdio CLI profile does have one, a hand-written profile may not) places the entry at the end of the root instead.
+function runtimePlacement(loader: Loader): { groupEntryId: string | null; position: number; beforeEntryId: string } | undefined {
+  const entries = [...loader.entries()];
+  const runtime = entries.find((entry) => entry.options.name === RUNTIME_ENTRY_NAME);
+  if (runtime === undefined) return undefined;
+  const group = entries.find((entry) => entry.subgroup === runtime.parent);
+  const position = runtime.parent.data.indexOf(runtime.options);
+  // The loader addresses a nested group by its qualified id (`profile:agent`), while the profile file names the entry by its own id.
+  return { groupEntryId: group?.id ?? null, position: position < 0 ? Infinity : position, beforeEntryId: runtime.options.id };
 }
 
 function pickDirectory(): Promise<string> {
@@ -1151,24 +1174,34 @@ export default {
           const packageLockPath = join(installDirectory, "package-lock.json");
           const packageJsonBefore = await readFile(packageJsonPath, "utf8").catch(() => undefined);
           const packageLockBefore = await readFile(packageLockPath, "utf8").catch(() => undefined);
+          const placement = runtimePlacement(loader);
           let profileBefore: string | undefined;
           let entryId: string | undefined;
           try {
             const specifier = `${marketplaceNpmPackageName(plugin.packageName)}@${plugin.version}`;
             await runProcess("npm", ["install", "--save-exact", "--package-lock=false", specifier], installDirectory);
-            profileBefore = await appendMarketplaceProfile(configPath, plugin);
-            entryId = await loader.create({
-              id: `marketplace-${plugin.id}`,
-              name: plugin.packageName,
-              ...(plugin.profile.group === true ? { group: true } : {}),
-              config: plugin.profile.config,
-            } as never);
+            profileBefore = await appendMarketplaceProfile(configPath, plugin, placement?.beforeEntryId);
+            entryId = await loader.create(
+              {
+                id: `marketplace-${plugin.id}`,
+                name: plugin.packageName,
+                ...(plugin.profile.group === true ? { group: true } : {}),
+                config: plugin.profile.config,
+              } as never,
+              placement?.groupEntryId ?? null,
+              placement?.position ?? Infinity,
+            );
             const entry = loader.resolve(entryId);
             if (entry.fiber === undefined) throw new Error(`Plugin ${plugin.packageName} did not create a runtime fiber`);
             await entry.fiber.await();
-            sendJson(response, 200, { plugin, installed: true });
+            sendJson(response, 200, { plugin, installed: true, restartRequired: false });
           } catch (error) {
             if (entryId !== undefined) await loader.remove(entryId).catch(() => {});
+            // The runtime holds the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools cannot join a harness that is already running. The package and its profile entry stay in place and the plugin arrives on the next start; rolling the install back would leave the user unable to install it at all.
+            if (isPiToolRegistryLeasedError(error)) {
+              sendJson(response, 200, { plugin, installed: true, restartRequired: true });
+              return;
+            }
             if (profileBefore !== undefined) await writeFile(configPath, profileBefore, "utf8").catch(() => {});
             // A manifest npm created for this install is removed rather than left behind; restoring is only possible when one existed before.
             if (packageJsonBefore === undefined) await unlink(packageJsonPath).catch(() => {});
@@ -1222,8 +1255,13 @@ export default {
           const before = await updateMarketplaceProfile(configPath, profileEntryId, { disabled: !payload.enabled });
           try {
             await entry.update({ disabled: !payload.enabled });
-            sendJson(response, 200, { plugin: pluginSummary(entry) });
+            sendJson(response, 200, { plugin: pluginSummary(entry), restartRequired: false });
           } catch (error) {
+            // Re-enabling a plugin that contributes tools cannot take effect in a harness the runtime already leased, so the profile keeps the change and the plugin comes back on the next start. Reverting it would leave a plugin that can be switched off but never on again.
+            if (isPiToolRegistryLeasedError(error)) {
+              sendJson(response, 200, { plugin: pluginSummary(entry), restartRequired: true });
+              return;
+            }
             await writeFile(configPath, before, "utf8").catch(() => {});
             sendJson(response, 502, { error: errorText(error) });
           }

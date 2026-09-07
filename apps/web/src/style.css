@@ -2041,6 +2041,9 @@ button:disabled {
 .plugin-action-error {
   @apply [margin:10px_0_0_37px] [color:var(--color-red)] [font-size:11px];
 }
+.plugin-action-notice {
+  @apply [margin:10px_0_0_37px] [color:#8a5a00] [font-size:11px];
+}
 .plugin-confirm-backdrop {
   @apply [position:fixed] [inset:0] [z-index:60] [display:grid] [place-items:center] [padding:24px] [background:rgba(15,_23,_42,_0.32)] [backdrop-filter:blur(6px)];
 }
