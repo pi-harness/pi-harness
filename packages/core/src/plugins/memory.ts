@@ -119,11 +119,12 @@ async function readMemoryFile(filePath: string, entryLimit: number): Promise<Mem
   const file = parsed as Partial<MemoryFile>;
   if (file.version !== 1 || !Array.isArray(file.memories)) throw new Error("Memory file has an unsupported format");
   if (!file.memories.every(isMemory)) throw new Error("Memory file contains invalid memories");
-  if (file.memories.length > entryLimit) throw new Error(`Memory file exceeds its ${entryLimit}-entry limit`);
+  // maxEntries is the hard file ceiling that detects a corrupt or hand-grown file. The configured entryLimit only trims what this read returns, so lowering it no longer rejects a file that still fits the byte bound above.
+  if (file.memories.length > maxEntries) throw new Error(`Memory file exceeds its ${maxEntries}-entry limit`);
   const keys = new Set(file.memories.map((memory) => memory.key));
   const ids = new Set(file.memories.map((memory) => memory.id));
   if (keys.size !== file.memories.length || ids.size !== file.memories.length) throw new Error("Memory file contains duplicate memories");
-  return file.memories;
+  return file.memories.slice(0, entryLimit);
 }
 
 async function writeMemoryFile(filePath: string, memories: Memory[]): Promise<void> {

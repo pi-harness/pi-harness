@@ -222,7 +222,8 @@ export default {
       latest = { status: "running", ...request, startedAt, cancelled: false };
       let result: { cancelled: boolean; editorText?: string };
       try {
-        result = await runtime.session.extensionRunner.createCommandContext().navigateTree(request.target.entryId, { summarize: request.summarized });
+        // The harness never passes commandContextActions to bindExtensions, so the extension command context installs a no-op navigateTree that resolves {cancelled:false} without moving the session. Call the session operation directly instead.
+        result = await runtime.session.navigateTree(request.target.entryId, { summarize: request.summarized });
       } catch (error) {
         latest = { status: "failed", ...request, startedAt, finishedAt: new Date().toISOString(), cancelled: false, error: boundedError(error) };
         throw error;

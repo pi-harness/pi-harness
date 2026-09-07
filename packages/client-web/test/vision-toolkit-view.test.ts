@@ -194,4 +194,39 @@ describe("Vision Toolkit panel view", () => {
 
     expect(view).toMatchObject({ report: { assets: [] }, truncated: true });
   });
+
+  test("accepts a catalog whose only issue comes from an unreadable directory", () => {
+    const limits = {
+      imageBytes: 20_971_520,
+      headerBytes: 262_144,
+      pathCharacters: 4_096,
+      assets: 100,
+      imageCandidates: 256,
+      scannedEntries: 4_096,
+      scannedDirectories: 512,
+      depth: 16,
+      issues: 20,
+      issueCharacters: 500,
+      agentTextBytes: 16_384,
+    };
+    const report = {
+      assets: [],
+      issues: [{ path: "restricted", reason: "EACCES: permission denied, scandir" }],
+      inspectedCandidates: 0,
+      scannedEntries: 1,
+      scannedDirectories: 2,
+      truncated: false,
+      issuesTruncated: false,
+    };
+    const payload = {
+      status: { state: "completed", operation: "catalog", count: 0, truncated: false, at: "2026-09-06T00:00:00.000Z" },
+      report,
+      supportedTypes: ["png", "jpeg", "jpg", "gif", "webp"],
+      limits,
+    };
+
+    expect(visionToolkitPanelView(payload)).toMatchObject({ report, truncated: false });
+    expect(visionToolkitPanelView({ ...payload, report: { ...report, scannedEntries: 0 } })).toMatchObject({ report: null, truncated: true });
+    expect(visionToolkitPanelView({ ...payload, report: { ...report, inspectedCandidates: 2 } })).toMatchObject({ report: null, truncated: true });
+  });
 });

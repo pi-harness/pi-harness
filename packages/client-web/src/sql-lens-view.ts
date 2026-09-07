@@ -74,8 +74,11 @@ function safeInteger(value: unknown, maximum: number): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= maximum ? value : undefined;
 }
 
-function safeText(value: unknown, maximum: number, allowEmpty = false): string | undefined {
-  if (typeof value !== "string" || (!allowEmpty && value.length === 0) || unsafeUnicode.test(value)) return undefined;
+function safeText(value: unknown, maximum: number, allowEmpty = false, allowLineBreaks = false): string | undefined {
+  if (typeof value !== "string" || (!allowEmpty && value.length === 0)) return undefined;
+  for (const character of value) {
+    if (unsafeUnicode.test(character) && !(allowLineBreaks && (character === "\t" || character === "\n" || character === "\r"))) return undefined;
+  }
   if ([...value].length > maximum || new TextEncoder().encode(value).byteLength > maximum) return undefined;
   return value;
 }
@@ -134,7 +137,7 @@ function statusView(value: unknown): SqlLensPanelView["status"] | undefined {
 function cellView(value: unknown): unknown {
   if (value === null) return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (typeof value === "string") return safeText(value, maxDisplayString, true);
+  if (typeof value === "string") return safeText(value, maxDisplayString, true, true);
   const source = ownDataRecord(value, cellKeys);
   if (
     source === undefined ||
@@ -205,16 +208,17 @@ function latestView(value: unknown): SqlLensPanelView["latest"] | undefined {
     }
     rows.push(normalized);
   }
+  const visible = rows.slice(0, visibleRows);
   return {
     database,
     query,
     columns: columns.slice(0, visibleColumns),
-    rows: rows.slice(0, visibleRows),
+    rows: visible,
     rowInventory: {
       scanned,
       returned,
-      shown: rows.length,
-      truncated: source.truncated || inventory.truncated || rows.length !== returned || columns.length > visibleColumns,
+      shown: visible.length,
+      truncated: source.truncated || inventory.truncated || rows.length !== returned || rows.length > visible.length || columns.length > visibleColumns,
       displayLimit: limitsDefaults.panelRows,
     },
   };

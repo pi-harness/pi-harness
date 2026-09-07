@@ -260,6 +260,26 @@ process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline 
     }
   });
 
+  test("surfaces a broken stdin pipe as a request failure instead of an uncaught stream error", async () => {
+    const fixture = await createFixture();
+    // The server answers initialize, then closes its stdin read end while staying alive, so every later write from the harness fails with EPIPE on the stdin stream rather than on the child process.
+    const server = await writeServer(
+      fixture.cwd,
+      `import { closeSync } from "node:fs"; let buffer = ""; const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n"); setTimeout(() => undefined, 10_000); process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline = buffer.indexOf("\\n"); if (newline < 0) break; const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line.trim()) continue; const message = JSON.parse(line); if (message.method === "initialize") { send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "epipe", version: "1" } } }); closeSync(0); } } });`,
+    );
+    const controller = new AbortController();
+    const guard = setTimeout(() => controller.abort(new Error("stdin write never failed")), 3_000);
+    try {
+      await expect(
+        tool(fixture.tools, "mcp_list_tools").execute("epipe", { command: [process.execPath, server] }, controller.signal, undefined, {} as never),
+      ).rejects.toThrow(/EPIPE|exited|cancel/iu);
+    } finally {
+      clearTimeout(guard);
+      controller.abort(new Error("test cleanup"));
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("rejects repeated MCP pagination cursors", async () => {
     const fixture = await createFixture();
     const server = await writeServer(

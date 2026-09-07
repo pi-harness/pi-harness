@@ -85,6 +85,13 @@ async function readBoundedText(path: string): Promise<string> {
   return readBoundedTextFile(path, maxMetadataBytes, "Plugin metadata file");
 }
 
+// Bounded-file failures describe the inspected file, so they become a per-file diagnostic instead of being reported as a missing or malformed file.
+function metadataFailure(name: string, error: unknown): string | undefined {
+  if (error instanceof BoundedFileSizeError) return `${name} exceeds the 1 MiB metadata limit`;
+  if (error instanceof BoundedFileTypeError) return `${name} is not a readable regular file`;
+  return undefined;
+}
+
 async function scanTypeScriptSources(sourceDir: string): Promise<{ sources: string[]; checked: number; skipped: number; truncated: boolean }> {
   const sources: string[] = [];
   let checked = 0;
@@ -148,12 +155,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
     const parsed = JSON.parse(await readBoundedText(join(root, "package.json"))) as unknown;
     manifest = asObject(parsed);
   } catch (error) {
-    addIssue(
-      checks,
-      "no-manifest",
-      "failed",
-      error instanceof BoundedFileSizeError ? "package.json exceeds the 1 MiB metadata limit" : "package.json is missing or invalid JSON",
-    );
+    addIssue(checks, "no-manifest", "failed", metadataFailure("package.json", error) ?? "package.json is missing or invalid JSON");
   }
   if (manifest !== undefined) checks.push({ code: "no-manifest", status: "passed", message: "package.json is readable" });
   const packageName = typeof manifest?.name === "string" ? manifest.name : "";
@@ -171,21 +173,25 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   if (typeof scripts?.build === "string") checks.push({ code: "no-build-script", status: "passed", message: "build script exists" });
   else addIssue(checks, "no-build-script", "warning", "package has no build script");
   let readme: string;
+  let readmeIssue: string | undefined;
   try {
     readme = await readBoundedText(join(root, "README.md"));
-  } catch {
+  } catch (error) {
     readme = "";
+    readmeIssue = metadataFailure("README.md", error);
   }
   let patchSource: string | undefined;
+  let patchIssue: string | undefined;
   for (const filename of ["cordis.patch.yml", "dsh.bundle.patch"]) {
     try {
       patchSource = await readBoundedText(join(root, filename));
       break;
-    } catch {
+    } catch (error) {
       // Try the next supported patch filename.
+      patchIssue ??= metadataFailure(filename, error);
     }
   }
-  if (patchSource === undefined) addIssue(checks, "no-patch", "failed", "no runtime patch or bundle declaration found");
+  if (patchSource === undefined) addIssue(checks, "no-patch", "failed", patchIssue ?? "no runtime patch or bundle declaration found");
   else {
     try {
       const parsed = parse(patchSource) as unknown;
@@ -207,7 +213,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   }
   if (/(?:dsh|pi)\s+plugin\s+--profile\s+\S+\s+add/iu.test(readme))
     checks.push({ code: "missing-profile-install-example", status: "passed", message: "README has a profile install example" });
-  else addIssue(checks, "missing-profile-install-example", "warning", "README has no standard profile install example");
+  else addIssue(checks, "missing-profile-install-example", "warning", readmeIssue ?? "README has no standard profile install example");
   if (/(?:git\s+apply|cp\s+.*(?:monorepo|src\/)|modify\s+.*core)/iu.test(readme))
     addIssue(checks, "core-modification-required", "failed", "README requires host source modification");
   else checks.push({ code: "core-modification-required", status: "passed", message: "README does not require host source changes" });

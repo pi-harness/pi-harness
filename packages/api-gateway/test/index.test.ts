@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
@@ -13,6 +13,19 @@ import webServerPlugin from "@pi-harness/host-webserver";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/core";
 import type { MarketplacePlugin } from "../src/marketplace.js";
 import apiPlugin from "../src/index.js";
+import type * as FsPromises from "node:fs/promises";
+
+// The gateway reads the session metadata file through node:fs/promises; this pass-through mock lets one test hold a read open after its bytes arrived so lock ordering can be observed deterministically. Everything else goes straight to the real implementation.
+const fsHooks = vi.hoisted(() => ({ afterReadFile: undefined as ((path: string) => Promise<void>) | undefined }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  const readFile = async (path: unknown, options?: unknown) => {
+    const result: unknown = await (actual.readFile as (path: unknown, options?: unknown) => Promise<unknown>)(path, options);
+    if (fsHooks.afterReadFile) await fsHooks.afterReadFile(String(path));
+    return result;
+  };
+  return { ...actual, readFile };
+});
 
 // Every shipped catalog entry that npm has to install names a bare package, so `packageName` and its npm package name coincide and the install route cannot show whether it narrows the specifier. This entry is the case where the two differ: a deep import path whose npm package is only the first two segments. It is hoisted because the module mock below reads it while the test module body is still in its temporal dead zone.
 const { subpathPlugin } = vi.hoisted(() => ({
@@ -43,6 +56,7 @@ vi.mock("../src/marketplace.js", async (importOriginal) => {
 const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];
 const execFile = promisify(execFileCallback);
+const sleep = (ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms));
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
@@ -2581,7 +2595,12 @@ describe("API gateway plugin", () => {
       expect(failed.status).toBe(500);
       await expect(failed.json()).resolves.toEqual({ error: "fatal: index file corrupt" });
 
-      await writeFile(shim, "#!/bin/sh\n{ printf ' M tracked.txt\\n'; seq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/'; } | tr '\\n' '\\0'\n", { mode: 0o755 });
+      // The gateway consumes NUL-separated `--porcelain -z` entries and then asks git for the cwd prefix, so the shim answers both calls.
+      await writeFile(
+        shim,
+        "#!/bin/sh\ncase \"$1\" in rev-parse) exit 0;; esac\nprintf ' M tracked.txt\\0'\nseq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/' | tr '\\n' '\\0'\n",
+        { mode: 0o755 },
+      );
       const truncated = await fetch(context.webServer.url + "/api/files");
       expect(truncated.status).toBe(200);
       const payload = (await truncated.json()) as { items: { path: string }[]; truncated?: boolean };
@@ -3214,5 +3233,204 @@ describe("API gateway plugin", () => {
     await expect(readFile(configPath, "utf8")).resolves.toBe(profileBefore);
     await expect(readFile(join(harnessDir, "package.json"), "utf8")).resolves.toBe('{ "name": "harness" }\n');
     await expect(stat(join(harnessDir, "package-lock.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("propagates metadata read errors other than ENOENT instead of quarantining a file it could not read", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-metadata-eisdir-"));
+    temporaryDirectories.push(directory);
+    const metadataFile = join(directory, ".pi-harness-session-meta.json");
+    // A directory at the metadata path makes readFile fail with EISDIR while rename would still succeed, which is exactly the shape of a transient read failure.
+    await mkdir(metadataFile);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "metadata-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => directory, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const list = await fetch(context.webServer.url + "/api/sessions");
+    expect(list.status).toBe(500);
+    const listBody = (await list.json()) as { error: string };
+    expect(listBody.error).toContain("EISDIR");
+    const update = await fetch(context.webServer.url + "/api/session/metadata", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: join(directory, "2026-08-30T00-00-00-000Z_pinned.jsonl"), pinned: true }),
+    });
+    expect(update.status).toBe(400);
+    expect((await stat(metadataFile)).isDirectory()).toBe(true);
+    expect((await readdir(directory)).filter((name) => name.startsWith(".pi-harness-session-meta.json.corrupt-"))).toEqual([]);
+  });
+
+  test("serializes the session list read with metadata mutations so a stale quarantine cannot discard a fresh write", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-metadata-race-"));
+    temporaryDirectories.push(directory);
+    const metadataFile = join(directory, ".pi-harness-session-meta.json");
+    const corrupt = '{ "other.jsonl": { "arc';
+    await writeFile(metadataFile, corrupt, "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "metadata-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => directory, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    // Hold the first metadata read after its (corrupt) bytes arrived: the reader now owns the lock but has not parsed yet.
+    let release = () => {};
+    const held = new Promise<void>((resolveHeld) => {
+      let first = true;
+      fsHooks.afterReadFile = async (path) => {
+        if (path !== metadataFile || !first) return;
+        first = false;
+        resolveHeld();
+        await new Promise<void>((resolveRelease) => {
+          release = resolveRelease;
+        });
+      };
+    });
+    try {
+      const list = fetch(context.webServer.url + "/api/sessions");
+      await held;
+      const path = join(directory, "2026-08-30T00-00-00-000Z_pinned.jsonl");
+      const update = fetch(context.webServer.url + "/api/session/metadata", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, pinned: true }),
+      });
+      await expect(Promise.race([update.then(() => "settled"), sleep(300).then(() => "pending")])).resolves.toBe("pending");
+      release();
+      expect((await list).status).toBe(200);
+      const updated = await update;
+      expect(updated.status).toBe(200);
+      await expect(updated.json()).resolves.toEqual({ path, metadata: { pinned: true } });
+      expect(JSON.parse(await readFile(metadataFile, "utf8"))).toEqual({ [path]: { pinned: true } });
+      const quarantined = (await readdir(directory)).filter((name) => name.startsWith(".pi-harness-session-meta.json.corrupt-"));
+      expect(quarantined).toHaveLength(1);
+      await expect(readFile(join(directory, quarantined[0] ?? ""), "utf8")).resolves.toBe(corrupt);
+    } finally {
+      fsHooks.afterReadFile = undefined;
+      release();
+    }
+  });
+
+  test("lets git commit outlive the read-only timeout so slow hooks are not killed mid-commit", { timeout: 40_000 }, async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-git-slow-commit-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    // A commit that takes longer than the 15 s read-only bound, as a pre-commit hook running a test suite would.
+    await writeFile(join(shimDirectory, "git"), '#!/bin/sh\ncase "$1" in commit) sleep 16;; rev-parse) printf abc1234;; esac\nexit 0\n', { mode: 0o755 });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "commit-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    try {
+      const response = await fetch(context.webServer.url + "/api/files/commit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ paths: ["README.md"], message: "Slow hook" }),
+      });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ committed: true, message: "Slow hook", commit: "abc1234" });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  test("reports workspace paths relative to a subdirectory cwd so diff and revert resolve them", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-files-subdir-"));
+    temporaryDirectories.push(directory);
+    await execFile("git", ["init", "-q"], { cwd: directory });
+    await execFile("git", ["config", "user.email", "pi-harness@test.invalid"], { cwd: directory });
+    await execFile("git", ["config", "user.name", "Pi Harness Test"], { cwd: directory });
+    await mkdir(join(directory, "sub", "nested"), { recursive: true });
+    await writeFile(join(directory, "sub", "nested", "inner.txt"), "before\n", "utf8");
+    await writeFile(join(directory, "root.txt"), "before\n", "utf8");
+    await execFile("git", ["add", "-A"], { cwd: directory });
+    await execFile("git", ["commit", "-qm", "initial"], { cwd: directory });
+    await writeFile(join(directory, "sub", "nested", "inner.txt"), "after\n", "utf8");
+    await writeFile(join(directory, "root.txt"), "after\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "files-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: join(directory, "sub"), agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const list = await fetch(context.webServer.url + "/api/files");
+    const payload = (await list.json()) as { items: { path: string }[] };
+    expect(payload.items.map((item) => item.path).sort()).toEqual(["../root.txt", "nested/inner.txt"]);
+    const diff = await fetch(context.webServer.url + "/api/files/diff?path=" + encodeURIComponent("nested/inner.txt"));
+    const nestedDiffBody = (await diff.json()) as { path: string; diff: string };
+    expect(nestedDiffBody.path).toBe("nested/inner.txt");
+    expect(nestedDiffBody.diff).toContain("+after");
+    const revert = await fetch(context.webServer.url + "/api/files/revert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["nested/inner.txt"], confirm: true }),
+    });
+    expect(revert.status).toBe(200);
+    await expect(readFile(join(directory, "sub", "nested", "inner.txt"), "utf8")).resolves.toBe("before\n");
+    await expect(readFile(join(directory, "root.txt"), "utf8")).resolves.toBe("after\n");
+  });
+
+  test("writes through a symlinked settings.json instead of replacing the link with a regular file", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-agent-symlink-"));
+    temporaryDirectories.push(directory);
+    const agentDir = join(directory, "agent");
+    const dotfiles = join(directory, "dotfiles");
+    await mkdir(agentDir);
+    await mkdir(dotfiles);
+    const realSettings = join(dotfiles, "settings.json");
+    const settingsPath = join(agentDir, "settings.json");
+    await writeFile(realSettings, '{"stale":true}\n', "utf8");
+    await symlink(realSettings, settingsPath);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const settingsManager = new Proxy({}, { get: () => () => ({}) });
+    const session = { sessionId: "config-session", sessionFile: undefined, messages: [], isStreaming: false, settingsManager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/config/source", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source: '{"defaultProvider":"test"}' }),
+    });
+    expect(response.status).toBe(200);
+    expect((await lstat(settingsPath)).isSymbolicLink()).toBe(true);
+    await expect(readFile(realSettings, "utf8")).resolves.toBe('{\n  "defaultProvider": "test"\n}\n');
+    expect((await readdir(dotfiles)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    expect((await readdir(agentDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });

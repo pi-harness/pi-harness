@@ -52,4 +52,28 @@ describe("Browser Session panel", () => {
     expect(html).toContain("面板数据不完整或不可信");
     expect(html).not.toContain("已连接");
   });
+
+  test("renders multi-line extracted page text instead of failing closed", () => {
+    const html = renderPanel({
+      endpoint: "http://127.0.0.1:9222/",
+      connected: true,
+      error: null,
+      tabs: [{ targetId: "one", title: "Pi Harness", url: "http://127.0.0.1:3081" }],
+      inventory: { total: 1, shown: 1, truncated: false },
+      limits,
+      latest: {
+        targetId: "one",
+        title: "Pi Harness",
+        url: "http://127.0.0.1:3081",
+        status: "read",
+        truncated: false,
+        previewTruncated: false,
+        text: "Pi Harness\n\nSection\tvalue\r\nEnd",
+        clicked: false,
+      },
+    });
+    expect(html).toContain("Section");
+    expect(html).toContain("End");
+    expect(html).not.toContain("面板数据异常");
+  });
 });

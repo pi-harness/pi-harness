@@ -46,7 +46,11 @@ const riskRank: Record<Risk, number> = { safe: 0, review: 1, blocked: 2 };
 
 function truncateToBytes(text: string, maxBytes: number): string {
   const encoded = Buffer.from(text, "utf8");
-  return encoded.byteLength <= maxBytes ? text : encoded.subarray(0, maxBytes).toString("utf8");
+  if (encoded.byteLength <= maxBytes) return text;
+  // Cutting inside a multi-byte sequence makes Node decode the trailing bytes as U+FFFD, which is up to two bytes longer than the cut and would push the result back over the limit, so the cut backs off to the last complete sequence.
+  let end = maxBytes;
+  while (end > 0 && ((encoded[end] ?? 0) & 0b1100_0000) === 0b1000_0000) end -= 1;
+  return encoded.subarray(0, end).toString("utf8");
 }
 
 function inspect(text: string, source: string): PromptGuardReport {
@@ -112,7 +116,18 @@ export default {
     let scans = 0;
     let latest: PromptGuardReport | undefined;
     let highest: PromptGuardReport | undefined;
+    let activeSession: unknown;
+    // Starting or switching a session rebinds the AgentSession without reloading plugins, so the high-water mark has to be cleared here or the panel keeps showing a blocked headline from the previous session.
+    const syncSession = (): void => {
+      const session: unknown = context.get("piRuntime")?.session;
+      if (session === activeSession) return;
+      activeSession = session;
+      latest = undefined;
+      highest = undefined;
+      scans = 0;
+    };
     const record = (report: PromptGuardReport): void => {
+      syncSession();
       latest = report;
       if (highest === undefined || riskRank[report.risk] >= riskRank[highest.risk]) highest = report;
       scans += 1;
@@ -139,7 +154,19 @@ export default {
       // Tool output is the channel injections actually arrive on. The guard's own result text would be rescanned as safe and overwrite the verdict it just produced, so it is excluded. Tool results routinely exceed the on-demand limit, so the prefix is scanned instead of reporting an input_limit finding.
       const toolName = dataProperty(message, "toolName");
       if (toolName === "prompt_guard_scan") return;
-      record(inspect(truncateToBytes(messageText(message), maxPromptBytes), `tool:${typeof toolName === "string" ? toolName : "unknown"}`));
+      const source = `tool:${typeof toolName === "string" ? toolName : "unknown"}`;
+      // cordis dispatches synchronously, so a throw here would abort the emit for every listener registered after this one.
+      try {
+        record(inspect(truncateToBytes(messageText(message), maxPromptBytes), source));
+      } catch {
+        record({
+          source,
+          risk: "review",
+          score: 0,
+          scannedChars: 0,
+          findings: [{ code: "scan_failed", severity: "medium", message: "工具输出未能完成 Prompt Guard 扫描。" }],
+        });
+      }
     });
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -168,7 +195,10 @@ export default {
       title: "Prompt Guard",
       description: "扫描潜在提示词注入和秘密外传风险，只保留摘要，不保存原文。",
       icon: "⊘",
-      read: () => ({ scans, risk: latest?.risk ?? "safe", latest: latest ?? null, highest: highest ?? null }),
+      read: () => {
+        syncSession();
+        return { scans, risk: latest?.risk ?? "safe", latest: latest ?? null, highest: highest ?? null };
+      },
     });
     context.effect(() => () => {
       onSessionEvent();

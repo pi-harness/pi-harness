@@ -66,7 +66,10 @@ Common environment variables:
 | `PI_HARNESS_PROVIDER`             | Web console model provider                          | `everyapi`          |
 | `PI_HARNESS_MODEL`                | Web console model id                                | `deepseek-v4-flash` |
 | `PI_HARNESS_ALLOW_REMOTE`         | Allow a non-loopback host when set to `1`           | unset               |
+| `PI_HARNESS_ALLOWED_HOSTS`        | Extra `Host` header names accepted, comma-separated | unset               |
 | `PI_HARNESS_DISABLE_UPDATE_CHECK` | Disable the background update check when set to `1` | unset               |
+
+The web server answers only requests whose `Host` header names loopback, the configured bind host, or (on a wildcard bind such as `0.0.0.0`) one of this machine's own addresses or its hostname; anything else is rejected as a DNS-rebinding attempt. `PI_HARNESS_ALLOWED_HOSTS` adds names the machine does not know about itself, such as a LAN alias or a reverse proxy.
 
 ## Architecture
 

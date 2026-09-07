@@ -125,6 +125,28 @@ describe("memory", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { count: 2 } }]);
   });
 
+  test("still accepts writes when the stored file holds more entries than the configured limit", async () => {
+    const { root, set, search } = await fixture({ fileName: "memory.json", maxEntries: 2 });
+    const now = new Date().toISOString();
+    const stored = Array.from({ length: 5 }, (_, index) => ({
+      id: `id-${index}`,
+      key: `key-${index}`,
+      value: `value-${index}`,
+      tags: [],
+      createdAt: now,
+      updatedAt: now,
+    }));
+    await writeFile(join(root, "memory.json"), JSON.stringify({ version: 1, memories: stored }), "utf8");
+
+    await expect(search.execute("search", { query: "value" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 2 } });
+    await expect(set.execute("set", { key: "fresh", value: "written" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { key: "fresh", value: "written" },
+    });
+
+    const persisted = JSON.parse(await readFile(join(root, "memory.json"), "utf8")) as { memories: Array<{ key: string }> };
+    expect(persisted.memories.map((memory) => memory.key)).toEqual(["fresh", "key-0"]);
+  });
+
   test("fails closed on malformed persisted records and cleans up", async () => {
     const { root, context, tools, panels } = await fixture();
     await writeFile(join(root, "memory.json"), JSON.stringify({ version: 1, memories: [{ id: "x", key: "x", value: "ok", tags: [] }] }));

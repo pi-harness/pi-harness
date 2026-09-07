@@ -110,4 +110,38 @@ describe("browser fetch panel view", () => {
     expect(browserFetchPanelView(accessor).malformed).toBe(true);
     expect(getterCalls).toBe(0);
   });
+
+  test("keeps line breaks and tabs in the fetched page preview while metadata fields stay strict", () => {
+    const pageText = "Example Domain\n\nThis domain is for use in illustrative examples.\n\tMore information...\r\n";
+    const payload = {
+      latest: {
+        url: "https://example.com/",
+        finalUrl: "https://example.com/",
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        bytes: 1_256,
+        truncated: false,
+        previewTruncated: false,
+        text: pageText,
+      },
+      allowPrivate: false,
+      maxResponseBytes: 512 * 1024,
+      maxPanelTextChars: 12_000,
+      maxRedirects: 3,
+      timeoutMs: 20_000,
+    };
+
+    expect(browserFetchPanelView(payload)).toMatchObject({ malformed: false, latest: { text: pageText, previewTruncated: false } });
+    expect(browserFetchPanelView({ ...payload, latest: { ...payload.latest, text: "page\u0000break" } })).toMatchObject({
+      malformed: false,
+      latest: { text: "page\uFFFDbreak" },
+    });
+    expect(browserFetchPanelView({ ...payload, latest: { ...payload.latest, text: "page\u2028break" } })).toMatchObject({
+      malformed: false,
+      latest: { text: "page\uFFFDbreak" },
+    });
+    expect(browserFetchPanelView({ ...payload, latest: { ...payload.latest, url: "https://example.com/\nevil" } }).malformed).toBe(true);
+    expect(browserFetchPanelView({ ...payload, latest: { ...payload.latest, finalUrl: "https://example.com/\tevil" } }).malformed).toBe(true);
+    expect(browserFetchPanelView({ ...payload, latest: { ...payload.latest, contentType: "text/html\n" } }).malformed).toBe(true);
+  });
 });

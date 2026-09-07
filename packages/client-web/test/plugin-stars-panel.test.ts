@@ -41,4 +41,32 @@ describe("Plugin Stars panel", () => {
     expect(html).toContain("面板数据不完整或不可信");
     expect(html).not.toContain("社区排行榜");
   });
+
+  test("renders the visible slice of a ranking with more hits than visible rows", () => {
+    const html = renderPanel({
+      source: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json",
+      limit: 20,
+      timeoutMs: 15_000,
+      latest: {
+        source: "fixture",
+        generatedAt: "2026-09-05T00:00:00Z",
+        total: 12,
+        query: "vision",
+        fetchedAt: "2026-09-05T00:01:00Z",
+        results: Array.from({ length: 12 }, (_, index) => ({
+          fullName: `owner/repository-${index}`,
+          name: `repository-${index}`,
+          stars: 120 - index,
+          htmlUrl: `https://github.com/owner/repository-${index}`,
+          updatedAt: "2026-09-05",
+        })),
+      },
+      inventory: { total: 12, shown: 12, truncated: false },
+      limits: { ...limits, resultItems: 20 },
+    });
+    expect(html).toContain("owner/repository-0");
+    expect(html).toContain("owner/repository-7");
+    expect(html).not.toContain("owner/repository-8");
+    expect(html).not.toContain("面板数据异常");
+  });
 });

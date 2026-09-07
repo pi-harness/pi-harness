@@ -78,7 +78,7 @@ describe("SQL Lens panel view", () => {
     expect(view.malformed).toBe(false);
     expect(view.latest?.rows).toHaveLength(12);
     expect(view.latest?.rows[0]).toEqual({ id: 1, name: "user-1" });
-    expect(view.latest?.rowInventory).toEqual({ scanned: 50, returned: 50, shown: 20, truncated: true, displayLimit: 20 });
+    expect(view.latest?.rowInventory).toEqual({ scanned: 50, returned: 50, shown: 12, truncated: true, displayLimit: 20 });
   });
 
   test("fails closed for contradictory payloads without inventing zero-valued results", () => {
@@ -161,5 +161,80 @@ describe("SQL Lens panel view", () => {
     });
 
     expect(view).toMatchObject({ malformed: true, latest: null, status: { state: "unknown", at: null, error: null }, timeoutMs: 5_000 });
+  });
+
+  test("keeps line breaks and tabs in TEXT cell values while column and database names stay strict", () => {
+    const note = "line one\nline two\ttabbed\r\n";
+    const payload = {
+      status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
+      timeoutMs: 5_000,
+      latest: {
+        database: "data.db",
+        query: "SELECT id, note FROM notes",
+        columns: ["id", "note"],
+        rows: [{ id: 1, note }],
+        truncated: false,
+        scannedRows: 1,
+        rowInventory: { scanned: 1, returned: 1, shown: 1, truncated: false, displayLimit: 20 },
+      },
+      limits: {
+        queryLength: 65_536,
+        databaseBytes: 268_435_456,
+        rows: 100,
+        columns: 128,
+        stringLength: 16_384,
+        resultBytes: 1_048_576,
+        blobPreviewBytes: 256,
+        panelRows: 20,
+      },
+    };
+
+    expect(sqlLensPanelView(payload)).toMatchObject({ malformed: false, latest: { rows: [{ id: 1, note }] } });
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rows: [{ id: 1, note: "bad\u0000cell" }] } }).malformed).toBe(true);
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rows: [{ id: 1, note: "bad\u2028cell" }] } }).malformed).toBe(true);
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, columns: ["id", "no\nte"], rows: [{ id: 1, "no\nte": note }] } }).malformed).toBe(true);
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, database: "data\n.db" } }).malformed).toBe(true);
+  });
+
+  test("accepts a result set larger than the panel row cap and reports the displayed slice", () => {
+    const rows = Array.from({ length: 20 }, (_, index) => ({ id: index + 1, name: `user-${index + 1}` }));
+    const payload = {
+      status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
+      timeoutMs: 5_000,
+      latest: {
+        database: "data.db",
+        query: "SELECT id, name FROM users",
+        columns: ["id", "name"],
+        rows,
+        truncated: false,
+        scannedRows: 25,
+        rowInventory: { scanned: 25, returned: 25, shown: 20, truncated: true, displayLimit: 20 },
+      },
+      limits: {
+        queryLength: 65_536,
+        databaseBytes: 268_435_456,
+        rows: 100,
+        columns: 128,
+        stringLength: 16_384,
+        resultBytes: 1_048_576,
+        blobPreviewBytes: 256,
+        panelRows: 20,
+      },
+    };
+    const view = sqlLensPanelView(payload);
+
+    expect(view.malformed).toBe(false);
+    expect(view.latest?.rows).toHaveLength(12);
+    expect(view.latest?.rowInventory).toEqual({ scanned: 25, returned: 25, shown: 12, truncated: true, displayLimit: 20 });
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rowInventory: { ...payload.latest.rowInventory, shown: 19 } } }).malformed).toBe(true);
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rowInventory: { ...payload.latest.rowInventory, returned: 19 } } }).malformed).toBe(
+      true,
+    );
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rowInventory: { ...payload.latest.rowInventory, returned: 101 } } }).malformed).toBe(
+      true,
+    );
+    expect(
+      sqlLensPanelView({ ...payload, latest: { ...payload.latest, scannedRows: 19, rowInventory: { ...payload.latest.rowInventory, scanned: 19 } } }).malformed,
+    ).toBe(true);
   });
 });
