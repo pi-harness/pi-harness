@@ -1,7 +1,7 @@
 {
   "id": "cost-meter",
   "packageName": "@pi-harness/core/plugins/cost-meter",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "name": "Cost Meter",
   "description": "Track runtime-reported costs as UTC daily increments in a bounded local ledger, with session snapshots and optional daily budget monitoring; no model prices are guessed.",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "dependency-checker",
   "packageName": "@pi-harness/core/plugins/dependency-checker",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "name": "Dependency Checker",
   "description": "Run a bounded, offline, read-only check of workspace package.json and requirements*.txt manifests for local package presence, duplicate declaration consistency, unresolved constraints, and unsupported Python directives.",
   "author": "Pi Harness",
