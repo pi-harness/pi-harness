@@ -1,7 +1,7 @@
 {
   "id": "session-insights",
   "packageName": "@pi-harness/core/plugins/session-insights",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "name": "Session Insights",
   "description": "Publish descriptor-safe validated cached session statistics and run only confirmed settled-session compaction with explicit model usage and cost guidance plus cancellable lifecycle handling.",
   "author": "Pi Harness",

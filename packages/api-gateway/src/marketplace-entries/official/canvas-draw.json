@@ -1,7 +1,7 @@
 {
   "id": "canvas-draw",
   "packageName": "@pi-harness/core/plugins/canvas-draw",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "name": "Canvas Draw",
   "description": "Generate validated, bounded Mermaid flowchart source from structured nodes and edges in the workspace UI.",
   "author": "Pi Harness",

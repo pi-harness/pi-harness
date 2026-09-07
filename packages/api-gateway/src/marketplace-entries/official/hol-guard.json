@@ -1,7 +1,7 @@
 {
   "id": "hol-guard",
   "packageName": "@pi-harness/core/plugins/hol-guard",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "name": "HOL Guard",
   "description": "Audit tool arguments and preflight text for destructive commands, sensitive paths, credentials, and remote exfiltration. Advisory only: reports risk, does not block execution.",
   "author": "Pi Harness",

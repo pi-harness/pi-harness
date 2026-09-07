@@ -1,7 +1,7 @@
 {
   "id": "llm-verifier",
   "packageName": "@pi-harness/core/plugins/llm-verifier",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "name": "LLM Verifier",
   "description": "Ask a configured verifier model to judge a claim against bounded, untrusted evidence.",
   "author": "Pi Harness",

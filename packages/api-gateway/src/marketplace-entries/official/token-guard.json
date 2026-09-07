@@ -1,7 +1,7 @@
 {
   "id": "token-guard",
   "packageName": "@pi-harness/core/plugins/token-guard",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "name": "Token Guard",
   "description": "Use descriptor-safe monitoring to issue at most one abort request per run when a context percentage or billed run-token budget is reached, with bounded errors and a cached normalized panel.",
   "author": "Pi Harness",

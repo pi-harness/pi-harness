@@ -1,7 +1,7 @@
 {
   "id": "browser-fetch",
   "packageName": "@pi-harness/core/plugins/browser-fetch",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "name": "Browser Fetch",
   "description": "Fetch public HTTP and HTTPS pages as bounded text with descriptor-safe inputs, DNS pinning, per-redirect private-network validation, textual MIME enforcement, cancellation, a whole-request timeout, and validated fail-closed panel reporting.",
   "author": "Pi Harness",

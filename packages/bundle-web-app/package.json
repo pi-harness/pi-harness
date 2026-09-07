@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/web-app",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "private": true,
   "description": "Patchable Web application bundle for Pi Harness",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
