@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig } from "@pi-harness/plugin-api";
 
 type ReloadState = {
   status: "idle" | "queued" | "running" | "reloaded" | "failed" | "cancelled";

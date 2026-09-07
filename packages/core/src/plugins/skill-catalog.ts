@@ -1,10 +1,8 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedTextFile } from "../bounded-file.js";
-import type { PiMcpServerSnapshot } from "../services.js";
+import { EmptyConfig, readBoundedTextFile, type PiMcpServerSnapshot } from "@pi-harness/plugin-api";
 import { buildSkillInjection, type SkillInjection } from "./reverse-skill.js";
-import { EmptyConfig } from "../config.js";
 
 const maxQueryLength = 120;
 const maxSkillBytes = 128 * 1024;

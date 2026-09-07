@@ -8,8 +8,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedFile } from "../bounded-file.js";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys, readBoundedFile } from "@pi-harness/plugin-api";
 
 const execFileAsync = promisify(execFile);
 const capsuleDirectory = "capsules";

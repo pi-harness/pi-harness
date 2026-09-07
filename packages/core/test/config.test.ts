@@ -3,13 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import { provideLaunchContext } from "../src/services.js";
+import { EmptyConfig, provideLaunchContext } from "@pi-harness/plugin-api";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import resourcesPlugin from "../src/plugins/resources.js";
 import sessionPlugin from "../src/plugins/session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 import { Config as ModelsConfig } from "../src/plugins/models.js";
-import { EmptyConfig } from "../src/config.js";
 
 const contexts: Context[] = [];
 

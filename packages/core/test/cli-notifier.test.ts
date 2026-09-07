@@ -4,7 +4,7 @@ import { delimiter, join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test, vi } from "vitest";
 import cliNotifierPlugin from "../src/plugins/cli-notifier.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 type PluginConfig = { enabled?: boolean; title?: string; timeoutMs?: number };
 

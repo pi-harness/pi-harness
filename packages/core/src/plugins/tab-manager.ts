@@ -4,8 +4,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { BoundedFileSizeError, BoundedFileTypeError, readBoundedTextFile } from "../bounded-file.js";
-import { EmptyConfig } from "../config.js";
+import { BoundedFileSizeError, BoundedFileTypeError, EmptyConfig, readBoundedTextFile } from "@pi-harness/plugin-api";
 
 const storageFile = "session-tabs.json";
 const maxTabs = 24;

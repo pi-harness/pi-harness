@@ -5,7 +5,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import betterSidebarPlugin, { createSidebarInspector, summarizeSidebar } from "../src/plugins/better-sidebar.js";
 import type { WorkspaceGitStatus } from "../src/plugins/workspace-navigator.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 describe("better sidebar", () => {
   test("summarizes workspace, Git, and session context without exposing full paths", () => {

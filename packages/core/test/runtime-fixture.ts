@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { fauxProvider, type FauxProviderHandle, type FauxResponseStep } from "@earendil-works/pi-ai/providers/faux";
-import { provideLaunchContext } from "../src/services.js";
+import { provideLaunchContext } from "@pi-harness/plugin-api";
 import resourcesPlugin from "../src/plugins/resources.js";
 import runtimePlugin from "../src/plugins/runtime.js";
 import sessionPlugin from "../src/plugins/session.js";

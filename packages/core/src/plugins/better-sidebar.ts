@@ -2,7 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { listWorkspaceNodes, readWorkspaceGitStatus, type WorkspaceGitStatus, type WorkspaceNodeReport } from "./workspace-navigator.js";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig } from "@pi-harness/plugin-api";
 
 const maxChangedFiles = 12;
 const treeCacheTtlMs = 5_000;

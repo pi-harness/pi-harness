@@ -3,7 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
 import changeVerifierPlugin from "../src/plugins/change-verifier.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 async function createVerifier(options?: { reviewStatus?: unknown; testDurationMs?: unknown; testExitCode?: unknown }): Promise<{
   context: Context;

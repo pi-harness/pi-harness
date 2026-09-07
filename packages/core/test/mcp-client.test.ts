@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import mcpClientPlugin from "../src/plugins/mcp-client.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 // Only the plugin holds a reference to the servers it spawns, so recording the real children is the only way to assert how their stdio streams are wired.
 const spawnedChildren = vi.hoisted(() => [] as ChildProcess.ChildProcessWithoutNullStreams[]);

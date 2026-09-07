@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import { buildSkillInjection } from "../src/plugins/reverse-skill.js";
 import reverseSkillPlugin from "../src/plugins/reverse-skill.js";
 

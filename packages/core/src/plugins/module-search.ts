@@ -3,9 +3,7 @@ import { relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedFile } from "../bounded-file.js";
-import { resolveExistingWorkspacePath } from "../workspace-path.js";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig, readBoundedFile, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 const maxQueryLength = 120;
 const maxPathLength = 512;

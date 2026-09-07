@@ -4,7 +4,7 @@ import { delimiter, join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import dockerSandboxPlugin from "../src/plugins/docker-sandbox.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 const temporaryDirectories: string[] = [];
 const originalPath = process.env.PATH;

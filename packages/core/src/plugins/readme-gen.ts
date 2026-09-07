@@ -4,8 +4,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { atomicWriteFile } from "../atomic-write.js";
-import { BoundedFileSizeError, BoundedFileTypeError, readBoundedTextFile } from "../bounded-file.js";
+import { BoundedFileSizeError, BoundedFileTypeError, atomicWriteFile, readBoundedTextFile } from "@pi-harness/plugin-api";
 
 export type ReadmeMetadata = { name: string; version: string; description: string; scripts: string[]; plugins: string[] };
 export type ReadmeReport = ReadmeMetadata & { markdown: string };

@@ -5,8 +5,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { assertKnownConfigKeys } from "../config.js";
-import { resolveExistingWorkspacePath } from "../workspace-path.js";
+import { assertKnownConfigKeys, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 type BlobCell = { type: "blob"; bytes: number; previewBase64: string; truncated: boolean };
 type SqlCell = null | string | number | BlobCell;

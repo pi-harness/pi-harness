@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test, vi } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import browserSessionPlugin from "../src/plugins/browser-session.js";
 import toolsPlugin from "../src/plugins/tools.js";
 

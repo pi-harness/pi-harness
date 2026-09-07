@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import undoSavepointPlugin, { type UndoSavepointPluginConfig } from "../src/plugins/undo-savepoint.js";
-import { provideLaunchContext, PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 const manifestCreatedAt = "2026-09-06T12:00:00.000Z";

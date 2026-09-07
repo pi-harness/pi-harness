@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import pluginDevPlugin from "../src/plugins/plugin-dev.js";
 
 type RuntimeFixture = {

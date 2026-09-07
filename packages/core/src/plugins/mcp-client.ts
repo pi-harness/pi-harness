@@ -4,8 +4,7 @@ import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import packageMetadata from "../../package.json" with { type: "json" };
-import type { PiMcpServerSnapshot } from "../services.js";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys, type PiMcpServerSnapshot } from "@pi-harness/plugin-api";
 
 type JsonObject = Record<string, unknown>;
 type McpTool = { name: string; description?: string; inputSchema?: unknown };

@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import contextPlugin from "../src/plugins/context.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 async function createInsights(runtime?: unknown): Promise<{
   context: Context;

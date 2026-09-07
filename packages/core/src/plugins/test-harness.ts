@@ -5,7 +5,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 const allowedScripts = ["test", "build", "format:check", "lint", "typecheck"] as const;
 const allowedScriptSet = new Set<string>(allowedScripts);

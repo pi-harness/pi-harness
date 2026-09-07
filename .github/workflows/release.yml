@@ -120,12 +120,12 @@ jobs:
             echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
             exit 1
           fi
-          for workspace in packages/core .; do
+          for workspace in packages/plugin-api packages/core .; do
             package_name=$(node -p "require('./$workspace/package.json').name")
             package_version=$(node -p "require('./$workspace/package.json').version")
             if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
               echo "$package_name@$package_version already exists; skipping"
-            elif if [ "$workspace" = "packages/core" ]; then npm publish --workspace @pi-harness/core --access public; else npm publish --access public; fi; then
+            elif if [ "$workspace" = "." ]; then npm publish --access public; else npm publish --workspace "$package_name" --access public; fi; then
               echo "$package_name@$package_version published"
             elif npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
               echo "$package_name@$package_version is already published; continuing"
@@ -140,7 +140,7 @@ jobs:
           PACKAGE_VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           package_version="${PACKAGE_VERSION}"
-          for package_name in @pi-harness/core @pi-harness/pi-harness; do
+          for package_name in @pi-harness/plugin-api @pi-harness/core @pi-harness/pi-harness; do
             for attempt in $(seq 1 60); do
               published_version=$(npm view "$package_name@$package_version" version --prefer-online --registry=https://registry.npmjs.org 2>/dev/null || true)
               if [ "$published_version" = "$package_version" ]; then

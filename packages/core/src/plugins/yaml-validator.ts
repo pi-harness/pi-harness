@@ -2,9 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { parseAllDocuments, isMap, isSeq, type YAMLParseError, type YAMLWarning } from "yaml";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedFile } from "../bounded-file.js";
-import { EmptyConfig } from "../config.js";
-import { resolveExistingWorkspacePath } from "../workspace-path.js";
+import { EmptyConfig, readBoundedFile, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 const maxBytes = 512 * 1024;
 const maxPathLength = 4_096;

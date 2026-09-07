@@ -29,6 +29,9 @@ const runNpm = (...args) =>
   });
 
 try {
+  // Core depends on the plugin API at the exact version being packed, so the tarball has to be installed alongside it rather than fetched from the registry.
+  const pluginApiFilename = runNpm("pack", "--workspace", "@pi-harness/plugin-api", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
+  if (pluginApiFilename.length === 0) throw new Error("npm pack did not return a plugin API tarball filename");
   const coreFilename = runNpm("pack", "--workspace", "@pi-harness/core", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
   if (coreFilename.length === 0) throw new Error("npm pack did not return a core tarball filename");
   const filename = runNpm("pack", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
@@ -43,6 +46,7 @@ try {
     "--prefix",
     installPrefix,
     "@earendil-works/pi-coding-agent@0.84.3",
+    join(temporaryRoot, pluginApiFilename),
     join(temporaryRoot, coreFilename),
     join(temporaryRoot, filename),
   );

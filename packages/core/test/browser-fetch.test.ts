@@ -6,7 +6,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { Agent, fetch as realUndiciFetch } from "undici";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import browserFetchPlugin, { untrustedEnvelope } from "../src/plugins/browser-fetch.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import type * as Undici from "undici";
 
 type FetchOverride = (input: string | URL | Request, init?: { dispatcher?: unknown; signal?: AbortSignal }) => Promise<Response>;

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import tabManagerPlugin from "../src/plugins/tab-manager.js";
-import { provideLaunchContext, PiPluginUiRegistry, PiToolRegistry } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 // Lets one test seize the store lock while a mutation is mid-write, which is the only moment a reclaimed owner can be observed.
 const fs = vi.hoisted(() => ({ beforeRename: undefined as (() => Promise<void>) | undefined }));

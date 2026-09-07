@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import { PiToolRegistry } from "@pi-harness/core";
+import { PiToolRegistry } from "@pi-harness/plugin-api";
 import helloPlugin from "../src/index.js";
 
 const contexts: Context[] = [];

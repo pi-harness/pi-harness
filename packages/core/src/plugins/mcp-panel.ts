@@ -5,9 +5,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { atomicWriteFile } from "../atomic-write.js";
-import { readBoundedTextFile } from "../bounded-file.js";
-import type { PiMcpServerSnapshot } from "../services.js";
+import { atomicWriteFile, readBoundedTextFile, type PiMcpServerSnapshot } from "@pi-harness/plugin-api";
 import { validateCommand as validateServerCommand } from "./mcp-client.js";
 
 type McpPanelServer = Omit<PiMcpServerSnapshot, "command"> & { executable: string; toolCount: number; statusSource: "runtime" };

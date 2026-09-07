@@ -1,8 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { PiTelemetryEvent, PiTelemetryService } from "../services.js";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys, type PiTelemetryEvent, type PiTelemetryService } from "@pi-harness/plugin-api";
 import z from "@deepseek-ai/schemastery";
 
 type TelemetrySnapshot = { blocked: number; names: readonly string[] };

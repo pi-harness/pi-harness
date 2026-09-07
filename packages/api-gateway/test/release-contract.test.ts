@@ -39,7 +39,7 @@ describe("release contract", () => {
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
     expect(workflow).not.toContain("was already submitted");
     expect(workflow).not.toContain("tag_exists=$tag_exists");
-    expect(workflow).toContain("npm publish --workspace @pi-harness/core --access public");
+    expect(workflow).toContain('npm publish --workspace "$package_name" --access public');
     expect(workflow).toContain("npm publish --access public");
   });
 
@@ -78,5 +78,23 @@ describe("release contract", () => {
         core.dependencies[name] ?? core.peerDependencies[name],
         `${name} (used by ${file}) is declared by neither ${core.name} dependencies nor peerDependencies`,
       ).toBeDefined();
+  });
+
+  test("the plugin API declares every package its sources import as a peer", () => {
+    // A plugin author installs this package on its own, so anything it imports has to be something the author is told to install alongside it.
+    const pluginApi = readJson("packages/plugin-api/package.json") as {
+      name: string;
+      dependencies?: Record<string, string>;
+      peerDependencies: Record<string, string>;
+    };
+    const required = new Map<string, string>();
+    for (const file of sourceFiles(resolve(repositoryRoot, "packages/plugin-api/src"), ".ts")) {
+      for (const match of readFileSync(file, "utf8").matchAll(/(?:from|declare module)\s*["']([^"'\s]+)["']/gu))
+        required.set(packageNameOf(match[1] ?? ""), relative(repositoryRoot, file));
+    }
+    const external = [...required].filter(([name]) => !name.startsWith("node:") && !name.startsWith("."));
+    expect(external.length).toBeGreaterThan(0);
+    for (const [name, file] of external) expect(pluginApi.peerDependencies[name], `${name} (used by ${file}) is not a peer of ${pluginApi.name}`).toBeDefined();
+    expect(pluginApi.dependencies, `${pluginApi.name} must not pull a second copy of anything a plugin already installs`).toBeUndefined();
   });
 });

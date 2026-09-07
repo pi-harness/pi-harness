@@ -3,9 +3,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { BoundedFileSizeError, BoundedFileTypeError, readBoundedFile } from "../bounded-file.js";
-import { assertKnownConfigKeys } from "../config.js";
-import { resolveWorkspaceFilePath } from "../workspace-path.js";
+import { BoundedFileSizeError, BoundedFileTypeError, assertKnownConfigKeys, readBoundedFile, resolveWorkspaceFilePath } from "@pi-harness/plugin-api";
 
 type PairReport = { base: string; target: string; baseKeys: number; targetKeys: number; missing: string[]; extra: string[] };
 type PairStatus = { state: "idle" | "running" | "completed" | "failed" | "cancelled"; at?: string; error?: string };

@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 export const Config = z.object({});
 

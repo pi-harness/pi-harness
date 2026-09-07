@@ -7,7 +7,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { resolveExistingWorkspacePath } from "../workspace-path.js";
+import { resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 const maxDepthLimit = 8;
 const maxNodesLimit = 500;

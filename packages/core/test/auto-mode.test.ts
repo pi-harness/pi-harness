@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import autoModePlugin from "../src/plugins/auto-mode.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const execFileAsync = promisify(execFile);
 // Auto mode asks git for the effective configuration of the working directory before it runs an unconfirmed git command, so without this the developer's own ~/.gitconfig would decide whether these commands are risky. Empty global and system files make "a repository with no program-executing configuration" mean exactly that on every machine. The scope tests below override GIT_CONFIG_GLOBAL for their own duration, because the point of those tests is what a non-empty global configuration does.

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { bootHarness, type BootedHarness } from "../src/boot.js";
 import { resolveProfileConfig } from "../src/profile.js";
-import { provideLaunchContext } from "../src/services.js";
+import { provideLaunchContext } from "@pi-harness/plugin-api";
 import { provideStdioContext } from "../src/stdio.js";
 
 const booted: BootedHarness[] = [];

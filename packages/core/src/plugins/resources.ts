@@ -10,7 +10,7 @@ import {
   type AgentSessionServices,
   type ResourceDiagnostic,
 } from "@earendil-works/pi-coding-agent";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 import { configureHttpProxy } from "../http.js";
 
 export interface ResourcesPluginConfig {

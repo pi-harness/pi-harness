@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import browserFetchPlugin from "../src/plugins/browser-fetch.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const lookup = vi.hoisted(() => vi.fn(() => Promise.resolve([{ address: "1.1.1.1", family: 4 as const }])));
 

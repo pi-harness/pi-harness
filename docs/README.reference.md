@@ -800,13 +800,15 @@ Caller cancellation works both while a request is active and while it waits behi
 
 ## Author a plugin
 
-A plugin package installs `@pi-harness/core` plus the four runtimes whose types appear in its published surface:
+A plugin is written against [`@pi-harness/plugin-api`](../packages/plugin-api), not against the launcher. It carries the service types the harness puts on the Cordis `Context`, the plugin configuration helpers, the workspace path guards, the bounded file readers, and the atomic writer — and nothing else, so installing it does not pull in the boot host, the HTTP server or a bundled agent runtime:
 
 ```sh
-npm install @pi-harness/core @deepseek-ai/cordis @deepseek-ai/schemastery @earendil-works/pi-ai @earendil-works/pi-coding-agent
+npm install @pi-harness/plugin-api @deepseek-ai/cordis @deepseek-ai/schemastery @earendil-works/pi-ai @earendil-works/pi-coding-agent
 ```
 
-Those four are `peerDependencies` of `@pi-harness/core`, so the plugin and the harness resolve the same copy. They were regular dependencies before, which made npm nest a second copy whenever a plugin asked for a different version; the plugin then failed to compile against a `Context` that carried no harness services. Match the versions `@pi-harness/core` declares, or npm reports the conflict at install time.
+The four runtimes are `peerDependencies`, so the plugin and the harness resolve the same copy of each. A second copy of `@deepseek-ai/cordis` detaches the `declare module` augmentation and the plugin then fails to compile against a `Context` that carries no harness services; a second copy of the Pi runtimes splits `ExtensionContext` into two unrelated types and a `ToolDefinition` stops being assignable. Match the versions `@pi-harness/plugin-api` declares, or npm reports the conflict at install time.
+
+`@pi-harness/core` re-exports the whole plugin API, so an existing plugin that imports from `@pi-harness/core` keeps working unchanged.
 
 [`examples/plugin-hello`](./examples/plugin-hello) is a complete external Cordis plugin. It contributes a native Pi `ToolDefinition`, registers cleanup with `ctx.effect()`, and provides a readiness marker after registration:
 
@@ -918,15 +920,16 @@ npm run build
 
 ## Release
 
-Publishing is triggered by a push to `main` (including a merged pull request), or manually with `workflow_dispatch`. The `Release packages` workflow runs the complete test, lint, and diff gate, publishes the user-facing `@pi-harness/pi-harness` package and the independently installable `@pi-harness/core` package, skips package versions that already exist, and creates a matching GitHub Release tag. Users normally install only `@pi-harness/pi-harness`; its `@pi-harness/core` dependency is intentionally not bundled, so core plugins can receive a compatible patch release without republishing the launcher. The web app and remaining implementation workspaces are private and are never published.
+Publishing is triggered by a push to `main` (including a merged pull request), or manually with `workflow_dispatch`. The `Release packages` workflow runs the complete test, lint, and diff gate, publishes the user-facing `@pi-harness/pi-harness` package alongside the independently installable `@pi-harness/plugin-api` and `@pi-harness/core` packages, skips package versions that already exist, and creates a matching GitHub Release tag. Users normally install only `@pi-harness/pi-harness`; its `@pi-harness/core` dependency is intentionally not bundled, so core plugins can receive a compatible patch release without republishing the launcher. The web app and remaining implementation workspaces are private and are never published.
 
-Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and publishes to npm without provenance because this repository is private and npm rejects provenance attestations from private GitHub sources. The token must be allowed to publish both package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. A bug fix in a built-in plugin should be released as a new compatible `@pi-harness/core` patch version; a launcher release is only needed when launcher, web, or API behavior changes. The release workflow keeps the repository's coordinated version metadata and publishes both artifacts for normal releases, while the standalone core package can also be published independently when a plugin-only hotfix is required.
+Before the first release, add the npm automation token as the GitHub Actions secret `NPM_TOKEN`. The workflow passes the secret through `NODE_AUTH_TOKEN` and publishes to npm without provenance because this repository is private and npm rejects provenance attestations from private GitHub sources. The token must be allowed to publish all three package names and, if npm two-factor authentication is enabled, use an automation-compatible publish policy. A bug fix in a built-in plugin should be released as a new compatible `@pi-harness/core` patch version; a launcher release is only needed when launcher, web, or API behavior changes. The release workflow keeps the repository's coordinated version metadata and publishes every artifact for normal releases, while the standalone core package can also be published independently when a plugin-only hotfix is required.
 
 For a plugin-only hotfix, bump `packages/core/package.json`, run `npm run build -w @pi-harness/core`, and publish that workspace with `npm publish --workspace @pi-harness/core --access public`. The launcher accepts any compatible `0.1.x` core release through its caret dependency, so users can update `@pi-harness/core` without reinstalling the launcher.
 
 ## Workspace layout
 
-- `packages/core`: Cordis boot host, typed Pi services, runtime plugins, and built-in profiles
+- `packages/plugin-api`: the published plugin contract — Pi service types, config helpers, workspace path guards, bounded file access, atomic writes
+- `packages/core`: Cordis boot host, runtime plugins, and built-in profiles
 - `packages/cli`: launcher argument, process, stdio, signal, and development re-exec handling
 - `packages/host-webserver`: Cordis-owned HTTP server and route lifecycle
 - `packages/api-gateway`: Cordis API plugin for status, live sessions, model selection, workspace files, prompts, abort, and SSE events

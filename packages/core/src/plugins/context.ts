@@ -2,7 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { EmptyConfig } from "../config.js";
+import { EmptyConfig } from "@pi-harness/plugin-api";
 
 type RuntimeEvent = AgentSessionEvent & { readonly type?: string };
 type MessageRole = "user" | "assistant" | "toolResult" | "system" | "other";

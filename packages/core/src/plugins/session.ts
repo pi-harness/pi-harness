@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { assertKnownConfigKeys } from "../config.js";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 export interface SessionPluginConfig {
   storage?: "memory" | "jsonl";

@@ -6,9 +6,14 @@ import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { minVersion, Range, valid as validSemver, validRange } from "semver";
-import { BoundedFileSizeError, BoundedFileTypeError, readBoundedTextFile } from "../bounded-file.js";
-import { assertKnownConfigKeys } from "../config.js";
-import { isPathInside, resolveExistingWorkspacePath } from "../workspace-path.js";
+import {
+  BoundedFileSizeError,
+  BoundedFileTypeError,
+  assertKnownConfigKeys,
+  isPathInside,
+  readBoundedTextFile,
+  resolveExistingWorkspacePath,
+} from "@pi-harness/plugin-api";
 
 const maxManifestBytes = 1024 * 1024;
 const maxManifestPathLength = 1_024;

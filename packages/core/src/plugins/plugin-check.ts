@@ -5,8 +5,7 @@ import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { parse } from "yaml";
-import { BoundedFileSizeError, BoundedFileTypeError, readBoundedTextFile } from "../bounded-file.js";
-import { resolveExistingWorkspacePath } from "../workspace-path.js";
+import { BoundedFileSizeError, BoundedFileTypeError, readBoundedTextFile, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 const maxScanEntries = 50;
 const maxSourceEntries = 2_000;

@@ -8,9 +8,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedFile } from "../bounded-file.js";
-import { assertKnownConfigKeys } from "../config.js";
-import { resolveExistingWorkspacePath } from "../workspace-path.js";
+import { assertKnownConfigKeys, readBoundedFile, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 const maxImageBytes = 10 * 1024 * 1024;
 const maxPathLength = 4_096;

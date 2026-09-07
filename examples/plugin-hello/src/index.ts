@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/core";
+import type {} from "@pi-harness/plugin-api";
 
 export const helloTool = defineTool({
   name: "hello",

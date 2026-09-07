@@ -5,7 +5,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { parse } from "yaml";
 import { describe, expect, test } from "vitest";
 import code2SkillPlugin from "../src/plugins/code2skill.js";
-import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "../src/services.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 async function createCode2Skill(): Promise<{
   context: Context;
