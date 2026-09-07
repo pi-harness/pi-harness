@@ -1,6 +1,6 @@
 {
   "id": "browser-fetch",
-  "packageName": "@pi-harness/core/plugins/browser-fetch",
+  "packageName": "@pi-harness/plugin-browser-fetch",
   "version": "0.1.28",
   "name": "Browser Fetch",
   "description": "Fetch public HTTP and HTTPS pages as bounded text with descriptor-safe inputs, DNS pinning, per-redirect private-network validation, textual MIME enforcement, cancellation, a whole-request timeout, and validated fail-closed panel reporting.",
@@ -23,7 +23,7 @@
   ],
   "hooks": ["network request", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/browser-fetch",
+    "name": "@pi-harness/plugin-browser-fetch",
     "config": {
       "allowPrivate": false,
       "timeoutMs": 20000

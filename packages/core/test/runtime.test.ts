@@ -7,7 +7,7 @@ import { Context } from "@deepseek-ai/cordis";
 import runtimePlugin from "../src/plugins/runtime.js";
 import { PiRuntime } from "../src/runtime.js";
 import { PiToolRegistry } from "@pi-harness/plugin-api";
-import { createTestRuntimeContext, createTestRuntimeServices } from "./runtime-fixture.js";
+import { createTestRuntimeContext, createTestRuntimeServices } from "../src/test-harness.js";
 
 const contexts: Context[] = [];
 

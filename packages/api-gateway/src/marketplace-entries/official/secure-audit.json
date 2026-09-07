@@ -1,6 +1,6 @@
 {
   "id": "secure-audit",
-  "packageName": "@pi-harness/core/plugins/secure-audit",
+  "packageName": "@pi-harness/plugin-secure-audit",
   "version": "0.1.28",
   "name": "Secure Audit",
   "description": "Read-only workspace scan for exposed credentials and dangerous shell commands with value-redacted findings.",
@@ -16,7 +16,7 @@
   "capabilities": ["secret detection", "dangerous command scan", "redacted findings"],
   "hooks": ["workspace files", "plugin UI", "agent tool"],
   "profile": {
-    "name": "@pi-harness/core/plugins/secure-audit",
+    "name": "@pi-harness/plugin-secure-audit",
     "config": {}
   }
 }

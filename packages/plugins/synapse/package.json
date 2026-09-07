@@ -1,0 +1,55 @@
+{
+  "name": "@pi-harness/plugin-synapse",
+  "version": "0.1.28",
+  "description": "Visualize session relationships and linked work items without changing the transcript.",
+  "keywords": [
+    "cordis",
+    "pi-harness",
+    "pi-harness-plugin",
+    "plugin"
+  ],
+  "homepage": "https://github.com/pi-harness/pi-harness/tree/main/packages/plugins/synapse#readme",
+  "bugs": {
+    "url": "https://github.com/pi-harness/pi-harness/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-harness/pi-harness.git",
+    "directory": "packages/plugins/synapse"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit"
+  },
+  "dependencies": {
+    "@pi-harness/plugin-api": "^0.1.27"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-coding-agent": "0.84.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

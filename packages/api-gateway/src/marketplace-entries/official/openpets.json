@@ -1,6 +1,6 @@
 {
   "id": "openpets",
-  "packageName": "@pi-harness/core/plugins/openpets",
+  "packageName": "@pi-harness/plugin-openpets",
   "version": "0.1.28",
   "name": "OpenPets",
   "description": "Keep a bounded durable companion state from validated recent session entries without retaining message contents, with descriptor-safe actions and explicit persistence health.",
@@ -22,7 +22,7 @@
   ],
   "hooks": ["session events", "pet reaction tool", "session storage", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/openpets",
+    "name": "@pi-harness/plugin-openpets",
     "config": {}
   }
 }

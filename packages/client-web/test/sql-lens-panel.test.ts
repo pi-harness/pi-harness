@@ -6,7 +6,7 @@ import { PluginPanelCard } from "../src/react-room.js";
 function renderPanel(data: unknown): string {
   return renderToStaticMarkup(
     createElement(PluginPanelCard, {
-      panel: { id: "sql-lens-panel", pluginId: "@pi-harness/core/plugins/sql-lens", title: "SQL Lens", data },
+      panel: { id: "sql-lens-panel", pluginId: "@pi-harness/plugin-sql-lens", title: "SQL Lens", data },
     }),
   );
 }

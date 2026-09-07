@@ -1,6 +1,6 @@
 {
   "id": "turn-rewind",
-  "packageName": "@pi-harness/core/plugins/turn-rewind",
+  "packageName": "@pi-harness/plugin-turn-rewind",
   "version": "0.1.28",
   "name": "Turn Rewind",
   "description": "Scans a bounded current branch for user turns, supports queued serialized cancellable rewinds after the agent settles, and navigates the native session tree while preserving abandoned branches.",
@@ -23,7 +23,7 @@
   ],
   "hooks": ["session rewind tool", "active session tree", "agent settled lifecycle", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/turn-rewind",
+    "name": "@pi-harness/plugin-turn-rewind",
     "config": {}
   }
 }

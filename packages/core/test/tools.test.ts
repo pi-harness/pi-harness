@@ -2,7 +2,7 @@ import { readFile, rm } from "node:fs/promises";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import toolsPlugin, { Config as ToolsConfig } from "../src/plugins/tools.js";
-import { createTestRuntimeContext } from "./runtime-fixture.js";
+import { createTestRuntimeContext } from "../src/test-harness.js";
 
 const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];

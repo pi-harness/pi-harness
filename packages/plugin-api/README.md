@@ -43,6 +43,20 @@ The bare `import type {} from "@pi-harness/plugin-api"` is what applies the `Con
 
 `examples/plugin-hello` in the repository is this plugin with its tests.
 
+## Test a plugin against a real runtime
+
+`@pi-harness/core/test-harness` boots the harness services a plugin injects - resources, session, tools and, with `createTestRuntimeContext`, the runtime - against a stub model provider, so a test can activate the plugin and call its tools without a network or an API key. Install `@pi-harness/core` as a `devDependency` to use it; the plugin itself still depends only on this package.
+
+```ts
+import { createTestRuntimeServices } from "@pi-harness/core/test-harness";
+
+const { context } = await createTestRuntimeServices([]);
+await context.plugin(helloPlugin, {});
+expect(context.piTools.snapshot().customTools.map((tool) => tool.name)).toContain("hello");
+```
+
+The argument is the list of scripted model responses; pass `[]` for a plugin that never prompts the model, and use `createTestRuntimeContext` instead when the test needs the runtime to answer one. Every plugin under `packages/plugins` in the repository is tested this way.
+
 ## Exports
 
 - **Services** — the service interfaces the harness puts on the Cordis `Context` (`PiToolsSnapshot`, `PiSessionService`, `PiModelsService`, `PiRuntimeService`, `PiResourcesService`, `PiMcpService`, `PiTelemetryService`, `PiHarnessLaunch`), the `declare module` augmentation that attaches them, and the `PiToolRegistry` / `PiPluginUiRegistry` a test can construct directly.

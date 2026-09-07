@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -28,12 +28,57 @@ const runNpm = (...args) =>
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+/** @param {string} file */
+const readManifest = (file) => {
+  /** @type {unknown} */
+  const parsed = JSON.parse(readFileSync(join(repositoryRoot, file), "utf8"));
+  if (typeof parsed !== "object" || parsed === null || !("name" in parsed) || typeof parsed.name !== "string")
+    throw new Error(`${file} is not a package manifest`);
+  return /** @type {PackageManifest & { private?: boolean }} */ (parsed);
+};
+
+// Every publishable workspace is a package the launcher installs from the registry like any other dependency, so the smoke test has to resolve them from the tarballs this commit produces. On a release commit the versions being packed are not on npm yet, and a plugin introduced by a pull request never is.
+/** @type {Map<string, PackageManifest & { private?: boolean }>} */
+const publishable = new Map();
+for (const workspaceRoot of ["packages", join("packages", "plugins")]) {
+  for (const entry of readdirSync(join(repositoryRoot, workspaceRoot), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = join(workspaceRoot, entry.name, "package.json");
+    if (!existsSync(join(repositoryRoot, manifestPath))) continue;
+    const manifest = readManifest(manifestPath);
+    if (manifest.private === true) continue;
+    publishable.set(manifest.name, manifest);
+  }
+}
+
+// A plugin can depend on another plugin, so the closure is what has to be packed, not just the names the root manifest happens to list. The post-order walk packs a dependency before the package that needs it.
+/** @type {string[]} */
+const workspacesToPack = [];
+const visited = new Set();
+/** @param {string} name */
+const collect = (name) => {
+  const manifest = publishable.get(name);
+  if (manifest === undefined || visited.has(name)) return;
+  visited.add(name);
+  for (const dependency of Object.keys(manifest.dependencies ?? {})) collect(dependency);
+  workspacesToPack.push(name);
+};
+for (const dependency of Object.keys(readManifest("package.json").dependencies ?? {})) collect(dependency);
+if (!workspacesToPack.includes("@pi-harness/core")) throw new Error("The packed launcher no longer depends on @pi-harness/core");
+
 try {
-  // Core depends on the plugin API at the exact version being packed, so the tarball has to be installed alongside it rather than fetched from the registry.
-  const pluginApiFilename = runNpm("pack", "--workspace", "@pi-harness/plugin-api", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
-  if (pluginApiFilename.length === 0) throw new Error("npm pack did not return a plugin API tarball filename");
-  const coreFilename = runNpm("pack", "--workspace", "@pi-harness/core", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
-  if (coreFilename.length === 0) throw new Error("npm pack did not return a core tarball filename");
+  const packed = runNpm(
+    "pack",
+    ...workspacesToPack.flatMap((name) => ["--workspace", name]),
+    "--ignore-scripts",
+    "--silent",
+    "--pack-destination",
+    temporaryRoot,
+  )
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (packed.length !== workspacesToPack.length) throw new Error(`npm pack returned ${packed.length} tarballs for ${workspacesToPack.length} workspaces`);
   const filename = runNpm("pack", "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
   if (filename.length === 0) throw new Error("npm pack did not return a tarball filename");
 
@@ -46,8 +91,7 @@ try {
     "--prefix",
     installPrefix,
     "@earendil-works/pi-coding-agent@0.84.3",
-    join(temporaryRoot, pluginApiFilename),
-    join(temporaryRoot, coreFilename),
+    ...packed.map((tarball) => join(temporaryRoot, tarball)),
     join(temporaryRoot, filename),
   );
 

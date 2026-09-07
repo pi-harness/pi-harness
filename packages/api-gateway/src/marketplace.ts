@@ -140,10 +140,6 @@ function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
 
 export const MARKETPLACE_PLUGINS: readonly MarketplacePlugin[] = loadMarketplacePlugins();
 
-export function needsMarketplacePackageInstall(plugin: MarketplacePlugin): boolean {
-  return !plugin.packageName.startsWith("@pi-harness/core/plugins/");
-}
-
 export function marketplaceNpmPackageName(packageName: string): string {
   const segments = packageName.split("/");
   return packageName.startsWith("@") ? segments.slice(0, 2).join("/") : (segments[0] ?? packageName);

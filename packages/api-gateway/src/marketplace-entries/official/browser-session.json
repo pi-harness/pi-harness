@@ -1,6 +1,6 @@
 {
   "id": "browser-session",
-  "packageName": "@pi-harness/core/plugins/browser-session",
+  "packageName": "@pi-harness/plugin-browser-session",
   "version": "0.1.28",
   "name": "Browser Session",
   "description": "Control a loopback-only Chrome DevTools session with descriptor-safe commands, bounded discovery, cancellable operations, screenshot metadata protection, and validated fail-closed panel previews.",
@@ -23,7 +23,7 @@
   ],
   "hooks": ["browser session tools", "Chrome DevTools Protocol", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/browser-session",
+    "name": "@pi-harness/plugin-browser-session",
     "config": {
       "endpoint": "http://127.0.0.1:9222"
     }

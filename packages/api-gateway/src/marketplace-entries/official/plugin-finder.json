@@ -1,6 +1,6 @@
 {
   "id": "plugin-finder",
-  "packageName": "@pi-harness/core/plugins/plugin-finder",
+  "packageName": "@pi-harness/plugin-plugin-finder",
   "version": "0.1.28",
   "name": "Plugin Finder",
   "description": "Search a configured npm-compatible registry for Pi plugins with bounded queries and explicit installation handoff.",
@@ -16,7 +16,7 @@
   "capabilities": ["plugin search", "Pi registry keyword", "registry lookup", "install handoff"],
   "hooks": ["npm registry", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/plugin-finder",
+    "name": "@pi-harness/plugin-plugin-finder",
     "config": {
       "keyword": "pi-harness"
     }

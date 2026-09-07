@@ -1,6 +1,6 @@
 {
   "id": "cleaner",
-  "packageName": "@pi-harness/core/plugins/cleaner",
+  "packageName": "@pi-harness/plugin-cleaner",
   "version": "0.1.28",
   "name": "Cleaner",
   "description": "Strict descriptor-safe configuration and parameters, display-safe bounded Pi Harness Git capsule inventory, removal with explicit confirmation and retention controls, symlink and replacement defenses, cancellable serialization, and a fail-closed normalized panel.",
@@ -24,7 +24,7 @@
   ],
   "hooks": ["capsule cleanup tool", "agent capsule directory", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/cleaner",
+    "name": "@pi-harness/plugin-cleaner",
     "config": {}
   }
 }

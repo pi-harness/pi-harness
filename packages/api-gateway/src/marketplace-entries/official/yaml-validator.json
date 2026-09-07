@@ -1,6 +1,6 @@
 {
   "id": "yaml-validator",
-  "packageName": "@pi-harness/core/plugins/yaml-validator",
+  "packageName": "@pi-harness/plugin-yaml-validator",
   "version": "0.1.28",
   "name": "YAML Validator",
   "description": "Validate workspace-contained UTF-8 multi-document YAML through bounded, cancellable reads and line-aware diagnostics.",
@@ -22,7 +22,7 @@
   ],
   "hooks": ["YAML validation tool", "workspace files", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/yaml-validator",
+    "name": "@pi-harness/plugin-yaml-validator",
     "config": {}
   }
 }

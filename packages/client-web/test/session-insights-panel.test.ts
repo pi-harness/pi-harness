@@ -8,7 +8,7 @@ function renderPanel(data: unknown): string {
     createElement(PluginPanelCard, {
       panel: {
         id: "session-insights-panel",
-        pluginId: "@pi-harness/core/plugins/session-insights",
+        pluginId: "@pi-harness/plugin-session-insights",
         title: "Session Insights",
         data,
       },

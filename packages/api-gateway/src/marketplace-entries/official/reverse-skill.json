@@ -1,6 +1,6 @@
 {
   "id": "reverse-skill",
-  "packageName": "@pi-harness/core/plugins/reverse-skill",
+  "packageName": "@pi-harness/plugin-reverse-skill",
   "version": "0.1.28",
   "name": "Reverse Skill Firewall",
   "description": "Inspect untrusted Skill text and inject it only through an explicit bounded data boundary.",
@@ -16,7 +16,7 @@
   "capabilities": ["skill isolation", "prompt injection defense", "safe context injection"],
   "hooks": ["skill guard", "bounded content", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/reverse-skill",
+    "name": "@pi-harness/plugin-reverse-skill",
     "config": {}
   }
 }

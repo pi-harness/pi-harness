@@ -67,7 +67,13 @@ jobs:
             ' "$published_version" "$tagged_version")
           fi
 
-          node scripts/set-release-version.mjs "$version"
+          # Every plugin under packages/plugins is its own npm package with its own version line, so the previous release tag is what decides which of them changed and therefore which of them are bumped at all.
+          previous_tag=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          if [ -n "$previous_tag" ]; then
+            node scripts/set-release-version.mjs "$version" --base "$previous_tag"
+          else
+            node scripts/set-release-version.mjs "$version"
+          fi
           # set-release-version rewrites JSON with JSON.stringify; normalize the
           # generated files with the repository formatter before committing them.
           npm run format
@@ -87,7 +93,7 @@ jobs:
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add package.json package-lock.json packages/*/package.json apps/*/package.json examples/*/package.json packages/api-gateway/src/marketplace-entries
+            git add package.json package-lock.json packages/*/package.json packages/plugins/*/package.json apps/*/package.json examples/*/package.json packages/api-gateway/src/marketplace-entries
             git commit -m "release: $TAG"
             target=$(git rev-parse HEAD)
             git tag "$TAG" "$target"
@@ -120,7 +126,8 @@ jobs:
             echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
             exit 1
           fi
-          for workspace in packages/plugin-api packages/core .; do
+          # A plugin whose version did not move is already on npm and is skipped below, so this list stays the same on every run and only the changed packages are actually submitted.
+          for workspace in packages/plugin-api packages/core $(node scripts/build-plugins.mjs --order) .; do
             package_name=$(node -p "require('./$workspace/package.json').name")
             package_version=$(node -p "require('./$workspace/package.json').version")
             if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then

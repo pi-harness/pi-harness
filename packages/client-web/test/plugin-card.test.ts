@@ -4,7 +4,7 @@ import { installedPluginCardContent } from "../src/plugin-card.js";
 
 const plugin: ClientPlugin = {
   id: "agent-teams",
-  name: "@pi-harness/core/plugins/agent-teams",
+  name: "@pi-harness/plugin-agent-teams",
   enabled: true,
   state: "active",
   removable: true,

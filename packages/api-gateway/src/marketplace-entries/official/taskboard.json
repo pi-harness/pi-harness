@@ -1,6 +1,6 @@
 {
   "id": "taskboard",
-  "packageName": "@pi-harness/core/plugins/taskboard",
+  "packageName": "@pi-harness/plugin-taskboard",
   "version": "0.1.28",
   "name": "Taskboard",
   "description": "Track agent tasks, statuses, and dependencies in a durable project board.",
@@ -16,7 +16,7 @@
   "capabilities": ["tasks", "dependencies", "board"],
   "hooks": ["session lifecycle", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/taskboard",
+    "name": "@pi-harness/plugin-taskboard",
     "config": {}
   }
 }

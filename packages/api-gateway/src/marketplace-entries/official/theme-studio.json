@@ -1,6 +1,6 @@
 {
   "id": "theme-studio",
-  "packageName": "@pi-harness/core/plugins/theme-studio",
+  "packageName": "@pi-harness/plugin-theme-studio",
   "version": "0.1.28",
   "name": "Theme Studio",
   "description": "Apply bounded Light, Midnight, Paper, and High Contrast presets to the Pi Harness web surface.",
@@ -16,7 +16,7 @@
   "capabilities": ["theme presets", "contrast modes", "session persistence"],
   "hooks": ["session lifecycle", "React root tokens", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/theme-studio",
+    "name": "@pi-harness/plugin-theme-studio",
     "config": {
       "theme": "light"
     }

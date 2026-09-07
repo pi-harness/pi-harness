@@ -8,7 +8,7 @@ function renderPanel(data: unknown): string {
     createElement(PluginPanelCard, {
       panel: {
         id: "i18n-pair-panel",
-        pluginId: "@pi-harness/core/plugins/i18n-pair",
+        pluginId: "@pi-harness/plugin-i18n-pair",
         title: "I18n Pair",
         data,
       },

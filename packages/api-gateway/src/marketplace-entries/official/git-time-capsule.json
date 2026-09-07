@@ -1,6 +1,6 @@
 {
   "id": "git-time-capsule",
-  "packageName": "@pi-harness/core/plugins/git-time-capsule",
+  "packageName": "@pi-harness/plugin-git-time-capsule",
   "version": "0.1.28",
   "name": "Git Time Capsule",
   "description": "Capture the current unstaged tracked Git diff as a byte-exact, validated undo capsule without external diff or textconv helpers, then reverse-apply it only after explicit confirmation.",
@@ -23,7 +23,7 @@
   ],
   "hooks": ["Git snapshot tool", "Git restore tool", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/git-time-capsule",
+    "name": "@pi-harness/plugin-git-time-capsule",
     "config": {
       "timeoutMs": 15000
     }

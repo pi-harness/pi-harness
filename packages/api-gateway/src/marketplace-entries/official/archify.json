@@ -1,6 +1,6 @@
 {
   "id": "archify",
-  "packageName": "@pi-harness/core/plugins/archify",
+  "packageName": "@pi-harness/plugin-archify",
   "version": "0.1.28",
   "name": "Architecture Map",
   "description": "Build a bounded, read-only architecture map from workspace components and package dependencies.",
@@ -16,7 +16,7 @@
   "capabilities": ["architecture map", "workspace scan", "dependency map", "Mermaid"],
   "hooks": ["workspace files", "package manifest", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/archify",
+    "name": "@pi-harness/plugin-archify",
     "config": {}
   }
 }

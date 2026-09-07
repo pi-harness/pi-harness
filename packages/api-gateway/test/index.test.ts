@@ -102,7 +102,7 @@ describe("API gateway plugin", () => {
       {
         id: "profile:group:child",
         disabled: true,
-        options: { id: "child", name: "@pi-harness/core/plugins/context", disabled: true },
+        options: { id: "child", name: "@pi-harness/plugin-context", disabled: true },
       },
     ];
     context.reflect.provide("loader", {
@@ -125,7 +125,7 @@ describe("API gateway plugin", () => {
           data: {
             entries: [
               { id: "profile:group", name: "plugin-group", state: "unloaded", enabled: true },
-              { id: "profile:group:child", name: "@pi-harness/core/plugins/context", state: "unloaded", enabled: false },
+              { id: "profile:group:child", name: "@pi-harness/plugin-context", state: "unloaded", enabled: false },
             ],
           },
         },
@@ -227,7 +227,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the persisted UTC cost ledger through its dedicated panel", async () => {
-    const costMeterModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/cost-meter"))) as {
+    const costMeterModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-cost-meter"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -266,7 +266,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "cost-meter-panel",
-          pluginId: "@pi-harness/core/plugins/cost-meter",
+          pluginId: "@pi-harness/plugin-cost-meter",
           title: "Cost Meter",
           data: {
             sessionCost: 1.25,
@@ -285,7 +285,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the bounded dependency report through its dedicated panel", async () => {
-    const dependencyCheckerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/dependency-checker"))) as {
+    const dependencyCheckerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-dependency-checker"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -317,7 +317,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "dependency-checker-panel",
-          pluginId: "@pi-harness/core/plugins/dependency-checker",
+          pluginId: "@pi-harness/plugin-dependency-checker",
           title: "Dependency Checker",
           data: {
             report: {
@@ -338,7 +338,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the enforced Docker sandbox defaults through its real plugin panel", async () => {
-    const dockerSandboxModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/docker-sandbox"))) as {
+    const dockerSandboxModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-docker-sandbox"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -362,7 +362,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "docker-sandbox-panel",
-          pluginId: "@pi-harness/core/plugins/docker-sandbox",
+          pluginId: "@pi-harness/plugin-docker-sandbox",
           title: "Docker Sandbox",
           description: "仅使用本地镜像，并以无网络、只读根文件系统和有界资源运行 argv 命令。工作区默认只读。",
           icon: "⬡",
@@ -386,7 +386,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes aggregated failures through the real Failure Logger panel", async () => {
-    const failLoggerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/fail-logger"))) as {
+    const failLoggerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-fail-logger"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -433,7 +433,7 @@ describe("API gateway plugin", () => {
     expect(payload.items).toHaveLength(1);
     expect(payload.items[0]).toMatchObject({
       id: "fail-logger-panel",
-      pluginId: "@pi-harness/core/plugins/fail-logger",
+      pluginId: "@pi-harness/plugin-fail-logger",
       title: "Failure Logger",
       data: {
         total: 3,
@@ -450,7 +450,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded structured cards through the real GenUI panel", async () => {
-    const genUiModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/genui"))) as {
+    const genUiModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-genui"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -488,7 +488,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "genui-panel",
-          pluginId: "@pi-harness/core/plugins/genui",
+          pluginId: "@pi-harness/plugin-genui",
           title: "GenUI",
           data: {
             rendered: 1,
@@ -507,7 +507,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes captured Git undo capsules through the real plugin panel", async () => {
-    const gitTimeCapsuleModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/git-time-capsule"))) as {
+    const gitTimeCapsuleModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-git-time-capsule"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -557,7 +557,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "git-time-capsule-panel",
-          pluginId: "@pi-harness/core/plugins/git-time-capsule",
+          pluginId: "@pi-harness/plugin-git-time-capsule",
           title: "Git Time Capsule",
           data: {
             latest: { action: "capture", status: "completed", files: 1 },
@@ -576,7 +576,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the persisted graph memory through the real plugin panel", async () => {
-    const graphMemoryModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/graph-memory"))) as {
+    const graphMemoryModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-graph-memory"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -606,7 +606,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "graph-memory-panel",
-          pluginId: "@pi-harness/core/plugins/graph-memory",
+          pluginId: "@pi-harness/plugin-graph-memory",
           title: "Graph Memory",
           data: {
             nodes: 1,
@@ -622,7 +622,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded locale parity report through the real plugin panel", async () => {
-    const i18nPairModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/i18n-pair"))) as {
+    const i18nPairModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-i18n-pair"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -654,7 +654,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "i18n-pair-panel",
-          pluginId: "@pi-harness/core/plugins/i18n-pair",
+          pluginId: "@pi-harness/plugin-i18n-pair",
           title: "I18n Pair",
           data: {
             status: { state: "completed" },
@@ -677,7 +677,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Git capsule cleanup activity through the real plugin panel", async () => {
-    const cleanerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/cleaner"))) as {
+    const cleanerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-cleaner"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -711,7 +711,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "cleaner-panel",
-          pluginId: "@pi-harness/core/plugins/cleaner",
+          pluginId: "@pi-harness/plugin-cleaner",
           title: "Harness Cleaner",
           data: {
             capsules: [{ name: "0003.patch", bytes: 3 }],
@@ -725,7 +725,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded isolated SQLite query through the real plugin panel", async () => {
-    const sqlLensModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/sql-lens"))) as {
+    const sqlLensModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-sql-lens"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -757,7 +757,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "sql-lens-panel",
-          pluginId: "@pi-harness/core/plugins/sql-lens",
+          pluginId: "@pi-harness/plugin-sql-lens",
           title: "SQL Lens",
           data: {
             status: { state: "completed" },
@@ -777,7 +777,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded MCP inventories and limits through the real plugin panel", async () => {
-    const mcpClientModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/mcp-client"))) as {
+    const mcpClientModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-mcp-client"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -815,7 +815,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "mcp-client-panel",
-          pluginId: "@pi-harness/core/plugins/mcp-client",
+          pluginId: "@pi-harness/plugin-mcp-client",
           title: "MCP Client",
           data: {
             inventory: {
@@ -844,7 +844,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Browser Fetch preview through the real plugin panel", async () => {
-    const browserFetchModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/browser-fetch"))) as {
+    const browserFetchModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-browser-fetch"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -886,7 +886,7 @@ describe("API gateway plugin", () => {
         items: [
           {
             id: "browser-fetch-panel",
-            pluginId: "@pi-harness/core/plugins/browser-fetch",
+            pluginId: "@pi-harness/plugin-browser-fetch",
             title: "Browser Fetch",
             data: {
               latest: { status: 200, bytes: 12_001, truncated: false, previewTruncated: true },
@@ -905,7 +905,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Browser Session inventory through the real plugin panel", async () => {
-    const browserSessionModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/browser-session"))) as {
+    const browserSessionModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-browser-session"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -954,7 +954,7 @@ describe("API gateway plugin", () => {
         items: [
           {
             id: "browser-session-panel",
-            pluginId: "@pi-harness/core/plugins/browser-session",
+            pluginId: "@pi-harness/plugin-browser-session",
             title: "Browser Session",
             data: {
               endpoint: `http://127.0.0.1:${devtoolsAddress.port}/`,
@@ -973,7 +973,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Plugin Stars inventory through the real plugin panel", async () => {
-    const pluginStarsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/plugin-stars"))) as {
+    const pluginStarsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-plugin-stars"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const originalFetch = globalThis.fetch;
@@ -1018,7 +1018,7 @@ describe("API gateway plugin", () => {
         items: [
           {
             id: "plugin-stars-panel",
-            pluginId: "@pi-harness/core/plugins/plugin-stars",
+            pluginId: "@pi-harness/plugin-plugin-stars",
             title: "Plugin Stars",
             data: {
               limit: 50,
@@ -1035,7 +1035,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded YAML diagnostics through the real plugin panel", async () => {
-    const yamlValidatorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/yaml-validator"))) as {
+    const yamlValidatorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-yaml-validator"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1067,7 +1067,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "yaml-validator-panel",
-          pluginId: "@pi-harness/core/plugins/yaml-validator",
+          pluginId: "@pi-harness/plugin-yaml-validator",
           title: "YAML Validator",
           data: {
             latest: { path: "invalid.yml", valid: false, errorCount: 101, diagnosticsTruncated: false },
@@ -1084,7 +1084,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Plugin Dev reload state through the real plugin panel", async () => {
-    const pluginDevModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/plugin-dev"))) as {
+    const pluginDevModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-plugin-dev"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1124,7 +1124,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "plugin-dev-panel",
-          pluginId: "@pi-harness/core/plugins/plugin-dev",
+          pluginId: "@pi-harness/plugin-plugin-dev",
           title: "Plugin Dev",
           data: {
             status: "reloaded",
@@ -1140,7 +1140,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded OpenPets state through the real plugin panel", async () => {
-    const openPetsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/openpets"))) as {
+    const openPetsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-openpets"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1177,7 +1177,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "openpets-panel",
-          pluginId: "@pi-harness/core/plugins/openpets",
+          pluginId: "@pi-harness/plugin-openpets",
           title: "OpenPets",
           data: {
             name: "Pi",
@@ -1195,7 +1195,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Session Bridge previews through the real plugin panel", async () => {
-    const sessionBridgeModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/session-bridge"))) as {
+    const sessionBridgeModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-session-bridge"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1239,7 +1239,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "session-bridge-panel",
-          pluginId: "@pi-harness/core/plugins/session-bridge",
+          pluginId: "@pi-harness/plugin-session-bridge",
           title: "Session Bridge",
           data: {
             latest: null,
@@ -1267,7 +1267,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Skill Guard audits through the real plugin panel", async () => {
-    const skillGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/skill-guard"))) as {
+    const skillGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-skill-guard"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-api-skill-guard-"));
@@ -1302,7 +1302,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "skill-guard-panel",
-          pluginId: "@pi-harness/core/plugins/skill-guard",
+          pluginId: "@pi-harness/plugin-skill-guard",
           title: "Skill Guard",
           data: {
             scans: 1,
@@ -1338,7 +1338,7 @@ describe("API gateway plugin", () => {
   }, 15_000);
 
   test("publishes bounded Recall Unread inventory through the real plugin panel", async () => {
-    const recallUnreadModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/recall-unread"))) as {
+    const recallUnreadModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-recall-unread"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-recall-unread-workspace-"));
@@ -1384,7 +1384,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "recall-unread-panel",
-          pluginId: "@pi-harness/core/plugins/recall-unread",
+          pluginId: "@pi-harness/plugin-recall-unread",
           title: "Recall Unread",
           data: {
             scans: 1,
@@ -1422,7 +1422,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Context Insights through the real plugin panel", async () => {
-    const contextInsightsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/context"))) as {
+    const contextInsightsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-context"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1451,7 +1451,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "context-insight-panel",
-          pluginId: "@pi-harness/core/plugins/context",
+          pluginId: "@pi-harness/plugin-context",
           title: "上下文洞察",
           data: {
             tokens: 2_000,
@@ -1473,7 +1473,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes cached Token Guard state through the real plugin panel", async () => {
-    const tokenGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/token-guard"))) as {
+    const tokenGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-token-guard"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1501,7 +1501,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "token-guard-panel",
-          pluginId: "@pi-harness/core/plugins/token-guard",
+          pluginId: "@pi-harness/plugin-token-guard",
           title: "Token Guard",
           data: {
             maxPercent: 90,
@@ -1522,7 +1522,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the bounded Context Doctor audit through the real plugin panel", async () => {
-    const contextDoctorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/context-doctor"))) as {
+    const contextDoctorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-context-doctor"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1559,7 +1559,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "context-doctor-panel",
-          pluginId: "@pi-harness/core/plugins/context-doctor",
+          pluginId: "@pi-harness/plugin-context-doctor",
           title: "Context Doctor",
           data: {
             status: "warning",
@@ -1589,7 +1589,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded current-branch Turn Rewind candidates through the real plugin panel", async () => {
-    const turnRewindModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/core/plugins/turn-rewind"))) as {
+    const turnRewindModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-turn-rewind"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const manager = SessionManager.inMemory("/workspace");
@@ -1640,7 +1640,7 @@ describe("API gateway plugin", () => {
       items: [
         {
           id: "turn-rewind-panel",
-          pluginId: "@pi-harness/core/plugins/turn-rewind",
+          pluginId: "@pi-harness/plugin-turn-rewind",
           title: "Turn Rewind",
           data: {
             candidates: [
@@ -2146,44 +2146,65 @@ describe("API gateway plugin", () => {
     expect(invalidSort.status).toBe(400);
   });
 
-  test("writes bundled official plugin entries without invoking npm", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-install-"));
-    const configPath = join(cwd, "pi.toml");
+  // An official plugin is its own npm package, so it takes the same install path a community package takes: npm first, then the profile row, then the loader entry. Nothing about `source: "official"` shortcuts any of it.
+  test("installs an official plugin through npm exactly like a community package", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-install-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "pi.toml");
     await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    const npmLog = join(directory, "npm.log");
+    await writeFile(join(shimDirectory, "npm"), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(npmLog)}\n`, { mode: 0o755 });
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const session = { sessionId: "marketplace-install-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
-    context.provide("piHarnessLaunch", { cwd, agentDir: cwd, configPath, args: [], requestExit() {} });
-    let createCalled = false;
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const created: Array<{ name?: unknown }> = [];
     context.reflect.provide("loader", {
-      entries() {
-        return [];
+      entries: () => [],
+      create: (options: { name?: unknown }) => {
+        created.push(options);
+        return Promise.resolve("marketplace-entry");
       },
-      create: () => {
-        createCalled = true;
-        return Promise.reject(new Error("bundled plugin must not be dynamically created"));
-      },
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
     });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/marketplace/install", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "skill-guard" }),
-    });
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "skill-guard" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ installed: false, restartRequired: true, plugin: { id: "skill-guard" } });
-    expect(createCalled).toBe(false);
-    await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/core/plugins/skill-guard"');
+    await expect(response.json()).resolves.toMatchObject({ installed: true, plugin: { id: "skill-guard" } });
+    expect((await readFile(npmLog, "utf8")).trim()).toMatch(/^install --save-exact --package-lock=false @pi-harness\/plugin-skill-guard@\d/u);
+    expect(created).toEqual([expect.objectContaining({ name: "@pi-harness/plugin-skill-guard" })]);
+    await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/plugin-skill-guard"');
   });
 
   test("locks marketplace installation before reading a request body", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-install-lock-"));
+    temporaryDirectories.push(cwd);
+    const shimDirectory = join(cwd, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(cwd, "package.json"), '{ "name": "harness" }\n', "utf8");
     const configPath = join(cwd, "pi.toml");
     await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -2191,7 +2212,12 @@ describe("API gateway plugin", () => {
     context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd, agentDir: cwd, configPath, args: [], requestExit() {} });
-    context.reflect.provide("loader", { entries: () => [] });
+    context.reflect.provide("loader", {
+      entries: () => [],
+      create: () => Promise.resolve("marketplace-entry"),
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
     await context.plugin(apiPlugin);
 
     let finishBody: (() => void) | undefined;
@@ -2204,23 +2230,29 @@ describe("API gateway plugin", () => {
         };
       },
     });
-    const first = fetch(context.webServer.url + "/api/marketplace/install", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body,
-      duplex: "half",
-    } as RequestInit & { duplex: "half" });
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    try {
+      const first = fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
 
-    const competing = await fetch(context.webServer.url + "/api/marketplace/install", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "cost-meter" }),
-    });
-    expect(competing.status).toBe(409);
+      const competing = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "cost-meter" }),
+      });
+      expect(competing.status).toBe(409);
 
-    finishBody?.();
-    expect((await first).status).toBe(200);
+      finishBody?.();
+      expect((await first).status).toBe(200);
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   test("marks legacy random-id marketplace entries as removable", async () => {
@@ -2230,7 +2262,7 @@ describe("API gateway plugin", () => {
     const session = { sessionId: "legacy-plugin-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
     const loaderEntries = [
       { options: { id: "769990d2", name: "@deepseek-ai/cordis-plugin-logger-console" } },
-      { options: { id: "marketplace-session-bridge", name: "@pi-harness/core/plugins/session-bridge" } },
+      { options: { id: "marketplace-session-bridge", name: "@pi-harness/plugin-session-bridge" } },
     ];
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
@@ -2256,7 +2288,7 @@ describe("API gateway plugin", () => {
         },
         {
           id: "marketplace-session-bridge",
-          name: "@pi-harness/core/plugins/session-bridge",
+          name: "@pi-harness/plugin-session-bridge",
           enabled: true,
           state: "unloaded",
           removable: true,
@@ -2361,16 +2393,22 @@ describe("API gateway plugin", () => {
     await expect(readFile(configPath, "utf8")).resolves.toContain("- id: sibling");
   });
 
-  test("uninstalls bundled marketplace plugins from their existing profile row without invoking npm", async () => {
+  // The plugin was installed from npm, so removing it removes the profile row, the loader entry, and the package.
+  test("uninstalls an official marketplace plugin from its profile row and from npm", async () => {
     const context = new Context();
     contexts.push(context);
     const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-bundled-uninstall-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    const npmLog = join(directory, "npm.log");
+    await writeFile(join(shimDirectory, "npm"), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(npmLog)}\n`, { mode: 0o755 });
     const configPath = join(directory, "profile.yml");
     const entryId = "skill-guard";
     let active = true;
     const loaderEntry = {
       id: `profile:${entryId}`,
-      options: { id: entryId, name: "@pi-harness/core/plugins/skill-guard", config: {} },
+      options: { id: entryId, name: "@pi-harness/plugin-skill-guard", config: {} },
       parent: {
         tree: { write() {} },
         remove(id: string): Promise<void> {
@@ -2397,14 +2435,22 @@ describe("API gateway plugin", () => {
     });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: entryId }),
-    });
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: entryId }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
 
     expect(response.status).toBe(200);
     expect(active).toBe(false);
+    expect((await readFile(npmLog, "utf8")).trim()).toBe("uninstall --package-lock=false @pi-harness/plugin-skill-guard");
     await expect(readFile(configPath, "utf8")).resolves.not.toContain(entryId);
     await expect(readFile(configPath, "utf8")).resolves.toContain("- id: sibling");
   });

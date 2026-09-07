@@ -43,6 +43,25 @@ describe("release contract", () => {
     expect(workflow).toContain("npm publish --access public");
   });
 
+  test("publishes every plugin package on its own version line", () => {
+    // A plugin carries its own semver, so the release has to know which plugins actually changed instead of bumping all of them behind the launcher.
+    expect(workflow).toContain('node scripts/set-release-version.mjs "$version" --base "$previous_tag"');
+    expect(workflow).toContain("git describe --tags --abbrev=0 --match 'v*' HEAD");
+    // The publish loop walks the plugins in dependency order, and the release commit has to carry their bumped manifests.
+    expect(workflow).toContain("$(node scripts/build-plugins.mjs --order)");
+    expect(workflow).toContain("packages/plugins/*/package.json");
+    const pluginManifests = readdirSync(resolve(repositoryRoot, "packages/plugins"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    expect(pluginManifests.length).toBeGreaterThan(0);
+    for (const directory of pluginManifests) {
+      const manifest = readJson(`packages/plugins/${directory}/package.json`) as { name: string; dependencies?: Record<string, string> };
+      // An exact pin would rewrite - and therefore republish - every plugin on each launcher patch release, which is the coupling the split removed.
+      for (const [dependency, range] of Object.entries(manifest.dependencies ?? {}))
+        if (dependency.startsWith("@pi-harness/")) expect(range, `${manifest.name} pins ${dependency} instead of tracking it through a range`).toMatch(/^\^/u);
+    }
+  });
+
   test("pins every action to a full commit SHA with its release tag recorded", () => {
     const uses = [...workflow.matchAll(/^\s+uses:\s*(.+)$/gmu)].map((match) => match[1] ?? "");
     expect(uses.length).toBeGreaterThanOrEqual(2);
@@ -57,7 +76,7 @@ describe("release contract", () => {
     expect(built.indexOf("@pi-harness/core")).toBeLessThan(built.indexOf("@pi-harness/cli"));
   });
 
-  test("core declares every package its sources and shipped profiles load", () => {
+  test("core declares every package its sources load", () => {
     const core = readJson("packages/core/package.json") as { name: string; dependencies: Record<string, string>; peerDependencies: Record<string, string> };
     const specifierPattern =
       /(?:from\s*|import\s*\(\s*|import\.meta\.resolve\(\s*|require(?:\.resolve)?\(\s*)["']([@a-z][^"'\s]*)["']|"(@[a-z0-9._~-]+\/[a-z0-9._~-]+(?:\/[a-z0-9._~-]+)*)"/gu;
@@ -65,10 +84,6 @@ describe("release contract", () => {
     for (const file of sourceFiles(resolve(repositoryRoot, "packages/core/src"), ".ts")) {
       for (const match of readFileSync(file, "utf8").matchAll(specifierPattern))
         required.set(packageNameOf(match[1] ?? match[2] ?? ""), relative(repositoryRoot, file));
-    }
-    for (const file of sourceFiles(resolve(repositoryRoot, "packages/core/profiles"), ".yml")) {
-      for (const match of readFileSync(file, "utf8").matchAll(/^\s*name:\s*"?([^"\s]+)"?\s*$/gmu))
-        required.set(packageNameOf(match[1] ?? ""), relative(repositoryRoot, file));
     }
     const external = [...required].filter(([name]) => !name.startsWith("node:") && !name.includes(":") && name !== core.name);
     expect(external.length).toBeGreaterThan(0);
@@ -78,6 +93,21 @@ describe("release contract", () => {
         core.dependencies[name] ?? core.peerDependencies[name],
         `${name} (used by ${file}) is declared by neither ${core.name} dependencies nor peerDependencies`,
       ).toBeDefined();
+    // The curated plugin set belongs to the launcher, so installing the runtime on its own never drags a profile's plugins in.
+    expect(core.files).not.toContain("profiles");
+  });
+
+  test("the published launcher declares every plugin package its shipped profiles load", () => {
+    // Every plugin in a shipped profile is now an ordinary npm package, so the package a user installs has to pull each one like any other dependency.
+    const root = readJson("package.json") as { name: string; dependencies: Record<string, string> };
+    const required = new Map<string, string>();
+    for (const file of sourceFiles(resolve(repositoryRoot, "packages/cli/profiles"), ".yml")) {
+      for (const match of readFileSync(file, "utf8").matchAll(/^\s*name:\s*"?([^"\s]+)"?\s*$/gmu))
+        required.set(packageNameOf(match[1] ?? ""), relative(repositoryRoot, file));
+    }
+    const external = [...required].filter(([name]) => !name.includes(":"));
+    expect(external.filter(([name]) => name.startsWith("@pi-harness/plugin-")).length).toBeGreaterThan(0);
+    for (const [name, file] of external) expect(root.dependencies[name], `${name} (loaded by ${file}) is not declared by ${root.name}`).toBeDefined();
   });
 
   test("the plugin API declares every package its sources import as a peer", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { matchesPluginQuery } from "../src/plugin-search.js";
 
 describe("installed plugin search", () => {
-  const fields = ["@pi-harness/core/plugins/docker-sandbox", "Docker Sandbox", "安全", "沙箱"];
+  const fields = ["@pi-harness/plugin-docker-sandbox", "Docker Sandbox", "安全", "沙箱"];
 
   it("matches package, display name, category, and capability without case sensitivity", () => {
     expect(matchesPluginQuery("docker", fields)).toBe(true);

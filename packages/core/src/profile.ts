@@ -1,8 +1,5 @@
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-export const BUILTIN_PROFILES = ["default", "development"] as const;
 
 export interface ResolveProfileConfigOptions {
   profile?: string;
@@ -11,6 +8,7 @@ export interface ResolveProfileConfigOptions {
   profilesDir?: string;
 }
 
+// The runtime resolves a profile file; it does not own one. The distribution that ships profiles passes its own directory, so installing the runtime alone never implies a plugin set.
 export async function resolveProfileConfig(_options: ResolveProfileConfigOptions = {}): Promise<string> {
   const options = _options;
   if (options.profile !== undefined && options.configPath !== undefined) throw new Error("profile and configPath cannot be used together");
@@ -21,16 +19,12 @@ export async function resolveProfileConfig(_options: ResolveProfileConfigOptions
   } else {
     const profile = options.profile ?? "default";
     if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(profile)) throw new Error(`Invalid profile name: ${profile}`);
-    const profilesDir = options.profilesDir ?? fileURLToPath(new URL("../profiles", import.meta.url));
-    configPath = resolve(profilesDir, profile, "cordis.yml");
+    if (options.profilesDir === undefined) throw new Error(`Cannot resolve profile ${profile} without profilesDir`);
+    configPath = resolve(options.profilesDir, profile, "cordis.yml");
   }
   try {
     await access(configPath);
   } catch (cause) {
-    if (options.configPath === undefined)
-      throw new Error(`Pi Harness profile config does not exist or is not readable: ${configPath}; built-in profiles are ${BUILTIN_PROFILES.join(", ")}`, {
-        cause,
-      });
     throw new Error(`Pi Harness profile config does not exist or is not readable: ${configPath}`, { cause });
   }
   return configPath;

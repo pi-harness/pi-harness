@@ -8,7 +8,7 @@ function renderPanel(data: unknown): string {
     createElement(PluginPanelCard, {
       panel: {
         id: "at-file-panel",
-        pluginId: "@pi-harness/core/plugins/at-file",
+        pluginId: "@pi-harness/plugin-at-file",
         title: "@file Context",
         data,
       },

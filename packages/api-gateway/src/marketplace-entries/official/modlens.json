@@ -1,6 +1,6 @@
 {
   "id": "modlens",
-  "packageName": "@pi-harness/core/plugins/modlens",
+  "packageName": "@pi-harness/plugin-modlens",
   "version": "0.1.28",
   "name": "ModLens Vision Bridge",
   "description": "Send bounded workspace images to native vision models or return schema-validated evidence from the bundled ModLens engine for text-only models.",
@@ -16,7 +16,7 @@
   "capabilities": ["native vision", "OCR/layout evidence"],
   "hooks": ["tool execution", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/modlens",
+    "name": "@pi-harness/plugin-modlens",
     "config": {}
   }
 }

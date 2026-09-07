@@ -1,6 +1,6 @@
 {
   "id": "plugin-stars",
-  "packageName": "@pi-harness/core/plugins/plugin-stars",
+  "packageName": "@pi-harness/plugin-plugin-stars",
   "version": "0.1.28",
   "name": "Plugin Stars",
   "description": "Search a curated raw.githubusercontent.com plugin snapshot through descriptor-safe inputs, strict bounded validation, a cancellable lifecycle, and fail-closed panel reporting.",
@@ -23,7 +23,7 @@
   ],
   "hooks": ["ranking search tool", "raw GitHub snapshot", "plugin UI"],
   "profile": {
-    "name": "@pi-harness/core/plugins/plugin-stars",
+    "name": "@pi-harness/plugin-plugin-stars",
     "config": {
       "sourceUrl": "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json",
       "limit": 10,

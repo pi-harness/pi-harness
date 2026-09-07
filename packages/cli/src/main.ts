@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
-import { BUILTIN_PROFILES, bootHarness, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
+import { bootHarness, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
 import { CliUsageError, parseLauncherArgs } from "./args.js";
 import { NodeStdio } from "./node-stdio.js";
+import { BUILTIN_PROFILES, BUILTIN_PROFILES_DIR } from "./profiles.js";
 import { PI_HARNESS_RESTART_EXIT_CODE } from "./relaunch.js";
 
 export interface CliEnvironment {
@@ -76,7 +77,9 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
   let configPath: string;
   try {
     configPath = await resolveProfileConfig({
-      ...(invocation.configPath === undefined ? { profile: invocation.profile ?? "default" } : { configPath: invocation.configPath }),
+      ...(invocation.configPath === undefined
+        ? { profile: invocation.profile ?? "default", profilesDir: BUILTIN_PROFILES_DIR }
+        : { configPath: invocation.configPath }),
       cwd: environment.cwd,
     });
     if (invocation.dumpConfig) {
