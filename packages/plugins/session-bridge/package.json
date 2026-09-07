@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-session-bridge",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Preview and export handoffs, then require confirmed import of a strictly validated, bounded package into the active LLM context with duplicate protection.",
   "keywords": [
     "cordis",

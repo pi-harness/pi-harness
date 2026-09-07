@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-cleaner",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Strict descriptor-safe configuration and parameters, display-safe bounded Pi Harness Git capsule inventory, removal with explicit confirmation and retention controls, symlink and replacement defenses, cancellable serialization, and a fail-closed normalized panel.",
   "keywords": [
     "cordis",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-obsidian-sync",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Write explicitly requested session notes to a bounded Obsidian vault path without reading unrelated vault files.",
   "keywords": [
     "cordis",

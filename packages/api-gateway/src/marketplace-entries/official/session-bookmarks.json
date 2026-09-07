@@ -1,7 +1,7 @@
 {
   "id": "session-bookmarks",
   "packageName": "@pi-harness/plugin-session-bookmarks",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "name": "Session Bookmarks",
   "description": "Persist labels for important native Pi session entries without changing the underlying transcript.",
   "author": "Pi Harness",

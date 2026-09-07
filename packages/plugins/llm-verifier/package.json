@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-llm-verifier",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Ask a configured verifier model to judge a claim against bounded, untrusted evidence.",
   "keywords": [
     "cordis",

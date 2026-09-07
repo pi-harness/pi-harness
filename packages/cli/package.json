@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/cli",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "private": true,
   "description": "Plugin-first Pi Harness CLI",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",

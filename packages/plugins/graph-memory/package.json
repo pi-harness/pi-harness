@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-graph-memory",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Store bounded typed task, skill, and event nodes with validated directed relations, atomic locked persistence, and inspectable cross-session search.",
   "keywords": [
     "cordis",

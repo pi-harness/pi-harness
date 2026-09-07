@@ -1,7 +1,7 @@
 {
   "id": "runtime-doctor",
   "packageName": "@pi-harness/plugin-runtime-doctor",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "name": "Runtime Doctor",
   "description": "Audit workspace, agent directory, model, runtime, MCP servers, and extension errors in one read-only report.",
   "author": "Pi Harness",

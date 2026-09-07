@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-auto-mode",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Execute argv commands under a safe policy that blocks shell wrappers and requires confirmation for risky operations.",
   "keywords": [
     "cordis",

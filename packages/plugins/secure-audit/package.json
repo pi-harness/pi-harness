@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-secure-audit",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Read-only workspace scan for exposed credentials and dangerous shell commands with value-redacted findings.",
   "keywords": [
     "cordis",

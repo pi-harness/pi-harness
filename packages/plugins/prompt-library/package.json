@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-prompt-library",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Save, search, update, and delete reusable prompt templates in the current Pi session.",
   "keywords": [
     "cordis",

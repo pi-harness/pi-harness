@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-colleague-skill",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Create durable, structured handoff packets for another role without hidden agents or external message delivery.",
   "keywords": [
     "cordis",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-cost-meter",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Track runtime-reported costs as UTC daily increments in a bounded local ledger, with session snapshots and optional daily budget monitoring; no model prices are guessed.",
   "keywords": [
     "cordis",

@@ -1,7 +1,7 @@
 {
   "id": "reverse-skill",
   "packageName": "@pi-harness/plugin-reverse-skill",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "name": "Reverse Skill Firewall",
   "description": "Inspect untrusted Skill text and inject it only through an explicit bounded data boundary.",
   "author": "Pi Harness",

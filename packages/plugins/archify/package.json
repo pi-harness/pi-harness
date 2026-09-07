@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-archify",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Build a bounded, read-only architecture map from workspace components and package dependencies.",
   "keywords": [
     "cordis",

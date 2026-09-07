@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-module-search",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Find imports, exports, and declared symbols in bounded workspace source files without modifying them.",
   "keywords": [
     "cordis",

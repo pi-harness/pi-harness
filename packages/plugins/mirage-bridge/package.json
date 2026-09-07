@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-mirage-bridge",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Connect Pi Harness to the official Mirage virtual-terminal CLI without adding a second host shell.",
   "keywords": [
     "cordis",

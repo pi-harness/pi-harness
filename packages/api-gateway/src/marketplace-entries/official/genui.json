@@ -1,7 +1,7 @@
 {
   "id": "genui",
   "packageName": "@pi-harness/plugin-genui",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "name": "GenUI",
   "description": "Render bounded structured cards with text, badge, and decimal progress blocks while displaying HTML and scripts as plain text.",
   "author": "Pi Harness",

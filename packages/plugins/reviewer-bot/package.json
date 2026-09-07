@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-reviewer-bot",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Review the current Git diff for risky changes, unfinished markers, and large files without modifying the workspace.",
   "keywords": [
     "cordis",

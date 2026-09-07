@@ -1,7 +1,7 @@
 {
   "id": "change-verifier",
   "packageName": "@pi-harness/plugin-change-verifier",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "name": "Change Verifier",
   "description": "Combine project tests and Git change review into one explicit verification gate before handoff.",
   "author": "Pi Harness",

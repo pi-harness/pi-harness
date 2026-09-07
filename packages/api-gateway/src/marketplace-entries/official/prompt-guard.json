@@ -1,7 +1,7 @@
 {
   "id": "prompt-guard",
   "packageName": "@pi-harness/plugin-prompt-guard",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "name": "Prompt Guard",
   "description": "Detect prompt override, secret exfiltration, remote payloads, and hidden-instruction indicators without retaining input text.",
   "author": "Pi Harness",

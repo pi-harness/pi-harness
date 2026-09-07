@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-browser-fetch",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Fetch public HTTP and HTTPS pages as bounded text with descriptor-safe inputs, DNS pinning, per-redirect private-network validation, textual MIME enforcement, cancellation, a whole-request timeout, and validated fail-closed panel reporting.",
   "keywords": [
     "cordis",
