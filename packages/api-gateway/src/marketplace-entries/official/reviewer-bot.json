@@ -1,7 +1,7 @@
 {
   "id": "reviewer-bot",
   "packageName": "@pi-harness/core/plugins/reviewer-bot",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "name": "Reviewer Bot",
   "description": "Review the current Git diff for risky changes, unfinished markers, and large files without modifying the workspace.",
   "author": "Pi Harness",

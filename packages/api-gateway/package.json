@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/api-gateway",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "private": true,
   "description": "Cordis HTTP API routes for the Pi Harness browser client",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",

@@ -1,7 +1,7 @@
 {
   "id": "yaml-validator",
   "packageName": "@pi-harness/core/plugins/yaml-validator",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "name": "YAML Validator",
   "description": "Validate workspace-contained UTF-8 multi-document YAML through bounded, cancellable reads and line-aware diagnostics.",
   "author": "Pi Harness",

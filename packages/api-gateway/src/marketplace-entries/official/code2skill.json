@@ -1,7 +1,7 @@
 {
   "id": "code2skill",
   "packageName": "@pi-harness/core/plugins/code2skill",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "name": "Code2Skill",
   "description": "Package selected workspace source files into a bounded local Pi skill with a generated SKILL.md manifest and preserved references.",
   "author": "Pi Harness",

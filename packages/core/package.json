@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/core",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Cordis boot and Pi runtime plugins for Pi Harness",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
   "bugs": {
@@ -46,7 +46,7 @@
     "@deepseek-ai/cordis-plugin-logger-console": "1.0.1",
     "@deepseek-ai/cordis-plugin-timer": "1.1.3",
     "@liustack/modlens": "3.25.4",
-    "@pi-harness/plugin-api": "0.1.26",
+    "@pi-harness/plugin-api": "0.1.27",
     "semver": "7.8.5",
     "undici": "8.9.0",
     "yaml": "2.9.0"
