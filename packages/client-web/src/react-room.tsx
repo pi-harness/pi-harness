@@ -956,7 +956,17 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
   );
 }
 
-function Trajectory({ events, onSelect }: { events: readonly Record<string, unknown>[]; onSelect: (event: Record<string, unknown>) => void }) {
+export function Trajectory({
+  events,
+  sessionMessages,
+  onSelect,
+}: {
+  events: readonly Record<string, unknown>[];
+  sessionMessages: number;
+  onSelect: (event: Record<string, unknown>) => void;
+}) {
+  // The trace is a live stream, not session history: reopening a session leaves it empty forever, and "暂无轨迹事件" alone reads as a console that failed to load rather than one that was not watching.
+  const resumed = events.length === 0 && sessionMessages > 0;
   const [filter, setFilter] = useState("all");
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -980,7 +990,7 @@ function Trajectory({ events, onSelect }: { events: readonly Record<string, unkn
               </span>
             ))
           ) : (
-            <span className="timeline-empty">等待真实事件…</span>
+            <span className="timeline-empty">{resumed ? "本次打开后还没有事件" : "等待真实事件…"}</span>
           )}
         </div>
       </div>
@@ -1014,13 +1024,17 @@ function Trajectory({ events, onSelect }: { events: readonly Record<string, unkn
             <span>{formatEventDuration(event)}</span>
           </button>
         ))}
-        {!visible.length && <div className="empty-state">暂无轨迹事件。</div>}
+        {!visible.length && (
+          <div className="empty-state">
+            {resumed ? `轨迹只记录控制台连上之后发生的事件，这条会话已有的 ${sessionMessages} 条消息请看「对话」。` : "暂无轨迹事件。"}
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-function Files({
+export function Files({
   files,
   api,
   onDiff,
@@ -1081,7 +1095,7 @@ function Files({
           <strong>本次会话改动</strong>
           <span>由 /api/files 提供</span>
         </div>
-        <div className="file-summary">{`${files.length} 个文件 · ${additions} 个新增 · ${deletions} 个删除`}</div>
+        <div className="file-summary">{`${files.length} 个文件 · ${additions} 个新增文件 · ${deletions} 个删除文件`}</div>
         <div className="file-list">
           {files.length ? (
             files.map((file) => (
@@ -7741,6 +7755,17 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       input?.setSelectionRange(nextCaret, nextCaret);
     });
   };
+  const applyStarter = (value: string) => {
+    setDraft(value);
+    setPromptCaret(value.length);
+    setPromptCompletionSuppressed(false);
+    // A starter card is the largest target on the empty screen, but seeding the draft is all it does: without moving the caret into the composer the click only prints text several hundred pixels further down, which reads as nothing having happened.
+    window.requestAnimationFrame(() => {
+      const input = promptInputRef.current;
+      input?.focus();
+      input?.setSelectionRange(value.length, value.length);
+    });
+  };
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
     if (!path) return;
@@ -8018,7 +8043,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             status={data.status}
             workspaces={data.workspaces}
             onCreate={(workspace) => void createNewSession(workspace)}
-            onStarter={setDraft}
+            onStarter={applyStarter}
             onToml={() => {
               setDetails(undefined);
               setSettings("toml");
@@ -8251,7 +8276,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       </div>
     </section>
   ) : view === "trajectory" ? (
-    <Trajectory events={displayEvents} onSelect={setDetails} />
+    <Trajectory events={displayEvents} onSelect={setDetails} sessionMessages={data.status?.messages ?? 0} />
   ) : (
     <Files
       api={api}
