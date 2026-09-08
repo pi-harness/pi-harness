@@ -739,6 +739,34 @@ export default {
     const lifecycle = new AbortController();
     let latest: Latest | undefined;
     let latestKey: string | undefined;
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+        latestKey = undefined;
+      }
+      return scope;
+    };
+    const operation = (signal?: AbortSignal) => {
+      const combined = executionSignal(signal, lifecycle.signal);
+      combined.throwIfAborted();
+      const current = refreshScope();
+      return {
+        cwd: current.cwd,
+        signal: combined,
+        assertCurrent: () => {
+          combined.throwIfAborted();
+          if (refreshScope() !== current) throw new Error("MCP workspace changed during execution");
+        },
+      };
+    };
+    type Operation = ReturnType<typeof operation>;
     const previousFor = (key: string): Latest | undefined => (latestKey === key ? latest : undefined);
     const publishLatest = (key: string, value: Latest): Latest => {
       latestKey = key;
@@ -769,20 +797,22 @@ export default {
       configured.set(id, { id, command: [...definition.command], autoStart: definition.autoStart === true });
     }
     let nextServerId = 1;
-    const startServer = async (command: string[], requestedId?: string, signal?: AbortSignal): Promise<ManagedServer> => {
+    const startServer = async (command: string[], requestedId: string | undefined, cwd: string, op: Operation): Promise<ManagedServer> => {
+      op.assertCurrent();
       validateCommand(command);
       let id = requestedId;
       if (id === undefined) {
         do id = `mcp-${nextServerId++}`;
         while (configured.has(id) || servers.has(id) || startingServers.has(id));
       }
-      if (servers.has(id)) throw new Error(`MCP server is already running: ${id}`);
+      const existing = servers.get(id);
+      if (existing !== undefined) throw new Error(`MCP server is already ${existing.status}: ${id}`);
       if (startingServers.has(id)) throw new Error(`MCP server is already starting: ${id}`);
       if (servers.size + startingServers.size >= maxManagedServers) throw new Error(`MCP client cannot manage more than ${maxManagedServers} running servers`);
       startingServers.add(id);
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = spawn(command[0]!, command.slice(1), { cwd: context.piHarnessLaunch.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+        child = spawn(command[0]!, command.slice(1), { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"] });
       } catch (error) {
         startingServers.delete(id);
         throw error;
@@ -804,7 +834,7 @@ export default {
       child.once("close", () => {
         server.status = "stopping";
         server.lifecycle.abort(new Error(`MCP server exited: ${server.id}`));
-        servers.delete(server.id);
+        if (servers.get(server.id) === server) servers.delete(server.id);
       });
       try {
         const initializeResult = await request(
@@ -812,15 +842,16 @@ export default {
           1,
           "initialize",
           { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "pi-harness", version: clientVersion } },
-          signal,
+          op.signal,
         );
+        op.assertCurrent();
         validateInitializeResult(initializeResult);
         if (child.exitCode !== null || child.signalCode !== null) throw new Error(`MCP server exited during initialization: ${id}`);
         servers.set(server.id, server);
         child.stdin.write(encodeMessage({ jsonrpc: "2.0", method: "notifications/initialized" }));
         return server;
       } catch (error) {
-        servers.delete(server.id);
+        if (servers.get(server.id) === server) servers.delete(server.id);
         await terminateChild(child);
         if (error instanceof Error && error.message === disposedMessage) throw error;
         const stderrText = stderr.toString("utf8").trim();
@@ -830,23 +861,27 @@ export default {
         startingServers.delete(id);
       }
     };
-    const stopServer = (serverId: string, signal?: AbortSignal): Promise<boolean> => {
+    const stopServer = (serverId: string, op: Operation): Promise<boolean> => {
+      op.assertCurrent();
       const server = servers.get(serverId);
       if (server === undefined) throw new Error(`MCP server is not running: ${serverId}`);
       server.status = "stopping";
       server.lifecycle.abort(new Error(`MCP server stopped: ${server.id}`));
       const operation = (async () => {
         await server.queue;
-        servers.delete(server.id);
+        // The close handler releases ownership; stopping children must remain tracked for restart exclusion and disposal.
         await terminateChild(server.child);
         return true;
       })();
-      return withCancellation(operation, signal, "server/stop");
+      return withCancellation(operation, op.signal, "server/stop");
     };
-    const requestManaged = (server: ManagedServer, method: string, params?: JsonObject, signal?: AbortSignal): Promise<JsonObject> => {
+    const requestManaged = (server: ManagedServer, method: string, params: JsonObject | undefined, op: Operation): Promise<JsonObject> => {
       if (server.status !== "running") throw new Error(`MCP server is not running: ${server.id}`);
-      const requestSignal = signal === undefined ? server.lifecycle.signal : AbortSignal.any([signal, server.lifecycle.signal]);
-      const task = server.queue.then(() => request(server.child, server.nextRequestId++, method, params, requestSignal));
+      const requestSignal = AbortSignal.any([op.signal, server.lifecycle.signal]);
+      const task = server.queue.then(() => {
+        op.assertCurrent();
+        return request(server.child, server.nextRequestId++, method, params, requestSignal);
+      });
       server.queue = task.then(
         () => undefined,
         () => undefined,
@@ -885,87 +920,93 @@ export default {
           })),
       ];
     };
-    const list = async (command?: string[], serverId?: string, signal?: AbortSignal): Promise<Latest> => {
+    const list = async (command: string[] | undefined, serverId: string | undefined, op: Operation): Promise<Latest> => {
+      op.assertCurrent();
       rejectAmbiguousTarget(command, serverId);
+      let selectedCommand: string[];
+      let tools: McpTool[];
       if (serverId !== undefined) {
         const managed = getServer(serverId);
-        const tools = await paginatedInventory("tools/list", "tools", (params) => requestManaged(managed, "tools/list", params, signal), toolInventory);
-        const key = `managed:${managed.id}`;
-        const server = serverLabel(managed.command);
-        const previous = previousFor(key);
-        const next = { server, tools, resources: previous?.resources ?? [], prompts: previous?.prompts ?? [] };
-        return publishLatest(key, next);
+        selectedCommand = managed.command;
+        tools = await paginatedInventory("tools/list", "tools", (params) => requestManaged(managed, "tools/list", params, op), toolInventory);
+      } else {
+        if (command === undefined) throw new Error("Provide command or serverId to list MCP tools");
+        selectedCommand = command;
+        tools = await withServer(
+          command,
+          op.cwd,
+          async (child) => {
+            let requestId = 2;
+            return paginatedInventory(
+              "tools/list",
+              "tools",
+              (params) => {
+                op.assertCurrent();
+                return request(child, requestId++, "tools/list", params, op.signal);
+              },
+              toolInventory,
+            );
+          },
+          op.signal,
+        );
       }
-      if (command === undefined) throw new Error("Provide command or serverId to list MCP tools");
-      return withServer(
-        command,
-        context.piHarnessLaunch.cwd,
-        async (child) => {
-          let requestId = 2;
-          const tools = await paginatedInventory("tools/list", "tools", (params) => request(child, requestId++, "tools/list", params, signal), toolInventory);
-          const key = `command:${JSON.stringify(command)}`;
-          const server = serverLabel(command);
-          const previous = previousFor(key);
-          const next = { server, tools, resources: previous?.resources ?? [], prompts: previous?.prompts ?? [] };
-          return publishLatest(key, next);
-        },
-        signal,
-      );
+      op.assertCurrent();
+      const key = serverId === undefined ? `command:${JSON.stringify(selectedCommand)}` : `managed:${serverId}`;
+      const previous = previousFor(key);
+      return publishLatest(key, { server: serverLabel(selectedCommand), tools, resources: previous?.resources ?? [], prompts: previous?.prompts ?? [] });
     };
-    const call = async (
-      command: string[] | undefined,
-      serverId: string | undefined,
-      name: string,
-      args: JsonObject,
-      signal?: AbortSignal,
-    ): Promise<McpCallResult> => {
+    const call = async (command: string[] | undefined, serverId: string | undefined, name: string, args: JsonObject, op: Operation): Promise<McpCallResult> => {
+      op.assertCurrent();
       rejectAmbiguousTarget(command, serverId);
       boundedInput(name, "tool name", 512);
+      let selectedCommand: string[];
+      let result: McpCallResult;
       if (serverId !== undefined) {
         const managed = getServer(serverId);
-        const result = (await requestManaged(managed, "tools/call", { name, arguments: args }, signal)) as McpCallResult;
-        toolResultContent(result);
-        const key = `managed:${managed.id}`;
-        const server = serverLabel(managed.command);
-        const previous = previousFor(key);
-        publishLatest(key, {
-          server,
-          tools: previous?.tools ?? [],
-          resources: previous?.resources ?? [],
-          prompts: previous?.prompts ?? [],
-          lastCall: name,
-        });
-        return result;
+        selectedCommand = managed.command;
+        result = await requestManaged(managed, "tools/call", { name, arguments: args }, op);
+      } else {
+        if (command === undefined) throw new Error("Provide command or serverId to call an MCP tool");
+        selectedCommand = command;
+        result = await withServer(
+          command,
+          op.cwd,
+          async (child) => {
+            op.assertCurrent();
+            return await request(child, 2, "tools/call", { name, arguments: args }, op.signal);
+          },
+          op.signal,
+        );
       }
-      if (command === undefined) throw new Error("Provide command or serverId to call an MCP tool");
-      return withServer(
-        command,
-        context.piHarnessLaunch.cwd,
-        async (child) => {
-          const result = (await request(child, 2, "tools/call", { name, arguments: args }, signal)) as McpCallResult;
-          toolResultContent(result);
-          const key = `command:${JSON.stringify(command)}`;
-          const server = serverLabel(command);
-          const previous = previousFor(key);
-          publishLatest(key, {
-            server,
-            tools: previous?.tools ?? [],
-            resources: previous?.resources ?? [],
-            prompts: previous?.prompts ?? [],
-            lastCall: name,
-          });
-          return result;
-        },
-        signal,
-      );
+      op.assertCurrent();
+      toolResultContent(result);
+      const key = serverId === undefined ? `command:${JSON.stringify(selectedCommand)}` : `managed:${serverId}`;
+      const previous = previousFor(key);
+      publishLatest(key, {
+        server: serverLabel(selectedCommand),
+        tools: previous?.tools ?? [],
+        resources: previous?.resources ?? [],
+        prompts: previous?.prompts ?? [],
+        lastCall: name,
+      });
+      return result;
     };
-    const requestOneShot = async (command: string[], method: string, params?: JsonObject, signal?: AbortSignal): Promise<JsonObject> =>
-      withServer(command, context.piHarnessLaunch.cwd, async (child) => request(child, 2, method, params, signal), signal);
+    const requestOneShot = async (command: string[], method: string, params: JsonObject | undefined, op: Operation): Promise<JsonObject> =>
+      withServer(
+        command,
+        op.cwd,
+        async (child) => {
+          op.assertCurrent();
+          return request(child, 2, method, params, op.signal);
+        },
+        op.signal,
+      );
     const requireCommand = (command: string[] | undefined, message: string): string[] => {
       if (command === undefined) throw new Error(message);
       return command;
     };
-    const resources = async (command: string[] | undefined, serverId: string | undefined, signal?: AbortSignal): Promise<McpResource[]> => {
+    const resources = async (command: string[] | undefined, serverId: string | undefined, op: Operation): Promise<McpResource[]> => {
+      op.assertCurrent();
       rejectAmbiguousTarget(command, serverId);
       let items: McpResource[];
       let selectedCommand: string[];
@@ -973,28 +1014,27 @@ export default {
         selectedCommand = requireCommand(command, "Provide command or serverId to list MCP resources");
         items = await withServer(
           selectedCommand,
-          context.piHarnessLaunch.cwd,
+          op.cwd,
           async (child) => {
             let requestId = 2;
             return paginatedInventory(
               "resources/list",
               "resources",
-              (params) => request(child, requestId++, "resources/list", params, signal),
+              (params) => {
+                op.assertCurrent();
+                return request(child, requestId++, "resources/list", params, op.signal);
+              },
               resourceInventory,
             );
           },
-          signal,
+          op.signal,
         );
       } else {
         const managed = getServer(serverId);
         selectedCommand = managed.command;
-        items = await paginatedInventory(
-          "resources/list",
-          "resources",
-          (params) => requestManaged(managed, "resources/list", params, signal),
-          resourceInventory,
-        );
+        items = await paginatedInventory("resources/list", "resources", (params) => requestManaged(managed, "resources/list", params, op), resourceInventory);
       }
+      op.assertCurrent();
       const key = serverId === undefined ? `command:${JSON.stringify(selectedCommand)}` : `managed:${serverId}`;
       const server = serverLabel(selectedCommand);
       const previous = previousFor(key);
@@ -1007,14 +1047,16 @@ export default {
       publishLatest(key, next);
       return clone(items);
     };
-    const readResource = async (command: string[] | undefined, serverId: string | undefined, uri: string, signal?: AbortSignal): Promise<JsonObject> => {
+    const readResource = async (command: string[] | undefined, serverId: string | undefined, uri: string, op: Operation): Promise<JsonObject> => {
+      op.assertCurrent();
       rejectAmbiguousTarget(command, serverId);
       boundedInput(uri, "resource URI", 4096);
       return serverId === undefined
-        ? requestOneShot(requireCommand(command, "Provide command or serverId to read an MCP resource"), "resources/read", { uri }, signal)
-        : requestManaged(getServer(serverId), "resources/read", { uri }, signal);
+        ? requestOneShot(requireCommand(command, "Provide command or serverId to read an MCP resource"), "resources/read", { uri }, op)
+        : requestManaged(getServer(serverId), "resources/read", { uri }, op);
     };
-    const prompts = async (command: string[] | undefined, serverId: string | undefined, signal?: AbortSignal): Promise<McpPrompt[]> => {
+    const prompts = async (command: string[] | undefined, serverId: string | undefined, op: Operation): Promise<McpPrompt[]> => {
+      op.assertCurrent();
       rejectAmbiguousTarget(command, serverId);
       let items: McpPrompt[];
       let selectedCommand: string[];
@@ -1022,18 +1064,27 @@ export default {
         selectedCommand = requireCommand(command, "Provide command or serverId to list MCP prompts");
         items = await withServer(
           selectedCommand,
-          context.piHarnessLaunch.cwd,
+          op.cwd,
           async (child) => {
             let requestId = 2;
-            return paginatedInventory("prompts/list", "prompts", (params) => request(child, requestId++, "prompts/list", params, signal), promptInventory);
+            return paginatedInventory(
+              "prompts/list",
+              "prompts",
+              (params) => {
+                op.assertCurrent();
+                return request(child, requestId++, "prompts/list", params, op.signal);
+              },
+              promptInventory,
+            );
           },
-          signal,
+          op.signal,
         );
       } else {
         const managed = getServer(serverId);
         selectedCommand = managed.command;
-        items = await paginatedInventory("prompts/list", "prompts", (params) => requestManaged(managed, "prompts/list", params, signal), promptInventory);
+        items = await paginatedInventory("prompts/list", "prompts", (params) => requestManaged(managed, "prompts/list", params, op), promptInventory);
       }
+      op.assertCurrent();
       const key = serverId === undefined ? `command:${JSON.stringify(selectedCommand)}` : `managed:${serverId}`;
       const server = serverLabel(selectedCommand);
       const previous = previousFor(key);
@@ -1051,13 +1102,14 @@ export default {
       serverId: string | undefined,
       name: string,
       args: JsonObject,
-      signal?: AbortSignal,
+      op: Operation,
     ): Promise<JsonObject> => {
+      op.assertCurrent();
       rejectAmbiguousTarget(command, serverId);
       boundedInput(name, "prompt name", 512);
       return serverId === undefined
-        ? requestOneShot(requireCommand(command, "Provide command or serverId to get an MCP prompt"), "prompts/get", { name, arguments: args }, signal)
-        : requestManaged(getServer(serverId), "prompts/get", { name, arguments: args }, signal);
+        ? requestOneShot(requireCommand(command, "Provide command or serverId to get an MCP prompt"), "prompts/get", { name, arguments: args }, op)
+        : requestManaged(getServer(serverId), "prompts/get", { name, arguments: args }, op);
     };
     const unregisterList = registerTool(
       defineTool({
@@ -1074,10 +1126,10 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ server: string; tools: McpTool[] }>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, connectionParameterNames);
-          const result = await list(optionalCommand(raw.command), serverIdValue(raw.serverId), operationSignal);
+          const result = await list(optionalCommand(raw.command), serverIdValue(raw.serverId), op);
+          op.assertCurrent();
           return {
             content: [
               { type: "text", text: result.tools.map((tool) => `${tool.name}: ${tool.description ?? ""}`).join("\n") || "MCP server returned no tools." },
@@ -1104,16 +1156,16 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<McpCallResult>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, callParameterNames);
           const result = await call(
             optionalCommand(raw.command),
             serverIdValue(raw.serverId),
             requiredString(raw.name, "tool name"),
             jsonObject(raw.arguments),
-            operationSignal,
+            op,
           );
+          op.assertCurrent();
           return { content: toolResultContent(result), details: clone(result) };
         },
       }),
@@ -1133,14 +1185,14 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ serverId: string; executable: string; argumentCount: number; status: string }>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, connectionParameterNames);
           const serverId = serverIdValue(raw.serverId);
           const command = optionalCommand(raw.command) ?? (serverId === undefined ? undefined : configuredCommand(serverId));
           if (command === undefined) throw new Error("Provide command or configured serverId to start an MCP server");
-          const server = await startServer(command, serverId, operationSignal);
+          const server = await startServer(command, serverId, raw.command === undefined ? context.piHarnessLaunch.cwd : op.cwd, op);
           // Tool result details are persisted in the session transcript and exposed through the session endpoints, and MCP argv routinely carries tokens (possibly from the profile config rather than the caller), so redact exactly like statusSnapshot and serverSnapshot do.
+          op.assertCurrent();
           return {
             content: [{ type: "text", text: `MCP server ${server.id} is running.` }],
             details: {
@@ -1161,16 +1213,18 @@ export default {
         promptSnippet: "inspect running MCP server status",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
-        execute(
+        async execute(
           _toolCallId,
           params,
           signal,
         ): Promise<AgentToolResult<{ servers: Array<{ id: string; executable: string; argumentCount: number; status: string; startedAt: number }> }>> {
+          const op = operation(signal);
           return Promise.resolve().then(() => {
-            const operationSignal = executionSignal(signal, lifecycle.signal);
-            operationSignal.throwIfAborted();
+            op.assertCurrent();
             inspectParameters(params, noParameterNames);
+            op.assertCurrent();
             const snapshot = statusSnapshot();
+            op.assertCurrent();
             return {
               content: [
                 {
@@ -1201,11 +1255,11 @@ export default {
         parameters: Type.Object({ serverId: Type.String() }, { additionalProperties: false }),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ serverId: string; stopped: boolean }>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, stopParameterNames);
           const serverId = serverIdValue(raw.serverId, true)!;
-          const stopped = await stopServer(serverId, operationSignal);
+          const stopped = await stopServer(serverId, op);
+          op.assertCurrent();
           return { content: [{ type: "text", text: `MCP server ${serverId} stopped.` }], details: { serverId, stopped } };
         },
       }),
@@ -1219,10 +1273,10 @@ export default {
         parameters: Type.Object({ command: Type.Optional(Type.Array(Type.String())), serverId: Type.Optional(Type.String()) }, { additionalProperties: false }),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ resources: McpResource[] }>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, connectionParameterNames);
-          const items = await resources(optionalCommand(raw.command), serverIdValue(raw.serverId), operationSignal);
+          const items = await resources(optionalCommand(raw.command), serverIdValue(raw.serverId), op);
+          op.assertCurrent();
           return {
             content: [{ type: "text", text: items.map((item) => `${item.uri} ${item.name ?? ""}`).join("\n") || "MCP server returned no resources." }],
             details: { resources: items },
@@ -1242,15 +1296,10 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<JsonObject>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, readResourceParameterNames);
-          const result = await readResource(
-            optionalCommand(raw.command),
-            serverIdValue(raw.serverId),
-            requiredString(raw.uri, "resource URI"),
-            operationSignal,
-          );
+          const result = await readResource(optionalCommand(raw.command), serverIdValue(raw.serverId), requiredString(raw.uri, "resource URI"), op);
+          op.assertCurrent();
           return { content: resourceResultContent(result), details: clone(result) };
         },
       }),
@@ -1264,10 +1313,10 @@ export default {
         parameters: Type.Object({ command: Type.Optional(Type.Array(Type.String())), serverId: Type.Optional(Type.String()) }, { additionalProperties: false }),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ prompts: McpPrompt[] }>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, connectionParameterNames);
-          const items = await prompts(optionalCommand(raw.command), serverIdValue(raw.serverId), operationSignal);
+          const items = await prompts(optionalCommand(raw.command), serverIdValue(raw.serverId), op);
+          op.assertCurrent();
           return {
             content: [{ type: "text", text: items.map((item) => `${item.name}: ${item.description ?? ""}`).join("\n") || "MCP server returned no prompts." }],
             details: { prompts: items },
@@ -1292,16 +1341,16 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<JsonObject>> {
-          const operationSignal = executionSignal(signal, lifecycle.signal);
-          operationSignal.throwIfAborted();
+          const op = operation(signal);
           const raw = inspectParameters(params, callParameterNames);
           const result = await getPrompt(
             optionalCommand(raw.command),
             serverIdValue(raw.serverId),
             requiredString(raw.name, "prompt name"),
             promptArguments(raw.arguments),
-            operationSignal,
+            op,
           );
+          op.assertCurrent();
           return { content: promptResultContent(result), details: clone(result) };
         },
       }),
@@ -1331,6 +1380,7 @@ export default {
         description: "通过 stdio JSON-RPC 连接外部 MCP 工具服务器。",
         icon: "⌘",
         read: () => {
+          refreshScope();
           const tools = latest?.tools ?? [];
           const resources = latest?.resources ?? [];
           const prompts = latest?.prompts ?? [];
@@ -1394,7 +1444,7 @@ export default {
       await Promise.all(running.map(async (server) => terminateChild(server.child)));
     });
     for (const definition of configured.values()) {
-      if (definition.autoStart === true) await startServer(definition.command, definition.id, lifecycle.signal);
+      if (definition.autoStart === true) await startServer(definition.command, definition.id, context.piHarnessLaunch.cwd, operation());
     }
   },
 };
