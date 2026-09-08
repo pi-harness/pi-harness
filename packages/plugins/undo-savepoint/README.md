@@ -20,7 +20,6 @@ Add the entry to the Cordis profile the harness starts from:
 
 The Pi Harness plugin marketplace installs and enables this package for you; the steps above are the manual equivalent.
 
-
 ## Operations
 
 `undo_savepoint` supports `save`, `list`, `diff`, and `restore`. `save` accepts an optional reason (up to 4,096 characters); `diff` and `restore` require an exact savepoint ID. `restore` additionally requires `confirm=true`. Unknown actions, extra keys, getters, and fields belonging to another action are rejected before file access. Model-visible text is the same structured JSON report as tool details; file contents are not returned.

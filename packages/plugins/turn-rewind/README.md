@@ -20,7 +20,6 @@ Add the entry to the Cordis profile the harness starts from:
 
 The Pi Harness plugin marketplace installs and enables this package for you; the steps above are the manual equivalent.
 
-
 ## Behavior and limits
 
 `session_rewind` accepts either `turns` (1–20, default 1) or an exact `entryId` from the current candidate list. It scans at most 4,096 current-branch entries and retains the newest 50 text-bearing user turns. Text previews are limited to 500 characters; image-only messages are not candidates. The panel displays the newest eight candidates and reports truncation.
