@@ -19,6 +19,10 @@ export interface HistoryCompressorPluginConfig {
 }
 export const Config: z<HistoryCompressorPluginConfig> = z.object({ enabled: z.boolean().default(true), thresholdPercent: z.number().default(85) });
 
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("History compaction cancelled");
+}
+
 export default {
   name: "pi-history-compressor",
   inject: ["piPluginUi", "piTools"],
@@ -29,14 +33,23 @@ export default {
     const thresholdPercent = Math.max(1, Math.min(100, config.thresholdPercent ?? 85));
     const state: CompressionState = { enabled, thresholdPercent, compactions: 0, lastUsagePercent: null, queued: false, lastError: null };
     let inFlight = false;
-    let queued: { session: unknown; automatic: boolean } | undefined;
+    const lifecycle = new AbortController();
+    let queued: { session: unknown; automatic: boolean; signal: AbortSignal; removeAbortListener: () => void } | undefined;
     const runtime = () => context.get("piRuntime");
-    const startCompaction = async (automatic: boolean): Promise<CompressionResult> => {
+    const startCompaction = async (automatic: boolean, signal: AbortSignal): Promise<CompressionResult> => {
+      throwIfAborted(signal);
       const service = runtime();
       if (service === undefined) throw new Error("Pi runtime is not ready");
+      const session = service.session;
+      const abort = (): void => session.abortCompaction();
+      const unsubscribeCompaction = session.subscribe((event) => {
+        if (event.type === "compaction_start" && signal.aborted) abort();
+      });
+      signal.addEventListener("abort", abort, { once: true });
       inFlight = true;
       try {
-        await service.session.compact();
+        await session.compact();
+        throwIfAborted(signal);
         state.compactions += 1;
         state.lastError = null;
         return { compacted: true, automatic, queued: false };
@@ -44,21 +57,31 @@ export default {
         state.lastError = (error instanceof Error ? error.message : String(error)).replaceAll("\0", "�").slice(0, 2_000);
         throw error;
       } finally {
+        signal.removeEventListener("abort", abort);
+        unsubscribeCompaction();
         inFlight = false;
       }
     };
     // session.compact() aborts the active agent operation, including a pending retry or queued continuation, so a request raised while the session is busy waits for the authoritative agent_settled event instead of destroying the turn that asked for it.
-    const compact = async (automatic: boolean): Promise<CompressionResult> => {
+    const compact = async (automatic: boolean, signal = lifecycle.signal): Promise<CompressionResult> => {
+      throwIfAborted(signal);
       const service = runtime();
       if (service === undefined) throw new Error("Pi runtime is not ready");
       if (automatic && !enabled) return { compacted: false, automatic, queued: false };
       if (inFlight || queued !== undefined) return { compacted: false, automatic, queued: queued !== undefined };
       if (service.session.isIdle === false) {
-        queued = { session: service.session, automatic };
+        const onAbort = (): void => {
+          if (queued?.signal !== signal) return;
+          queued = undefined;
+          state.queued = false;
+          state.lastError = "History compaction cancelled before it started";
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        queued = { session: service.session, automatic, signal, removeAbortListener: () => signal.removeEventListener("abort", onAbort) };
         state.queued = true;
         return { compacted: false, automatic, queued: true };
       }
-      return startCompaction(automatic);
+      return startCompaction(automatic, signal);
     };
     const readUsagePercent = (): number | null => {
       const service = runtime();
@@ -84,6 +107,7 @@ export default {
       const request = queued;
       if (request === undefined) return;
       queued = undefined;
+      request.removeAbortListener();
       state.queued = false;
       const service = runtime();
       if (service === undefined || service.session !== request.session) {
@@ -95,7 +119,7 @@ export default {
         const usagePercent = readUsagePercent();
         if (usagePercent === null || usagePercent < thresholdPercent) return;
       }
-      void startCompaction(request.automatic).catch(() => undefined);
+      void startCompaction(request.automatic, request.signal).catch(() => undefined);
     });
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -105,9 +129,11 @@ export default {
         promptSnippet: "compact the current conversation history",
         parameters: Type.Object({ confirm: Type.Boolean({ description: "Must be true to compact history" }) }, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<CompressionResult>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<CompressionResult>> {
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          throwIfAborted(operationSignal);
           if (params.confirm !== true) throw new Error("History compaction requires confirm=true");
-          const result = await compact(false);
+          const result = await compact(false, operationSignal);
           const text = result.compacted
             ? "Session history compacted."
             : result.queued
@@ -133,6 +159,7 @@ export default {
       throw error;
     }
     context.effect(() => () => {
+      lifecycle.abort(new Error("History compressor plugin disposed"));
       unsubscribe();
       unregisterTool();
       disposePanel();

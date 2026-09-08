@@ -11,7 +11,7 @@ async function fixture(usagePercent = 90, isIdle?: boolean) {
   const panels = new PiPluginUiRegistry();
   const compact = vi.fn().mockResolvedValue(undefined);
   const usage = { percent: usagePercent };
-  const session = { getContextUsage: () => ({ percent: usage.percent }), compact, isIdle };
+  const session = { getContextUsage: () => ({ percent: usage.percent }), compact, isIdle, subscribe: vi.fn(() => () => undefined) };
   context.provide("piRuntime", { session } as never);
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
@@ -27,6 +27,80 @@ afterEach(async () => {
 });
 
 describe("history compressor", () => {
+  test("reapplies cancellation after the SDK initializes its compaction controller", async () => {
+    const { tool, compact, session } = await fixture(10, true);
+    let listener: ((event: { type: string }) => void) | undefined;
+    let ready = false;
+    let aborted = false;
+    let requests = 0;
+    const unsubscribe = vi.fn();
+    Object.assign(session, {
+      subscribe: (callback: typeof listener) => {
+        listener = callback;
+        return unsubscribe;
+      },
+      abortCompaction: () => {
+        if (ready) aborted = true;
+      },
+    });
+    compact.mockImplementation(async () => {
+      await Promise.resolve();
+      ready = true;
+      listener?.({ type: "compaction_start" });
+      if (aborted) throw new Error("Compaction cancelled");
+      requests += 1;
+    });
+    const controller = new AbortController();
+    const operation = tool.execute("initializing", { confirm: true }, controller.signal, undefined, {} as never);
+    const rejection = expect(operation).rejects.toThrow(/cancelled/i);
+    controller.abort(new Error("Request cancelled"));
+    await rejection;
+    expect(requests).toBe(0);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects cancelled and disposed tool calls before compaction", async () => {
+    const { context, tool, compact } = await fixture(10, true);
+    const controller = new AbortController();
+    controller.abort(new Error("Cancelled request"));
+    await expect(tool.execute("cancelled", { confirm: true }, controller.signal, undefined, {} as never)).rejects.toThrow("Cancelled request");
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", { confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/);
+    expect(compact).not.toHaveBeenCalled();
+  });
+
+  test("removes a cancelled queued request before the session settles", async () => {
+    const { context, tool, compact, session, panels } = await fixture(10, false);
+    const controller = new AbortController();
+    await tool.execute("queued", { confirm: true }, controller.signal, undefined, {} as never);
+    controller.abort(new Error("Queued request cancelled"));
+    session.isIdle = true;
+    context.emit("pi/session-event", { type: "agent_settled" } as never);
+    await Promise.resolve();
+    expect(compact).not.toHaveBeenCalled();
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { queued: false, compactions: 0 } }]);
+  });
+
+  test("aborts only the captured session's active compaction", async () => {
+    const { tool, compact, session, panels } = await fixture(10, true);
+    const controller = new AbortController();
+    let rejectOperation!: (error: Error) => void;
+    compact.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOperation = reject;
+        }),
+    );
+    const abort = vi.fn(() => rejectOperation(new Error("Compaction cancelled")));
+    Object.assign(session, { abortCompaction: abort });
+    const operation = tool.execute("running", { confirm: true }, controller.signal, undefined, {} as never);
+    const rejection = expect(operation).rejects.toThrow(/cancelled/i);
+    controller.abort(new Error("Running request cancelled"));
+    await rejection;
+    expect(abort).toHaveBeenCalledTimes(1);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { compactions: 0 } }]);
+  });
+
   test("compacts explicitly and automatically at the configured threshold", async () => {
     const { context, tool, compact, panels } = await fixture();
     expect(tool.executionMode).toBe("sequential");
