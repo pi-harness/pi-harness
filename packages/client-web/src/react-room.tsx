@@ -2563,7 +2563,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
               const latest = data.latest as Record<string, unknown>;
-              const risk = value(latest.risk ?? "safe");
+              const risk = value(latest.risk);
               const findings = Array.isArray(latest.findings) ? latest.findings : [];
               return (
                 <div
@@ -2571,7 +2571,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 >
                   <div className="flex items-center justify-between">
                     <strong className="uppercase">{risk}</strong>
-                    <span className="font-mono text-[10px]">{latest.contentIncluded === true ? "可注入" : "已隔离"}</span>
+                    <span className="font-mono text-[10px]">{latest.contentIncluded === true ? "已返回不可信文本" : "未返回原文"}</span>
                   </div>
                   <p className="mt-2">
                     {value(latest.name ?? "未命名 Skill")} · {value(findings.length)} 个风险项
@@ -2590,7 +2590,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">执行 skill_inject 后显示隔离结果。</div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">安全内容会被包裹为不可信数据；review 风险默认不注入，blocked 内容永不返回原文。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">
+            未命中规则不代表安全；review 默认不返回原文，blocked 始终拒绝。文本标记不是执行沙箱，也不会自动激活 Skill。
+          </p>
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
