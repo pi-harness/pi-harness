@@ -1558,3 +1558,74 @@ describe("auto-mode", () => {
     }
   });
 });
+
+test("checks and executes in the current native workspace and rejects obsolete probes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-auto-native-")),
+    active = join(root, "active");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  try {
+    await mkdir(active);
+    await execFileAsync("git", ["init", "-q"], { cwd: active });
+    await execFileAsync("git", ["config", "filter.test.clean", "./filter.sh"], { cwd: active });
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piRuntime", {
+      get session() {
+        return session;
+      },
+    } as never);
+    await context.plugin(autoModePlugin, {});
+    const tool = tools.snapshot().customTools[0]!;
+    await tool.execute("first", { command: ["pwd"] }, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+    await expect(tool.execute("risky", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never)).rejects.toThrow(/risky command/iu);
+    const result = await tool.execute(
+      "write",
+      { command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker', 'active')"], confirm: true },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(result.details).toMatchObject({ exitCode: 0 });
+    expect(await readFile(join(active, "marker"), "utf8")).toBe("active");
+    await expect(access(join(root, "marker"))).rejects.toThrow(/ENOENT/u);
+    const pending = tool.execute("pending", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null, blocked: 0 } }]);
+    const changingParams = {
+      get command() {
+        id = "getter-replacement";
+        return ["pwd"];
+      },
+      confirm: true,
+    };
+    await expect(tool.execute("getter", changingParams, undefined, undefined, {} as never)).rejects.toThrow(/workspace changed/iu);
+    for (const exitCode of [0, 7]) {
+      const running = tool.execute(
+        "running",
+        { command: [process.execPath, "-e", `process.exit(${exitCode})`], confirm: true },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      id = `replacement-${exitCode}`;
+      await expect(running).rejects.toThrow(/workspace changed/iu);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null, blocked: 0 } }]);
+    }
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
