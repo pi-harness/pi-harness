@@ -19,3 +19,13 @@ Add the entry to the Cordis profile the harness starts from:
 ```
 
 The Pi Harness plugin marketplace installs and enables this package for you; the steps above are the manual equivalent.
+
+## State and scope
+
+`theme_set` requires exactly one `theme` value: `light`, `midnight`, `paper`, or `high-contrast`. `theme_status` accepts an empty object. Both return the complete current state, including session ID, timestamp, and detached color tokens. Unknown configuration keys and raw tool properties are rejected. Cancelled, disposed, and session-switched requests cannot change the selection.
+
+The latest `pi-harness/theme-studio` custom entry in the current native session journal is authoritative; reads do not retain a startup-only selection. A new session uses the configured default. Selection applies session-wide, across branches in that journal. `changed` indicates that the session contains a persisted selection, and `changedAt` is that selection's timestamp, including after reopening. Entries use the current `{ theme, changedAt }` format without legacy migration. Native in-memory sessions stay in memory, and native journal flushing rules still apply before the first assistant entry.
+
+A failed native append may have changed the SDK's in-memory journal before the disk error. Theme Studio quarantines that manager/header until the session is reopened from disk or replaced; it does not report the failed selection as applied. The panel reports the same error, and the web surface stops applying that invalid theme snapshot. Registrations are removed on disposal or initialization failure.
+
+The web client accepts only the bounded color token names and literal hex/RGBA colors, then applies them to the workbench root. Neutral surfaces, text, borders, form controls, and paired status foregrounds/backgrounds follow the selected theme; terminal/code output and solid decorative indicators retain their own palettes. Presets are not an accessibility conformance certification. The plugin does not change terminal themes, operating-system appearance, or external embedded content.

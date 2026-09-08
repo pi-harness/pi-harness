@@ -1,3 +1,4 @@
+import { themeStudioView } from "./theme-studio-view.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -876,7 +877,7 @@ function UserMessageBubble({ text }: { text: string }) {
     <div className="user-bubble">
       <span>{parsed.question}</span>
       {parsed.count > 0 ? (
-        <span className="ml-2 inline-flex rounded-md bg-[#edf3fe] px-1.5 py-0.5 text-[10px] text-[#315fb8]">批注 ×{parsed.count}</span>
+        <span className="ml-2 inline-flex rounded-md bg-[var(--color-blue-soft)] px-1.5 py-0.5 text-[10px] text-[var(--color-blue)]">批注 ×{parsed.count}</span>
       ) : null}
     </div>
   );
@@ -1180,69 +1181,76 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
   const pluginEntries = data && Array.isArray(data.entries) ? data.entries : [];
   const capabilities = data && Array.isArray(data.capabilities) ? data.capabilities : [];
   return (
-    <div className={`plugin-panel-card ${inline ? "pt-1" : "rounded-[10px] border border-[#e3e7ee] bg-white p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]"}`}>
+    <div
+      className={`plugin-panel-card ${inline ? "pt-1" : "rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 shadow-[0_8px_24px_rgba(27,39,64,0.04)]"}`}
+    >
       <header className="flex items-start gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#edf3fe] font-mono text-[15px] text-[#3565c5]">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-blue-soft)] font-mono text-[15px] text-[var(--color-blue)]">
           {panel.icon ?? "◈"}
         </span>
         <div className="min-w-0 flex-1">
-          <strong className="block text-[13px] font-semibold text-[#20252b]">{panel.title}</strong>
-          <p className="mt-1 text-[11px] leading-4 text-[#687381]">{panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime")}</p>
+          <strong className="block text-[13px] font-semibold text-[var(--color-ink)]">{panel.title}</strong>
+          <p className="mt-1 text-[11px] leading-4 text-[var(--color-faint)]">{panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime")}</p>
         </div>
       </header>
       {panel.error ? (
-        <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[12px] text-[#b42318]">{panel.error}</div>
+        <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[12px] text-[var(--color-red)]">{panel.error}</div>
       ) : panel.id === "console-logger-panel" ? (
         <div className="mt-3 grid gap-2">
-          <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-            <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">最近日志</span>
-            <strong className="mt-1 block text-[20px] font-semibold text-[#20252b]">{value(data?.total ?? 0)}</strong>
+          <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+            <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-faint)]">最近日志</span>
+            <strong className="mt-1 block text-[20px] font-semibold text-[var(--color-ink)]">{value(data?.total ?? 0)}</strong>
           </div>
-          <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3]">
+          <div className="max-h-48 overflow-auto rounded-lg border border-[var(--color-line)]">
             {items.length ? (
               items.map((item, index) => {
                 const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 return (
                   <div
-                    className="grid grid-cols-[auto_1fr] gap-2 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
+                    className="grid grid-cols-[auto_1fr] gap-2 border-b border-[var(--color-line)] px-3 py-2 last:border-b-0"
                     key={`${value(message.time ?? "log")}-${index}`}
                   >
-                    <span className="font-mono text-[10px] text-[#687381]">{value(message.level ?? "log")}</span>
+                    <span className="font-mono text-[10px] text-[var(--color-faint)]">{value(message.level ?? "log")}</span>
                     <div className="min-w-0">
-                      <strong className="block truncate text-[11px] text-[#30343b]">{value(message.source ?? "runtime")}</strong>
-                      <span className="block whitespace-pre-wrap break-words text-[11px] leading-4 text-[#65707b]">{pluginPanelValue(message.args ?? "")}</span>
+                      <strong className="block truncate text-[11px] text-[var(--color-ink)]">{value(message.source ?? "runtime")}</strong>
+                      <span className="block whitespace-pre-wrap break-words text-[11px] leading-4 text-[var(--color-muted)]">
+                        {pluginPanelValue(message.args ?? "")}
+                      </span>
                     </div>
                   </div>
                 );
               })
             ) : (
-              <div className="px-3 py-4 text-[12px] text-[#687381]">暂无日志输出。</div>
+              <div className="px-3 py-4 text-[12px] text-[var(--color-faint)]">暂无日志输出。</div>
             )}
           </div>
         </div>
       ) : panel.id === "plugin-group-panel" ? (
-        <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-[#edf0f3]">
+        <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-[var(--color-line)]">
           {pluginEntries.length ? (
             pluginEntries.map((item, index) => {
               const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
               return (
-                <div className="flex items-center gap-3 border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${value(entry.id ?? "plugin")}-${index}`}>
+                <div
+                  className="flex items-center gap-3 border-b border-[var(--color-line)] px-3 py-2 last:border-b-0"
+                  key={`${value(entry.id ?? "plugin")}-${index}`}
+                >
                   <span className={`h-2 w-2 shrink-0 rounded-full ${entry.enabled === false ? "bg-[#a0a8b2]" : "bg-[#22c55e]"}`}></span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{value(entry.name ?? "plugin")}</span>
-                  <span className="text-[10px] text-[#687381]">{value(entry.state ?? "unknown")}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-ink)]">{value(entry.name ?? "plugin")}</span>
+                  <span className="text-[10px] text-[var(--color-faint)]">{value(entry.state ?? "unknown")}</span>
                 </div>
               );
             })
           ) : (
-            <div className="px-3 py-4 text-[12px] text-[#687381]">暂无插件条目。</div>
+            <div className="px-3 py-4 text-[12px] text-[var(--color-faint)]">暂无插件条目。</div>
           )}
         </div>
       ) : panel.id === "timer-service-panel" ? (
-        <div className="mt-3 grid gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
+        <div className="mt-3 grid gap-3 rounded-lg bg-[var(--color-soft)] px-3 py-3">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">服务状态</span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-faint)]">服务状态</span>
             <span
-              className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.registered === true ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#fff4e5] text-[#8a5a00]"}`}
+              className={`rounded-full px-2 py-1 text-[10px] font-semibold ${data?.registered === true ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"}`}
             >
               {data?.registered === true ? "已注册" : "未注册"}
             </span>
@@ -1250,7 +1258,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           <div className="flex flex-wrap gap-2">
             {capabilities.map((capability, index) => (
               <span
-                className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
+                className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]"
                 key={`${value(capability)}-${index}`}
               >
                 {value(capability)}
@@ -1270,83 +1278,85 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["未读消息", view.inventory.messages.unread],
                   ["可执行任务", view.inventory.tasks.ready],
                 ].map(([label, item]) => (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                    <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                    <strong className="mt-1 block text-[17px] font-semibold text-[var(--color-ink)]">{value(item)}</strong>
                   </div>
                 ))}
               </div>
               {view.dependencyCycle !== null && view.dependencyCycle.length > 1 ? (
-                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[11px] text-[#b42318]">
+                <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[11px] text-[var(--color-red)]">
                   依赖循环：{view.dependencyCycle.join(" → ")}
                 </div>
               ) : null}
               <div className="grid gap-2">
                 {view.members.length > 0 ? (
                   view.members.map((member) => (
-                    <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={member.id}>
+                    <div className="flex items-center gap-3 rounded-lg border border-[var(--color-line)] px-3 py-2" key={member.id}>
                       <span className={`h-2 w-2 rounded-full ${member.status === "working" ? "bg-[#22c55e]" : "bg-[#a0a8b2]"}`}></span>
-                      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[#30343b]">{member.name}</span>
-                      <span className="truncate text-[10px] text-[#687381]">{member.role}</span>
-                      <span className="font-mono text-[10px] text-[#3565c5]">{member.status}</span>
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[var(--color-ink)]">{member.name}</span>
+                      <span className="truncate text-[10px] text-[var(--color-faint)]">{member.role}</span>
+                      <span className="font-mono text-[10px] text-[var(--color-blue)]">{member.status}</span>
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无协作角色。</div>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-3 text-[12px] text-[var(--color-faint)]">暂无协作角色。</div>
                 )}
               </div>
               <div className="grid gap-2">
                 {view.tasks.length > 0 ? (
                   view.tasks.map((task) => (
-                    <div className="flex items-center gap-3 rounded-lg border border-[#edf0f3] px-3 py-2" key={task.id}>
+                    <div className="flex items-center gap-3 rounded-lg border border-[var(--color-line)] px-3 py-2" key={task.id}>
                       <div className="min-w-0 flex-1">
-                        <span className="block truncate text-[11px] text-[#30343b]">{task.title}</span>
+                        <span className="block truncate text-[11px] text-[var(--color-ink)]">{task.title}</span>
                         {task.dependsOn.length > 0 ? (
-                          <span className="mt-0.5 block truncate font-mono text-[9px] text-[#687381]">依赖：{task.dependsOn.join(", ")}</span>
+                          <span className="mt-0.5 block truncate font-mono text-[9px] text-[var(--color-faint)]">依赖：{task.dependsOn.join(", ")}</span>
                         ) : null}
                       </div>
-                      <span className="text-[10px] text-[#687381]">{task.assignee}</span>
+                      <span className="text-[10px] text-[var(--color-faint)]">{task.assignee}</span>
                       <span
-                        className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[#fff4e5] text-[#8a5a00]" : task.status === "done" ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#edf3fe] text-[#3565c5]"}`}
+                        className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : task.status === "done" ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"}`}
                       >
                         {task.status}
                       </span>
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">还没有任务。可让 Agent 使用 team_task 创建。</div>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-3 text-[12px] text-[var(--color-faint)]">
+                    还没有任务。可让 Agent 使用 team_task 创建。
+                  </div>
                 )}
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-[#30343b]">会话内邮箱备注</span>
-                  <span className="font-mono text-[10px] text-[#687381]">
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">会话内邮箱备注</span>
+                  <span className="font-mono text-[10px] text-[var(--color-faint)]">
                     {view.inventory.messages.shown} / {view.inventory.messages.total}
                   </span>
                 </div>
                 {view.messages.length > 0 ? (
                   [...view.messages].reverse().map((message) => (
                     <div
-                      className={`rounded-lg border px-3 py-2 ${message.read ? "border-[#edf0f3] bg-white" : "border-[#cfe0ff] bg-[#f4f8ff]"}`}
+                      className={`rounded-lg border px-3 py-2 ${message.read ? "border-[var(--color-line)] bg-[var(--color-surface)]" : "border-[#cfe0ff] bg-[var(--color-blue-soft)]"}`}
                       key={message.id}
                     >
-                      <div className="flex items-center gap-2 text-[10px] text-[#687381]">
-                        <span className="font-mono text-[#3565c5]">
+                      <div className="flex items-center gap-2 text-[10px] text-[var(--color-faint)]">
+                        <span className="font-mono text-[var(--color-blue)]">
                           {message.from} → {message.to}
                         </span>
                         <span className="ml-auto">{message.read ? "已读" : "未读"}</span>
                       </div>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-[#30343b]">{message.body}</p>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-[11px] text-[var(--color-ink)]">{message.body}</p>
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3 text-[12px] text-[#687381]">暂无邮箱备注。</div>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-3 text-[12px] text-[var(--color-faint)]">暂无邮箱备注。</div>
                 )}
               </div>
               {view.truncated || view.inventory.members.truncated || view.inventory.tasks.truncated || view.inventory.messages.truncated ? (
-                <p className="text-[10px] leading-4 text-[#8a6200]">面板按固定安全上限展示；完整计数保留在上方。</p>
+                <p className="text-[10px] leading-4 text-[var(--color-amber)]">面板按固定安全上限展示；完整计数保留在上方。</p>
               ) : null}
-              <p className="text-[10px] leading-4 text-[#687381]">这是当前 Pi 会话的协作账本，不会启动其他 Agent、创建进程或向外部发送消息。</p>
+              <p className="text-[10px] leading-4 text-[var(--color-faint)]">这是当前 Pi 会话的协作账本，不会启动其他 Agent、创建进程或向外部发送消息。</p>
             </div>
           );
         })()
@@ -1367,52 +1377,55 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const path = view.status.state === "idle" ? view.image?.path : view.status.path;
           const stateStyle =
             view.status.state === "failed"
-              ? "border-[#f4caca] bg-[#fff5f5]"
+              ? "border-[#f4caca] bg-[var(--color-red-soft)]"
               : view.status.state === "cancelled"
-                ? "border-[#f1d7a8] bg-[#fff9ed]"
+                ? "border-[#f1d7a8] bg-[var(--color-amber-soft)]"
                 : view.status.state === "running"
-                  ? "border-[#c9d9f7] bg-[#f4f8ff]"
+                  ? "border-[#c9d9f7] bg-[var(--color-blue-soft)]"
                   : view.attached
-                    ? "border-[#b9e6c9] bg-[#f0fbf4]"
-                    : "border-[#e3e7ee] bg-[#f6f8fa]";
+                    ? "border-[#b9e6c9] bg-[var(--color-green-soft)]"
+                    : "border-[var(--color-line)] bg-[var(--color-soft)]";
           return (
             <div className="mt-3 grid gap-3">
               <div className={`rounded-lg border px-3 py-3 ${stateStyle}`}>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-[#30343b]">{stateLabel}</span>
-                  <span className="rounded-full border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[9px] text-[#3565c5]">
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">{stateLabel}</span>
+                  <span className="rounded-full border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[9px] text-[var(--color-blue)]">
                     {mode === "native" ? "原生直传" : mode === "evidence" ? "ModLens 证据" : "vision_inspect"}
                   </span>
                 </div>
-                {path !== undefined ? <p className="mt-2 truncate font-mono text-[10px] text-[#65707b]">{path}</p> : null}
+                {path !== undefined ? <p className="mt-2 truncate font-mono text-[10px] text-[var(--color-muted)]">{path}</p> : null}
                 {view.image !== null ? (
-                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#687381]">
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--color-faint)]">
                     <span>{view.image.mimeType}</span>
                     <span>{view.image.bytes.toLocaleString()} bytes</span>
-                    {view.image.cached ? <span className="font-semibold text-[#14733f]">缓存命中</span> : null}
+                    {view.image.cached ? <span className="font-semibold text-[var(--color-green)]">缓存命中</span> : null}
                   </div>
                 ) : view.status.state === "idle" ? (
-                  <p className="mt-2 text-[11px] text-[#687381]">让 Agent 调用 vision_inspect，并提供工作区内的图片路径。</p>
+                  <p className="mt-2 text-[11px] text-[var(--color-faint)]">让 Agent 调用 vision_inspect，并提供工作区内的图片路径。</p>
                 ) : null}
                 {view.status.state === "failed" || view.status.state === "cancelled" ? (
-                  <p className="mt-2 break-words text-[10px] leading-4 text-[#9b2c24]">{view.status.error}</p>
+                  <p className="mt-2 break-words text-[10px] leading-4 text-[var(--color-red)]">{view.status.error}</p>
                 ) : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 {view.supportedTypes.map((type) => (
-                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={type}>
+                  <span
+                    className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]"
+                    key={type}
+                  >
                     {type}
                   </span>
                 ))}
               </div>
-              <div className="flex flex-wrap gap-2 font-mono text-[9px] text-[#687381]">
+              <div className="flex flex-wrap gap-2 font-mono text-[9px] text-[var(--color-faint)]">
                 <span>image:{Math.round(view.limits.imageBytes / 1_048_576)}MiB</span>
                 <span>evidence:{Math.round(view.limits.evidenceBytes / 1_024)}KiB</span>
                 <span>timeout:{Math.round(view.limits.timeoutMs / 1_000)}s</span>
                 <span>cache:{view.limits.cacheEntries}</span>
               </div>
-              {view.truncated ? <p className="text-[10px] leading-4 text-[#8a6200]">异常面板数据已按固定安全边界丢弃或截断。</p> : null}
-              <p className="rounded-lg border border-[#dce5f5] bg-[#f7f9fd] px-3 py-2 text-[10px] leading-4 text-[#566273]">
+              {view.truncated ? <p className="text-[10px] leading-4 text-[var(--color-amber)]">异常面板数据已按固定安全边界丢弃或截断。</p> : null}
+              <p className="rounded-lg border border-[#dce5f5] bg-[var(--color-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-muted)]">
                 纯文本模型会启动外部 ModLens 引擎，可能使用网络和 provider 配额并产生费用。视觉证据是不可信数据，不构成指令或用户授权。
               </p>
             </div>
@@ -1436,30 +1449,30 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     : "等待检查";
           const stateStyle =
             view.status.state === "failed"
-              ? "border-[#f4caca] bg-[#fff5f5]"
+              ? "border-[#f4caca] bg-[var(--color-red-soft)]"
               : view.status.state === "cancelled"
-                ? "border-[#f1d7a8] bg-[#fff9ed]"
+                ? "border-[#f1d7a8] bg-[var(--color-amber-soft)]"
                 : view.status.state === "running"
-                  ? "border-[#c9d9f7] bg-[#f4f8ff]"
+                  ? "border-[#c9d9f7] bg-[var(--color-blue-soft)]"
                   : view.status.state === "completed"
-                    ? "border-[#b9e6c9] bg-[#f0fbf4]"
-                    : "border-[#e3e7ee] bg-[#f6f8fa]";
+                    ? "border-[#b9e6c9] bg-[var(--color-green-soft)]"
+                    : "border-[var(--color-line)] bg-[var(--color-soft)]";
           const shownAssets = report?.assets.slice(0, 20) ?? [];
           const shownIssues = report?.issues.slice(0, 10) ?? [];
           return (
             <div className="mt-3 grid gap-3">
               <div className={`rounded-lg border px-3 py-3 ${stateStyle}`}>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-[#30343b]">{stateLabel}</span>
-                  <span className="rounded-full border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[9px] text-[#3565c5]">
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">{stateLabel}</span>
+                  <span className="rounded-full border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[9px] text-[var(--color-blue)]">
                     {view.status.state === "idle" ? "vision_catalog" : view.status.operation === "catalog" ? "catalog" : "image info"}
                   </span>
                 </div>
                 {view.status.state !== "idle" && view.status.path !== undefined ? (
-                  <p className="mt-2 truncate font-mono text-[10px] text-[#65707b]">{view.status.path}</p>
+                  <p className="mt-2 truncate font-mono text-[10px] text-[var(--color-muted)]">{view.status.path}</p>
                 ) : null}
                 {view.status.state === "failed" || view.status.state === "cancelled" ? (
-                  <p className="mt-2 break-words text-[10px] leading-4 text-[#9b2c24]">{view.status.error}</p>
+                  <p className="mt-2 break-words text-[10px] leading-4 text-[var(--color-red)]">{view.status.error}</p>
                 ) : null}
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1469,41 +1482,43 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["有效素材", report?.assets.length ?? 0],
                   ["问题", report?.issues.length ?? 0],
                 ].map(([label, count]) => (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={label}>
-                    <span className="block text-[10px] text-[#687381]">{label}</span>
-                    <strong className="mt-1 block font-mono text-[16px] text-[#30343b]">{count}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={label}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{label}</span>
+                    <strong className="mt-1 block font-mono text-[16px] text-[var(--color-ink)]">{count}</strong>
                   </div>
                 ))}
               </div>
               {shownAssets.length > 0 ? (
-                <div className="max-h-52 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd]">
+                <div className="max-h-52 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)]">
                   {shownAssets.map((asset, index) => (
-                    <div className="border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${asset.path}-${index}`}>
+                    <div className="border-b border-[var(--color-line)] px-3 py-2 last:border-b-0" key={`${asset.path}-${index}`}>
                       <div className="flex items-center justify-between gap-3">
-                        <span className="min-w-0 truncate font-mono text-[10px] text-[#30343b]" title={asset.path}>
+                        <span className="min-w-0 truncate font-mono text-[10px] text-[var(--color-ink)]" title={asset.path}>
                           {asset.path}
                         </span>
-                        <span className="shrink-0 font-mono text-[9px] text-[#3565c5]">{asset.width === null ? "?×?" : `${asset.width}×${asset.height}`}</span>
+                        <span className="shrink-0 font-mono text-[9px] text-[var(--color-blue)]">
+                          {asset.width === null ? "?×?" : `${asset.width}×${asset.height}`}
+                        </span>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-x-3 text-[9px] text-[#687381]">
+                      <div className="mt-1 flex flex-wrap gap-x-3 text-[9px] text-[var(--color-faint)]">
                         <span>{asset.mimeType}</span>
                         <span>{asset.bytes.toLocaleString()} B</span>
-                        {asset.headerTruncated ? <span className="text-[#8a6200]">仅扫描前 256 KiB</span> : null}
+                        {asset.headerTruncated ? <span className="text-[var(--color-amber)]">仅扫描前 256 KiB</span> : null}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   {report === null ? "让 Agent 调用 vision_catalog 盘点工作区图片，或调用 vision_image_info 检查单张图片。" : "未发现有效的受支持图片。"}
                 </div>
               )}
               {shownIssues.length > 0 ? (
-                <div className="rounded-lg border border-[#f1d7a8] bg-[#fff9ed] px-3 py-3">
-                  <p className="text-[10px] font-semibold text-[#8a6200]">图片问题（显示 {shownIssues.length} 条）</p>
+                <div className="rounded-lg border border-[#f1d7a8] bg-[var(--color-amber-soft)] px-3 py-3">
+                  <p className="text-[10px] font-semibold text-[var(--color-amber)]">图片问题（显示 {shownIssues.length} 条）</p>
                   <div className="mt-2 grid gap-1.5">
                     {shownIssues.map((issue, index) => (
-                      <p className="break-words font-mono text-[9px] leading-4 text-[#6f5730]" key={`${issue.path}-${index}`}>
+                      <p className="break-words font-mono text-[9px] leading-4 text-[var(--color-amber)]" key={`${issue.path}-${index}`}>
                         {issue.path}: {issue.reason}
                       </p>
                     ))}
@@ -1512,14 +1527,17 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ) : null}
               <div className="flex flex-wrap gap-2">
                 {view.supportedTypes.map((type) => (
-                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[9px] text-[#3565c5]" key={type}>
+                  <span
+                    className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[9px] text-[var(--color-blue)]"
+                    key={type}
+                  >
                     {type}
                   </span>
                 ))}
-                <span className="rounded-md border border-[#e3e7ee] bg-[#f6f8fa] px-2 py-1 font-mono text-[9px] text-[#687381]">
+                <span className="rounded-md border border-[var(--color-line)] bg-[var(--color-soft)] px-2 py-1 font-mono text-[9px] text-[var(--color-faint)]">
                   file≤{Math.round(view.limits.imageBytes / 1_048_576)}MiB
                 </span>
-                <span className="rounded-md border border-[#e3e7ee] bg-[#f6f8fa] px-2 py-1 font-mono text-[9px] text-[#687381]">
+                <span className="rounded-md border border-[var(--color-line)] bg-[var(--color-soft)] px-2 py-1 font-mono text-[9px] text-[var(--color-faint)]">
                   assets≤{view.limits.assets}
                 </span>
               </div>
@@ -1527,9 +1545,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               report?.truncated === true ||
               report?.issuesTruncated === true ||
               (report !== null && (report.assets.length > shownAssets.length || report.issues.length > shownIssues.length)) ? (
-                <p className="text-[10px] leading-4 text-[#8a6200]">面板或扫描结果已按固定安全上限截断；计数与警告会保留可见。</p>
+                <p className="text-[10px] leading-4 text-[var(--color-amber)]">面板或扫描结果已按固定安全上限截断；计数与警告会保留可见。</p>
               ) : null}
-              <p className="rounded-lg border border-[#dce5f5] bg-[#f7f9fd] px-3 py-2 text-[10px] leading-4 text-[#566273]">
+              <p className="rounded-lg border border-[#dce5f5] bg-[var(--color-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-muted)]">
                 仅在当前 workspace 内本地读取图片头部，不上传图片、不调用外部视觉服务；这里展示的是元数据，不是完整图像解码结果。
               </p>
             </div>
@@ -1540,24 +1558,24 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = atFilePanelView(panel.data);
           return (
             <div className="mt-3 grid gap-3">
-              <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+              <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-[#30343b]">最近附加</span>
-                  <span className="font-mono text-[10px] text-[#687381]">file_context</span>
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">最近附加</span>
+                  <span className="font-mono text-[10px] text-[var(--color-faint)]">file_context</span>
                 </div>
                 {view.lastFile !== null ? (
-                  <p className="mt-2 min-w-0 whitespace-normal break-all text-[11px] leading-4 text-[#65707b]">
+                  <p className="mt-2 min-w-0 whitespace-normal break-all text-[11px] leading-4 text-[var(--color-muted)]">
                     {view.lastFile.path} · {view.lastFile.bytes} bytes
                   </p>
                 ) : (
-                  <p className="mt-2 text-[11px] text-[#687381]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
+                  <p className="mt-2 text-[11px] text-[var(--color-faint)]">还没有附加文件。可使用 @file 或让 Agent 调用 file_context。</p>
                 )}
               </div>
-              <div className="flex items-center justify-between text-[11px] text-[#687381]">
+              <div className="flex items-center justify-between text-[11px] text-[var(--color-faint)]">
                 <span>单文件上限</span>
-                <strong className="font-mono text-[#3565c5]">{view.maxBytes} bytes</strong>
+                <strong className="font-mono text-[var(--color-blue)]">{view.maxBytes} bytes</strong>
               </div>
-              {view.truncated ? <p className="text-[10px] leading-4 text-[#8a6200]">面板数据不完整或已按固定安全上限调整。</p> : null}
+              {view.truncated ? <p className="text-[10px] leading-4 text-[var(--color-amber)]">面板数据不完整或已按固定安全上限调整。</p> : null}
             </div>
           );
         })()
@@ -1568,37 +1586,39 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const statusLabel = latest?.status === "completed" ? "已完成" : latest?.status === "cancelled" ? "已取消" : "失败";
           const statusStyle =
             latest?.status === "completed"
-              ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#147a43]"
+              ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"
               : latest?.status === "cancelled"
-                ? "border-[#f1ddb1] bg-[#fff9eb] text-[#996515]"
-                : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]";
+                ? "border-[#f1ddb1] bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                : "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]";
           return (
             <div className="mt-3 grid gap-3">
-              <div className={`rounded-lg border px-3 py-3 ${latest === null ? "border-[#e3e7ee] bg-[#f6f8fa]" : statusStyle}`}>
+              <div className={`rounded-lg border px-3 py-3 ${latest === null ? "border-[var(--color-line)] bg-[var(--color-soft)]" : statusStyle}`}>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-[#30343b]">{latest?.action === "restore" ? "最近撤销" : "最近捕获"}</span>
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">{latest?.action === "restore" ? "最近撤销" : "最近捕获"}</span>
                   {latest === null ? (
-                    <span className="font-mono text-[10px] text-[#687381]">git_snapshot</span>
+                    <span className="font-mono text-[10px] text-[var(--color-faint)]">git_snapshot</span>
                   ) : (
                     <span className="rounded-full border border-current px-2 py-0.5 text-[9px] font-semibold">{statusLabel}</span>
                   )}
                 </div>
                 {latest === null ? (
-                  <p className="mt-2 text-[11px] leading-4 text-[#687381]">当前没有撤销胶囊。先产生 unstaged tracked 改动，再让 Agent 调用 git_snapshot。</p>
+                  <p className="mt-2 text-[11px] leading-4 text-[var(--color-faint)]">
+                    当前没有撤销胶囊。先产生 unstaged tracked 改动，再让 Agent 调用 git_snapshot。
+                  </p>
                 ) : (
-                  <div className="mt-2 grid gap-1 text-[11px] text-[#65707b]">
-                    {latest.name !== null ? <p className="truncate font-mono text-[10px] text-[#30343b]">{latest.name}</p> : null}
+                  <div className="mt-2 grid gap-1 text-[11px] text-[var(--color-muted)]">
+                    {latest.name !== null ? <p className="truncate font-mono text-[10px] text-[var(--color-ink)]">{latest.name}</p> : null}
                     <p>
                       {latest.files} 个文件 · {latest.bytes} bytes · <time dateTime={latest.at}>{latest.at.replace("T", " ")}</time>
                     </p>
-                    {latest.error !== null ? <p className="break-words text-[#b42318]">{latest.error}</p> : null}
+                    {latest.error !== null ? <p className="break-words text-[var(--color-red)]">{latest.error}</p> : null}
                   </div>
                 )}
               </div>
-              <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-[#30343b]">最近胶囊</span>
-                  <span className="font-mono text-[10px] text-[#3565c5]">
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">最近胶囊</span>
+                  <span className="font-mono text-[10px] text-[var(--color-blue)]">
                     {report.inventory.shown} / {report.inventory.total}
                   </span>
                 </div>
@@ -1606,23 +1626,23 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <div className="mt-2 max-h-44 overflow-y-auto border-l-2 border-[#cbd8ef] pl-3">
                     {report.capsules.map((capsule) => (
                       <div className="flex min-w-0 items-center gap-2 border-b border-[#eef1f5] py-1.5 last:border-b-0" key={capsule.name}>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[#30343b]">{capsule.name}</span>
-                        <span className="shrink-0 font-mono text-[9px] text-[#687381]">{capsule.bytes} B</span>
+                        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[var(--color-ink)]">{capsule.name}</span>
+                        <span className="shrink-0 font-mono text-[9px] text-[var(--color-faint)]">{capsule.bytes} B</span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-2 text-[11px] text-[#687381]">尚未保存 tracked diff。</p>
+                  <p className="mt-2 text-[11px] text-[var(--color-faint)]">尚未保存 tracked diff。</p>
                 )}
                 {report.inventory.truncated || report.truncated ? (
-                  <p className="mt-2 text-[10px] text-[#996515]">列表已按安全上限截断，仅展示最近 {report.inventory.displayLimit} 条有效记录。</p>
+                  <p className="mt-2 text-[10px] text-[var(--color-amber)]">列表已按安全上限截断，仅展示最近 {report.inventory.displayLimit} 条有效记录。</p>
                 ) : null}
               </div>
-              <div className="grid grid-cols-2 gap-2 text-[10px] text-[#687381]">
-                <span className="rounded-md bg-[#f6f8fa] px-2 py-1.5">Git 超时：{report.timeoutMs} ms</span>
-                <span className="rounded-md bg-[#f6f8fa] px-2 py-1.5">单胶囊：{report.limits.capsuleBytes} B</span>
+              <div className="grid grid-cols-2 gap-2 text-[10px] text-[var(--color-faint)]">
+                <span className="rounded-md bg-[var(--color-soft)] px-2 py-1.5">Git 超时：{report.timeoutMs} ms</span>
+                <span className="rounded-md bg-[var(--color-soft)] px-2 py-1.5">单胶囊：{report.limits.capsuleBytes} B</span>
               </div>
-              <p className="text-[10px] leading-4 text-[#687381]">
+              <p className="text-[10px] leading-4 text-[var(--color-faint)]">
                 git_snapshot 捕获当前 unstaged tracked 改动；git_restore 会反向应用该 patch。staged 与未跟踪文件不包含在内，恢复必须传入 confirm=true。
               </p>
             </div>
@@ -1636,9 +1656,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             const isIndeterminate = report.unresolvedCount > 0 || report.truncated;
             return (
               <>
-                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                  <span className="min-w-0 truncate font-mono text-[#65707b]">{report.manifest}</span>
-                  <strong className="shrink-0 font-mono uppercase text-[#315fb8]">{report.ecosystem}</strong>
+                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
+                  <span className="min-w-0 truncate font-mono text-[var(--color-muted)]">{report.manifest}</span>
+                  <strong className="shrink-0 font-mono uppercase text-[var(--color-blue)]">{report.ecosystem}</strong>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   {[
@@ -1648,14 +1668,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     ["可选缺席", report.optionalMissingCount],
                     ["未决", report.unresolvedCount],
                   ].map(([label, item]) => (
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                      <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                    <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                      <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                      <strong className="mt-1 block text-[17px] font-semibold text-[var(--color-ink)]">{value(item)}</strong>
                     </div>
                   ))}
                 </div>
                 <div
-                  className={`min-w-0 break-words rounded-lg border px-3 py-3 text-[11px] [overflow-wrap:anywhere] ${hasProblems ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : isIndeterminate ? "border-[#f3dfab] bg-[#fffaf0] text-[#8a6200]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+                  className={`min-w-0 break-words rounded-lg border px-3 py-3 text-[11px] [overflow-wrap:anywhere] ${hasProblems ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : isIndeterminate ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
                 >
                   {report.missingCount || report.invalidCount
                     ? `缺失 ${report.missingCount}、无效 ${report.invalidCount}：${[...report.missing, ...report.invalid].join(", ")}`
@@ -1668,12 +1688,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                           : "依赖声明与本地安装一致。"}
                 </div>
                 {report.optionalMissingCount > 0 ? (
-                  <div className="min-w-0 break-words rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a6200] [overflow-wrap:anywhere]">
+                  <div className="min-w-0 break-words rounded-lg border border-[#f3dfab] bg-[var(--color-amber-soft)] px-3 py-2 text-[10px] text-[var(--color-amber)] [overflow-wrap:anywhere]">
                     可选依赖未安装（{report.optionalMissingCount}）：{report.optionalMissing.join(", ")}
                   </div>
                 ) : null}
                 {report.conflicts.length > 0 ? (
-                  <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-3 text-[11px] text-[#8a6200]">
+                  <div className="rounded-lg border border-[#f3dfab] bg-[var(--color-amber-soft)] px-3 py-3 text-[11px] text-[var(--color-amber)]">
                     <strong>版本冲突</strong>
                     <ul className="mt-1 grid gap-1 pl-4">
                       {report.conflicts.map((conflict, index) => (
@@ -1685,7 +1705,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   </div>
                 ) : null}
                 {report.unresolved.length > 0 ? (
-                  <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-3 text-[11px] text-[#8a6200]">
+                  <div className="rounded-lg border border-[#f3dfab] bg-[var(--color-amber-soft)] px-3 py-3 text-[11px] text-[var(--color-amber)]">
                     <strong>未决约束</strong>
                     <ul className="mt-1 grid gap-1 pl-4">
                       {report.unresolved.map((constraint, index) => (
@@ -1696,7 +1716,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     </ul>
                   </div>
                 ) : null}
-                <div className="flex items-center justify-between text-[10px] text-[#687381]">
+                <div className="flex items-center justify-between text-[10px] text-[var(--color-faint)]">
                   <span>本地只读扫描 · 上限 {report.scanLimit} 项</span>
                   {report.truncated ? <span>面板明细已截断</span> : null}
                 </div>
@@ -1710,38 +1730,42 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid gap-2 sm:grid-cols-2">
-                <div className={`rounded-lg border px-3 py-3 ${view.exceeded ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+                <div
+                  className={`rounded-lg border px-3 py-3 ${view.exceeded ? "border-[#f4caca] bg-[var(--color-red-soft)]" : "border-[#e3eaf8] bg-[var(--color-blue-soft)]"}`}
+                >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-semibold text-[#30343b]">上下文预算</span>
-                    <strong className="font-mono text-[12px] text-[#315fb8]">
+                    <span className="text-[11px] font-semibold text-[var(--color-ink)]">上下文预算</span>
+                    <strong className="font-mono text-[12px] text-[var(--color-blue)]">
                       {view.percent === null ? "—" : view.percent}% / {view.maxPercent}%
                     </strong>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                     <div
                       className={`h-full rounded-full ${view.exceeded ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
                       style={{ width: `${Math.min(100, view.percent ?? 0)}%` }}
                     />
                   </div>
-                  <p className="mt-2 text-[11px] text-[#5d6d82]">
+                  <p className="mt-2 text-[11px] text-[var(--color-muted)]">
                     {view.tokens === null ? "上下文 token 未知" : `${view.tokens.toLocaleString()} / ${view.contextWindow?.toLocaleString() ?? "—"} tokens`}
                     {` · 已请求停止 ${view.aborts} 次`}
                   </p>
                 </div>
-                <div className={`rounded-lg border px-3 py-3 ${view.runExceeded ? "border-[#f4caca] bg-[#fff5f5]" : "border-[#e3eaf8] bg-[#f6f8ff]"}`}>
+                <div
+                  className={`rounded-lg border px-3 py-3 ${view.runExceeded ? "border-[#f4caca] bg-[var(--color-red-soft)]" : "border-[#e3eaf8] bg-[var(--color-blue-soft)]"}`}
+                >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-semibold text-[#30343b]">单次任务</span>
-                    <strong className="font-mono text-[12px] text-[#315fb8]">
+                    <span className="text-[11px] font-semibold text-[var(--color-ink)]">单次任务</span>
+                    <strong className="font-mono text-[12px] text-[var(--color-blue)]">
                       {view.runTokens === null ? "—" : view.runTokens.toLocaleString()} / {view.maxRunTokens === 0 ? "—" : view.maxRunTokens.toLocaleString()}
                     </strong>
                   </div>
-                  <p className="mt-2 text-[11px] text-[#5d6d82]">
+                  <p className="mt-2 text-[11px] text-[var(--color-muted)]">
                     {view.maxRunTokens > 0 ? "按 agent_start 后新增的已结算 token 熔断。" : "未启用绝对 Token 上限。"}
                   </p>
                 </div>
               </div>
               {view.lastError === null ? null : (
-                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">
+                <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-red)]">
                   保护器错误：{view.lastError}
                 </div>
               )}
@@ -1764,23 +1788,23 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     : "等待验证";
           const statusStyle =
             run?.status === "passed"
-              ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
+              ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"
               : run?.status === "failed"
-                ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"
+                ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]"
                 : run?.status === "timed-out" || run?.status === "cancelled"
-                  ? "border-[#f1d7a8] bg-[#fff9ed] text-[#8a6200]"
-                  : "border-[#e3e7ee] bg-[#f6f8fa] text-[#687381]";
+                  ? "border-[#f1d7a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                  : "border-[var(--color-line)] bg-[var(--color-soft)] text-[var(--color-faint)]";
           return (
             <div className="mt-3 grid min-w-0 gap-3">
               <div className={`min-w-0 rounded-lg border px-3 py-3 ${statusStyle}`}>
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <span className="break-all font-mono text-[11px] font-semibold text-[#30343b]">{run?.command ?? "npm run test"}</span>
+                  <span className="break-all font-mono text-[11px] font-semibold text-[var(--color-ink)]">{run?.command ?? "npm run test"}</span>
                   <span className="rounded-full border border-current px-2 py-0.5 text-[9px] font-semibold">{statusLabel}</span>
                 </div>
                 {run === null ? (
-                  <p className="mt-2 text-[11px] leading-4 text-[#687381]">还没有执行验证脚本。可让 Agent 调用 run_project_tests。</p>
+                  <p className="mt-2 text-[11px] leading-4 text-[var(--color-faint)]">还没有执行验证脚本。可让 Agent 调用 run_project_tests。</p>
                 ) : (
-                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#65707b]">
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--color-muted)]">
                     <span className="w-full break-all">执行目录：{run.cwd}</span>
                     <span>exit {run.exitCode ?? "—"}</span>
                     {run.signal === null ? null : <span>{run.signal}</span>}
@@ -1790,7 +1814,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 )}
               </div>
               {run !== null && run.output !== "" ? (
-                <div className="min-w-0 rounded-lg border border-[#e3e7ee] bg-[#111318] p-3">
+                <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[#111318] p-3">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[9px] text-[#9ba6b2]">
                     <span className="font-semibold uppercase tracking-[0.08em]">输出末尾</span>
                     <span>最多 {view.limits.outputBytes} bytes</span>
@@ -1801,24 +1825,27 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               ) : null}
               {run?.outputTruncated || run?.outputSanitized ? (
-                <p className="text-[10px] leading-4 text-[#8a6200]">
+                <p className="text-[10px] leading-4 text-[var(--color-amber)]">
                   {run.outputTruncated ? "输出只保留最后 12 KiB。" : ""}
                   {run.outputSanitized ? "终端控制字符已清理。" : ""}
                 </p>
               ) : null}
               <div className="flex flex-wrap gap-2">
                 {view.allowedScripts.map((script) => (
-                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={script}>
+                  <span
+                    className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]"
+                    key={script}
+                  >
                     {script}
                   </span>
                 ))}
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[9px] text-[#687381]">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[9px] text-[var(--color-faint)]">
                 <span>timeout {view.limits.timeoutMs} ms</span>
                 <span>output {view.limits.outputBytes} bytes</span>
               </div>
-              {view.truncated ? <p className="text-[10px] leading-4 text-[#8a6200]">面板数据不完整或已按固定安全上限调整。</p> : null}
-              <p className="rounded-lg border border-[#f1d7a8] bg-[#fff9ed] px-3 py-2 text-[10px] leading-4 text-[#6f5730]">
+              {view.truncated ? <p className="text-[10px] leading-4 text-[var(--color-amber)]">面板数据不完整或已按固定安全上限调整。</p> : null}
+              <p className="rounded-lg border border-[#f1d7a8] bg-[var(--color-amber-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-amber)]">
                 npm scripts 会执行当前项目定义的代码；仅在可信 workspace 中使用。Test Harness 不是沙箱，也不会把脚本输出当作用户授权。
               </p>
             </div>
@@ -1830,7 +1857,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const report = view.report;
           if (report === null)
             return (
-              <div className="mt-3 rounded-lg border border-[#f3c4c4] bg-[#fff4f4] px-3 py-3 text-[11px] leading-5 text-[#a23b3b]">
+              <div className="mt-3 rounded-lg border border-[#f3c4c4] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] leading-5 text-[var(--color-red)]">
                 会话统计数据无效，已停止展示指标，避免把损坏数据误报为健康状态。
               </div>
             );
@@ -1845,20 +1872,22 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             unknown: "压缩状态数据无效",
           } as const;
           const compactionStyles = {
-            idle: "border-[#e3e7ee] bg-[#f6f8fa] text-[#687381]",
-            queued: "border-[#f1d7a8] bg-[#fff9ed] text-[#8a6200]",
-            running: "border-[#cbdaf6] bg-[#f3f7ff] text-[#315fb8]",
-            completed: "border-[#bfe4cb] bg-[#f1fbf4] text-[#287a43]",
-            failed: "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]",
-            cancelled: "border-[#f1d7a8] bg-[#fff9ed] text-[#8a6200]",
-            unknown: "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]",
+            idle: "border-[var(--color-line)] bg-[var(--color-soft)] text-[var(--color-faint)]",
+            queued: "border-[#f1d7a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]",
+            running: "border-[#cbdaf6] bg-[var(--color-blue-soft)] text-[var(--color-blue)]",
+            completed: "border-[#bfe4cb] bg-[var(--color-green-soft)] text-[var(--color-green)]",
+            failed: "border-[#f3c4c4] bg-[var(--color-red-soft)] text-[var(--color-red)]",
+            cancelled: "border-[#f1d7a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]",
+            unknown: "border-[#f3c4c4] bg-[var(--color-red-soft)] text-[var(--color-red)]",
           } as const;
           return (
             <div className="mt-3 grid min-w-0 gap-3">
-              <p className="text-[10px] text-[#687381]">消息与用量累计整份日志（含历史分支及压缩），不等于当前上下文；成本为 SDK 报告值，不是账单。</p>
-              <div className="min-w-0 rounded-lg border border-[#e3e7ee] bg-white px-3 py-2">
-                <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-[#7a8490]">Session</span>
-                <p className="mt-1 min-w-0 break-all font-mono text-[10px] leading-4 text-[#3d4650]">{report.sessionId}</p>
+              <p className="text-[10px] text-[var(--color-faint)]">
+                消息与用量累计整份日志（含历史分支及压缩），不等于当前上下文；成本为 SDK 报告值，不是账单。
+              </p>
+              <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
+                <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">Session</span>
+                <p className="mt-1 min-w-0 break-all font-mono text-[10px] leading-4 text-[var(--color-ink)]">{report.sessionId}</p>
               </div>
               <div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-3">
                 {[
@@ -1866,41 +1895,41 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["工具调用 / 结果", `${report.toolCalls.toLocaleString("en-US")} / ${report.toolResults.toLocaleString("en-US")}`],
                   ["SDK 成本", `$${report.cost.toFixed(4)}`],
                 ].map(([label, item]) => (
-                  <div className="min-w-0 rounded-lg bg-[#f6f8fa] px-3 py-2" key={label}>
-                    <span className="block text-[10px] text-[#687381]">{label}</span>
-                    <strong className="mt-1 block break-all text-[16px] font-semibold text-[#30343b]">{item}</strong>
+                  <div className="min-w-0 rounded-lg bg-[var(--color-soft)] px-3 py-2" key={label}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{label}</span>
+                    <strong className="mt-1 block break-all text-[16px] font-semibold text-[var(--color-ink)]">{item}</strong>
                   </div>
                 ))}
               </div>
-              <div className="min-w-0 rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+              <div className="min-w-0 rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-[#30343b]">累计 token</span>
-                  <strong className="break-all font-mono text-[14px] text-[#315fb8]">{report.tokens.total.toLocaleString("en-US")}</strong>
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">累计 token</span>
+                  <strong className="break-all font-mono text-[14px] text-[var(--color-blue)]">{report.tokens.total.toLocaleString("en-US")}</strong>
                 </div>
-                <div className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4 text-[#5d6d82]">
+                <div className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4 text-[var(--color-muted)]">
                   <span>输入 {report.tokens.input.toLocaleString("en-US")}</span>
                   <span>输出 {report.tokens.output.toLocaleString("en-US")}</span>
                   <span>缓存读取 {report.tokens.cacheRead.toLocaleString("en-US")}</span>
                   <span>缓存写入 {report.tokens.cacheWrite.toLocaleString("en-US")}</span>
                 </div>
               </div>
-              <div className="min-w-0 rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+              <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-[#30343b]">当前上下文</span>
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">当前上下文</span>
                   {contextUsage === null ? null : contextUsage.percent === null ? (
-                    <strong className="text-[11px] font-semibold text-[#8a6200]">待下一次模型响应</strong>
+                    <strong className="text-[11px] font-semibold text-[var(--color-amber)]">待下一次模型响应</strong>
                   ) : (
-                    <strong className="font-mono text-[12px] text-[#315fb8]">{contextUsage.percent.toFixed(1)}%</strong>
+                    <strong className="font-mono text-[12px] text-[var(--color-blue)]">{contextUsage.percent.toFixed(1)}%</strong>
                   )}
                 </div>
                 {contextUsage === null ? (
-                  <p className="mt-2 text-[10px] leading-4 text-[#687381]">当前模型未提供上下文窗口。</p>
+                  <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">当前模型未提供上下文窗口。</p>
                 ) : contextUsage.tokens === null ? (
-                  <p className="mt-2 text-[10px] leading-4 text-[#687381]">
+                  <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">
                     压缩后 token 暂不可估算 · 上下文窗口 {contextUsage.contextWindow.toLocaleString("en-US")}
                   </p>
                 ) : (
-                  <p className="mt-2 text-[10px] leading-4 text-[#687381]">
+                  <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">
                     {contextUsage.tokens.toLocaleString("en-US")} / {contextUsage.contextWindow.toLocaleString("en-US")} tokens
                   </p>
                 )}
@@ -1912,7 +1941,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
                 {view.compaction.error === null ? null : <p className="mt-2 break-words text-[10px] leading-4">{view.compaction.error}</p>}
               </div>
-              {view.malformed && view.compaction.status !== "unknown" ? <p className="text-[10px] leading-4 text-[#a23b3b]">面板数据不完整或不一致。</p> : null}
+              {view.malformed && view.compaction.status !== "unknown" ? (
+                <p className="text-[10px] leading-4 text-[var(--color-red)]">面板数据不完整或不一致。</p>
+              ) : null}
             </div>
           );
         })()
@@ -1931,13 +1962,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             ];
             return (
               <>
-                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px] leading-5 text-[#315fb8]">
+                <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3 text-[11px] leading-5 text-[var(--color-blue)]">
                   预览不会创建目标会话，也不会修改源会话。运行中的导入先排队，当前轮结束后追加到会话，后续模型轮可见；排队不代表已保存。
                 </div>
                 {view.status.state === "failed" || view.status.state === "cancelled" ? (
                   <div
                     className={`rounded-lg border px-3 py-3 text-[11px] leading-5 ${
-                      view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
+                      view.status.state === "failed"
+                        ? "border-[#f3c4c4] bg-[var(--color-red-soft)] text-[var(--color-red)]"
+                        : "border-[#f4d8a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
                     }`}
                   >
                     {view.status.operation === "import" ? "导入" : view.status.operation === "export" ? "导出" : "预览"}
@@ -1946,17 +1979,17 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   </div>
                 ) : null}
                 {sections.map(([label, item]) => (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={label}>
-                    <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{label}</span>
-                    <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-[#30343b]">{item || "暂无"}</p>
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3" key={label}>
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">{label}</span>
+                    <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-[var(--color-ink)]">{item || "暂无"}</p>
                   </div>
                 ))}
                 <div className="grid gap-2 sm:grid-cols-2">
                   {lists.map(([label, items]) => (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{value(label)}</span>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3" key={value(label)}>
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">{value(label)}</span>
                       {items.length > 0 ? (
-                        <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
+                        <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[var(--color-muted)]">
                           {items.map((item, index) => (
                             <li className="break-words" key={`${item}-${index}`}>
                               {item}
@@ -1964,12 +1997,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                           ))}
                         </ul>
                       ) : (
-                        <p className="mt-2 text-[10px] text-[#687381]">暂无</p>
+                        <p className="mt-2 text-[10px] text-[var(--color-faint)]">暂无</p>
                       )}
                     </div>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
                   <span>格式 v{view.formatVersion}</span>
                   <span>最多 {view.limits.messages} 条消息</span>
                   <span>正文 {view.limits.totalMessageCharacters} 字符</span>
@@ -1983,7 +2016,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         </div>
       ) : panel.id === "session-compare-panel" ? (
         <div className="mt-3 grid gap-3">
-          <p className="text-[10px] text-[#687381]">按日志位置比较去除首尾空白的非空文本消息。差异列表每侧保留 40 条，每条预览最多 4,000 字符。</p>
+          <p className="text-[10px] text-[var(--color-faint)]">按日志位置比较去除首尾空白的非空文本消息。差异列表每侧保留 40 条，每条预览最多 4,000 字符。</p>
           {data?.left && typeof data.left === "object" && data?.right && typeof data.right === "object" ? (
             (() => {
               const left = data.left as Record<string, unknown>;
@@ -1997,11 +2030,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     ].map(([label, session]) => {
                       const item = session as Record<string, unknown>;
                       return (
-                        <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3" key={value(label)}>
-                          <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">{value(label)}</span>
-                          <strong className="mt-2 block truncate text-[12px] text-[#30343b]">{value(item.name ?? item.id)}</strong>
-                          <code className="mt-1 block truncate text-[10px] text-[#315fb8]">{value(item.id)}</code>
-                          <span className="mt-1 block text-[10px] text-[#65707b]">{value(item.messageCount, "0")} 条消息</span>
+                        <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3" key={value(label)}>
+                          <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">{value(label)}</span>
+                          <strong className="mt-2 block truncate text-[12px] text-[var(--color-ink)]">{value(item.name ?? item.id)}</strong>
+                          <code className="mt-1 block truncate text-[10px] text-[var(--color-blue)]">{value(item.id)}</code>
+                          <span className="mt-1 block text-[10px] text-[var(--color-muted)]">{value(item.messageCount, "0")} 条消息</span>
                         </div>
                       );
                     })}
@@ -2012,21 +2045,23 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       ["右侧新增", data.addedCount ?? 0],
                       ["左侧删除", data.removedCount ?? 0],
                     ].map(([label, item]) => (
-                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                        <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                        <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                      <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                        <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                        <strong className="mt-1 block text-[17px] font-semibold text-[var(--color-ink)]">{value(item)}</strong>
                       </div>
                     ))}
                   </div>
                   <div
-                    className={`rounded-lg border px-3 py-3 text-[11px] ${data.changed === true ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${data.changed === true ? "border-[#f4d8a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
                   >
                     {data.changed === true ? "两个会话的文本消息在对应位置存在差异。" : "两个会话的文本消息投影一致；未比较图片、工具调用参数及元数据。"}
                   </div>
                   {Array.isArray(data.added) && data.added.length > 0 ? (
-                    <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">右侧差异预览（最多显示 4 条）</span>
-                      <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
+                    <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">
+                        右侧差异预览（最多显示 4 条）
+                      </span>
+                      <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[var(--color-muted)]">
                         {data.added.slice(0, 4).map((item, index) => {
                           const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                           return (
@@ -2042,7 +2077,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               执行 session_compare 后显示两个会话的差异。
             </div>
           )}
@@ -2056,19 +2091,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ["高风险", data?.high ?? 0],
               ["总发现", data?.total ?? 0],
             ].map(([label, item]) => (
-              <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center" key={value(label)}>
-                <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                <strong className="mt-1 block text-[16px] font-semibold text-[#30343b]">{value(item)}</strong>
+              <div className="rounded-lg bg-[var(--color-soft)] px-2 py-2 text-center" key={value(label)}>
+                <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                <strong className="mt-1 block text-[16px] font-semibold text-[var(--color-ink)]">{value(item)}</strong>
               </div>
             ))}
           </div>
           <div
-            className={`rounded-lg border px-3 py-3 text-[11px] ${Number(data?.total ?? 0) > 0 ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+            className={`rounded-lg border px-3 py-3 text-[11px] ${Number(data?.total ?? 0) > 0 ? "border-[#f4d8a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
           >
             {data?.hasRun !== true ? "尚未扫描。" : Number(data.total) > 0 ? "发现需要人工确认的安全风险。" : "本次扫描范围内未命中规则，不代表安全。"}
           </div>
           {data?.incomplete === true || data?.truncated === true ? (
-            <p className="text-[10px] text-[#9a6700]">
+            <p className="text-[10px] text-[var(--color-amber)]">
               扫描或显示不完整：跳过 {value(data.skipped)} 个文件/目录，{value(data.credentialLinesSkipped)} 行未检查通用凭据赋值；明细最多 200 项。
             </p>
           ) : null}
@@ -2078,12 +2113,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 const finding = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 const severity = value(finding.severity, "medium");
                 return (
-                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(finding.path)}-${value(finding.line)}-${index}`}>
+                  <div
+                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                    key={`${value(finding.path)}-${value(finding.line)}-${index}`}
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <code className="min-w-0 truncate text-[10px] text-[#315fb8]">{value(finding.path)}</code>
-                      <span className={`shrink-0 text-[10px] font-semibold ${severity === "critical" ? "text-[#b42318]" : "text-[#9a6700]"}`}>{severity}</span>
+                      <code className="min-w-0 truncate text-[10px] text-[var(--color-blue)]">{value(finding.path)}</code>
+                      <span
+                        className={`shrink-0 text-[10px] font-semibold ${severity === "critical" ? "text-[var(--color-red)]" : "text-[var(--color-amber)]"}`}
+                      >
+                        {severity}
+                      </span>
                     </div>
-                    <p className="mt-1 text-[10px] leading-4 text-[#65707b]">
+                    <p className="mt-1 text-[10px] leading-4 text-[var(--color-muted)]">
                       第 {value(finding.line)} 行 · {value(finding.message)}
                     </p>
                   </div>
@@ -2091,7 +2133,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">运行 security_audit 后显示脱敏结果。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              运行 security_audit 后显示脱敏结果。
+            </div>
           )}
         </div>
       ) : panel.id === "context-doctor-panel" ? (
@@ -2108,21 +2152,21 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           } as const;
           const compactionTone =
             view.compaction.status === "completed"
-              ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
+              ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"
               : view.compaction.status === "failed"
-                ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]"
+                ? "border-[#f3c4c4] bg-[var(--color-red-soft)] text-[var(--color-red)]"
                 : view.compaction.status === "cancelled"
-                  ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
-                  : "border-[#dce5f5] bg-[#f6f8ff] text-[#3565c5]";
+                  ? "border-[#f4d8a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                  : "border-[#dce5f5] bg-[var(--color-blue-soft)] text-[var(--color-blue)]";
           return (
             <div className="mt-3 grid gap-3">
               <div
                 className={`rounded-lg border px-3 py-3 text-[11px] ${
                   view.status === "warning"
-                    ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"
+                    ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]"
                     : view.status === "ok"
-                      ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
-                      : "border-[#e3e7ee] bg-[#f6f8fa] text-[#687381]"
+                      ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"
+                      : "border-[var(--color-line)] bg-[var(--color-soft)] text-[var(--color-faint)]"
                 }`}
               >
                 {view.status === "warning" ? "需要关注上下文风险。" : view.status === "ok" ? "上下文状态正常。" : "上下文状态不可用。"}
@@ -2134,9 +2178,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["无法安全检查", view.uninspectableMessages],
                   ["工具错误", view.toolErrors],
                 ].map(([label, item]) => (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={String(label)}>
-                    <span className="block text-[10px] text-[#687381]">{label}</span>
-                    <strong className="mt-1 block text-[17px] text-[#30343b]">{item}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={String(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{label}</span>
+                    <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{item}</strong>
                   </div>
                 ))}
               </div>
@@ -2150,20 +2194,20 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               )}
               {view.recommendations.length > 0 ? (
-                <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+                <ul className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[10px] text-[var(--color-muted)]">
                   {view.recommendations.map((item, index) => (
                     <li key={`${item}-${index}`}>{item}</li>
                   ))}
                   {view.recommendationsTruncated ? <li>部分建议因浏览器显示上限被省略。</li> : null}
                 </ul>
               ) : null}
-              <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">
+              <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">
                   扫描 {view.scannedMessages} / {view.messageCount} 条消息{view.messagesTruncated ? "（已截断）" : ""}
                 </span>
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">告警阈值 {view.warnPercent}%</span>
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">大消息阈值 {view.maxMessageBytes}B</span>
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">告警阈值 {view.warnPercent}%</span>
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">大消息阈值 {view.maxMessageBytes}B</span>
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">
                   结构预算 {view.limits.jsonNodesPerAudit} 节点 / 深度 {view.limits.jsonDepth}
                 </span>
               </div>
@@ -2172,21 +2216,21 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         })()
       ) : panel.id === "history-compressor-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "自动压缩已启用" : "自动压缩已停用"}</span>
-            <strong className="font-mono text-[11px] text-[#3565c5]">阈值 {value(data?.thresholdPercent ?? "—")}%</strong>
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+            <span className="font-mono text-[11px] text-[var(--color-ink)]">{data?.enabled === true ? "自动压缩已启用" : "自动压缩已停用"}</span>
+            <strong className="font-mono text-[11px] text-[var(--color-blue)]">阈值 {value(data?.thresholdPercent ?? "—")}%</strong>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">已压缩</span>
-              <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.compactions ?? 0)}</strong>
+            <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+              <span className="block text-[10px] text-[var(--color-faint)]">已压缩</span>
+              <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(data?.compactions ?? 0)}</strong>
             </div>
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">当前占用</span>
-              <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.lastUsagePercent ?? "—")}%</strong>
+            <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+              <span className="block text-[10px] text-[var(--color-faint)]">当前占用</span>
+              <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(data?.lastUsagePercent ?? "—")}%</strong>
             </div>
           </div>
-          {data?.lastError ? <p className="text-[11px] text-[#b42318]">最近错误：{value(data.lastError)}</p> : null}
+          {data?.lastError ? <p className="text-[11px] text-[var(--color-red)]">最近错误：{value(data.lastError)}</p> : null}
         </div>
       ) : panel.id === "session-export-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -2194,40 +2238,44 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             (() => {
               const latest = data.latest as Record<string, unknown>;
               return (
-                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                  <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">最近导出</span>
-                  <code className="mt-2 block truncate text-[11px] text-[#315fb8]">{value(latest.path ?? "pi-session.md")}</code>
-                  <p className="mt-1 text-[10px] text-[#65707b]">
+                <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">最近导出</span>
+                  <code className="mt-2 block truncate text-[11px] text-[var(--color-blue)]">{value(latest.path ?? "pi-session.md")}</code>
+                  <p className="mt-1 text-[10px] text-[var(--color-muted)]">
                     {value(latest.messages ?? 0)} 个文本段 · {value(latest.bytes ?? 0)} bytes
                   </p>
                 </div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有导出当前会话。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              还没有导出当前会话。
+            </div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">
+          <p className="text-[10px] leading-4 text-[var(--color-faint)]">
             导出调用开始时的会话文本快照，不包含图片、思考块和工具调用参数。文件写入该会话工作区内的 .md 路径，覆盖需要显式确认，权限为 0600。
           </p>
         </div>
       ) : panel.id === "session-search-panel" ? (
         <div className="mt-3 grid gap-3">
-          <p className="text-[10px] leading-4 text-[#687381]">
+          <p className="text-[10px] leading-4 text-[var(--color-faint)]">
             只搜索持久化日志中的用户和助手文本，包含历史分支；不含图片、思考或工具输出。以下为最近一次搜索，最多显示 8 个会话。
           </p>
           {data?.query ? (
-            <p className="text-[10px] leading-4 text-[#687381]">
+            <p className="text-[10px] leading-4 text-[var(--color-faint)]">
               已扫描 {value(data.scanned)} 个文件，跳过 {value(data.skipped)} 个；{data.truncated ? "扫描范围或结果预览已截断" : "未触及扫描或预览上限"}
               。跳过的文件不计入匹配结果。
             </p>
           ) : null}
           {data?.query ? (
-            <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-              <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data.query)}</code>
-              <strong className="ml-3 shrink-0 text-[11px] text-[#3565c5]">{value(data.total ?? 0)} 个会话</strong>
+            <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+              <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(data.query)}</code>
+              <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">{value(data.total ?? 0)} 个会话</strong>
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">输入查询后显示匹配的历史会话。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              输入查询后显示匹配的历史会话。
+            </div>
           )}
           {Array.isArray(data?.items) && data.items.length > 0 ? (
             <div className="grid gap-2">
@@ -2235,12 +2283,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 const session = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 const hits = Array.isArray(session.hits) ? session.hits : [];
                 return (
-                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(session.id ?? "session")}-${index}`}>
-                    <strong className="block truncate text-[11px] text-[#30343b]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
-                    <p className="mt-1 text-[10px] text-[#687381]">
+                  <div
+                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                    key={`${value(session.id ?? "session")}-${index}`}
+                  >
+                    <strong className="block truncate text-[11px] text-[var(--color-ink)]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
+                    <p className="mt-1 text-[10px] text-[var(--color-faint)]">
                       {value(session.totalHits)} 条匹配消息 · 返回 {hits.length} 条预览
                     </p>
-                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">
+                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[var(--color-muted)]">
                       {hits
                         .map((hit) => (hit !== null && typeof hit === "object" ? value((hit as Record<string, unknown>).text ?? "") : value(hit)))
                         .join(" | ")}
@@ -2250,37 +2301,44 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               })}
             </div>
           ) : data?.query ? (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">已扫描范围内没有匹配的用户或助手文本。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              已扫描范围内没有匹配的用户或助手文本。
+            </div>
           ) : null}
         </div>
       ) : panel.id === "session-bookmarks-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-            <span className="text-[11px] text-[#65707b]">当前会话书签</span>
-            <strong className="font-mono text-[11px] text-[#3565c5]">{value(data?.total ?? 0)} 个书签</strong>
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+            <span className="text-[11px] text-[var(--color-muted)]">当前会话书签</span>
+            <strong className="font-mono text-[11px] text-[var(--color-blue)]">{value(data?.total ?? 0)} 个书签</strong>
           </div>
           {Array.isArray(data?.bookmarks) && data.bookmarks.length > 0 ? (
             <div className="grid gap-2">
               {data.bookmarks.slice(0, 12).map((item, index) => {
                 const bookmark = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 return (
-                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(bookmark.id ?? "bookmark")}-${index}`}>
-                    <strong className="block truncate text-[11px] text-[#30343b]">{value(bookmark.label ?? "未命名书签")}</strong>
-                    <code className="mt-1 block truncate text-[10px] text-[#687381]">entry: {value(bookmark.entryId ?? "—")}</code>
+                  <div
+                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                    key={`${value(bookmark.id ?? "bookmark")}-${index}`}
+                  >
+                    <strong className="block truncate text-[11px] text-[var(--color-ink)]">{value(bookmark.label ?? "未命名书签")}</strong>
+                    <code className="mt-1 block truncate text-[10px] text-[var(--color-faint)]">entry: {value(bookmark.entryId ?? "—")}</code>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有标记重要节点。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              还没有标记重要节点。
+            </div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">书签以标签追加到 Pi 原生会话记录，不修改已有消息；内存会话不会落盘。</p>
+          <p className="text-[10px] leading-4 text-[var(--color-faint)]">书签以标签追加到 Pi 原生会话记录，不修改已有消息；内存会话不会落盘。</p>
         </div>
       ) : panel.id === "llm-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-            <span className="text-[11px] text-[#65707b]">校验模型</span>
-            <code className="max-w-[65%] truncate text-[11px] text-[#315fb8]">
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+            <span className="text-[11px] text-[var(--color-muted)]">校验模型</span>
+            <code className="max-w-[65%] truncate text-[11px] text-[var(--color-blue)]">
               {value(data?.provider ?? "—")}/{value(data?.model ?? "—")}
             </code>
           </div>
@@ -2290,21 +2348,21 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 const counts = history.counts && typeof history.counts === "object" ? (history.counts as Record<string, unknown>) : {};
                 return (
                   <div className="grid grid-cols-4 gap-2">
-                    <div className="rounded-lg bg-[#f6f8fa] px-2 py-2 text-center">
-                      <span className="block text-[10px] text-[#687381]">累计</span>
-                      <strong className="mt-1 block text-[15px] text-[#30343b]">{value(history.total ?? 0)}</strong>
+                    <div className="rounded-lg bg-[var(--color-soft)] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[var(--color-faint)]">累计</span>
+                      <strong className="mt-1 block text-[15px] text-[var(--color-ink)]">{value(history.total ?? 0)}</strong>
                     </div>
-                    <div className="rounded-lg bg-[#f0fbf4] px-2 py-2 text-center">
-                      <span className="block text-[10px] text-[#14733f]">通过</span>
-                      <strong className="mt-1 block text-[15px] text-[#14733f]">{value(counts.pass ?? 0)}</strong>
+                    <div className="rounded-lg bg-[var(--color-green-soft)] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[var(--color-green)]">通过</span>
+                      <strong className="mt-1 block text-[15px] text-[var(--color-green)]">{value(counts.pass ?? 0)}</strong>
                     </div>
-                    <div className="rounded-lg bg-[#fff5f5] px-2 py-2 text-center">
-                      <span className="block text-[10px] text-[#b42318]">失败</span>
-                      <strong className="mt-1 block text-[15px] text-[#b42318]">{value(counts.fail ?? 0)}</strong>
+                    <div className="rounded-lg bg-[var(--color-red-soft)] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[var(--color-red)]">失败</span>
+                      <strong className="mt-1 block text-[15px] text-[var(--color-red)]">{value(counts.fail ?? 0)}</strong>
                     </div>
-                    <div className="rounded-lg bg-[#fffaf0] px-2 py-2 text-center">
-                      <span className="block text-[10px] text-[#9a6700]">未知</span>
-                      <strong className="mt-1 block text-[15px] text-[#9a6700]">{value(counts.unknown ?? 0)}</strong>
+                    <div className="rounded-lg bg-[var(--color-amber-soft)] px-2 py-2 text-center">
+                      <span className="block text-[10px] text-[var(--color-amber)]">未知</span>
+                      <strong className="mt-1 block text-[15px] text-[var(--color-amber)]">{value(counts.unknown ?? 0)}</strong>
                     </div>
                   </div>
                 );
@@ -2316,7 +2374,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               const verdict = value(latest.verdict ?? "unknown");
               return (
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${verdict === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : verdict === "fail" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]"}`}
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${verdict === "pass" ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]" : verdict === "fail" ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]"}`}
                 >
                   <div className="flex items-center justify-between">
                     <strong className="uppercase">{verdict}</strong>
@@ -2328,9 +2386,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有执行模型校验。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              还没有执行模型校验。
+            </div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">证据按不可信数据处理，输入有长度上限；模型返回非结构化结果时显示 unknown。</p>
+          <p className="text-[10px] leading-4 text-[var(--color-faint)]">证据按不可信数据处理，输入有长度上限；模型返回非结构化结果时显示 unknown。</p>
         </div>
       ) : panel.id === "module-search-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -2340,9 +2400,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               const matches = Array.isArray(latest.matches) ? latest.matches : [];
               return (
                 <>
-                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                    <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.query ?? "")}</code>
-                    <strong className="ml-3 shrink-0 text-[11px] text-[#3565c5]">{value(matches.length)} 个结果</strong>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                    <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(latest.query ?? "")}</code>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">{value(matches.length)} 个结果</strong>
                   </div>
                   {matches.length > 0 ? (
                     <div className="grid gap-2">
@@ -2350,29 +2410,33 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         const match = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                         return (
                           <div
-                            className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2"
+                            className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
                             key={`${value(match.path ?? "module")}:${value(match.line ?? index)}`}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <code className="min-w-0 truncate text-[10px] text-[#315fb8]">
+                              <code className="min-w-0 truncate text-[10px] text-[var(--color-blue)]">
                                 {value(match.path ?? "—")}:{value(match.line ?? "—")}
                               </code>
-                              <span className="shrink-0 text-[10px] uppercase text-[#687381]">{value(match.kind ?? "symbol")}</span>
+                              <span className="shrink-0 text-[10px] uppercase text-[var(--color-faint)]">{value(match.kind ?? "symbol")}</span>
                             </div>
-                            <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(match.name ?? "未命名符号")}</p>
+                            <p className="mt-1 truncate text-[10px] text-[var(--color-muted)]">{value(match.name ?? "未命名符号")}</p>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的模块符号。</div>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                      没有找到匹配的模块符号。
+                    </div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#687381]">扫描 {value(latest.scannedFiles ?? 0)} 个源码文件，跳过依赖和构建目录。</p>
+                  <p className="text-[10px] leading-4 text-[var(--color-faint)]">扫描 {value(latest.scannedFiles ?? 0)} 个源码文件，跳过依赖和构建目录。</p>
                 </>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">输入符号名后显示模块检索结果。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              输入符号名后显示模块检索结果。
+            </div>
           )}
         </div>
       ) : panel.id === "better-sidebar-panel" ? (
@@ -2381,33 +2445,33 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const clean = data?.clean === true;
           return (
             <div className="mt-3 grid gap-3">
-              <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+              <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
-                  <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data?.cwd ?? "当前工作区")}</code>
+                  <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(data?.cwd ?? "当前工作区")}</code>
                   <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${clean ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${clean ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
                   >
                     {clean ? "clean" : `${value(data?.changedCount ?? changedFiles.length)} 个变更`}
                   </span>
                 </div>
-                <p className="mt-2 font-mono text-[10px] text-[#65707b]">{value(data?.summary ?? "等待工作区扫描")}</p>
-                <p className="mt-1 text-[10px] text-[#687381]">
+                <p className="mt-2 font-mono text-[10px] text-[var(--color-muted)]">{value(data?.summary ?? "等待工作区扫描")}</p>
+                <p className="mt-1 text-[10px] text-[var(--color-faint)]">
                   会话 {value(data?.sessionId ?? "—")} · 目录 {value(data?.directoryCount ?? 0)} · 文件 {value(data?.fileCount ?? 0)}
                 </p>
               </div>
               {changedFiles.length > 0 ? (
-                <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
                   {changedFiles.slice(0, 8).map((item, index) => {
                     const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                     return (
-                      <code className="truncate py-0.5 text-[10px] text-[#65707b]" key={`${value(entry.path ?? "file")}-${index}`}>
+                      <code className="truncate py-0.5 text-[10px] text-[var(--color-muted)]" key={`${value(entry.path ?? "file")}-${index}`}>
                         {value(entry.status ?? "??")} {value(entry.path ?? "未命名")}
                       </code>
                     );
                   })}
                 </div>
               ) : null}
-              {data?.truncated === true ? <p className="text-[10px] text-[#687381]">目录摘要已截断，执行 sidebar_overview 获取最新概览。</p> : null}
+              {data?.truncated === true ? <p className="text-[10px] text-[var(--color-faint)]">目录摘要已截断，执行 sidebar_overview 获取最新概览。</p> : null}
             </div>
           );
         })()
@@ -2419,18 +2483,21 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               const nodes = Array.isArray(latest.nodes) ? latest.nodes : [];
               return (
                 <>
-                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                    <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(latest.path ?? ".")}</code>
-                    <strong className="ml-3 shrink-0 text-[11px] text-[#3565c5]">{value(nodes.length)} 个节点</strong>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                    <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(latest.path ?? ".")}</code>
+                    <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">{value(nodes.length)} 个节点</strong>
                   </div>
                   {nodes.length > 0 ? (
-                    <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                    <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
                       {nodes.slice(0, 36).map((item, index) => {
                         const node = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                         const depth = typeof node.depth === "number" ? Math.min(6, Math.max(1, node.depth)) : 1;
                         return (
-                          <div className="flex items-center gap-2 truncate py-1 text-[10px] text-[#65707b]" key={`${value(node.path ?? "node")}-${index}`}>
-                            <span className="shrink-0 text-[#687381]">
+                          <div
+                            className="flex items-center gap-2 truncate py-1 text-[10px] text-[var(--color-muted)]"
+                            key={`${value(node.path ?? "node")}-${index}`}
+                          >
+                            <span className="shrink-0 text-[var(--color-faint)]">
                               {"· ".repeat(depth - 1)}
                               {node.kind === "directory" ? "▾" : "·"}
                             </span>
@@ -2440,9 +2507,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       })}
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前目录为空。</div>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                      当前目录为空。
+                    </div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#687381]">
+                  <p className="text-[10px] leading-4 text-[var(--color-faint)]">
                     目录 {value(latest.directoryCount ?? 0)} 个，文件 {value(latest.fileCount ?? 0)} 个；跳过依赖和构建目录。
                   </p>
                   {data?.git && typeof data.git === "object"
@@ -2451,20 +2520,22 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         const entries = Array.isArray(git.entries) ? git.entries : [];
                         const available = git.available === true;
                         return (
-                          <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
+                          <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-medium text-[#253044]">Git 状态</span>
-                              <span className={`text-[10px] ${!available ? "text-[#687381]" : git.clean === true ? "text-[#14733f]" : "text-[#b42318]"}`}>
+                              <span className="text-[11px] font-medium text-[var(--color-ink)]">Git 状态</span>
+                              <span
+                                className={`text-[10px] ${!available ? "text-[var(--color-faint)]" : git.clean === true ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}
+                              >
                                 {!available ? "不可用" : git.clean === true ? "clean" : `${entries.length} 个变更`}
                               </span>
                             </div>
-                            {available ? <p className="mt-1 font-mono text-[10px] text-[#65707b]">{value(git.branch ?? "detached HEAD")}</p> : null}
+                            {available ? <p className="mt-1 font-mono text-[10px] text-[var(--color-muted)]">{value(git.branch ?? "detached HEAD")}</p> : null}
                             {entries.length > 0 ? (
                               <div className="mt-2 grid gap-1">
                                 {entries.slice(0, 12).map((item, index) => {
                                   const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                                   return (
-                                    <code className="truncate text-[10px] text-[#65707b]" key={`${value(entry.path ?? "file")}-${index}`}>
+                                    <code className="truncate text-[10px] text-[var(--color-muted)]" key={`${value(entry.path ?? "file")}-${index}`}>
                                       {value(entry.status ?? "??")} {value(entry.path ?? "未命名")}
                                     </code>
                                   );
@@ -2479,7 +2550,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">执行 workspace_tree 后显示工作区结构。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              执行 workspace_tree 后显示工作区结构。
+            </div>
           )}
         </div>
       ) : panel.id === "prompt-library-panel" ? (
@@ -2490,16 +2563,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 const template = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 const tags = Array.isArray(template.tags) ? template.tags.filter((tag): tag is string => typeof tag === "string") : [];
                 return (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3" key={`${value(template.id ?? "prompt")}-${index}`}>
+                  <div
+                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3"
+                    key={`${value(template.id ?? "prompt")}-${index}`}
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <strong className="truncate text-[11px] text-[#253044]">{value(template.title ?? "未命名提示词")}</strong>
-                      <code className="shrink-0 text-[10px] text-[#687381]">{value(template.id ?? "—")}</code>
+                      <strong className="truncate text-[11px] text-[var(--color-ink)]">{value(template.title ?? "未命名提示词")}</strong>
+                      <code className="shrink-0 text-[10px] text-[var(--color-faint)]">{value(template.id ?? "—")}</code>
                     </div>
-                    <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(template.prompt ?? "")}</p>
+                    <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[var(--color-muted)]">{value(template.prompt ?? "")}</p>
                     {tags.length > 0 ? (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {tags.slice(0, 6).map((tag) => (
-                          <span className="rounded bg-[#f6f8ff] px-1.5 py-0.5 text-[9px] text-[#315fb8]" key={tag}>
+                          <span className="rounded bg-[var(--color-blue-soft)] px-1.5 py-0.5 text-[9px] text-[var(--color-blue)]" key={tag}>
                             {tag}
                           </span>
                         ))}
@@ -2510,11 +2586,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               还没有保存的提示词。可让 Agent 调用 prompt_library 保存模板。
             </div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">共 {value(data?.total ?? 0)} 个模板，数据跟随当前会话。</p>
+          <p className="text-[10px] leading-4 text-[var(--color-faint)]">共 {value(data?.total ?? 0)} 个模板，数据跟随当前会话。</p>
         </div>
       ) : panel.id === "colleague-skill-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -2528,25 +2604,29 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               const acceptance = list("acceptance");
               return (
                 <>
-                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                    <span className="text-[11px] text-[#65707b]">交接给</span>
-                    <strong className="text-[11px] text-[#315fb8]">{value(handoff.toRole)}</strong>
+                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                    <span className="text-[11px] text-[var(--color-muted)]">交接给</span>
+                    <strong className="text-[11px] text-[var(--color-blue)]">{value(handoff.toRole)}</strong>
                   </div>
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3 text-[11px] text-[#253044]">{value(handoff.objective)}</div>
-                  {handoff.context ? <p className="rounded-lg bg-[#f6f8fa] px-3 py-2 text-[10px] leading-4 text-[#65707b]">{value(handoff.context)}</p> : null}
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3 text-[11px] text-[var(--color-ink)]">
+                    {value(handoff.objective)}
+                  </div>
+                  {handoff.context ? (
+                    <p className="rounded-lg bg-[var(--color-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-muted)]">{value(handoff.context)}</p>
+                  ) : null}
                   {files.length > 0 ? (
-                    <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-white px-3 py-2">
+                    <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
                       {files.slice(0, 8).map((file) => (
-                        <code className="truncate text-[10px] text-[#65707b]" key={file}>
+                        <code className="truncate text-[10px] text-[var(--color-muted)]" key={file}>
                           {file}
                         </code>
                       ))}
                     </div>
                   ) : null}
                   {constraints.length > 0 ? (
-                    <div className="rounded-lg border border-[#edf0f3] bg-[#fffaf0] px-3 py-2">
-                      <strong className="text-[10px] text-[#9a6700]">约束</strong>
-                      <ul className="mt-1 grid gap-1 text-[10px] text-[#65707b]">
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-amber-soft)] px-3 py-2">
+                      <strong className="text-[10px] text-[var(--color-amber)]">约束</strong>
+                      <ul className="mt-1 grid gap-1 text-[10px] text-[var(--color-muted)]">
                         {constraints.slice(0, 8).map((constraint, index) => (
                           <li key={`${constraint}-${index}`}>• {constraint}</li>
                         ))}
@@ -2554,16 +2634,16 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     </div>
                   ) : null}
                   {acceptance.length > 0 ? (
-                    <div className="rounded-lg border border-[#edf0f3] bg-[#f0fbf4] px-3 py-2">
-                      <strong className="text-[10px] text-[#14733f]">验收条件</strong>
-                      <ul className="mt-1 grid gap-1 text-[10px] text-[#65707b]">
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-green-soft)] px-3 py-2">
+                      <strong className="text-[10px] text-[var(--color-green)]">验收条件</strong>
+                      <ul className="mt-1 grid gap-1 text-[10px] text-[var(--color-muted)]">
                         {acceptance.slice(0, 8).map((criterion, index) => (
                           <li key={`${criterion}-${index}`}>• {criterion}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
-                  <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-[var(--color-muted)]">
                     <span>约束 {constraints.length} 条</span>
                     <span>验收 {acceptance.length} 条</span>
                   </div>
@@ -2571,16 +2651,16 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               执行 colleague_handoff 后显示角色交接包。
             </div>
           )}
         </div>
       ) : panel.id === "reverse-skill-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-            <span className="text-[11px] text-[#65707b]">复核风险内容的默认策略</span>
-            <strong className="font-mono text-[11px] text-[#3565c5]">{data?.allowReviewByDefault === true ? "允许返回" : "拒绝返回"}</strong>
+          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+            <span className="text-[11px] text-[var(--color-muted)]">复核风险内容的默认策略</span>
+            <strong className="font-mono text-[11px] text-[var(--color-blue)]">{data?.allowReviewByDefault === true ? "允许返回" : "拒绝返回"}</strong>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
@@ -2589,7 +2669,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               const findings = Array.isArray(latest.findings) ? latest.findings : [];
               return (
                 <div
-                  className={`rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+                  className={`rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : risk === "review" ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
                 >
                   <div className="flex items-center justify-between">
                     <strong className="uppercase">{risk}</strong>
@@ -2610,9 +2690,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">执行 skill_inject 后显示隔离结果。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              执行 skill_inject 后显示隔离结果。
+            </div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">
+          <p className="text-[10px] leading-4 text-[var(--color-faint)]">
             未命中规则不代表安全；review 默认不返回原文，blocked 始终拒绝。文本标记不是执行沙箱，也不会自动激活 Skill。
           </p>
         </div>
@@ -2626,7 +2708,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               return (
                 <>
                   <div
-                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : status === "warning" ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
                   >
                     <span>{status === "error" ? "发现错误风险" : status === "warning" ? "需要关注" : "未命中检查规则"}</span>
                     <strong className="font-mono">{value(report.findingCount)} findings</strong>
@@ -2637,20 +2719,20 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       ["新增", report.addedLines ?? 0],
                       ["删除", report.removedLines ?? 0],
                     ].map(([label, item]) => (
-                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                        <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                        <strong className="mt-1 block text-[17px] text-[#30343b]">{value(item)}</strong>
+                      <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                        <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                        <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(item)}</strong>
                       </div>
                     ))}
                   </div>
-                  <p className="text-[10px] text-[#687381]">
+                  <p className="text-[10px] text-[var(--color-faint)]">
                     仅检查相对 HEAD 的已跟踪改动；不含未跟踪文件，也不执行测试。显示 {Math.min(findings.length, 4)}/{value(report.findingCount)} 个风险项。
                   </p>
                   {report.filesTruncated === true || report.findingsTruncated === true ? (
-                    <p className="text-[10px] text-[#9a6700]">明细超过上限，结果已截断；总数仍包含全部检查结果。</p>
+                    <p className="text-[10px] text-[var(--color-amber)]">明细超过上限，结果已截断；总数仍包含全部检查结果。</p>
                   ) : null}
                   {findings.length > 0 ? (
-                    <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+                    <ul className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[10px] text-[var(--color-muted)]">
                       {findings.slice(0, 4).map((finding, index) => (
                         <li key={index}>
                           {value(typeof finding === "object" && finding !== null ? ((finding as Record<string, unknown>).message ?? "finding") : finding)}
@@ -2662,44 +2744,44 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               还没有审查当前改动。可让 Agent 调用 review_changes。
             </div>
           )}
         </div>
       ) : panel.id === "auto-mode-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">{data?.mode === "confirm" ? "确认模式" : "安全模式"}</span>
-            <span className="font-mono text-[#65707b]">超时 {value(data?.timeoutMs ?? "—")} ms</span>
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[var(--color-ink)]">{data?.mode === "confirm" ? "确认模式" : "安全模式"}</span>
+            <span className="font-mono text-[var(--color-muted)]">超时 {value(data?.timeoutMs ?? "—")} ms</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">阻断次数</span>
-              <strong className="mt-1 block text-[17px] text-[#30343b]">{value(data?.blocked ?? 0)} 次</strong>
+            <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+              <span className="block text-[10px] text-[var(--color-faint)]">阻断次数</span>
+              <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(data?.blocked ?? 0)} 次</strong>
             </div>
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-              <span className="block text-[10px] text-[#687381]">最近命令</span>
-              <strong className="mt-1 block truncate font-mono text-[11px] text-[#30343b]">
+            <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+              <span className="block text-[10px] text-[var(--color-faint)]">最近命令</span>
+              <strong className="mt-1 block truncate font-mono text-[11px] text-[var(--color-ink)]">
                 {data?.last && typeof data.last === "object" ? value((data.last as Record<string, unknown>).command ?? "—") : "—"}
               </strong>
             </div>
           </div>
           {data?.last && typeof data.last === "object" ? (
-            <pre className="max-h-32 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+            <pre className="max-h-32 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
               {value((data.last as Record<string, unknown>).stdout, "") || value((data.last as Record<string, unknown>).stderr ?? "无输出")}
             </pre>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               尚未执行命令。Agent 可调用 auto_mode_exec。
             </div>
           )}
         </div>
       ) : panel.id === "plan-execute-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <span className="truncate text-[11px] font-medium text-[#30343b]">{data?.title ? value(data.title) : "尚未创建计划"}</span>
-            <span className="font-mono text-[11px] text-[#3565c5]">
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+            <span className="truncate text-[11px] font-medium text-[var(--color-ink)]">{data?.title ? value(data.title) : "尚未创建计划"}</span>
+            <span className="font-mono text-[11px] text-[var(--color-blue)]">
               {value(data?.completed ?? 0)} / {value(data?.total ?? 0)}
             </span>
           </div>
@@ -2709,21 +2791,28 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 const item = step && typeof step === "object" ? (step as Record<string, unknown>) : {};
                 const status = value(item.status ?? "pending");
                 return (
-                  <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]" key={value(item.id ?? index)}>
+                  <li
+                    className="flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[11px]"
+                    key={value(item.id ?? index)}
+                  >
                     <span
-                      className={`h-2 w-2 rounded-full ${status === "done" ? "bg-[#32a35a]" : status === "in_progress" ? "bg-[#3565c5]" : status === "skipped" ? "bg-[#a0a7b0]" : "bg-[#d7dce2]"}`}
+                      className={`h-2 w-2 rounded-full ${status === "done" ? "bg-[#32a35a]" : status === "in_progress" ? "bg-[#3565c5]" : status === "skipped" ? "bg-[#a0a7b0]" : "bg-[var(--color-blue-soft)]"}`}
                     />
-                    <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[#14733f]" : "text-[#30343b]"}`}>{value(item.title ?? "步骤")}</span>
+                    <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[var(--color-green)]" : "text-[var(--color-ink)]"}`}>
+                      {value(item.title ?? "步骤")}
+                    </span>
                     {Array.isArray(item.dependsOn) && item.dependsOn.length > 0 && (
-                      <span className="text-[10px] text-[#687381]">依赖步骤 {item.dependsOn.map((id) => value(id)).join(", ")}</span>
+                      <span className="text-[10px] text-[var(--color-faint)]">依赖步骤 {item.dependsOn.map((id) => value(id)).join(", ")}</span>
                     )}
-                    <span className="font-mono text-[10px] text-[#687381]">{status}</span>
+                    <span className="font-mono text-[10px] text-[var(--color-faint)]">{status}</span>
                   </li>
                 );
               })}
             </ol>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">Agent 可调用 plan_create 创建执行计划。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              Agent 可调用 plan_create 创建执行计划。
+            </div>
           )}
         </div>
       ) : panel.id === "plugin-stars-panel" ? (
@@ -2731,7 +2820,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = pluginStarsPanelView(data);
           if (view.malformed) {
             return (
-              <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+              <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
                 <strong className="block text-[12px]">Plugin Stars 面板数据异常</strong>
                 <span className="mt-1 block">面板数据不完整或不可信，请重新加载排行榜。</span>
               </div>
@@ -2741,45 +2830,50 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const rows = latest?.results ?? [];
           return (
             <div className="mt-3 grid gap-3">
-              <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-                <span className="font-medium text-[#30343b]">社区排行榜</span>
-                <span className="font-mono text-[#65707b]">结果上限 {view.limit}</span>
+              <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+                <span className="font-medium text-[var(--color-ink)]">社区排行榜</span>
+                <span className="font-mono text-[var(--color-muted)]">结果上限 {view.limit}</span>
               </div>
               {latest !== null ? (
                 <>
-                  <div className="flex items-center justify-between text-[11px] text-[#65707b]">
+                  <div className="flex items-center justify-between text-[11px] text-[var(--color-muted)]">
                     <span>查询：{latest.query || "全部"}</span>
-                    <strong className="font-mono text-[#3565c5]">
+                    <strong className="font-mono text-[var(--color-blue)]">
                       显示 {view.inventory.shown}/{view.inventory.total}
                     </strong>
                   </div>
                   {rows.length > 0 ? (
                     <ol className="grid gap-1.5">
                       {rows.map((row) => (
-                        <li className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={row.fullName}>
-                          <span className="w-5 shrink-0 text-center font-mono text-[10px] text-[#9a6700]">#{row.rank}</span>
+                        <li
+                          className="flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                          key={row.fullName}
+                        >
+                          <span className="w-5 shrink-0 text-center font-mono text-[10px] text-[var(--color-amber)]">#{row.rank}</span>
                           <div className="min-w-0 flex-1">
                             <a
-                              className="block truncate font-mono text-[11px] text-[#315fb8] hover:underline"
+                              className="block truncate font-mono text-[11px] text-[var(--color-blue)] hover:underline"
                               href={row.htmlUrl}
                               rel="noreferrer"
                               target="_blank"
                             >
                               {row.fullName}
                             </a>
-                            <span className="block truncate text-[10px] text-[#687381]">更新于 {row.updatedAt || "未知"}</span>
+                            <span className="block truncate text-[10px] text-[var(--color-faint)]">更新于 {row.updatedAt || "未知"}</span>
                           </div>
-                          <span className="shrink-0 font-mono text-[10px] text-[#8a5a00]">★ {row.stars.toLocaleString()}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-[var(--color-amber)]">★ {row.stars.toLocaleString()}</span>
                         </li>
                       ))}
                     </ol>
                   ) : (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的社区插件。</div>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                      没有找到匹配的社区插件。
+                    </div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#687381]">来源：{latest.source} · 仅展示公开仓库信息，不会自动安装。</p>
+                  <p className="text-[10px] leading-4 text-[var(--color-faint)]">来源：{latest.source} · 仅展示公开仓库信息，不会自动安装。</p>
                 </>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   {view.source === "" ? "需要配置榜单来源 sourceUrl，尚未连接 Pi Harness 排行榜。" : "Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。"}
                 </div>
               )}
@@ -2788,64 +2882,72 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         })()
       ) : panel.id === "plugin-finder-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">只读 Registry 搜索</span>
-            <span className="font-mono text-[#65707b]">
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[var(--color-ink)]">只读 Registry 搜索</span>
+            <span className="font-mono text-[var(--color-muted)]">
               关键词 {value(data?.keyword ?? "pi-harness")} · 上限 {value(data?.limit ?? "—")}
             </span>
           </div>
           {data?.query ? (
             <>
-              <div className="flex items-center justify-between text-[11px] text-[#65707b]">
+              <div className="flex items-center justify-between text-[11px] text-[var(--color-muted)]">
                 <span>查询：{value(data.query)}</span>
-                <strong className="font-mono text-[#3565c5]">{value(data.total ?? 0)} 个结果</strong>
+                <strong className="font-mono text-[var(--color-blue)]">{value(data.total ?? 0)} 个结果</strong>
               </div>
-              {data?.truncated === true && <p className="text-[10px] text-[#687381]">仅显示部分匹配结果，请缩小查询范围。</p>}
+              {data?.truncated === true && <p className="text-[10px] text-[var(--color-faint)]">仅显示部分匹配结果，请缩小查询范围。</p>}
               {Array.isArray(data?.results) && data.results.length > 0 ? (
                 <ul className="grid gap-1.5">
                   {data.results.slice(0, 5).map((result, index) => {
                     const item = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.name ?? "plugin")}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(item.name ?? "plugin")}-${index}`}
+                      >
                         <div className="flex items-center justify-between gap-2">
-                          <strong className="truncate font-mono text-[11px] text-[#30343b]">{value(item.name ?? "未知插件")}</strong>
-                          <span className="font-mono text-[10px] text-[#687381]">v{value(item.version ?? "—")}</span>
+                          <strong className="truncate font-mono text-[11px] text-[var(--color-ink)]">{value(item.name ?? "未知插件")}</strong>
+                          <span className="font-mono text-[10px] text-[var(--color-faint)]">v{value(item.version ?? "—")}</span>
                         </div>
-                        <p className="mt-1 truncate text-[10px] text-[#687381]">{value(item.description, "")}</p>
+                        <p className="mt-1 truncate text-[10px] text-[var(--color-faint)]">{value(item.description, "")}</p>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配插件。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  没有找到匹配插件。
+                </div>
               )}
             </>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               Agent 可调用 plugin_search 搜索 npm Registry。
             </div>
           )}
         </div>
       ) : panel.id === "memory-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">跨会话记忆</span>
-            <span className="font-mono text-[#3565c5]">{value(data?.count ?? 0)} 条</span>
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[var(--color-ink)]">跨会话记忆</span>
+            <span className="font-mono text-[var(--color-blue)]">{value(data?.count ?? 0)} 条</span>
           </div>
           {Array.isArray(data?.memories) && data.memories.length > 0 ? (
             <ul className="grid gap-1.5">
               {data.memories.slice(0, 5).map((memory, index) => {
                 const item = memory && typeof memory === "object" ? (memory as Record<string, unknown>) : {};
                 return (
-                  <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.key ?? "memory")}-${index}`}>
-                    <strong className="block truncate font-mono text-[11px] text-[#30343b]">{value(item.key ?? "未知键")}</strong>
-                    <p className="mt-1 truncate text-[10px] text-[#687381]">{value(item.value, "")}</p>
+                  <li
+                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                    key={`${value(item.key ?? "memory")}-${index}`}
+                  >
+                    <strong className="block truncate font-mono text-[11px] text-[var(--color-ink)]">{value(item.key ?? "未知键")}</strong>
+                    <p className="mt-1 truncate text-[10px] text-[var(--color-faint)]">{value(item.value, "")}</p>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               尚未保存记忆。Agent 可调用 memory_set 明确写入。
             </div>
           )}
@@ -2864,24 +2966,24 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["技能", kinds.skill ?? 0, "bg-[#22a06b]"],
                   ["事件", kinds.event ?? 0, "bg-[#d97706]"],
                 ].map(([label, count, color]) => (
-                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                    <div className="flex items-center gap-1.5 text-[10px] text-[#687381]">
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-faint)]">
                       <span className={`h-1.5 w-1.5 rounded-full ${value(color)}`}></span>
                       {value(label)}
                     </div>
-                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                    <strong className="mt-1 block font-mono text-[17px] text-[var(--color-ink)]">{value(count)}</strong>
                   </div>
                 ))}
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                <span className="text-[#65707b]">本地关系图</span>
-                <span className="font-mono text-[#3565c5]">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
+                <span className="text-[var(--color-muted)]">本地关系图</span>
+                <span className="font-mono text-[var(--color-blue)]">
                   {report.nodes} 节点 · {report.relations} 关系
                 </span>
               </div>
               {recent.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
                     最近节点 {Math.min(recent.length, 5)} / {report.nodes}
                   </li>
                   {recent.slice(0, 5).map((entry, index) => {
@@ -2890,43 +2992,46 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     const kindLabel = kind === "task" ? "任务" : kind === "skill" ? "技能" : kind === "event" ? "事件" : "未知";
                     const kindClass =
                       kind === "task"
-                        ? "bg-[#edf3fe] text-[#315fb8]"
+                        ? "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"
                         : kind === "skill"
-                          ? "bg-[#eaf8f0] text-[#14733f]"
+                          ? "bg-[var(--color-green-soft)] text-[var(--color-green)]"
                           : kind === "event"
-                            ? "bg-[#fff4e5] text-[#a15c00]"
-                            : "bg-[#f2f3f5] text-[#65707b]";
+                            ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                            : "bg-[var(--color-soft)] text-[var(--color-muted)]";
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? "node")}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(item.id ?? "node")}-${index}`}
+                      >
                         <div className="flex items-center gap-2">
                           <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${kindClass}`}>{kindLabel}</span>
-                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.label ?? "未命名节点")}</strong>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(item.label ?? "未命名节点")}</strong>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">{value(item.summary, "")}</p>
-                        {item.source ? <p className="mt-1 truncate font-mono text-[9px] text-[#687381]">来源：{value(item.source)}</p> : null}
+                        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[var(--color-muted)]">{value(item.summary, "")}</p>
+                        {item.source ? <p className="mt-1 truncate font-mono text-[9px] text-[var(--color-faint)]">来源：{value(item.source)}</p> : null}
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未记录图记忆。Agent 可调用 graph_memory_record 创建任务、技能或事件节点。
                 </div>
               )}
               {recentRelations.length > 0 ? (
-                <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-2">
-                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
+                <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
                     最近关系 {Math.min(recentRelations.length, 3)} / {report.relations}
                   </span>
                   {recentRelations.slice(0, 3).map((entry, index) => {
                     const relation = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     return (
                       <div
-                        className="flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-[#65707b]"
+                        className="flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-[var(--color-muted)]"
                         key={`${value(relation.id ?? "relation")}-${index}`}
                       >
                         <span className="truncate">{value(relation.fromLabel ?? relation.from ?? "节点")}</span>
-                        <span className="shrink-0 text-[#3565c5]">—{value(relation.relation ?? "RELATED_TO")}→</span>
+                        <span className="shrink-0 text-[var(--color-blue)]">—{value(relation.relation ?? "RELATED_TO")}→</span>
                         <span className="truncate">{value(relation.toLabel ?? relation.to ?? "节点")}</span>
                       </div>
                     );
@@ -2934,19 +3039,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               ) : null}
               {report.lastSearch !== null ? (
-                <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                  <span className="min-w-0 truncate text-[#65707b]">最近搜索：{report.lastSearch.query}</span>
-                  <span className="shrink-0 font-mono text-[#3565c5]">
+                <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
+                  <span className="min-w-0 truncate text-[var(--color-muted)]">最近搜索：{report.lastSearch.query}</span>
+                  <span className="shrink-0 font-mono text-[var(--color-blue)]">
                     {report.lastSearch.shown} / {report.lastSearch.total}
                   </span>
                 </div>
               ) : null}
-              <div className="flex flex-wrap gap-2 font-mono text-[9px] text-[#687381]">
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">节点 ≤ {report.limits.nodes}</span>
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">关系 ≤ {report.limits.relations}</span>
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">文件 ≤ {report.limits.fileBytes} B</span>
+              <div className="flex flex-wrap gap-2 font-mono text-[9px] text-[var(--color-faint)]">
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">节点 ≤ {report.limits.nodes}</span>
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">关系 ≤ {report.limits.relations}</span>
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">文件 ≤ {report.limits.fileBytes} B</span>
               </div>
-              {report.truncated ? <p className="text-[10px] text-[#996515]">面板内容已按安全显示上限截断。</p> : null}
+              {report.truncated ? <p className="text-[10px] text-[var(--color-amber)]">面板内容已按安全显示上限截断。</p> : null}
             </div>
           );
         })()
@@ -2955,24 +3060,24 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const counts = data?.counts !== null && typeof data?.counts === "object" ? (data.counts as Record<string, unknown>) : {};
           const recent = Array.isArray(data?.recent) ? data.recent : [];
           const lanes = [
-            ["待规划", "backlog", "bg-[#edf3fe] text-[#315fb8]"],
-            ["阻塞", "blocked", "bg-[#fff5f5] text-[#b42318]"],
-            ["已取消", "canceled", "bg-[#fff5f5] text-[#b42318]"],
-            ["待办", "todo", "bg-[#edf3fe] text-[#315fb8]"],
-            ["进行中", "in_progress", "bg-[#fff4e5] text-[#a15c00]"],
-            ["待验收", "in_review", "bg-[#f0edff] text-[#6b4fc3]"],
-            ["已完成", "done", "bg-[#eaf8f0] text-[#14733f]"],
+            ["待规划", "backlog", "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"],
+            ["阻塞", "blocked", "bg-[var(--color-red-soft)] text-[var(--color-red)]"],
+            ["已取消", "canceled", "bg-[var(--color-red-soft)] text-[var(--color-red)]"],
+            ["待办", "todo", "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"],
+            ["进行中", "in_progress", "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"],
+            ["待验收", "in_review", "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"],
+            ["已完成", "done", "bg-[var(--color-green-soft)] text-[var(--color-green)]"],
           ] as const;
           return (
             <div className="mt-3 grid gap-3">
-              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                <span className="text-[#65707b]">当前工作区任务：{value(data?.workspace)}</span>
-                <strong className="font-mono text-[#3565c5]">{value(data?.total ?? 0)} 个</strong>
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
+                <span className="text-[var(--color-muted)]">当前工作区任务：{value(data?.workspace)}</span>
+                <strong className="font-mono text-[var(--color-blue)]">{value(data?.total ?? 0)} 个</strong>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {lanes.map(([label, key, color]) => (
-                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={key}>
-                    <div className="flex items-center justify-between text-[10px] text-[#687381]">
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2" key={key}>
+                    <div className="flex items-center justify-between text-[10px] text-[var(--color-faint)]">
                       <span>{label}</span>
                       <span className={`rounded px-1.5 py-0.5 ${color}`}>{value(counts[key] ?? 0)}</span>
                     </div>
@@ -2981,7 +3086,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </div>
               {recent.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
                     最近任务 {Math.min(recent.length, 5)} / {value(data?.total ?? recent.length)}
                   </li>
                   {recent.slice(0, 5).map((entry, index) => {
@@ -3006,20 +3111,23 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                                     : "未知";
                     const statusClass =
                       status === "done"
-                        ? "bg-[#eaf8f0] text-[#14733f]"
+                        ? "bg-[var(--color-green-soft)] text-[var(--color-green)]"
                         : status === "blocked" || status === "canceled"
-                          ? "bg-[#fff5f5] text-[#b42318]"
+                          ? "bg-[var(--color-red-soft)] text-[var(--color-red)]"
                           : status === "unknown"
-                            ? "bg-[#f2f3f5] text-[#65707b]"
-                            : "bg-[#edf3fe] text-[#315fb8]";
+                            ? "bg-[var(--color-soft)] text-[var(--color-muted)]"
+                            : "bg-[var(--color-blue-soft)] text-[var(--color-blue)]";
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(task.id ?? "task")}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(task.id ?? "task")}-${index}`}
+                      >
                         <div className="flex items-center gap-2">
-                          <code className="font-mono text-[10px] text-[#3565c5]">{value(task.key ?? "PIH-?")}</code>
-                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(task.title ?? "未命名任务")}</strong>
+                          <code className="font-mono text-[10px] text-[var(--color-blue)]">{value(task.key ?? "PIH-?")}</code>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(task.title ?? "未命名任务")}</strong>
                           <span className={`rounded px-1.5 py-0.5 text-[9px] ${statusClass}`}>{statusLabel}</span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#687381]">
+                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[var(--color-faint)]">
                           <span>优先级 {priority}</span>
                           {task.dueDate ? <span>截止 {value(task.dueDate)}</span> : null}
                           {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
@@ -3031,7 +3139,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未创建任务。Agent 可调用 taskboard_create 创建带稳定编号的任务。
                 </div>
               )}
@@ -3046,49 +3154,58 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#687381]">Skills</span>
-                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.skillCount ?? 0)}</strong>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
+                  <span className="block text-[10px] text-[var(--color-faint)]">Skills</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[var(--color-blue)]">{value(data?.skillCount ?? 0)}</strong>
                 </div>
-                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#687381]">MCP 服务器</span>
-                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.mcpCount ?? 0)}</strong>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
+                  <span className="block text-[10px] text-[var(--color-faint)]">MCP 服务器</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[var(--color-blue)]">{value(data?.mcpCount ?? 0)}</strong>
                 </div>
               </div>
-              {data?.truncated ? <p className="text-[10px] text-[#8a5a00]">目录结果或字段已截断，计数包含未展示条目。</p> : null}
+              {data?.truncated ? <p className="text-[10px] text-[var(--color-amber)]">目录结果或字段已截断，计数包含未展示条目。</p> : null}
               {skills.length > 0 ? (
                 <ul className="grid gap-1.5">
                   {skills.slice(0, 8).map((entry, index) => {
                     const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.name ?? "skill")}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(item.name ?? "skill")}-${index}`}
+                      >
                         <div className="flex items-center gap-2">
-                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.name, "未命名技能")}</strong>
-                          <span className="rounded bg-[#f2f3f5] px-1.5 py-0.5 text-[9px] text-[#65707b]">{value(item.scope, "unknown")}</span>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(item.name, "未命名技能")}</strong>
+                          <span className="rounded bg-[var(--color-soft)] px-1.5 py-0.5 text-[9px] text-[var(--color-muted)]">
+                            {value(item.scope, "unknown")}
+                          </span>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-[10px] text-[#687381]">{value(item.description, "无描述")}</p>
-                        {item.modelInvocationDisabled ? <p className="mt-1 text-[10px] text-[#8a5a00]">已加载，仅允许显式调用</p> : null}
+                        <p className="mt-1 line-clamp-2 text-[10px] text-[var(--color-faint)]">{value(item.description, "无描述")}</p>
+                        {item.modelInvocationDisabled ? <p className="mt-1 text-[10px] text-[var(--color-amber)]">已加载，仅允许显式调用</p> : null}
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前运行时没有加载 Skill。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  当前运行时没有加载 Skill。
+                </div>
               )}
               {servers.length > 0 ? (
                 <div>
-                  <div className="mb-1 text-[10px] font-semibold text-[#65707b]">MCP 状态</div>
+                  <div className="mb-1 text-[10px] font-semibold text-[var(--color-muted)]">MCP 状态</div>
                   <ul className="grid gap-1.5">
                     {servers.slice(0, 6).map((entry, index) => {
                       const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                       const running = item.status === "running";
                       return (
                         <li
-                          className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                          className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
                           key={`${value(item.id ?? "server")}-${index}`}
                         >
-                          <span className="truncate font-mono text-[#65707b]">{value(item.id, "未命名服务器")}</span>
-                          <span className={`rounded px-1.5 py-0.5 ${running ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#f2f3f5] text-[#65707b]"}`}>
+                          <span className="truncate font-mono text-[var(--color-muted)]">{value(item.id, "未命名服务器")}</span>
+                          <span
+                            className={`rounded px-1.5 py-0.5 ${running ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-soft)] text-[var(--color-muted)]"}`}
+                          >
                             {value(item.status, "unknown")}
                           </span>
                         </li>
@@ -3098,11 +3215,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               ) : null}
               {diagnostics.length > 0 ? (
-                <div className="rounded-lg border border-[#fff0c2] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a5a00]">
+                <div className="rounded-lg border border-[#fff0c2] bg-[var(--color-amber-soft)] px-3 py-2 text-[10px] text-[var(--color-amber)]">
                   资源诊断：{value(data?.diagnosticCount)} 条
                 </div>
               ) : null}
-              <div className="text-[10px] text-[#687381]">
+              <div className="text-[10px] text-[var(--color-faint)]">
                 只读展示当前已加载资源，最多显示 8 个技能和 6 个 MCP 状态；不激活技能或启动服务器。读取技能采用启发式检查，不保证内容安全。
               </div>
             </div>
@@ -3115,10 +3232,10 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const meterView = costMeterPanelView(data);
           const budgetClass =
             budgetPercent !== null && budgetPercent >= 100
-              ? "text-[#b42318]"
+              ? "text-[var(--color-red)]"
               : budgetPercent !== null && budgetPercent >= 80
-                ? "text-[#a15c00]"
-                : "text-[#14733f]";
+                ? "text-[var(--color-amber)]"
+                : "text-[var(--color-green)]";
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
@@ -3127,19 +3244,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["当前会话", `$${Number(data?.sessionCost ?? 0).toFixed(4)}`],
                   ["累计", `$${Number(data?.lifetimeCost ?? 0).toFixed(4)}`],
                 ].map(([label, item]) => (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                    <strong className="mt-1 block font-mono text-[15px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[15px] font-semibold text-[var(--color-ink)]">{value(item)}</strong>
                   </div>
                 ))}
               </div>
-              <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+              <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#65707b]">每日预算（UTC）</span>
+                  <span className="text-[var(--color-muted)]">每日预算（UTC）</span>
                   <strong className={budgetClass}>{budget === null ? "未设置" : `$${budget.toFixed(4)} · ${budgetPercent?.toFixed(2) ?? "0.00"}%`}</strong>
                 </div>
                 {budget !== null ? (
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#dfe8f7]">
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                     <div
                       className={`h-full ${budgetPercent !== null && budgetPercent >= 100 ? "bg-[#d64545]" : "bg-[#4c83e8]"}`}
                       style={{ width: `${Math.min(100, budgetPercent ?? 0)}%` }}
@@ -3147,22 +3264,27 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   </div>
                 ) : null}
               </div>
-              <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">{meterView.dayBasis} 日账本</span>
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">展示上限 {meterView.entryLimit ?? "—"} 条</span>
+              <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">{meterView.dayBasis} 日账本</span>
+                <span className="rounded bg-[var(--color-soft)] px-2 py-1">展示上限 {meterView.entryLimit ?? "—"} 条</span>
               </div>
               {meterView.lastError !== null ? (
-                <div className="rounded-lg border border-[#f0c8c4] bg-[#fff5f4] px-3 py-2 text-[10px] text-[#b42318]">最近写入错误：{meterView.lastError}</div>
+                <div className="rounded-lg border border-[#f0c8c4] bg-[var(--color-red-soft)] px-3 py-2 text-[10px] text-[var(--color-red)]">
+                  最近写入错误：{meterView.lastError}
+                </div>
               ) : null}
               {meterView.entries.length > 0 ? (
                 <ul className="grid gap-1.5">
                   {meterView.entries.map((entry, index) => (
-                    <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]" key={`${entry.sessionId}-${entry.utcDate}-${index}`}>
+                    <li
+                      className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
+                      key={`${entry.sessionId}-${entry.utcDate}-${index}`}
+                    >
                       <div className="flex items-center justify-between gap-3">
-                        <span className="min-w-0 truncate font-mono text-[#65707b]">{entry.sessionId}</span>
-                        <strong className="shrink-0 font-mono text-[#30343b]">${entry.dailyCost.toFixed(4)} 当日增量</strong>
+                        <span className="min-w-0 truncate font-mono text-[var(--color-muted)]">{entry.sessionId}</span>
+                        <strong className="shrink-0 font-mono text-[var(--color-ink)]">${entry.dailyCost.toFixed(4)} 当日增量</strong>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[#7a8490]">
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[var(--color-faint)]">
                         <span>UTC {entry.utcDate}</span>
                         <span>会话累计 ${entry.sessionCost.toFixed(4)}</span>
                         <span>{entry.tokens} tokens</span>
@@ -3172,11 +3294,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ))}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未记录已完成会话。Agent 可调用 cost_report 的 refresh 操作写入账本。
                 </div>
               )}
-              <div className="text-[10px] text-[#687381]">仅记录运行时报告的实际成本，不内置或猜测模型价格。</div>
+              <div className="text-[10px] text-[var(--color-faint)]">仅记录运行时报告的实际成本，不内置或猜测模型价格。</div>
             </div>
           );
         })()
@@ -3186,13 +3308,13 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#687381]">保存点</span>
-                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.count ?? savepoints.length)}</strong>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
+                  <span className="block text-[10px] text-[var(--color-faint)]">保存点</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[var(--color-blue)]">{value(data?.count ?? savepoints.length)}</strong>
                 </div>
-                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                  <span className="block text-[10px] text-[#687381]">跟踪路径</span>
-                  <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">
+                <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
+                  <span className="block text-[10px] text-[var(--color-faint)]">跟踪路径</span>
+                  <strong className="mt-1 block font-mono text-[17px] text-[var(--color-blue)]">
                     {value(Array.isArray(data?.trackedPaths) ? data.trackedPaths.length : 0)}
                   </strong>
                 </div>
@@ -3202,22 +3324,25 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   {savepoints.slice(0, 6).map((entry, index) => {
                     const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? "savepoint")}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(item.id ?? "savepoint")}-${index}`}
+                      >
                         <div className="flex items-center gap-2">
-                          <code className="font-mono text-[10px] text-[#3565c5]">{value(item.id, "unknown")}</code>
-                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(item.reason, "manual savepoint")}</strong>
-                          <span className="text-[9px] text-[#687381]">{value(item.fileCount, "0")} 文件</span>
+                          <code className="font-mono text-[10px] text-[var(--color-blue)]">{value(item.id, "unknown")}</code>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(item.reason, "manual savepoint")}</strong>
+                          <span className="text-[9px] text-[var(--color-faint)]">{value(item.fileCount, "0")} 文件</span>
                         </div>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未创建保存点。修改配置或插件代码前，让 Agent 调用 undo_savepoint 的 save 操作。
                 </div>
               )}
-              <div className="text-[10px] text-[#687381]">恢复操作要求 confirm=true；敏感文件、二进制文件和依赖目录不会进入保存点。</div>
+              <div className="text-[10px] text-[var(--color-faint)]">恢复操作要求 confirm=true；敏感文件、二进制文件和依赖目录不会进入保存点。</div>
             </div>
           );
         })()
@@ -3227,37 +3352,42 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const lastPrompt = typeof data?.lastPrompt === "string" ? data.lastPrompt : "";
           return (
             <div className="mt-3 grid gap-3">
-              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                <span className="text-[#65707b]">待发送批注</span>
-                <strong className="font-mono text-[#3565c5]">{value(data?.count ?? 0)} 条</strong>
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
+                <span className="text-[var(--color-muted)]">待发送批注</span>
+                <strong className="font-mono text-[var(--color-blue)]">{value(data?.count ?? 0)} 条</strong>
               </div>
               {annotations.length > 0 ? (
                 <ol className="grid gap-1.5">
                   {annotations.slice(0, 8).map((entry, index) => {
                     const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.id ?? index)}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(item.id ?? index)}-${index}`}
+                      >
                         <div className="flex items-start gap-2 text-[10px]">
-                          <span className="rounded bg-[#edf3fe] px-1.5 py-0.5 font-mono text-[#315fb8]">#{value(item.id ?? index + 1)}</span>
-                          <p className="min-w-0 flex-1 whitespace-pre-wrap text-[#30343b]">{value(item.quote, "")}</p>
+                          <span className="rounded bg-[var(--color-blue-soft)] px-1.5 py-0.5 font-mono text-[var(--color-blue)]">
+                            #{value(item.id ?? index + 1)}
+                          </span>
+                          <p className="min-w-0 flex-1 whitespace-pre-wrap text-[var(--color-ink)]">{value(item.quote, "")}</p>
                         </div>
-                        {item.note ? <p className="mt-1 pl-8 text-[10px] text-[#687381]">{value(item.note)}</p> : null}
+                        {item.note ? <p className="mt-1 pl-8 text-[10px] text-[var(--color-faint)]">{value(item.note)}</p> : null}
                       </li>
                     );
                   })}
                 </ol>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未收集批注。Agent 可调用 annotation_manage 的 add 操作记录回复片段。
                 </div>
               )}
               {lastPrompt ? (
-                <details className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]">
-                  <summary className="cursor-pointer text-[#65707b]">最近生成的提问上下文</summary>
-                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px] text-[#30343b]">{lastPrompt}</pre>
+                <details className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]">
+                  <summary className="cursor-pointer text-[var(--color-muted)]">最近生成的提问上下文</summary>
+                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px] text-[var(--color-ink)]">{lastPrompt}</pre>
                 </details>
               ) : null}
-              <div className="text-[10px] text-[#687381]">批注按编号累积；生成上下文不会改写原会话消息。</div>
+              <div className="text-[10px] text-[var(--color-faint)]">批注按编号累积；生成上下文不会改写原会话消息。</div>
             </div>
           );
         })()
@@ -3267,11 +3397,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const checks = Array.isArray(data?.checks) ? data.checks : [];
           const recommendations = Array.isArray(data?.recommendations) ? data.recommendations : [];
           const statusClass =
-            status === "ok" ? "bg-[#eaf8f0] text-[#14733f]" : status === "warning" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
+            status === "ok"
+              ? "bg-[var(--color-green-soft)] text-[var(--color-green)]"
+              : status === "warning"
+                ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                : "bg-[var(--color-red-soft)] text-[var(--color-red)]";
           return (
             <div className="mt-3 grid gap-3">
-              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2">
-                <span className="text-[11px] text-[#65707b]">运行时边界检查</span>
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
+                <span className="text-[11px] text-[var(--color-muted)]">运行时边界检查</span>
                 <span className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase ${statusClass}`}>{status}</span>
               </div>
               <div className="grid gap-1.5">
@@ -3280,27 +3414,27 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   const checkStatus = value(check.status ?? "unknown");
                   const checkClass =
                     checkStatus === "ok"
-                      ? "bg-[#eaf8f0] text-[#14733f]"
+                      ? "bg-[var(--color-green-soft)] text-[var(--color-green)]"
                       : checkStatus === "warning"
-                        ? "bg-[#fff7e8] text-[#a15c00]"
-                        : "bg-[#fff0f0] text-[#b42318]";
+                        ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                        : "bg-[var(--color-red-soft)] text-[var(--color-red)]";
                   return (
                     <div
-                      className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                      className="flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
                       key={`${value(check.id ?? "check")}-${index}`}
                     >
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${checkStatus === "ok" ? "bg-[#22c55e]" : checkStatus === "warning" ? "bg-[#e6a21a]" : "bg-[#d64545]"}`}
                       ></span>
-                      <code className="w-20 shrink-0 text-[#65707b]">{value(check.id ?? "check")}</code>
-                      <span className="min-w-0 flex-1 truncate text-[#30343b]">{value(check.detail ?? "—")}</span>
+                      <code className="w-20 shrink-0 text-[var(--color-muted)]">{value(check.id ?? "check")}</code>
+                      <span className="min-w-0 flex-1 truncate text-[var(--color-ink)]">{value(check.detail ?? "—")}</span>
                       <span className={`rounded px-1.5 py-0.5 font-mono ${checkClass}`}>{checkStatus}</span>
                     </div>
                   );
                 })}
               </div>
               {recommendations.length > 0 ? (
-                <div className="rounded-lg border border-[#f3dfab] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a6200]">
+                <div className="rounded-lg border border-[#f3dfab] bg-[var(--color-amber-soft)] px-3 py-2 text-[10px] text-[var(--color-amber)]">
                   <strong>建议</strong>
                   <ul className="mt-1 grid gap-1 pl-4">
                     {recommendations.slice(0, 5).map((item, index) => (
@@ -3322,21 +3456,27 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const schema: unknown[] = Array.isArray(latest?.checks) ? latest.checks : [];
           const verdict = value(latest?.verdict ?? "—");
           const verdictClass =
-            verdict === "pass" ? "bg-[#eaf8f0] text-[#14733f]" : verdict === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]";
+            verdict === "pass"
+              ? "bg-[var(--color-green-soft)] text-[var(--color-green)]"
+              : verdict === "warn"
+                ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                : "bg-[var(--color-red-soft)] text-[var(--color-red)]";
           return (
             <div className="mt-3 grid gap-3">
               {latest?.scanned !== undefined ? (
-                <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                  <span className="text-[#65707b]">目录扫描</span>
-                  <strong className="font-mono text-[#3565c5]">{value(latest.scanned)} 个仓库</strong>
+                <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
+                  <span className="text-[var(--color-muted)]">目录扫描</span>
+                  <strong className="font-mono text-[var(--color-blue)]">{value(latest.scanned)} 个仓库</strong>
                 </div>
               ) : latest?.verdict !== undefined ? (
-                <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-2 text-[10px]">
-                  <span className="truncate text-[#65707b]">{value(latest.repo ?? "当前插件")}</span>
+                <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2 text-[10px]">
+                  <span className="truncate text-[var(--color-muted)]">{value(latest.repo ?? "当前插件")}</span>
                   <span className={`rounded px-1.5 py-0.5 font-mono ${verdictClass}`}>{verdict}</span>
                 </div>
               ) : schema.length > 0 ? (
-                <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px] text-[#65707b]">检查清单：{schema.length} 项</div>
+                <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px] text-[var(--color-muted)]">
+                  检查清单：{schema.length} 项
+                </div>
               ) : null}
               {checks ? (
                 <div className="grid grid-cols-3 gap-2">
@@ -3345,9 +3485,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     ["失败", checks.failed ?? 0],
                     ["警告", checks.warned ?? 0],
                   ].map(([label, count]) => (
-                    <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                      <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                      <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                      <strong className="mt-1 block font-mono text-[17px] text-[var(--color-ink)]">{value(count)}</strong>
                     </div>
                   ))}
                 </div>
@@ -3359,12 +3499,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     const state = value(report.verdict ?? "—");
                     return (
                       <li
-                        className="flex items-center justify-between rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                        className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
                         key={`${value(report.repo ?? "repo")}-${index}`}
                       >
-                        <span className="truncate font-mono text-[#65707b]">{value(report.repo ?? "未知仓库")}</span>
+                        <span className="truncate font-mono text-[var(--color-muted)]">{value(report.repo ?? "未知仓库")}</span>
                         <span
-                          className={`rounded px-1.5 py-0.5 ${state === "pass" ? "bg-[#eaf8f0] text-[#14733f]" : state === "warn" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                          className={`rounded px-1.5 py-0.5 ${state === "pass" ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : state === "warn" ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
                         >
                           {state}
                         </span>
@@ -3377,19 +3517,22 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   {[...errors, ...warnings].slice(0, 5).map((entry, index) => {
                     const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]" key={`${value(item.code ?? "issue")}-${index}`}>
-                        <strong className="font-mono text-[#b42318]">{value(item.code ?? "issue")}</strong>
-                        <p className="mt-1 text-[#65707b]">{value(item.message, "")}</p>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
+                        key={`${value(item.code ?? "issue")}-${index}`}
+                      >
+                        <strong className="font-mono text-[var(--color-red)]">{value(item.code ?? "issue")}</strong>
+                        <p className="mt-1 text-[var(--color-muted)]">{value(item.message, "")}</p>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未检查插件。Agent 可调用 plugin_check 执行 check、scan 或 schema。
                 </div>
               )}
-              <div className="text-[10px] text-[#687381]">只读检查，不修改、不构建被检仓库。</div>
+              <div className="text-[10px] text-[var(--color-faint)]">只读检查，不修改、不构建被检仓库。</div>
             </div>
           );
         })()
@@ -3398,13 +3541,13 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const results = Array.isArray(data?.results) ? data.results : [];
           return (
             <div className="mt-3 grid gap-3">
-              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                <span className="text-[#65707b]">GitHub Pi Harness 生态</span>
-                <span className="font-mono text-[#3565c5]">
+              <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
+                <span className="text-[var(--color-muted)]">GitHub Pi Harness 生态</span>
+                <span className="font-mono text-[var(--color-blue)]">
                   {value(data?.total ?? 0)} 个仓库 · {Array.isArray(data?.sources) ? data.sources.length : 0} 个来源
                 </span>
               </div>
-              {data?.query ? <div className="text-[11px] text-[#65707b]">查询：{value(data.query)}</div> : null}
+              {data?.query ? <div className="text-[11px] text-[var(--color-muted)]">查询：{value(data.query)}</div> : null}
               {results.length > 0 ? (
                 <ol className="grid gap-1.5">
                   {results.slice(0, 8).map((entry, index) => {
@@ -3412,12 +3555,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     const topics = Array.isArray(item.topics) ? item.topics.filter((topic): topic is string => typeof topic === "string").slice(0, 3) : [];
                     const url = typeof item.url === "string" ? item.url : undefined;
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.fullName ?? "repo")}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(item.fullName ?? "repo")}-${index}`}
+                      >
                         <div className="flex items-center gap-2">
-                          <span className="w-4 shrink-0 text-right font-mono text-[10px] text-[#687381]">{index + 1}</span>
+                          <span className="w-4 shrink-0 text-right font-mono text-[10px] text-[var(--color-faint)]">{index + 1}</span>
                           {url ? (
                             <a
-                              className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#315fb8] hover:underline"
+                              className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-blue)] hover:underline"
                               href={url}
                               rel="noreferrer"
                               target="_blank"
@@ -3425,14 +3571,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                               {value(item.fullName ?? item.name ?? "未知仓库")}
                             </a>
                           ) : (
-                            <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">
+                            <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-ink)]">
                               {value(item.fullName ?? item.name ?? "未知仓库")}
                             </strong>
                           )}
-                          <span className="shrink-0 font-mono text-[10px] text-[#a15c00]">★ {value(item.stars ?? 0)}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-[var(--color-amber)]">★ {value(item.stars ?? 0)}</span>
                         </div>
-                        <p className="mt-1 truncate pl-6 text-[10px] text-[#65707b]">{value(item.description, "暂无描述")}</p>
-                        <div className="mt-1 flex min-w-0 items-center gap-2 pl-6 text-[9px] text-[#687381]">
+                        <p className="mt-1 truncate pl-6 text-[10px] text-[var(--color-muted)]">{value(item.description, "暂无描述")}</p>
+                        <div className="mt-1 flex min-w-0 items-center gap-2 pl-6 text-[9px] text-[var(--color-faint)]">
                           {item.language ? <span>{value(item.language)}</span> : null}
                           {item.updatedAt ? <span className="font-mono">更新 {value(item.updatedAt)}</span> : null}
                           {topics.length > 0 ? <span className="truncate">{topics.map((topic) => `#${topic}`).join(" ")}</span> : null}
@@ -3442,14 +3588,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   })}
                 </ol>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   {data?.fetchedAt ? "未找到匹配的 Pi Harness 仓库。" : "尚未搜索插件。Agent 可调用 plugin_radar_search 从 GitHub 发现 Pi Harness 插件。"}
                 </div>
               )}
               {data?.truncated || results.length > 8 ? (
-                <p className="text-[10px] text-[#687381]">仅展示部分结果，可缩小查询范围；GitHub 可能返回不完整结果。</p>
+                <p className="text-[10px] text-[var(--color-faint)]">仅展示部分结果，可缩小查询范围；GitHub 可能返回不完整结果。</p>
               ) : null}
-              <div className="text-[10px] text-[#687381]">按 Star 排序的 Topic 匹配仓库，尚未验证插件可安装性；不会安装或执行仓库代码。</div>
+              <div className="text-[10px] text-[var(--color-faint)]">按 Star 排序的 Topic 匹配仓库，尚未验证插件可安装性；不会安装或执行仓库代码。</div>
             </div>
           );
         })()
@@ -3459,7 +3605,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const latest = data?.latest !== null && typeof data?.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
           const riskLabel = (risk: unknown): string => (risk === "blocked" ? "高风险" : risk === "review" ? "需复核" : "安全");
           const riskClass = (risk: unknown): string =>
-            risk === "blocked" ? "bg-[#fff0f0] text-[#b42318]" : risk === "review" ? "bg-[#fff7e8] text-[#a15c00]" : "bg-[#eaf8f0] text-[#14733f]";
+            risk === "blocked"
+              ? "bg-[var(--color-red-soft)] text-[var(--color-red)]"
+              : risk === "review"
+                ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
+                : "bg-[var(--color-green-soft)] text-[var(--color-green)]";
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
@@ -3468,14 +3618,16 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["需复核", data?.review ?? 0],
                   ["安全", data?.safe ?? 0],
                 ].map(([label, count]) => (
-                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[17px] text-[var(--color-ink)]">{value(count)}</strong>
                   </div>
                 ))}
               </div>
               {latest ? (
-                <div className={`flex items-center justify-between rounded-lg border border-[#e3e7ee] px-3 py-2 text-[10px] ${riskClass(latest.risk)}`}>
+                <div
+                  className={`flex items-center justify-between rounded-lg border border-[var(--color-line)] px-3 py-2 text-[10px] ${riskClass(latest.risk)}`}
+                >
                   <span>最近一次：{value(latest.source, "unknown")}</span>
                   <strong>
                     {riskLabel(latest.risk)} · {value(latest.findings && Array.isArray(latest.findings) ? latest.findings.length : 0)} 项
@@ -3484,28 +3636,28 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ) : null}
               {receipts.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">最近风险摘要</li>
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">最近风险摘要</li>
                   {receipts.slice(0, 8).map((entry, index) => {
                     const receipt = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     const findings = Array.isArray(receipt.findings) ? receipt.findings : [];
                     return (
                       <li
-                        className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[10px]"
+                        className="flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
                         key={`${value(receipt.source)}-${index}`}
                       >
                         <span className={`rounded px-1.5 py-0.5 ${riskClass(receipt.risk)}`}>{riskLabel(receipt.risk)}</span>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[#65707b]">{value(receipt.source, "unknown")}</span>
-                        <span className="text-[#687381]">{findings.length} 项</span>
+                        <span className="min-w-0 flex-1 truncate font-mono text-[var(--color-muted)]">{value(receipt.source, "unknown")}</span>
+                        <span className="text-[var(--color-faint)]">{findings.length} 项</span>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未收到工具调用。Agent 可调用 hol_guard_scan 预检命令或文本。
                 </div>
               )}
-              <div className="text-[10px] text-[#687381]">
+              <div className="text-[10px] text-[var(--color-faint)]">
                 仅保存风险摘要和计数，不保存命令、路径或凭据原文；风险等级仅供审计，HOL Guard 不会阻止任何工具执行。
               </div>
             </div>
@@ -3531,7 +3683,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 <div className="rounded-lg border border-[#dde3ec] p-3">
                   <strong>{states[value(activation.state)] ?? "未知切换状态"}</strong>
                   <p className="break-all">{value(activation.sessionPath)}</p>
-                  {activation.error ? <p className="text-[#b42318]">{value(activation.error)}</p> : null}
+                  {activation.error ? <p className="text-[var(--color-red)]">{value(activation.error)}</p> : null}
                 </div>
               ) : null}
               <p>
@@ -3549,7 +3701,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   );
                 })}
               </ul>
-              <p className="text-[#687381]">通过 session_tab_manage 管理标签。activate 在当前轮结束后切换真实会话；移除标签不会删除会话文件。</p>
+              <p className="text-[var(--color-faint)]">通过 session_tab_manage 管理标签。activate 在当前轮结束后切换真实会话；移除标签不会删除会话文件。</p>
             </div>
           );
         })()
@@ -3568,35 +3720,37 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["分支", edges.length],
                   ["父会话未显示", data?.orphanCount ?? 0],
                 ].map(([label, count]) => (
-                  <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(count)}</strong>
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[17px] text-[var(--color-ink)]">{value(count)}</strong>
                   </div>
                 ))}
               </div>
               {data?.activeSessionId ? (
-                <div className="rounded-lg border border-[#b9d0ff] bg-[#f1f6ff] px-3 py-2 text-[10px] text-[#315fb8]">
+                <div className="rounded-lg border border-[#b9d0ff] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px] text-[var(--color-blue)]">
                   当前会话：<code className="font-mono">{value(data.activeSessionId)}</code>
                 </div>
               ) : null}
               {nodes.length > 0 ? (
                 <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">
+                  <li className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
                     最近会话 {Math.min(nodes.length, 8)} / {nodes.length}
                   </li>
                   {nodes.slice(0, 8).map((entry, index) => {
                     const node = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     return (
                       <li
-                        className={`rounded-lg border px-3 py-2 ${node.active === true ? "border-[#b9d0ff] bg-[#f7faff]" : "border-[#edf0f3] bg-white"}`}
+                        className={`rounded-lg border px-3 py-2 ${node.active === true ? "border-[#b9d0ff] bg-[var(--color-blue-soft)]" : "border-[var(--color-line)] bg-[var(--color-surface)]"}`}
                         key={`${value(node.id ?? "session")}-${index}`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className={`h-2 w-2 shrink-0 rounded-full ${node.active === true ? "bg-[#3565c5]" : "bg-[#c4ccd6]"}`}></span>
-                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{value(node.label ?? node.sessionId ?? "未命名会话")}</strong>
-                          <span className="font-mono text-[9px] text-[#687381]">{value(node.messageCount ?? 0)} 条消息</span>
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${node.active === true ? "bg-[#3565c5]" : "bg-[var(--color-blue-soft)]"}`}></span>
+                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">
+                            {value(node.label ?? node.sessionId ?? "未命名会话")}
+                          </strong>
+                          <span className="font-mono text-[9px] text-[var(--color-faint)]">{value(node.messageCount ?? 0)} 条消息</span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[#687381]">
+                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[var(--color-faint)]">
                           <span className="min-w-0 flex-1 truncate font-mono">{value(node.cwd ?? "未知工作区")}</span>
                           <span>{value(node.branchCount ?? 0)} 个分支</span>
                         </div>
@@ -3605,29 +3759,31 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前工作区还没有可投影的持久化会话。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  当前工作区还没有可投影的持久化会话。
+                </div>
               )}
               {edges.length > 0 ? (
-                <div className="grid gap-1 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-2">
-                  <span className="text-[9px] uppercase tracking-[0.08em] text-[#687381]">Fork 关系</span>
+                <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">Fork 关系</span>
                   {edges.slice(0, 5).map((entry, index) => {
                     const edge = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     const from = nodeById.get(value(edge.from));
                     const to = nodeById.get(value(edge.to));
                     return (
                       <div
-                        className="flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-[#65707b]"
+                        className="flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-[var(--color-muted)]"
                         key={`${value(edge.from)}-${value(edge.to)}-${index}`}
                       >
                         <span className="truncate">{value(from?.label ?? edge.from)}</span>
-                        <span className="shrink-0 text-[#3565c5]">→ fork →</span>
+                        <span className="shrink-0 text-[var(--color-blue)]">→ fork →</span>
                         <span className="truncate">{value(to?.label ?? edge.to)}</span>
                       </div>
                     );
                   })}
                 </div>
               ) : null}
-              <div className="text-[10px] text-[#687381]">
+              <div className="text-[10px] text-[var(--color-faint)]">
                 数据来源：Pi 原生 JSONL 会话；Agent 可调用 synapse_session_map 刷新。节点展示 {nodes.length} / {value(data?.total)}；
                 {data?.truncated === true ? "结果已截断，未显示的父会话不代表文件丢失。" : "已返回全部列出的会话。"} 当前工作区：{value(data?.cwd)}
                 。面板最多显示 8 个节点和 5 条关系。
@@ -3645,13 +3801,13 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               return (
                 <>
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#687381]">组件</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(components.length)}</strong>
+                    <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                      <span className="block text-[10px] text-[var(--color-faint)]">组件</span>
+                      <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(components.length)}</strong>
                     </div>
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#687381]">外部依赖</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{value(dependencies.length)}</strong>
+                    <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                      <span className="block text-[10px] text-[var(--color-faint)]">外部依赖</span>
+                      <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(dependencies.length)}</strong>
                     </div>
                   </div>
                   <div className="grid gap-1.5">
@@ -3659,12 +3815,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       const component = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                       return (
                         <div
-                          className="flex items-center gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2 text-[11px]"
+                          className="flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[11px]"
                           key={`${value(component.path ?? "component")}-${index}`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#3565c5]"></span>
-                          <span className="min-w-0 flex-1 truncate font-mono text-[#30343b]">{value(component.path ?? "组件")}</span>
-                          <span className="font-mono text-[10px] text-[#687381]">{value(component.files ?? 0)} files</span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-[var(--color-ink)]">{value(component.path ?? "组件")}</span>
+                          <span className="font-mono text-[10px] text-[var(--color-faint)]">{value(component.files ?? 0)} files</span>
                         </div>
                       );
                     })}
@@ -3673,7 +3829,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <div className="flex flex-wrap gap-1.5">
                       {dependencies.slice(0, 12).map((dependency, index) => (
                         <span
-                          className="rounded-md border border-[#dce5f5] bg-[#f6f8ff] px-2 py-1 font-mono text-[10px] text-[#315fb8]"
+                          className="rounded-md border border-[#dce5f5] bg-[var(--color-blue-soft)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]"
                           key={`${value(dependency)}-${index}`}
                         >
                           {value(dependency)}
@@ -3681,63 +3837,63 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       ))}
                     </div>
                   ) : null}
-                  <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
                     {value(report.mermaid, "")}
                   </pre>
-                  {report.truncated === true ? <p className="text-[10px] text-[#8a5a00]">扫描达到节点上限，架构图可能不完整。</p> : null}
+                  {report.truncated === true ? <p className="text-[10px] text-[var(--color-amber)]">扫描达到节点上限，架构图可能不完整。</p> : null}
                 </>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               Agent 可调用 architecture_map 生成当前工作区架构图。
             </div>
           )}
         </div>
       ) : panel.id === "canvas-draw-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">Mermaid 流程图</span>
-            <span className="font-mono text-[#3565c5]">
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[var(--color-ink)]">Mermaid 流程图</span>
+            <span className="font-mono text-[var(--color-blue)]">
               {value(data?.nodeCount ?? 0)} 节点 · {value(data?.edgeCount ?? 0)} 连线
             </span>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
-            <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+            <pre className="max-h-48 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
               {value((data.latest as Record<string, unknown>).mermaid, "")}
             </pre>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               Agent 可调用 canvas_draw 生成流程图源码。
             </div>
           )}
         </div>
       ) : panel.id === "image-compressor-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">PNG 无损压缩</span>
-            <span className="font-mono text-[#65707b]">上限 32 MiB</span>
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[var(--color-ink)]">PNG 无损压缩</span>
+            <span className="font-mono text-[var(--color-muted)]">上限 32 MiB</span>
           </div>
           {data?.last && typeof data.last === "object" ? (
             (() => {
               const report = data.last as Record<string, unknown>;
               return (
-                <div className="rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#14733f]">
+                <div className="rounded-lg border border-[#b9e6c9] bg-[var(--color-green-soft)] px-3 py-3 text-[11px] text-[var(--color-green)]">
                   {value(report.inputPath ?? "图片")} → {value(report.outputPath ?? "输出")}，节省 {value(report.savedBytes ?? 0)} bytes
                 </div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               Agent 可调用 image_compress，写入前必须 confirm=true。
             </div>
           )}
         </div>
       ) : panel.id === "workspace-search-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[#30343b]">工作区文本检索</span>
-            <span className="font-mono text-[#3565c5]">{value(data?.matchCount ?? 0)} 个匹配</span>
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+            <span className="font-medium text-[var(--color-ink)]">工作区文本检索</span>
+            <span className="font-mono text-[var(--color-blue)]">{value(data?.matchCount ?? 0)} 个匹配</span>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
@@ -3748,21 +3904,26 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   {matches.slice(0, 5).map((match, index) => {
                     const item = match && typeof match === "object" ? (match as Record<string, unknown>) : {};
                     return (
-                      <li className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(item.path ?? "match")}-${index}`}>
-                        <strong className="block truncate font-mono text-[10px] text-[#3565c5]">
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(item.path ?? "match")}-${index}`}
+                      >
+                        <strong className="block truncate font-mono text-[10px] text-[var(--color-blue)]">
                           {value(item.path ?? "未知文件")}:{value(item.line ?? "?")}
                         </strong>
-                        <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{value(item.text, "")}</p>
+                        <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">{value(item.text, "")}</p>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配内容。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  没有找到匹配内容。
+                </div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               Agent 可调用 workspace_search 检索当前工作区。
             </div>
           )}
@@ -3776,7 +3937,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               {view.status.state === "failed" || view.status.state === "cancelled" ? (
                 <div
                   className={`rounded-lg border px-3 py-3 text-[11px] leading-5 ${
-                    view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
+                    view.status.state === "failed"
+                      ? "border-[#f3c4c4] bg-[var(--color-red-soft)] text-[var(--color-red)]"
+                      : "border-[#f4d8a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
                   }`}
                 >
                   扫描{view.status.state === "failed" ? "失败" : "已取消"}
@@ -3789,28 +3952,30 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["已扫描", view.inventory.scanned],
                   ["未回答", view.total],
                 ].map(([label, item]) => (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                    <strong className="mt-1 block font-mono text-[17px] text-[#30343b]">{value(item)}</strong>
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                    <strong className="mt-1 block font-mono text-[17px] text-[var(--color-ink)]">{value(item)}</strong>
                   </div>
                 ))}
               </div>
               {visible.length > 0 ? (
                 <div className="grid gap-2">
                   {visible.map((session, index) => (
-                    <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${session.id}-${index}`}>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2" key={`${session.id}-${index}`}>
                       <div className="flex items-center justify-between gap-2">
-                        <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{session.name}</strong>
-                        <span className="shrink-0 font-mono text-[9px] text-[#687381]">{session.messageCount} 条消息</span>
+                        <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{session.name}</strong>
+                        <span className="shrink-0 font-mono text-[9px] text-[var(--color-faint)]">{session.messageCount} 条消息</span>
                       </div>
-                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[10px] leading-4 text-[#65707b]">{session.message}</p>
+                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[10px] leading-4 text-[var(--color-muted)]">{session.message}</p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有以未回答用户消息结束的会话。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  没有以未回答用户消息结束的会话。
+                </div>
               )}
-              <p className="text-[10px] leading-4 text-[#687381]">
+              <p className="text-[10px] leading-4 text-[var(--color-faint)]">
                 已扫描 {view.inventory.scanned}/{view.inventory.available} 个会话文件，界面显示 {visible.length}/{view.inventory.unread}{" "}
                 个；只读扫描，不会修改会话。
                 {view.inventory.truncated ? " 部分结果因发现、扫描或展示上限被截断。" : ""}
@@ -3829,41 +3994,48 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             cancelled: "已取消",
           } as const;
           const statusTone = {
-            queued: "border-[#dce5f5] bg-[#f6f8ff] text-[#3565c5]",
-            running: "border-[#dce5f5] bg-[#f6f8ff] text-[#3565c5]",
-            completed: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]",
-            failed: "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]",
-            cancelled: "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]",
+            queued: "border-[#dce5f5] bg-[var(--color-blue-soft)] text-[var(--color-blue)]",
+            running: "border-[#dce5f5] bg-[var(--color-blue-soft)] text-[var(--color-blue)]",
+            completed: "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]",
+            failed: "border-[#f3c4c4] bg-[var(--color-red-soft)] text-[var(--color-red)]",
+            cancelled: "border-[#f4d8a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]",
           } as const;
           return (
             <div className="mt-3 grid gap-3">
               {view.latest === null ? (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有执行回退操作。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  还没有执行回退操作。
+                </div>
               ) : (
                 <div className={`rounded-lg border px-3 py-3 ${statusTone[view.latest.status]}`}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">最近操作</span>
-                    <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold">{statusLabel[view.latest.status]}</span>
+                    <span className="rounded-full bg-[var(--color-surface)]/70 px-2 py-1 text-[10px] font-semibold">{statusLabel[view.latest.status]}</span>
                   </div>
-                  <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#30343b]">{view.latest.target.text}</p>
+                  <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[var(--color-ink)]">{view.latest.target.text}</p>
                   {view.latest.error === null ? null : <p className="mt-2 break-words text-[10px] leading-4">{view.latest.error}</p>}
                   {view.latest.summarized ? <p className="mt-2 text-[10px] leading-4">已请求分支摘要；该选项可能调用模型并产生费用。</p> : null}
                 </div>
               )}
               <div className="grid gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">可回退轮次</span>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">可回退轮次</span>
                 {view.candidates.length > 0 ? (
                   view.candidates.map((candidate, index) => (
-                    <div className="flex items-start gap-2 rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${candidate.entryId}-${index}`}>
-                      <span className="mt-0.5 font-mono text-[10px] text-[#3565c5]">{view.candidates.length - index}</span>
-                      <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-[#65707b]">{candidate.text}</span>
+                    <div
+                      className="flex items-start gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                      key={`${candidate.entryId}-${index}`}
+                    >
+                      <span className="mt-0.5 font-mono text-[10px] text-[var(--color-blue)]">{view.candidates.length - index}</span>
+                      <span className="line-clamp-2 min-w-0 flex-1 text-[11px] leading-4 text-[var(--color-muted)]">{candidate.text}</span>
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3 text-[11px] text-[#687381]">当前会话还没有可回退的用户轮次。</div>
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                    当前会话还没有可回退的用户轮次。
+                  </div>
                 )}
               </div>
-              <p className="text-[10px] leading-4 text-[#687381]">
+              <p className="text-[10px] leading-4 text-[var(--color-faint)]">
                 已检查当前分支 {view.inventory.scannedEntries} 个条目；后端保留 {view.inventory.shown} 个候选，界面显示 {view.candidates.length} 个。
                 {view.inventory.truncated ? " 部分结果因扫描、候选或显示上限被截断。" : ""}
               </p>
@@ -3878,51 +4050,53 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               {view.status.state === "failed" || view.status.state === "cancelled" ? (
                 <div
                   className={`rounded-lg border px-3 py-3 text-[11px] leading-5 ${
-                    view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
+                    view.status.state === "failed"
+                      ? "border-[#f3c4c4] bg-[var(--color-red-soft)] text-[var(--color-red)]"
+                      : "border-[#f4d8a8] bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
                   }`}
                 >
                   扫描{view.status.state === "failed" ? "失败" : "已取消"}
                   {view.status.error === null ? "" : `：${view.status.error}`}
                 </div>
               ) : null}
-              {data?.query ? <p className="text-[10px] text-[#687381]">最近完成扫描的查询：{value(data.query)}</p> : null}
+              {data?.query ? <p className="text-[10px] text-[var(--color-faint)]">最近完成扫描的查询：{value(data.query)}</p> : null}
               <div className="grid grid-cols-3 gap-2">
                 {[
                   ["已扫描", view.total],
                   ["高风险", view.blocked],
                   ["待复核", view.review],
                 ].map(([label, item]) => (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                    <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                    <strong className="mt-1 block text-[17px] font-semibold text-[var(--color-ink)]">{value(item)}</strong>
                   </div>
                 ))}
               </div>
               <div className="grid gap-2">
                 {view.reports.length > 0 ? (
                   view.reports.slice(0, 8).map((report, index) => (
-                    <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${report.name}-${index}`}>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2" key={`${report.name}-${index}`}>
                       <div className="flex items-center gap-2">
                         <span
                           className={`h-2 w-2 rounded-full ${report.risk === "blocked" ? "bg-[#d64545]" : report.risk === "review" ? "bg-[#e0a11a]" : "bg-[#22a06b]"}`}
                         ></span>
-                        <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{report.name}</strong>
-                        <span className="text-[10px] text-[#687381]">
+                        <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{report.name}</strong>
+                        <span className="text-[10px] text-[var(--color-faint)]">
                           {report.risk === "blocked" ? "高风险" : report.risk === "review" ? "复核" : "未命中规则"}
                         </span>
                       </div>
                       {report.findings.length > 0 ? (
-                        <p className="mt-1 truncate text-[10px] text-[#65707b]">{report.findings.map((finding) => finding.code).join(" · ")}</p>
+                        <p className="mt-1 truncate text-[10px] text-[var(--color-muted)]">{report.findings.map((finding) => finding.code).join(" · ")}</p>
                       ) : null}
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                     暂无 Skill 扫描结果，可让 Agent 调用 skill_guard_scan。
                   </div>
                 )}
               </div>
-              <p className="text-[10px] text-[#687381]">
+              <p className="text-[10px] text-[var(--color-faint)]">
                 已加载 {view.inventory.available} 个入口，本次查询匹配 {value(data?.matched)} 个，扫描 {view.inventory.scanned} 个，面板显示{" "}
                 {Math.min(view.reports.length, 8)} 个；风险等级仅供审计，不会禁用 Skill，也不证明内容安全。
               </p>
@@ -3938,7 +4112,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               <div
-                className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+                className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : risk === "review" ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
               >
                 <span>
                   {risk === "blocked" ? "高风险，需处理" : risk === "review" ? "需要人工复核" : highest ? "未命中检测规则" : "尚未扫描"}
@@ -3953,40 +4127,40 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   const report = highlighted;
                   const findings = Array.isArray(report.findings) ? report.findings : [];
                   return findings.length > 0 ? (
-                    <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
+                    <ul className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[10px] text-[var(--color-muted)]">
                       {findings.slice(0, 4).map((finding, index) => {
                         const item = finding && typeof finding === "object" ? (finding as Record<string, unknown>) : {};
                         return (
                           <li key={`${value(item.code ?? "finding")}-${index}`}>
-                            <strong className="font-mono text-[#30343b]">{value(item.code ?? "finding")}</strong>：{value(item.message, "")}
+                            <strong className="font-mono text-[var(--color-ink)]">{value(item.code ?? "finding")}</strong>：{value(item.message, "")}
                           </li>
                         );
                       })}
                     </ul>
                   ) : (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                       已扫描内容未命中当前检测规则，不代表没有风险。
                     </div>
                   );
                 })()
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   尚未扫描任何内容。用户消息和工具输出会自动扫描，Agent 也可调用 prompt_guard_scan 检查不可信文本。
                 </div>
               )}
-              <p className="text-[10px] text-[#687381]">被动审计：不会阻断模型或工具执行。超出扫描上限的内容需要另行检查。</p>
+              <p className="text-[10px] text-[var(--color-faint)]">被动审计：不会阻断模型或工具执行。超出扫描上限的内容需要另行检查。</p>
             </div>
           );
         })()
       ) : panel.id === "code2skill-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+          <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">已生成技能</span>
-              <strong className="font-mono text-[12px] text-[#315fb8]">{value(data?.generated ?? 0)}</strong>
+              <span className="text-[11px] font-semibold text-[var(--color-ink)]">已生成技能</span>
+              <strong className="font-mono text-[12px] text-[var(--color-blue)]">{value(data?.generated ?? 0)}</strong>
             </div>
             {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
-              <p className="mt-2 truncate text-[11px] text-[#65707b]">
+              <p className="mt-2 truncate text-[11px] text-[var(--color-muted)]">
                 {value((data.latest as Record<string, unknown>).slug ?? "skill")} ·{" "}
                 {value(
                   Array.isArray((data.latest as Record<string, unknown>).files) ? ((data.latest as Record<string, unknown>).files as unknown[]).length : 0,
@@ -3994,27 +4168,27 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 个参考文件
               </p>
             ) : (
-              <p className="mt-2 text-[11px] text-[#687381]">还没有生成技能。可让 Agent 调用 skill_pack_create。</p>
+              <p className="mt-2 text-[11px] text-[var(--color-faint)]">还没有生成技能。可让 Agent 调用 skill_pack_create。</p>
             )}
           </div>
-          <p className="text-[10px] text-[#687381]">输出目录：项目 .pi/skills/&lt;name&gt;，包含 SKILL.md 和原始参考文件。</p>
+          <p className="text-[10px] text-[var(--color-faint)]">输出目录：项目 .pi/skills/&lt;name&gt;，包含 SKILL.md 和原始参考文件。</p>
         </div>
       ) : panel.id === "genui-panel" ? (
         <div className="mt-3 grid gap-3">
           {(() => {
             const view = genUiPanelView(data);
             const toneClass: Record<string, string> = {
-              neutral: "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]",
-              info: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]",
-              success: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]",
-              warning: "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]",
-              danger: "border-[#f4caca] bg-[#fff5f5] text-[#b42318]",
+              neutral: "border-[var(--color-line)] bg-[var(--color-soft)] text-[var(--color-muted)]",
+              info: "border-[#d9e4f7] bg-[var(--color-blue-soft)] text-[var(--color-blue)]",
+              success: "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]",
+              warning: "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]",
+              danger: "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]",
             };
             return view.latest !== null ? (
               <div className="grid gap-2">
                 <div className="flex items-start justify-between gap-3 text-[11px]">
-                  <strong className="min-w-0 break-words text-[#30343b]">{view.latest.title}</strong>
-                  <span className="shrink-0 font-mono text-[10px] text-[#687381]">{view.rendered} 次</span>
+                  <strong className="min-w-0 break-words text-[var(--color-ink)]">{view.latest.title}</strong>
+                  <span className="shrink-0 font-mono text-[10px] text-[var(--color-faint)]">{view.rendered} 次</span>
                 </div>
                 {view.latest.blocks.map((block, index) =>
                   block.type === "progress" ? (
@@ -4023,7 +4197,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         <span className="min-w-0 break-words">{block.label}</span>
                         <strong className="shrink-0">{block.value}%</strong>
                       </div>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/70">
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface)]/70">
                         <div className="h-full rounded-full bg-current" style={{ width: `${block.value}%` }} />
                       </div>
                     </div>
@@ -4042,7 +4216,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     </div>
                   ),
                 )}
-                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
                   <span>最多 {view.limits.blocks} 块</span>
                   <span>总文本上限 {view.limits.totalText} 字符</span>
                   {view.latest.renderedAt !== null ? <span>{view.latest.renderedAt.slice(11, 19)} UTC</span> : null}
@@ -4050,12 +4224,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                 还没有结构化卡片。可让 Agent 调用 genui_render。
               </div>
             );
           })()}
-          <p className="text-[10px] text-[#687381]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本显示。</p>
+          <p className="text-[10px] text-[var(--color-faint)]">仅渲染结构化文本、徽标和进度块；HTML 与脚本按普通文本显示。</p>
         </div>
       ) : panel.id === "anchored-standard-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -4065,21 +4239,21 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             return (
               <>
                 <div
-                  className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${violated ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
+                  className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${violated ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
                 >
                   <span>{violated ? "轨迹存在违规" : data?.status === "anchored" ? "运行已锚定" : "等待 Agent 运行"}</span>
                   <strong className="font-mono">{value(data?.events ?? 0)} 事件</strong>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                    工具调用 <strong className="ml-1 text-[#30343b]">{value(data?.toolCalls ?? 0)}</strong>
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-[var(--color-muted)]">
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                    工具调用 <strong className="ml-1 text-[var(--color-ink)]">{value(data?.toolCalls ?? 0)}</strong>
                   </div>
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                    违规项 <strong className="ml-1 text-[#30343b]">{value(violations.length)}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                    违规项 <strong className="ml-1 text-[var(--color-ink)]">{value(violations.length)}</strong>
                   </div>
                 </div>
                 {violations.length > 0 ? (
-                  <ul className="grid gap-1 rounded-lg border border-[#f4caca] bg-[#fffafa] px-3 py-2 text-[10px] text-[#b42318]">
+                  <ul className="grid gap-1 rounded-lg border border-[#f4caca] bg-[var(--color-soft)] px-3 py-2 text-[10px] text-[var(--color-red)]">
                     {violations.slice(0, 4).map((item, index) => (
                       <li key={`${value(item)}-${index}`}>
                         {value(item && typeof item === "object" ? ((item as Record<string, unknown>).message ?? "违规") : item)}
@@ -4090,20 +4264,20 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </>
             );
           })()}
-          <p className="text-[10px] text-[#687381]">可让 Agent 调用 trajectory_anchor_check 审计当前执行轨迹。</p>
+          <p className="text-[10px] text-[var(--color-faint)]">可让 Agent 调用 trajectory_anchor_check 审计当前执行轨迹。</p>
         </div>
       ) : panel.id === "telemetry-blocker-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#14733f]">
+          <div className="flex items-center justify-between rounded-lg border border-[#b9e6c9] bg-[var(--color-green-soft)] px-3 py-3 text-[11px] text-[var(--color-green)]">
             <span>本地遥测服务不发送事件</span>
             <strong className="font-mono">
               丢弃 {value(data?.discarded ?? 0)} 次 · 总线观察 {value(data?.observed ?? 0)} 次
             </strong>
           </div>
-          <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[10px] text-[#65707b]">
+          <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[10px] text-[var(--color-muted)]">
             {Array.isArray(data?.names) && data.names.length > 0 ? `事件名：${data.names.slice(0, 8).map(String).join("、")}` : "尚未收到遥测事件。"}
           </div>
-          <p className="text-[10px] text-[#687381]">
+          <p className="text-[10px] text-[var(--color-faint)]">
             最多保留 100 个事件名，界面显示前 8 个；{data?.namesTruncated === true ? "事件名已截断。" : ""}
             不读取或保存事件属性。此服务不拦截网络，也不阻止其他事件监听器。
           </p>
@@ -4113,12 +4287,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           {(() => {
             const view = pluginDevPanelView(data);
             const presentation = {
-              idle: { label: "等待重载", style: "border-[#e3e7ee] bg-[#f6f8fa] text-[#65707b]" },
-              queued: { label: "等待当前运行结束", style: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]" },
-              running: { label: "正在重载会话资源", style: "border-[#d9e4f7] bg-[#f6f8ff] text-[#315fb8]" },
-              reloaded: { label: "会话资源已重载", style: "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" },
-              failed: { label: "会话资源重载失败", style: "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" },
-              cancelled: { label: "会话资源重载已取消", style: "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" },
+              idle: { label: "等待重载", style: "border-[var(--color-line)] bg-[var(--color-soft)] text-[var(--color-muted)]" },
+              queued: { label: "等待当前运行结束", style: "border-[#d9e4f7] bg-[var(--color-blue-soft)] text-[var(--color-blue)]" },
+              running: { label: "正在重载会话资源", style: "border-[#d9e4f7] bg-[var(--color-blue-soft)] text-[var(--color-blue)]" },
+              reloaded: { label: "会话资源已重载", style: "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]" },
+              failed: { label: "会话资源重载失败", style: "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" },
+              cancelled: { label: "会话资源重载已取消", style: "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" },
             }[view.status];
             return (
               <>
@@ -4126,9 +4300,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <span>{presentation.label}</span>
                   <strong className="font-mono">{view.status}</strong>
                 </div>
-                <p className="break-words text-[10px] text-[#687381]">{view.reason || "修改本地扩展后调用 plugin_dev_reload"}</p>
-                {view.error !== null ? <p className="break-words rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{view.error}</p> : null}
-                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                <p className="break-words text-[10px] text-[var(--color-faint)]">{view.reason || "修改本地扩展后调用 plugin_dev_reload"}</p>
+                {view.error !== null ? (
+                  <p className="break-words rounded-lg bg-[var(--color-red-soft)] px-3 py-2 text-[10px] text-[var(--color-red)]">{view.error}</p>
+                ) : null}
+                <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
                   <span>原因上限 {view.limits.reasonCharacters} 字符</span>
                   <span>错误上限 {view.limits.errorCharacters} 字符</span>
                   {view.reloadedAt !== null ? <span>{view.reloadedAt.slice(11, 19)} UTC</span> : null}
@@ -4144,23 +4320,25 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             const moodLabel = { idle: "休息", focused: "专注", happy: "开心", concerned: "担心" }[view.mood];
             return (
               <>
-                <div className="flex items-center gap-3 rounded-lg border border-[#e3e7ee] bg-[#f8fafc] px-3 py-3">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#dceaff] text-[20px] text-[#3565c5]">◉</span>
+                <div className="flex items-center gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-blue-soft)] text-[20px] text-[var(--color-blue)]">
+                    ◉
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <strong className="block truncate text-[13px] text-[#30343b]">{view.name}</strong>
-                    <span className="text-[10px] text-[#687381]">{view.lastEvent}</span>
+                    <strong className="block truncate text-[13px] text-[var(--color-ink)]">{view.name}</strong>
+                    <span className="text-[10px] text-[var(--color-faint)]">{view.lastEvent}</span>
                   </div>
-                  <span className="rounded-full bg-[#edf3fe] px-2 py-1 text-[10px] text-[#3565c5]">{moodLabel}</span>
+                  <span className="rounded-full bg-[var(--color-blue-soft)] px-2 py-1 text-[10px] text-[var(--color-blue)]">{moodLabel}</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                    能量 <strong className="ml-1 text-[#30343b]">{view.energy}%</strong>
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-[var(--color-muted)]">
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                    能量 <strong className="ml-1 text-[var(--color-ink)]">{view.energy}%</strong>
                   </div>
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                    互动 <strong className="ml-1 text-[#30343b]">{view.interactions}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                    互动 <strong className="ml-1 text-[var(--color-ink)]">{view.interactions}</strong>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
                   <span>
                     恢复扫描 {view.recovery.scanned} / {view.recovery.sessionEntries}
                   </span>
@@ -4171,9 +4349,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   {view.updatedAt !== null ? <span>{view.updatedAt.slice(11, 19)} UTC</span> : null}
                 </div>
                 {view.persistence.lastError !== null ? (
-                  <p className="break-words rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] text-[#b42318]">{view.persistence.lastError}</p>
+                  <p className="break-words rounded-lg bg-[var(--color-red-soft)] px-3 py-2 text-[10px] text-[var(--color-red)]">
+                    {view.persistence.lastError}
+                  </p>
                 ) : null}
-                <p className="text-[10px] text-[#687381]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
+                <p className="text-[10px] text-[var(--color-faint)]">根据真实 Pi 会话事件自动反应，也可让 Agent 调用 pet_react 进行互动。</p>
               </>
             );
           })()}
@@ -4189,35 +4369,35 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               return (
                 <>
                   <div
-                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "pass" ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "pass" ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]" : status === "warning" ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
                   >
                     <span>{status === "pass" ? "门禁通过" : status === "warning" ? "门禁有警告" : "门禁失败"}</span>
                     <strong className="font-mono">{value(data.runs ?? 0)} 次</strong>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-[10px] text-[#65707b]">
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      测试 exit <strong className="ml-1 text-[#30343b]">{value(tests.exitCode ?? "—")}</strong>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] text-[var(--color-muted)]">
+                    <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                      测试 exit <strong className="ml-1 text-[var(--color-ink)]">{value(tests.exitCode ?? "—")}</strong>
                     </div>
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      审查 <strong className="ml-1 text-[#30343b]">{value(review.status ?? "—")}</strong>
+                    <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                      审查 <strong className="ml-1 text-[var(--color-ink)]">{value(review.status ?? "—")}</strong>
                     </div>
                   </div>
                 </>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               还没有执行发布门禁。可让 Agent 调用 verify_change_gate。
             </div>
           )}
-          <p className="text-[10px] text-[#687381]">复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。</p>
+          <p className="text-[10px] text-[var(--color-faint)]">复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。</p>
         </div>
       ) : panel.id === "readme-gen-panel" ? (
         (() => {
           const view = readmeGenPanelView(data);
           if (view.malformed)
             return (
-              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] leading-5 text-[#b42318]">
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] leading-5 text-[var(--color-red)]">
                 README 面板数据无效，暂不展示生成或写入结果。
               </div>
             );
@@ -4241,10 +4421,10 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       : "生成已取消";
           const statusTone =
             view.status.state === "failed" || view.status.state === "cancelled"
-              ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"
+              ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]"
               : view.status.state === "completed"
-                ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"
-                : "border-[#dce5f5] bg-[#f6f8ff] text-[#315fb8]";
+                ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"
+                : "border-[#dce5f5] bg-[var(--color-blue-soft)] text-[var(--color-blue)]";
           return (
             <div className="mt-3 grid min-w-0 gap-3">
               <div className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[10px] ${statusTone}`}>
@@ -4252,29 +4432,29 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 {view.status.at !== null ? <time className="shrink-0 font-mono">{view.status.at.slice(11, 19)} UTC</time> : null}
               </div>
               {view.generated === null ? (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] leading-5 text-[#687381]">
-                  还没有生成 README 草稿。让 Agent 调用 <code className="font-mono text-[#3565c5]">readme_report</code> 先检查内容。
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] leading-5 text-[var(--color-faint)]">
+                  还没有生成 README 草稿。让 Agent 调用 <code className="font-mono text-[var(--color-blue)]">readme_report</code> 先检查内容。
                 </div>
               ) : (
-                <div className="min-w-0 border-l-2 border-[#7aa2e8] bg-[#f8faff] px-3 py-3">
-                  <p className="break-all text-[12px] font-semibold leading-5 text-[#20252b]">{view.generated.name}</p>
-                  <p className="mt-1 text-[10px] text-[#687381]">
+                <div className="min-w-0 border-l-2 border-[#7aa2e8] bg-[var(--color-blue-soft)] px-3 py-3">
+                  <p className="break-all text-[12px] font-semibold leading-5 text-[var(--color-ink)]">{view.generated.name}</p>
+                  <p className="mt-1 text-[10px] text-[var(--color-faint)]">
                     {view.generated.scripts} 个脚本 · {view.generated.plugins} 个运行时插件
                   </p>
                 </div>
               )}
               {view.lastWrite !== null ? (
-                <div className="min-w-0 rounded-lg border border-[#dce5f5] bg-white px-3 py-2 text-[#315fb8]">
+                <div className="min-w-0 rounded-lg border border-[#dce5f5] bg-[var(--color-surface)] px-3 py-2 text-[var(--color-blue)]">
                   <p className="break-all font-mono text-[10px] leading-4">{view.lastWrite.path}</p>
-                  <p className="mt-1 text-[10px] text-[#687381]">
+                  <p className="mt-1 text-[10px] text-[var(--color-faint)]">
                     {new Intl.NumberFormat("en-US").format(view.lastWrite.bytes)} bytes · {view.lastWrite.overwritten ? "已覆盖" : "新文件"}
                   </p>
                 </div>
               ) : null}
               {view.status.error !== null ? (
-                <p className="break-words rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">{view.status.error}</p>
+                <p className="break-words rounded-lg bg-[var(--color-red-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-red)]">{view.status.error}</p>
               ) : null}
-              <p className="text-[10px] leading-4 text-[#687381]">
+              <p className="text-[10px] leading-4 text-[var(--color-faint)]">
                 写入需要 <code className="font-mono">confirm=true</code>；覆盖已有 README 还需要 <code className="font-mono">overwrite=true</code>。
               </p>
             </div>
@@ -4285,7 +4465,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = sqlLensPanelView(data);
           if (view.malformed) {
             return (
-              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
                 <strong className="block text-[12px]">SQL Lens 面板数据异常</strong>
                 <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再查询。</span>
               </div>
@@ -4304,116 +4484,121 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     : "等待查询";
           return (
             <div className="mt-3 grid gap-3">
-              <div className="flex items-center justify-between gap-3 text-[10px] text-[#687381]">
-                <span className="rounded-full border border-[#dce5f5] bg-[#f6f8fa] px-2 py-1 font-semibold text-[#3565c5]">{statusLabel}</span>
+              <div className="flex items-center justify-between gap-3 text-[10px] text-[var(--color-faint)]">
+                <span className="rounded-full border border-[#dce5f5] bg-[var(--color-soft)] px-2 py-1 font-semibold text-[var(--color-blue)]">
+                  {statusLabel}
+                </span>
                 {view.status.at !== null ? <time className="font-mono">{new Date(view.status.at).toLocaleString()}</time> : null}
               </div>
               {view.status.error !== null ? (
-                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">{view.status.error}</div>
+                <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-red)]">
+                  {view.status.error}
+                </div>
               ) : null}
               {report !== null ? (
                 <>
-                  <p className="break-all text-[10px] text-[#687381]">查询工作区：{report.cwd}</p>
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-3">
+                  <p className="break-all text-[10px] text-[var(--color-faint)]">查询工作区：{report.cwd}</p>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="truncate font-mono text-[11px] text-[#30343b]" title={report.database}>
+                      <span className="truncate font-mono text-[11px] text-[var(--color-ink)]" title={report.database}>
                         {report.database}
                       </span>
-                      <strong className="shrink-0 font-mono text-[12px] text-[#3565c5]">{report.rowInventory.returned} rows</strong>
+                      <strong className="shrink-0 font-mono text-[12px] text-[var(--color-blue)]">{report.rowInventory.returned} rows</strong>
                     </div>
-                    <code className="mt-2 block max-h-16 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-[#687381]">
+                    <code className="mt-2 block max-h-16 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-[var(--color-faint)]">
                       {report.query}
                     </code>
                   </div>
-                  <p className="break-words text-[10px] text-[#687381]">列：{report.columns.join(", ")}</p>
-                  <pre className="max-h-56 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                  <p className="break-words text-[10px] text-[var(--color-faint)]">列：{report.columns.join(", ")}</p>
+                  <pre className="max-h-56 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
                     {JSON.stringify(report.rows, null, 2)}
                   </pre>
                   {report.rowInventory.truncated ? (
-                    <p className="text-[10px] text-[#9a6700]">
+                    <p className="text-[10px] text-[var(--color-amber)]">
                       面板显示 {report.rowInventory.shown} / {report.rowInventory.returned} 行；已迭代 {report.rowInventory.scanned}{" "}
                       行，行、列或单元格展示已截断。这不是匹配总行数。
                     </p>
                   ) : null}
                 </>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   还没有查询数据库。可让 Agent 调用 sql_readonly。
                 </div>
               )}
-              <div className="flex flex-wrap gap-2 font-mono text-[10px] text-[#3565c5]">
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">timeout:{view.timeoutMs}ms</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">rows:{view.limits.rows}</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">result:{Math.round(view.limits.resultBytes / 1_024)}KiB</span>
+              <div className="flex flex-wrap gap-2 font-mono text-[10px] text-[var(--color-blue)]">
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">timeout:{view.timeoutMs}ms</span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">rows:{view.limits.rows}</span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">
+                  result:{Math.round(view.limits.resultBytes / 1_024)}KiB
+                </span>
               </div>
             </div>
           );
         })()
       ) : panel.id === "theme-studio-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-            <div className="min-w-0">
-              <strong className="block text-[12px] text-[#30343b]">{value(data?.label ?? "Light")}</strong>
-              <p className="mt-1 truncate text-[10px] text-[#65707b]">{value(data?.description ?? "")}</p>
-            </div>
-            <span className="shrink-0 rounded-full bg-[#edf3fe] px-2 py-1 font-mono text-[10px] text-[#3565c5]">{value(data?.theme ?? "light")}</span>
-          </div>
-          {Array.isArray(data?.presets) ? (
-            <div className="grid grid-cols-2 gap-2">
-              {data.presets.map((preset, index) => {
-                const item = preset !== null && typeof preset === "object" ? (preset as Record<string, unknown>) : {};
-                const selected = item.id === data.theme;
-                return (
-                  <div
-                    className={`rounded-lg border px-3 py-2 ${selected ? "border-[#9bbcff] bg-[#f6f8ff]" : "border-[#edf0f3] bg-white"}`}
-                    key={`${value(item.id ?? "theme")}-${index}`}
-                  >
-                    <strong className="block text-[11px] text-[#30343b]">{value(item.label ?? item.id ?? "主题")}</strong>
-                    <span className="mt-1 block truncate text-[10px] text-[#687381]">{value(item.description ?? "")}</span>
+        (() => {
+          const theme = themeStudioView(panel.data);
+          if (!theme) return <p className="mt-3 text-[11px] text-[var(--color-red)]">主题数据无效，未应用颜色。</p>;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+                <strong className="block text-[12px] text-[var(--color-ink)]">{theme.label}</strong>
+                <p className="mt-1 text-[10px] text-[var(--color-muted)]">{theme.description}</p>
+                <p className="mt-1 break-all text-[10px] text-[var(--color-muted)]">会话：{theme.sessionId}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {["light", "midnight", "paper", "high-contrast"].map((id) => (
+                  <div key={id} className="rounded-lg border border-[var(--color-line)] px-3 py-2 text-[11px] text-[var(--color-ink)]">
+                    {id}
+                    {id === theme.theme ? " · 当前" : ""}
                   </div>
-                );
-              })}
+                ))}
+              </div>
+              <p className="text-[10px] leading-4 text-[var(--color-muted)]">
+                可让 Agent 调用 theme_set 切换预设。{theme.changedAt ? `最近选择：${theme.changedAt}` : "使用配置默认主题。"}
+              </p>
             </div>
-          ) : null}
-          <p className="text-[10px] leading-4 text-[#687381]">可让 Agent 调用 theme_set 切换预设；选择会保存到当前 session，并由 React 根节点应用 token。</p>
-        </div>
+          );
+        })()
       ) : panel.id === "mirage-bridge-panel" ? (
         <div className="mt-3 grid gap-3">
           <div
-            className={`rounded-lg border px-3 py-3 ${data?.available === true ? "border-[#b9e6c9] bg-[#f0fbf4]" : data?.available === false ? "border-[#f3dfab] bg-[#fffaf0]" : "border-[#e3e7ee] bg-[#f6f8fa]"}`}
+            className={`rounded-lg border px-3 py-3 ${data?.available === true ? "border-[#b9e6c9] bg-[var(--color-green-soft)]" : data?.available === false ? "border-[#f3dfab] bg-[var(--color-amber-soft)]" : "border-[var(--color-line)] bg-[var(--color-soft)]"}`}
           >
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold text-[#30343b]">官方 Mirage CLI</span>
+              <span className="text-[11px] font-semibold text-[var(--color-ink)]">官方 Mirage CLI</span>
               <strong
-                className={`text-[11px] ${data?.available === true ? "text-[#14733f]" : data?.available === false ? "text-[#9a6700]" : "text-[#687381]"}`}
+                className={`text-[11px] ${data?.available === true ? "text-[var(--color-green)]" : data?.available === false ? "text-[var(--color-amber)]" : "text-[var(--color-faint)]"}`}
               >
                 {data?.available === true ? "已连接" : data?.available === false ? "未检测到" : "未检查"}
               </strong>
             </div>
-            <p className="mt-2 truncate font-mono text-[10px] text-[#65707b]">{value(data?.version ?? data?.executable ?? "mirage")}</p>
-            <p className="mt-1 text-[11px] text-[#65707b]">虚拟工作区：{value(data?.workspaceId ?? "未配置")}</p>
+            <p className="mt-2 truncate font-mono text-[10px] text-[var(--color-muted)]">{value(data?.version ?? data?.executable ?? "mirage")}</p>
+            <p className="mt-1 text-[11px] text-[var(--color-muted)]">虚拟工作区：{value(data?.workspaceId ?? "未配置")}</p>
           </div>
           {data?.lastRun && typeof data.lastRun === "object" ? (
             (() => {
               const run = data.lastRun as Record<string, unknown>;
               return (
-                <div className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
+                <div
+                  className={`rounded-lg border px-3 py-3 ${run.exitCode === 0 ? "border-[#b9e6c9] bg-[var(--color-green-soft)]" : "border-[#f4caca] bg-[var(--color-red-soft)]"}`}
+                >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="truncate font-mono text-[10px] text-[#30343b]">{value(run.command ?? "")}</span>
-                    <strong className={`shrink-0 text-[11px] ${run.exitCode === 0 ? "text-[#14733f]" : "text-[#b42318]"}`}>
+                    <span className="truncate font-mono text-[10px] text-[var(--color-ink)]">{value(run.command ?? "")}</span>
+                    <strong className={`shrink-0 text-[11px] ${run.exitCode === 0 ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}>
                       exit {value(run.exitCode ?? "—")}
                     </strong>
                   </div>
-                  <p className="mt-1 text-[10px] text-[#65707b]">耗时 {value(run.durationMs ?? 0)} ms</p>
+                  <p className="mt-1 text-[10px] text-[var(--color-muted)]">耗时 {value(run.durationMs ?? 0)} ms</p>
                 </div>
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               先调用 mirage_doctor 检查 CLI，再调用 mirage_execute。
             </div>
           )}
-          {data?.lastError ? <p className="text-[10px] leading-4 text-[#9a6700]">{value(data.lastError)}</p> : null}
+          {data?.lastError ? <p className="text-[10px] leading-4 text-[var(--color-amber)]">{value(data.lastError)}</p> : null}
         </div>
       ) : panel.id === "docker-sandbox-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -4421,7 +4606,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             const view = dockerSandboxPanelView(data);
             if (view.malformed) {
               return (
-                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+                <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
                   <strong className="block text-[12px]">Docker Sandbox 面板数据异常</strong>
                   <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再运行。</span>
                 </div>
@@ -4432,29 +4617,31 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             return (
               <>
                 {run !== null ? (
-                  <div className={`rounded-lg border px-3 py-3 ${successful ? "border-[#b9e6c9] bg-[#f0fbf4]" : "border-[#f4caca] bg-[#fff5f5]"}`}>
+                  <div
+                    className={`rounded-lg border px-3 py-3 ${successful ? "border-[#b9e6c9] bg-[var(--color-green-soft)]" : "border-[#f4caca] bg-[var(--color-red-soft)]"}`}
+                  >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="truncate font-mono text-[11px] text-[#30343b]">{run.image}</span>
-                      <strong className={`shrink-0 font-mono text-[12px] ${successful ? "text-[#14733f]" : "text-[#b42318]"}`}>
+                      <span className="truncate font-mono text-[11px] text-[var(--color-ink)]">{run.image}</span>
+                      <strong className={`shrink-0 font-mono text-[12px] ${successful ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}>
                         {run.status === "timed_out" ? "超时" : `exit ${run.exitCode}`}
                       </strong>
                     </div>
-                    <p className="mt-2 break-all font-mono text-[10px] leading-4 text-[#65707b]">
+                    <p className="mt-2 break-all font-mono text-[10px] leading-4 text-[var(--color-muted)]">
                       {run.command.map((argument) => JSON.stringify(argument)).join(" ")}
                     </p>
-                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-[#687381]">
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
                       <span>{run.write ? "工作区可写（已确认）" : "工作区只读"}</span>
                       <span>{run.commandCount} 个 argv 参数</span>
                       {run.truncated ? <span>面板明细已截断</span> : null}
                     </div>
                     {run.output ? (
-                      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-white/70 px-2 py-2 text-[10px] leading-4 text-[#4c5663]">
+                      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-[var(--color-surface)]/70 px-2 py-2 text-[10px] leading-4 text-[var(--color-muted)]">
                         {run.output}
                       </pre>
                     ) : null}
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                     还没有沙箱运行。仅使用本地镜像，默认无网络、工作区只读。
                   </div>
                 )}
@@ -4470,7 +4657,10 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     [`pids:${view.defaults.pids}`, "pids"],
                     [`timeout:${view.defaults.timeoutMs}ms`, "timeout"],
                   ].map(([label, key]) => (
-                    <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={key}>
+                    <span
+                      className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]"
+                      key={key}
+                    >
                       {label}
                     </span>
                   ))}
@@ -4486,14 +4676,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               {view.status.state === "failed" || view.status.state === "cancelled" ? (
-                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[11px] text-[#b42318]">
+                <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[11px] text-[var(--color-red)]">
                   最近一次校验{view.status.state === "cancelled" ? "已取消" : "失败"}。{view.status.error ?? ""}
                 </div>
               ) : null}
               {report !== null ? (
                 <>
                   <div
-                    className={`rounded-lg border px-3 py-3 text-[11px] ${report.valid ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${report.valid ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]" : "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
                   >
                     {report.valid ? "YAML 语法有效。" : `发现 ${report.errorCount} 个语法错误。`}
                   </div>
@@ -4503,25 +4693,25 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       ["错误", report.errorCount],
                       ["警告", report.warningCount],
                     ].map(([label, entryValue]) => (
-                      <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={label}>
-                        <span className="block text-[10px] text-[#687381]">{label}</span>
-                        <strong className="mt-1 block text-[17px] text-[#30343b]">{entryValue}</strong>
+                      <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={label}>
+                        <span className="block text-[10px] text-[var(--color-faint)]">{label}</span>
+                        <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{entryValue}</strong>
                       </div>
                     ))}
                   </div>
                   {!report.valid && report.errors.length > 0 ? (
-                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[#f4caca] bg-[#fffafa] p-3 text-[10px] leading-4 text-[#b42318]">
+                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[#f4caca] bg-[var(--color-soft)] p-3 text-[10px] leading-4 text-[var(--color-red)]">
                       {report.errors.map((error) => `${error.line ?? "?"}:${error.column ?? "?"} ${error.message}`).join("\n")}
                     </pre>
                   ) : null}
-                  {report.diagnosticsTruncated ? <p className="text-[10px] text-[#8a5a00]">诊断预览已截断，完整计数保留在摘要中。</p> : null}
+                  {report.diagnosticsTruncated ? <p className="text-[10px] text-[var(--color-amber)]">诊断预览已截断，完整计数保留在摘要中。</p> : null}
                 </>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   还没有校验 YAML。可让 Agent 调用 yaml_validate。
                 </div>
               )}
-              <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+              <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">
                 max:{Math.round(view.limits.fileBytes / 1024)}KiB · read-only
               </span>
             </div>
@@ -4532,7 +4722,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = browserSessionPanelView(data);
           if (view.malformed) {
             return (
-              <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+              <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
                 <strong className="block text-[12px]">Browser Session 面板数据异常</strong>
                 <span className="mt-1 block">面板数据不完整或不可信，请重新连接后再试。</span>
               </div>
@@ -4551,54 +4741,58 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   : undefined;
           return (
             <div className="mt-3 grid gap-3">
-              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="truncate font-mono text-[11px] text-[#30343b]">{view.endpoint || "本地浏览器未连接"}</span>
+                  <span className="truncate font-mono text-[11px] text-[var(--color-ink)]">{view.endpoint || "本地浏览器未连接"}</span>
                   <span
-                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${view.connected ? "bg-[#e8f8ee] text-[#14733f]" : "bg-[#fff4e5] text-[#8a5a00]"}`}
+                    className={`rounded-full px-2 py-1 text-[10px] font-semibold ${view.connected ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"}`}
                   >
                     {view.connected ? "已连接" : "未连接"}
                   </span>
                 </div>
-                <p className="mt-2 text-[11px] text-[#687381]">
+                <p className="mt-2 text-[11px] text-[var(--color-faint)]">
                   Chrome DevTools Protocol · 显示 {view.inventory.shown}/{view.inventory.total} 个可调试页面
                 </p>
-                {!view.connected ? <p className="mt-2 text-[11px] text-[#b42318]">请使用 remote-debugging-port 启动 Chrome。{view.error ?? ""}</p> : null}
+                {!view.connected ? (
+                  <p className="mt-2 text-[11px] text-[var(--color-red)]">请使用 remote-debugging-port 启动 Chrome。{view.error ?? ""}</p>
+                ) : null}
               </div>
               {latestAction ? (
-                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[11px]">
-                  <span className="text-[#65707b]">最近动作</span>
-                  <strong className="font-mono text-[#315fb8]">{latestAction}</strong>
+                <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-2 text-[11px]">
+                  <span className="text-[var(--color-muted)]">最近动作</span>
+                  <strong className="font-mono text-[var(--color-blue)]">{latestAction}</strong>
                 </div>
               ) : null}
               {latest?.text !== undefined ? (
-                <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-3">
-                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-[#4c5663]">{latest.text}</pre>
-                  {latest.previewTruncated ? <p className="mt-2 text-[10px] text-[#8a5a00]">面板正文预览已截断。</p> : null}
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-[var(--color-muted)]">{latest.text}</pre>
+                  {latest.previewTruncated ? <p className="mt-2 text-[10px] text-[var(--color-amber)]">面板正文预览已截断。</p> : null}
                 </div>
               ) : null}
               {latest?.screenshot !== undefined ? (
-                <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-2 text-[10px] text-[#315fb8]">
+                <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px] text-[var(--color-blue)]">
                   截图元数据：{latest.screenshot.mimeType} · {latest.screenshot.bytes.toLocaleString()} bytes
                 </div>
               ) : null}
               {tabs.length > 0 ? (
                 <div className="grid gap-2">
                   {tabs.map((tab) => (
-                    <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={tab.targetId}>
-                      <strong className="block truncate text-[11px] text-[#30343b]">{tab.title}</strong>
-                      <span className="mt-1 block truncate font-mono text-[10px] text-[#687381]">{tab.url}</span>
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2" key={tab.targetId}>
+                      <strong className="block truncate text-[11px] text-[var(--color-ink)]">{tab.title}</strong>
+                      <span className="mt-1 block truncate font-mono text-[10px] text-[var(--color-faint)]">{tab.url}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有可调试的浏览器页面。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  没有可调试的浏览器页面。
+                </div>
               )}
-              <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">tabs</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">read</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">click</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[#3565c5]">screenshot</span>
+              <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-faint)]">
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[var(--color-blue)]">tabs</span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[var(--color-blue)]">read</span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[var(--color-blue)]">click</span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[var(--color-blue)]">screenshot</span>
               </div>
             </div>
           );
@@ -4608,18 +4802,18 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = mcpClientPanelView(data);
           return (
             <div className="mt-3 grid gap-3">
-              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="truncate font-mono text-[11px] text-[#30343b]">{value(view.server ?? "尚未连接 MCP 服务器")}</span>
-                  <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[#3565c5]">
+                  <span className="truncate font-mono text-[11px] text-[var(--color-ink)]">{value(view.server ?? "尚未连接 MCP 服务器")}</span>
+                  <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-[var(--color-blue)]">
                     <span>{view.inventory.tools.total} 工具</span>
-                    <span className="text-[#687381]">·</span>
+                    <span className="text-[var(--color-faint)]">·</span>
                     <span>{view.inventory.resources.total} 资源</span>
-                    <span className="text-[#687381]">·</span>
+                    <span className="text-[var(--color-faint)]">·</span>
                     <span>{view.inventory.prompts.total} 提示</span>
                   </div>
                 </div>
-                <p className="mt-2 text-[11px] text-[#687381]">
+                <p className="mt-2 text-[11px] text-[var(--color-faint)]">
                   {view.lastCall === null ? "使用 mcp_list_tools 发现 stdio 工具。" : `最近调用：${view.lastCall}`}
                 </p>
               </div>
@@ -4627,7 +4821,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 <div className="flex flex-wrap gap-2">
                   {view.tools.map((tool, index) => (
                     <span
-                      className="max-w-full truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]"
+                      className="max-w-full truncate rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]"
                       key={`${tool.name}-${index}`}
                       title={tool.description}
                     >
@@ -4638,11 +4832,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ) : null}
               {view.resources.length > 0 ? (
                 <div className="grid gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">资源</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-faint)]">资源</span>
                   <div className="flex flex-wrap gap-2">
                     {view.resources.map((resource, index) => (
                       <span
-                        className="max-w-full truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
+                        className="max-w-full truncate rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-muted)]"
                         key={`${resource.uri}-${index}`}
                         title={resource.uri}
                       >
@@ -4654,11 +4848,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ) : null}
               {view.prompts.length > 0 ? (
                 <div className="grid gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#687381]">提示模板</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-faint)]">提示模板</span>
                   <div className="flex flex-wrap gap-2">
                     {view.prompts.map((prompt, index) => (
                       <span
-                        className="max-w-full truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#65707b]"
+                        className="max-w-full truncate rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-muted)]"
                         key={`${prompt.name}-${index}`}
                         title={prompt.description}
                       >
@@ -4672,19 +4866,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 <div className="grid gap-2">
                   {view.servers.map((server, index) => (
                     <div
-                      className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]"
+                      className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
                       key={`${server.id}-${index}`}
                     >
-                      <span className="truncate font-mono text-[#30343b]">{server.id}</span>
-                      <span className={server.status === "running" ? "text-[#14733f]" : "text-[#687381]"}>{server.status}</span>
+                      <span className="truncate font-mono text-[var(--color-ink)]">{server.id}</span>
+                      <span className={server.status === "running" ? "text-[var(--color-green)]" : "text-[var(--color-faint)]"}>{server.status}</span>
                     </div>
                   ))}
                 </div>
               ) : null}
               {view.inventory.tools.truncated || view.inventory.resources.truncated || view.inventory.prompts.truncated || view.inventory.servers.truncated ? (
-                <p className="text-[10px] text-[#687381]">面板仅显示受限预览；完整清单请使用对应 MCP 列表工具。</p>
+                <p className="text-[10px] text-[var(--color-faint)]">面板仅显示受限预览；完整清单请使用对应 MCP 列表工具。</p>
               ) : null}
-              <p className="font-mono text-[9px] text-[#8a94a1]">
+              <p className="font-mono text-[9px] text-[var(--color-faint)]">
                 响应上限 {Math.round(view.limits.responseBytes / 1024)} KiB · 请求超时 {Math.round(view.limits.requestTimeoutMs / 1000)} 秒
               </p>
             </div>
@@ -4701,14 +4895,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     const server = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     const healthy = server.status === "running";
                     return (
-                      <li className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2" key={`${value(server.id ?? "server")}-${index}`}>
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        key={`${value(server.id ?? "server")}-${index}`}
+                      >
                         <div className="flex items-center gap-2">
-                          <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#30343b]">{value(server.id, "未命名服务器")}</strong>
-                          <span className={`rounded px-1.5 py-0.5 text-[9px] ${healthy ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#fff5f5] text-[#b42318]"}`}>
+                          <strong className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-ink)]">{value(server.id, "未命名服务器")}</strong>
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[9px] ${healthy ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
+                          >
                             {value(server.status, "unknown")}
                           </span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#687381]">
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--color-faint)]">
                           <span>{typeof server.toolCount === "number" ? `${server.toolCount} 个 MCP 工具` : "工具尚未查询"}</span>
                           <span>·</span>
                           <span>{value(server.statusSource, "runtime")}</span>
@@ -4718,9 +4917,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   })}
                 </ul>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前没有 MCP 服务器快照。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  当前没有 MCP 服务器快照。
+                </div>
               )}
-              <div className="text-[10px] text-[#687381]">
+              <div className="text-[10px] text-[var(--color-faint)]">
                 读取 MCP 运行状态；工具列表通过 mcp_panel 的 tools 操作查询，健康建议通过 health 操作查看。
                 {data?.writesEnabled === true ? ` 已启用 profile patch 写入：${value(data.patchPath)}` : " profile patch 写入未配置，apply 会被拒绝。"}
               </div>
@@ -4729,18 +4930,18 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         })()
       ) : panel.id === "mock-server-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <span className="font-mono text-[11px] text-[#30343b]">{data?.running === true ? "运行中" : "未启动"}</span>
-            <strong className="font-mono text-[11px] text-[#3565c5]">{value(data?.routes ?? 0)} 路由</strong>
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+            <span className="font-mono text-[11px] text-[var(--color-ink)]">{data?.running === true ? "运行中" : "未启动"}</span>
+            <strong className="font-mono text-[11px] text-[var(--color-blue)]">{value(data?.routes ?? 0)} 路由</strong>
           </div>
-          {data?.url ? <code className="rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{value(data.url)}</code> : null}
-          {data?.lastRequest ? <p className="text-[11px] text-[#687381]">最近请求：{value(data.lastRequest)}</p> : null}
+          {data?.url ? <code className="rounded-md bg-[var(--color-surface)] px-3 py-2 text-[10px] text-[var(--color-muted)]">{value(data.url)}</code> : null}
+          {data?.lastRequest ? <p className="text-[11px] text-[var(--color-faint)]">最近请求：{value(data.lastRequest)}</p> : null}
         </div>
       ) : panel.id === "cli-notifier-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <span className="font-mono text-[11px] text-[#30343b]">{data?.enabled === true ? "已启用" : "已停用"}</span>
-            <span className="font-mono text-[10px] text-[#687381]">
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+            <span className="font-mono text-[11px] text-[var(--color-ink)]">{data?.enabled === true ? "已启用" : "已停用"}</span>
+            <span className="font-mono text-[10px] text-[var(--color-faint)]">
               {value(data?.platform ?? "unknown")} · {value(data?.timeoutMs ?? 10_000)}ms
             </span>
           </div>
@@ -4749,39 +4950,52 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               {data.notifications.slice(0, 5).map((notification, index) => {
                 const item = typeof notification === "object" && notification !== null ? (notification as Record<string, unknown>) : {};
                 return (
-                  <div className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 text-[10px]" key={`${value(item.time ?? "notification")}-${index}`}>
+                  <div
+                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
+                    key={`${value(item.time ?? "notification")}-${index}`}
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <strong className="text-[#30343b]">{value(item.title ?? "Pi Harness")}</strong>
-                      <span className={item.delivered === true ? "text-[#14733f]" : "text-[#b42318]"}>{item.delivered === true ? "已送达" : "未送达"}</span>
+                      <strong className="text-[var(--color-ink)]">{value(item.title ?? "Pi Harness")}</strong>
+                      <span className={item.delivered === true ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}>
+                        {item.delivered === true ? "已送达" : "未送达"}
+                      </span>
                     </div>
-                    <span className="mt-1 block text-[#65707b]">{value(item.message, "")}</span>
-                    {item.delivered !== true && item.reason ? <span className="mt-1 block break-words text-[#b42318]">{value(item.reason)}</span> : null}
+                    <span className="mt-1 block text-[var(--color-muted)]">{value(item.message, "")}</span>
+                    {item.delivered !== true && item.reason ? (
+                      <span className="mt-1 block break-words text-[var(--color-red)]">{value(item.reason)}</span>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有发送通知。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              还没有发送通知。
+            </div>
           )}
         </div>
       ) : panel.id === "obsidian-sync-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
-            <span className="font-mono text-[11px] text-[#30343b]">{data?.configured === true ? "已配置" : "未配置 vault"}</span>
-            <span className="font-mono text-[10px] text-[#687381]">Markdown</span>
+          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+            <span className="font-mono text-[11px] text-[var(--color-ink)]">{data?.configured === true ? "已配置" : "未配置 vault"}</span>
+            <span className="font-mono text-[10px] text-[var(--color-faint)]">Markdown</span>
           </div>
-          {data?.vaultPath ? <code className="truncate rounded-md bg-white px-3 py-2 text-[10px] text-[#65707b]">{value(data.vaultPath)}</code> : null}
+          {data?.vaultPath ? (
+            <code className="truncate rounded-md bg-[var(--color-surface)] px-3 py-2 text-[10px] text-[var(--color-muted)]">{value(data.vaultPath)}</code>
+          ) : null}
           {data?.last !== null && data?.last !== undefined && typeof data.last === "object" ? (
-            <p className="text-[11px] text-[#687381]">最近写入：{value((data.last as Record<string, unknown>).relativePath ?? "note.md")}</p>
+            <p className="text-[11px] text-[var(--color-faint)]">最近写入：{value((data.last as Record<string, unknown>).relativePath ?? "note.md")}</p>
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有同步笔记。</div>
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+              还没有同步笔记。
+            </div>
           )}
         </div>
       ) : panel.id === "web-research-panel" ? (
         <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3 text-[11px]">
-            <span className="text-[#315fb8]">{data?.keyless === true ? "Firecrawl 匿名模式" : "Firecrawl 已认证"}</span>
-            <strong className="font-mono text-[#315fb8]">最多 {value(data?.maxResults ?? 8)} 条</strong>
+          <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3 text-[11px]">
+            <span className="text-[var(--color-blue)]">{data?.keyless === true ? "Firecrawl 匿名模式" : "Firecrawl 已认证"}</span>
+            <strong className="font-mono text-[var(--color-blue)]">最多 {value(data?.maxResults ?? 8)} 条</strong>
           </div>
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
             (() => {
@@ -4790,8 +5004,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               return (
                 <>
                   <div className="flex items-center justify-between gap-3 text-[11px]">
-                    <strong className="truncate text-[#30343b]">{value(report.query ?? "网页搜索")}</strong>
-                    <span className="shrink-0 font-mono text-[#687381]">
+                    <strong className="truncate text-[var(--color-ink)]">{value(report.query ?? "网页搜索")}</strong>
+                    <span className="shrink-0 font-mono text-[var(--color-faint)]">
                       前 {Math.min(8, items.length)} / 共 {items.length}
                     </span>
                   </div>
@@ -4800,15 +5014,17 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                       return (
                         <a
-                          className="rounded-lg border border-[#e3e7ee] bg-white px-3 py-2 transition-colors hover:border-[#bdd0f5] hover:bg-[#fbfdff]"
+                          className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 transition-colors hover:border-[#bdd0f5] hover:bg-[var(--color-soft)]"
                           href={value(item.url, "")}
                           key={`${value(item.url ?? "source")}-${index}`}
                           rel="noreferrer"
                           target="_blank"
                         >
-                          <strong className="block truncate text-[11px] text-[#30343b]">{value(item.title ?? item.url ?? "来源")}</strong>
-                          <span className="mt-1 block truncate font-mono text-[10px] text-[#3565c5]">{value(item.source ?? item.url, "")}</span>
-                          {item.snippet ? <span className="mt-1 line-clamp-2 block text-[10px] leading-4 text-[#65707b]">{value(item.snippet)}</span> : null}
+                          <strong className="block truncate text-[11px] text-[var(--color-ink)]">{value(item.title ?? item.url ?? "来源")}</strong>
+                          <span className="mt-1 block truncate font-mono text-[10px] text-[var(--color-blue)]">{value(item.source ?? item.url, "")}</span>
+                          {item.snippet ? (
+                            <span className="mt-1 line-clamp-2 block text-[10px] leading-4 text-[var(--color-muted)]">{value(item.snippet)}</span>
+                          ) : null}
                         </a>
                       );
                     })}
@@ -4817,11 +5033,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               );
             })()
           ) : (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               还没有联网搜索。可让 Agent 调用 web_search；单页读取使用 read_page。
             </div>
           )}
-          <p className="text-[10px] text-[#687381]">
+          <p className="text-[10px] text-[var(--color-faint)]">
             搜索词会发送到 Firecrawl；页面读取{data?.readPageAvailable === true ? "已复用本地 Browser Fetch" : "需要启用 Browser Fetch"}。
           </p>
         </div>
@@ -4830,7 +5046,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = browserFetchPanelView(data);
           if (view.malformed) {
             return (
-              <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+              <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
                 <strong className="block text-[12px]">Browser Fetch 面板数据异常</strong>
                 <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再抓取。</span>
               </div>
@@ -4840,20 +5056,20 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               {result === null ? (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   还没有抓取网页。默认阻止本地和私有网络目标。
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f6f8fa] px-3 py-3">
-                    <span className="truncate font-mono text-[11px] text-[#30343b]">{value(result.finalUrl || result.url || "page")}</span>
-                    <strong className="font-mono text-[12px] text-[#14733f]">HTTP {value(result.status || "—")}</strong>
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-[var(--color-soft)] px-3 py-3">
+                    <span className="truncate font-mono text-[11px] text-[var(--color-ink)]">{value(result.finalUrl || result.url || "page")}</span>
+                    <strong className="font-mono text-[12px] text-[var(--color-green)]">HTTP {value(result.status || "—")}</strong>
                   </div>
-                  <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
                     {value(result.text, "")}
                   </pre>
                   {result.previewTruncated || result.truncated ? (
-                    <p className="text-[10px] text-[#9a6700]">
+                    <p className="text-[10px] text-[var(--color-amber)]">
                       {result.truncated ? "响应正文已达到抓取上限；" : ""}
                       {result.previewTruncated ? "面板仅显示有界预览。" : ""}
                     </p>
@@ -4861,17 +5077,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </>
               )}
               <div className="flex flex-wrap gap-2">
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">
                   max:{value(Math.round(view.limits.responseBytes / 1024))}KiB
                 </span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">
                   timeout:{value(view.limits.timeoutMs)}ms
                 </span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">
                   redirects:{value(view.limits.redirects)}
                 </span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">scripts:disabled</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">
+                  scripts:disabled
+                </span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">
                   private:{value(view.allowPrivate ? "allowed" : "blocked")}
                 </span>
               </div>
@@ -4897,58 +5115,62 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       : "等待检查";
           return (
             <div className="mt-3 grid gap-3">
-              <div className="flex items-center justify-between gap-3 text-[10px] text-[#687381]">
-                <span className="rounded-full border border-[#dce5f5] bg-[#f6f8fa] px-2 py-1 font-semibold text-[#3565c5]">{statusLabel}</span>
+              <div className="flex items-center justify-between gap-3 text-[10px] text-[var(--color-faint)]">
+                <span className="rounded-full border border-[#dce5f5] bg-[var(--color-soft)] px-2 py-1 font-semibold text-[var(--color-blue)]">
+                  {statusLabel}
+                </span>
                 {view.status.at !== null ? <time className="font-mono">{new Date(view.status.at).toLocaleString()}</time> : null}
               </div>
               {view.status.error !== null ? (
-                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">{view.status.error}</div>
+                <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-red)]">
+                  {view.status.error}
+                </div>
               ) : null}
               {view.malformed ? (
-                <div className="rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">
+                <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[10px] leading-4 text-[var(--color-red)]">
                   面板数据不完整或不可信，未显示语言包统计。
                 </div>
               ) : null}
               {report !== null ? (
                 <>
                   <div
-                    className={`rounded-lg border px-3 py-3 text-[11px] ${healthy ? "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]" : "border-[#f4caca] bg-[#fff5f5] text-[#b42318]"}`}
+                    className={`rounded-lg border px-3 py-3 text-[11px] ${healthy ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]" : "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
                   >
                     {healthy ? "语言包键完全一致。" : `缺失 ${report.missingTotal} 个，额外 ${report.extraTotal} 个。`}
                   </div>
-                  <div className="grid gap-2 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-3 font-mono text-[10px]">
+                  <div className="grid gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3 font-mono text-[10px]">
                     <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
-                      <span className="text-[#687381]">基准</span>
-                      <span className="truncate text-[#30343b]" title={report.base}>
+                      <span className="text-[var(--color-faint)]">基准</span>
+                      <span className="truncate text-[var(--color-ink)]" title={report.base}>
                         {report.base}
                       </span>
                     </div>
                     <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
-                      <span className="text-[#687381]">目标</span>
-                      <span className="truncate text-[#30343b]" title={report.target}>
+                      <span className="text-[var(--color-faint)]">目标</span>
+                      <span className="truncate text-[var(--color-ink)]" title={report.target}>
                         {report.target}
                       </span>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#687381]">基准键</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{report.baseKeys}</strong>
+                    <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                      <span className="block text-[10px] text-[var(--color-faint)]">基准键</span>
+                      <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{report.baseKeys}</strong>
                     </div>
-                    <div className="rounded-lg bg-[#f6f8fa] px-3 py-2">
-                      <span className="block text-[10px] text-[#687381]">目标键</span>
-                      <strong className="mt-1 block text-[17px] text-[#30343b]">{report.targetKeys}</strong>
+                    <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                      <span className="block text-[10px] text-[var(--color-faint)]">目标键</span>
+                      <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{report.targetKeys}</strong>
                     </div>
                   </div>
                   {report.missing.length > 0 || report.extra.length > 0 ? (
                     <div className="grid gap-2 sm:grid-cols-2">
                       {[
-                        { label: `缺失 · ${report.missingTotal}`, keys: report.missing, tone: "text-[#b42318]" },
-                        { label: `额外 · ${report.extraTotal}`, keys: report.extra, tone: "text-[#9a6700]" },
+                        { label: `缺失 · ${report.missingTotal}`, keys: report.missing, tone: "text-[var(--color-red)]" },
+                        { label: `额外 · ${report.extraTotal}`, keys: report.extra, tone: "text-[var(--color-amber)]" },
                       ].map((group) => (
-                        <div className="min-w-0 rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3" key={group.label}>
+                        <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3" key={group.label}>
                           <strong className={`text-[10px] ${group.tone}`}>{group.label}</strong>
-                          <ul className="mt-2 max-h-36 space-y-1 overflow-auto font-mono text-[10px] text-[#30343b]">
+                          <ul className="mt-2 max-h-36 space-y-1 overflow-auto font-mono text-[10px] text-[var(--color-ink)]">
                             {group.keys.map((key, index) => (
                               <li className="truncate" key={`${key}-${index}`} title={key}>
                                 {key}
@@ -4959,17 +5181,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       ))}
                     </div>
                   ) : null}
-                  {report.truncated ? <p className="text-[10px] text-[#9a6700]">面板仅显示有界键列表；完整结果保留在工具调用详情中。</p> : null}
+                  {report.truncated ? <p className="text-[10px] text-[var(--color-amber)]">面板仅显示有界键列表；完整结果保留在工具调用详情中。</p> : null}
                 </>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   还没有检查语言包。可让 Agent 调用 i18n_check。
                 </div>
               )}
-              <div className="flex flex-wrap gap-2 font-mono text-[10px] text-[#3565c5]">
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">file:{Math.round(view.limits.fileBytes / 1_048_576)}MiB</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">depth:{view.limits.depth}</span>
-                <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">keys:{view.limits.keysPerFile}</span>
+              <div className="flex flex-wrap gap-2 font-mono text-[10px] text-[var(--color-blue)]">
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">
+                  file:{Math.round(view.limits.fileBytes / 1_048_576)}MiB
+                </span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">depth:{view.limits.depth}</span>
+                <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">keys:{view.limits.keysPerFile}</span>
               </div>
             </div>
           );
@@ -4979,7 +5203,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = cleanerPanelView(data);
           if (view.malformed || view.inventory === null) {
             return (
-              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[#fff5f5] px-3 py-3 text-[11px] text-[#b42318]">
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
                 <strong className="block text-[12px]">Cleaner 面板数据异常</strong>
                 <span className="mt-1 block">面板数据不完整或不可信，请重新加载后再执行清理。</span>
               </div>
@@ -4999,56 +5223,58 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     : "尚未清理";
           return (
             <div className="mt-3 grid gap-3">
-              <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-[#30343b]">Git 胶囊库存</span>
-                  <strong className="font-mono text-[12px] text-[#3565c5]">{inventory.total} 个</strong>
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">Git 胶囊库存</span>
+                  <strong className="font-mono text-[12px] text-[var(--color-blue)]">{inventory.total} 个</strong>
                 </div>
-                <p className="mt-2 text-[11px] text-[#687381]">仅清理 agent 数据目录中的 .patch 胶囊，必须显式 confirm=true。</p>
-                <div className="mt-3 flex flex-wrap gap-2 font-mono text-[10px] text-[#3565c5]">
-                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">capsules:{view.limits.capsules}</span>
-                  <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1">scan:{view.limits.directoryEntries}</span>
+                <p className="mt-2 text-[11px] text-[var(--color-faint)]">仅清理 agent 数据目录中的 .patch 胶囊，必须显式 confirm=true。</p>
+                <div className="mt-3 flex flex-wrap gap-2 font-mono text-[10px] text-[var(--color-blue)]">
+                  <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">capsules:{view.limits.capsules}</span>
+                  <span className="rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1">scan:{view.limits.directoryEntries}</span>
                 </div>
               </div>
               {activity !== null ? (
-                <div className="rounded-lg border border-[#edf0f3] bg-[#fbfcfd] px-3 py-3">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
                   <div className="flex items-center justify-between gap-3 text-[10px]">
-                    <strong className={activity.status === "failed" ? "text-[#b42318]" : "text-[#30343b]"}>{statusLabel}</strong>
-                    {activity.at !== null ? <time className="font-mono text-[#687381]">{new Date(activity.at).toLocaleString()}</time> : null}
+                    <strong className={activity.status === "failed" ? "text-[var(--color-red)]" : "text-[var(--color-ink)]"}>{statusLabel}</strong>
+                    {activity.at !== null ? <time className="font-mono text-[var(--color-faint)]">{new Date(activity.at).toLocaleString()}</time> : null}
                   </div>
-                  <div className="mt-2 flex gap-4 text-[11px] text-[#687381]">
+                  <div className="mt-2 flex gap-4 text-[11px] text-[var(--color-faint)]">
                     <span>
-                      已删 <strong className="font-mono text-[#30343b]">{activity.removed}</strong>
+                      已删 <strong className="font-mono text-[var(--color-ink)]">{activity.removed}</strong>
                     </span>
                     <span>
-                      保留 <strong className="font-mono text-[#30343b]">{activity.kept ?? "—"}</strong>
+                      保留 <strong className="font-mono text-[var(--color-ink)]">{activity.kept ?? "—"}</strong>
                     </span>
                     <span>
-                      请求保留 <strong className="font-mono text-[#30343b]">{activity.requestedKeep}</strong>
+                      请求保留 <strong className="font-mono text-[var(--color-ink)]">{activity.requestedKeep}</strong>
                     </span>
                   </div>
-                  {activity.error !== null ? <p className="mt-2 break-words text-[10px] leading-4 text-[#b42318]">{activity.error}</p> : null}
+                  {activity.error !== null ? <p className="mt-2 break-words text-[10px] leading-4 text-[var(--color-red)]">{activity.error}</p> : null}
                 </div>
               ) : null}
               {view.capsules.length > 0 ? (
-                <div className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd]">
+                <div className="max-h-48 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)]">
                   {view.capsules.map((capsule, index) => (
                     <div
-                      className="flex items-center justify-between gap-3 border-b border-[#edf0f3] px-3 py-2 last:border-b-0"
+                      className="flex items-center justify-between gap-3 border-b border-[var(--color-line)] px-3 py-2 last:border-b-0"
                       key={`${capsule.name}-${index}`}
                     >
-                      <span className="truncate font-mono text-[10px] text-[#30343b]" title={capsule.name}>
+                      <span className="truncate font-mono text-[10px] text-[var(--color-ink)]" title={capsule.name}>
                         {capsule.name}
                       </span>
-                      <span className="shrink-0 font-mono text-[9px] text-[#687381]">{capsule.bytes.toLocaleString()} B</span>
+                      <span className="shrink-0 font-mono text-[9px] text-[var(--color-faint)]">{capsule.bytes.toLocaleString()} B</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前没有可清理的 Git 胶囊。</div>
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  当前没有可清理的 Git 胶囊。
+                </div>
               )}
               {inventory.truncated ? (
-                <p className="text-[10px] text-[#9a6700]">
+                <p className="text-[10px] text-[var(--color-amber)]">
                   面板显示 {inventory.shown} / {inventory.total} 个条目；清理工具仍按完整的有界库存执行。
                 </p>
               ) : null}
@@ -5061,12 +5287,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             const view = failLoggerPanelView(data);
             return (
               <>
-                <div className="rounded-lg bg-[#fff5f5] px-3 py-3">
+                <div className="rounded-lg bg-[var(--color-red-soft)] px-3 py-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-[#7f1d1d]">聚合后的失败记录</span>
-                    <strong className="font-mono text-[17px] text-[#b42318]">{view.total}</strong>
+                    <span className="text-[11px] font-semibold text-[var(--color-red)]">聚合后的失败记录</span>
+                    <strong className="font-mono text-[17px] text-[var(--color-red)]">{view.total}</strong>
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-[#8b4a4a]">
+                  <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-[var(--color-red)]">
                     <span>观测 {view.observed} 次</span>
                     <span>
                       容量 {view.total} / {view.capacity}
@@ -5075,22 +5301,22 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     {view.truncated ? <span>面板明细已截断</span> : null}
                   </div>
                 </div>
-                <div className="max-h-56 overflow-auto rounded-lg border border-[#edf0f3]">
+                <div className="max-h-56 overflow-auto rounded-lg border border-[var(--color-line)]">
                   {view.failures.length > 0 ? (
                     view.failures.map((failure, index) => (
-                      <div className="border-b border-[#edf0f3] px-3 py-2 last:border-b-0" key={`${failure.time ?? "failure"}-${index}`}>
+                      <div className="border-b border-[var(--color-line)] px-3 py-2 last:border-b-0" key={`${failure.time ?? "failure"}-${index}`}>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-[10px] text-[#b42318]">{failure.source}</span>
-                          <span className="flex shrink-0 items-center gap-2 font-mono text-[9px] text-[#8a94a0]">
-                            {failure.occurrences > 1 ? <strong className="text-[#b42318]">×{failure.occurrences}</strong> : null}
+                          <span className="font-mono text-[10px] text-[var(--color-red)]">{failure.source}</span>
+                          <span className="flex shrink-0 items-center gap-2 font-mono text-[9px] text-[var(--color-faint)]">
+                            {failure.occurrences > 1 ? <strong className="text-[var(--color-red)]">×{failure.occurrences}</strong> : null}
                             {failure.time === null ? "时间未知" : `${failure.time.slice(11, 19)} UTC`}
                           </span>
                         </div>
-                        <p className="mt-1 break-words text-[11px] leading-4 text-[#65707b]">{failure.message}</p>
+                        <p className="mt-1 break-words text-[11px] leading-4 text-[var(--color-muted)]">{failure.message}</p>
                       </div>
                     ))
                   ) : (
-                    <div className="px-3 py-4 text-[12px] text-[#687381]">暂无失败记录。</div>
+                    <div className="px-3 py-4 text-[12px] text-[var(--color-faint)]">暂无失败记录。</div>
                   )}
                 </div>
               </>
@@ -5102,15 +5328,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = contextInsightsPanelView(data);
           return (
             <div className="mt-3 grid gap-3">
-              <div className="rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-3">
+              <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#5d6d82]">上下文占用</span>
-                  <strong className="text-[13px] font-semibold text-[#315fb8]">{view.percent === null ? "—" : `${view.percent}%`}</strong>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)]">上下文占用</span>
+                  <strong className="text-[13px] font-semibold text-[var(--color-blue)]">{view.percent === null ? "—" : `${view.percent}%`}</strong>
                 </div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dfe8fb]">
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                   <div className="h-full rounded-full bg-[#5d8bea] transition-[width] duration-300" style={{ width: `${Math.min(100, view.percent ?? 0)}%` }} />
                 </div>
-                <p className="mt-2 text-[11px] text-[#5d6d82]">
+                <p className="mt-2 text-[11px] text-[var(--color-muted)]">
                   {view.tokens === null ? "令牌数未知" : `${view.tokens.toLocaleString()} tokens`}
                   {view.contextWindow === null ? "" : ` / ${view.contextWindow.toLocaleString()} 上限`}
                 </p>
@@ -5121,16 +5347,16 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ["事件", view.events],
                   ["压缩", view.compactions],
                 ].map(([label, item]) => (
-                  <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
-                    <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                    <strong className="mt-1 block text-[17px] font-semibold text-[#30343b]">{value(item)}</strong>
+                  <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={value(label)}>
+                    <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                    <strong className="mt-1 block text-[17px] font-semibold text-[var(--color-ink)]">{value(item)}</strong>
                   </div>
                 ))}
               </div>
-              <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-[#30343b]">消息组成</span>
-                  <span className="text-[10px] text-[#687381]">
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">消息组成</span>
+                  <span className="text-[10px] text-[var(--color-faint)]">
                     {view.messagesTruncated ? `最近 ${view.scannedMessages} / ${view.messages} 条` : `全部 ${view.scannedMessages} 条`}
                   </span>
                 </div>
@@ -5142,17 +5368,17 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     ["系统", view.composition.system],
                     ["其他", view.composition.other],
                   ].map(([label, item]) => (
-                    <div className="rounded bg-[#f6f8fa] px-2 py-1.5 text-center" key={value(label)}>
-                      <span className="block text-[10px] text-[#687381]">{value(label)}</span>
-                      <strong className="mt-0.5 block font-mono text-[13px] text-[#30343b]">{value(item)}</strong>
+                    <div className="rounded bg-[var(--color-soft)] px-2 py-1.5 text-center" key={value(label)}>
+                      <span className="block text-[10px] text-[var(--color-faint)]">{value(label)}</span>
+                      <strong className="mt-0.5 block font-mono text-[13px] text-[var(--color-ink)]">{value(item)}</strong>
                     </div>
                   ))}
                 </div>
               </div>
-              <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-3">
+              <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-[#30343b]">最近上下文事件</span>
-                  <span className="text-[10px] text-[#687381]">
+                  <span className="text-[11px] font-semibold text-[var(--color-ink)]">最近上下文事件</span>
+                  <span className="text-[10px] text-[var(--color-faint)]">
                     显示 {view.limits.displayedEvents} / 保留 {view.limits.retainedEvents} 条
                   </span>
                 </div>
@@ -5164,16 +5390,16 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                           className="flex items-center justify-between border-b border-[#f0f2f5] py-1.5 last:border-b-0"
                           key={`${event.type}-${event.at ?? "unknown"}-${index}`}
                         >
-                          <span className="font-mono text-[10px] text-[#5d6d82]">{event.type}</span>
-                          <span className="text-[10px] text-[#687381]">{event.at === null ? "—" : new Date(event.at).toLocaleTimeString()}</span>
+                          <span className="font-mono text-[10px] text-[var(--color-muted)]">{event.type}</span>
+                          <span className="text-[10px] text-[var(--color-faint)]">{event.at === null ? "—" : new Date(event.at).toLocaleTimeString()}</span>
                         </div>
                       );
                     })
                   ) : (
-                    <div className="py-2 text-[11px] text-[#687381]">暂无上下文事件。</div>
+                    <div className="py-2 text-[11px] text-[var(--color-faint)]">暂无上下文事件。</div>
                   )}
                 </div>
-                {view.recentEventsTruncated ? <p className="mt-2 text-[10px] text-[#687381]">更早事件已按浏览器显示上限省略。</p> : null}
+                {view.recentEventsTruncated ? <p className="mt-2 text-[10px] text-[var(--color-faint)]">更早事件已按浏览器显示上限省略。</p> : null}
               </div>
             </div>
           );
@@ -5181,9 +5407,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : (
         <div className="mt-3 grid gap-2">
           {entries.map(([key, item]) => (
-            <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={key}>
-              <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">{key}</span>
-              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[#30343b]">{pluginPanelValue(item)}</pre>
+            <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2" key={key}>
+              <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-faint)]">{key}</span>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--color-ink)]">
+                {pluginPanelValue(item)}
+              </pre>
             </div>
           ))}
         </div>
@@ -5304,7 +5532,9 @@ function PluginCategoryNav({
               type="button"
             >
               <span>{category.label}</span>
-              <span className={active ? "font-mono text-[10px] text-[#3565c5]" : "font-mono text-[10px] text-[#687381]"}>{category.count}</span>
+              <span className={active ? "font-mono text-[10px] text-[var(--color-blue)]" : "font-mono text-[10px] text-[var(--color-faint)]"}>
+                {category.count}
+              </span>
             </button>
           );
         })}
@@ -5526,13 +5756,13 @@ function Plugins({
             </p>
           )}
           {panels.length > installedPlugins.length && (
-            <section className="mt-4 border-t border-[#e3e7ee] pt-4">
+            <section className="mt-4 border-t border-[var(--color-line)] pt-4">
               <div className="mb-3 flex items-baseline justify-between gap-3">
                 <div>
-                  <strong className="text-[13px] font-semibold text-[#20252b]">其他插件面板</strong>
-                  <p className="mt-1 text-[12px] text-[#687381]">由已启用插件提供的实时状态。</p>
+                  <strong className="text-[13px] font-semibold text-[var(--color-ink)]">其他插件面板</strong>
+                  <p className="mt-1 text-[12px] text-[var(--color-faint)]">由已启用插件提供的实时状态。</p>
                 </div>
-                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#687381]">LIVE</span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-faint)]">LIVE</span>
               </div>
               <div className="grid gap-3 xl:grid-cols-2">
                 {panels
@@ -5616,21 +5846,23 @@ function InstalledPluginDetail({
           <span>插件详情</span>
         </div>
         <div className="plugin-detail-content">
-          <header className="border-b border-[#e3e7ee] pb-7">
+          <header className="border-b border-[var(--color-line)] pb-7">
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <span className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[#e6faed] text-[#14733f]" : "bg-[#eef0f3] text-[#687381]"}`}>
+              <span
+                className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-soft)] text-[var(--color-faint)]"}`}
+              >
                 {plugin.enabled ? "运行中" : "已停用"}
               </span>
-              <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">
+              <span className="rounded bg-[var(--color-blue-soft)] px-2 py-1 text-[10px] text-[var(--color-blue)]">
                 {metadata?.category.label ?? plugin.category?.label ?? "运行时插件"}
               </span>
-              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#3565c5]">{capability(plugin.name)}</span>
+              <span className="rounded bg-[var(--color-blue-soft)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">{capability(plugin.name)}</span>
             </div>
             <div className="flex flex-wrap items-end justify-between gap-5">
               <div className="min-w-0">
-                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#687381]">PLUGIN DETAIL</p>
-                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#20252b]">{title}</h1>
-                <code className="mt-3 block break-all text-[12px] text-[#687381]">
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-faint)]">PLUGIN DETAIL</p>
+                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[var(--color-ink)]">{title}</h1>
+                <code className="mt-3 block break-all text-[12px] text-[var(--color-faint)]">
                   {plugin.name}
                   {metadata ? ` · v${metadata.version}` : ""}
                 </code>
@@ -5659,86 +5891,91 @@ function InstalledPluginDetail({
                   </button>
                 </div>
               ) : (
-                <span className="rounded-full bg-[#eef0f3] px-3 py-1.5 text-[11px] text-[#687381]">内置组件</span>
+                <span className="rounded-full bg-[var(--color-soft)] px-3 py-1.5 text-[11px] text-[var(--color-faint)]">内置组件</span>
               )}
             </div>
-            <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">
+            <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[var(--color-muted)]">
               {metadata?.description ?? (plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "插件保留在运行配置中，但当前处于停用状态。")}
             </p>
             {error && (
-              <p className="mt-3 text-[12px] text-[#b42318]" role="alert">
+              <p className="mt-3 text-[12px] text-[var(--color-red)]" role="alert">
                 操作失败：{pluginActionErrorText(error)}
               </p>
             )}
             {notice && (
-              <p className="mt-3 text-[12px] text-[#8a5a00]" role="status">
+              <p className="mt-3 text-[12px] text-[var(--color-amber)]" role="status">
                 {notice}
               </p>
             )}
           </header>
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
-              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-                <h2 className="text-[13px] font-semibold text-[#20252b]">影响范围</h2>
+              <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">影响范围</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {(metadata?.capabilities.length ? metadata.capabilities.map(capabilityLabel) : [capability(plugin.name)]).map((item) => (
-                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 text-[11px] text-[#61666b]" key={item}>
+                    <span className="rounded-md bg-[var(--color-blue-soft)] px-2 py-1 text-[11px] text-[var(--color-muted)]" key={item}>
                       {item}
                     </span>
                   ))}
                 </div>
               </section>
               {metadata?.hooks.length ? (
-                <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-                  <h2 className="text-[13px] font-semibold text-[#20252b]">扩展点</h2>
+                <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+                  <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">扩展点</h2>
                   <div className="mt-4 space-y-2">
                     {metadata.hooks.map((item) => (
-                      <div className="rounded-md bg-[#f8f9fb] px-3 py-2 font-mono text-[11px] text-[#61666b]" key={item}>
+                      <div className="rounded-md bg-[var(--color-soft)] px-3 py-2 font-mono text-[11px] text-[var(--color-muted)]" key={item}>
                         {item}
                       </div>
                     ))}
                   </div>
                 </section>
               ) : null}
-              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
+              <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-[13px] font-semibold text-[#20252b]">实时详情</h2>
-                    <p className="mt-1 text-[12px] text-[#687381]">当前本机会话中的插件运行状态。</p>
+                    <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">实时详情</h2>
+                    <p className="mt-1 text-[12px] text-[var(--color-faint)]">当前本机会话中的插件运行状态。</p>
                   </div>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#687381]">LIVE</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-faint)]">LIVE</span>
                 </div>
                 {panel ? <PluginPanelCard inline panel={panel} /> : <div className="empty-state">这个插件暂未提供实时面板。</div>}
               </section>
             </div>
-            <aside className="h-fit rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-              <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
+            <aside className="h-fit rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+              <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">插件信息</h2>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">运行状态</dt>
-                  <dd className="font-mono text-[#3b424b]">{awaitingRestart ? "已安装，重启后生效" : plugin.state}</dd>
+                  <dt className="text-[var(--color-faint)]">运行状态</dt>
+                  <dd className="font-mono text-[var(--color-ink)]">{awaitingRestart ? "已安装，重启后生效" : plugin.state}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">配置标识</dt>
-                  <dd className="max-w-[150px] break-all text-right font-mono text-[#3b424b]">{plugin.id}</dd>
+                  <dt className="text-[var(--color-faint)]">配置标识</dt>
+                  <dd className="max-w-[150px] break-all text-right font-mono text-[var(--color-ink)]">{plugin.id}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">分类</dt>
-                  <dd className="text-right text-[#3b424b]">{plugin.category?.label ?? "运行时插件"}</dd>
+                  <dt className="text-[var(--color-faint)]">分类</dt>
+                  <dd className="text-right text-[var(--color-ink)]">{plugin.category?.label ?? "运行时插件"}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">管理方式</dt>
-                  <dd className="text-right text-[#3b424b]">{plugin.removable ? "可配置" : "随运行时加载"}</dd>
+                  <dt className="text-[var(--color-faint)]">管理方式</dt>
+                  <dd className="text-right text-[var(--color-ink)]">{plugin.removable ? "可配置" : "随运行时加载"}</dd>
                 </div>
                 {metadata ? (
                   <div className="flex justify-between gap-4 py-3">
-                    <dt className="text-[#687381]">版本</dt>
-                    <dd className="font-mono text-[#3b424b]">{metadata.version}</dd>
+                    <dt className="text-[var(--color-faint)]">版本</dt>
+                    <dd className="font-mono text-[var(--color-ink)]">{metadata.version}</dd>
                   </div>
                 ) : null}
               </dl>
               {metadata ? (
-                <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#3565c5]" href={metadata.repository} rel="noreferrer" target="_blank">
+                <a
+                  className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[var(--color-blue)]"
+                  href={metadata.repository}
+                  rel="noreferrer"
+                  target="_blank"
+                >
                   查看源码 ↗
                 </a>
               ) : null}
@@ -5898,8 +6135,8 @@ export function Marketplace({
                       <span
                         className={
                           plugin.status === "verified"
-                            ? "rounded bg-[#e6faed] px-1.5 py-px font-mono text-[10px] text-[#14733f]"
-                            : "rounded bg-[#fff5e7] px-1.5 py-px font-mono text-[10px] text-[#9a6700]"
+                            ? "rounded bg-[var(--color-green-soft)] px-1.5 py-px font-mono text-[10px] text-[var(--color-green)]"
+                            : "rounded bg-[var(--color-amber-soft)] px-1.5 py-px font-mono text-[10px] text-[var(--color-amber)]"
                         }
                       >
                         {plugin.status === "verified" ? "已验证" : "实验性"}
@@ -5907,13 +6144,13 @@ export function Marketplace({
                       <span
                         className={
                           plugin.source === "official"
-                            ? "rounded bg-[#e4edfd] px-1.5 py-px font-mono text-[10px] text-[#3565c5]"
-                            : "rounded bg-[#fef5e7] px-1.5 py-px font-mono text-[10px] text-[#9a6700]"
+                            ? "rounded bg-[var(--color-blue-soft)] px-1.5 py-px font-mono text-[10px] text-[var(--color-blue)]"
+                            : "rounded bg-[var(--color-amber-soft)] px-1.5 py-px font-mono text-[10px] text-[var(--color-amber)]"
                         }
                       >
                         {plugin.source === "official" ? "官方" : "社区"}
                       </span>
-                      <span className="rounded bg-[#f2edff] px-1.5 py-px text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
+                      <span className="rounded bg-[var(--color-blue-soft)] px-1.5 py-px text-[10px] text-[var(--color-blue)]">{plugin.category.label}</span>
                     </div>
                   </div>
                 </header>
@@ -5924,22 +6161,22 @@ export function Marketplace({
                   <p className="marketplace-description">{plugin.description}</p>
                   <div className="marketplace-tags">
                     {plugin.capabilities.map((item) => (
-                      <span className="rounded bg-[#f1f4f9] px-1.5 py-px text-[10px] text-[#61666b]" key={item}>
+                      <span className="rounded bg-[var(--color-blue-soft)] px-1.5 py-px text-[10px] text-[var(--color-muted)]" key={item}>
                         {capabilityLabel(item)}
                       </span>
                     ))}
                     {plugin.hooks.map((item) => (
-                      <span className="rounded bg-[#f1f4f9] px-1.5 py-px font-mono text-[10px] text-[#61666b]" key={`hook:${item}`}>
+                      <span className="rounded bg-[var(--color-blue-soft)] px-1.5 py-px font-mono text-[10px] text-[var(--color-muted)]" key={`hook:${item}`}>
                         hook:{item}
                       </span>
                     ))}
                   </div>
                   {plugin.statistics && (
-                    <div className="marketplace-statistics mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[#e3e7ee] bg-[#f8f9fb]">
+                    <div className="marketplace-statistics mt-3 grid grid-cols-3 divide-x divide-[#e3e7ee] rounded-md border border-[var(--color-line)] bg-[var(--color-soft)]">
                       {marketplaceStatisticItems(plugin.statistics).map((item) => (
                         <span className="min-w-0 px-2 py-1.5" key={item.label} title={`${item.label} ${item.value}`}>
-                          <small className="block truncate text-[9px] text-[#687381]">{item.label}</small>
-                          <strong className="mt-0.5 block truncate font-mono text-[10px] font-medium text-[#3b424b]">{item.value}</strong>
+                          <small className="block truncate text-[9px] text-[var(--color-faint)]">{item.label}</small>
+                          <strong className="mt-0.5 block truncate font-mono text-[10px] font-medium text-[var(--color-ink)]">{item.value}</strong>
                         </span>
                       ))}
                     </div>
@@ -5989,11 +6226,11 @@ export function Marketplace({
               下一页
             </button>
           </div>
-          <div className="marketplace-contribute mt-3 flex items-center gap-2.5 rounded-[10px] border border-dashed border-[#b8ccf5] bg-[#f8f9ff] p-2.5 text-[11.5px] text-[#687381]">
-            <strong className="text-[12px] text-[#0f1115]">你有一个 Pi Harness 插件？</strong>
+          <div className="marketplace-contribute mt-3 flex items-center gap-2.5 rounded-[10px] border border-dashed border-[#b8ccf5] bg-[var(--color-blue-soft)] p-2.5 text-[11.5px] text-[var(--color-faint)]">
+            <strong className="text-[12px] text-[var(--color-ink)]">你有一个 Pi Harness 插件？</strong>
             <span>在 entries 目录新增一个元数据文件，附测试和 README 后提交 PR；审核通过后会出现在这里。</span>
             <a
-              className="ml-auto flex-none text-[#3565c5]"
+              className="ml-auto flex-none text-[var(--color-blue)]"
               href="https://github.com/pi-harness/pi-harness/blob/main/docs/plugin-marketplace.md"
               target="_blank"
               rel="noreferrer"
@@ -6054,17 +6291,17 @@ function MarketplaceDetail({
           <span>插件详情</span>
         </div>
         <div className="plugin-detail-content">
-          <header className="border-b border-[#e3e7ee] pb-7">
+          <header className="border-b border-[var(--color-line)] pb-7">
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <span className="rounded bg-[#e4edfd] px-2 py-1 font-mono text-[10px] text-[#3565c5]">
+              <span className="rounded bg-[var(--color-blue-soft)] px-2 py-1 font-mono text-[10px] text-[var(--color-blue)]">
                 {plugin.source === "official" ? "官方插件" : "社区插件"}
               </span>
-              <span className="rounded bg-[#f2edff] px-2 py-1 text-[10px] text-[#6d4bc3]">{plugin.category.label}</span>
+              <span className="rounded bg-[var(--color-blue-soft)] px-2 py-1 text-[10px] text-[var(--color-blue)]">{plugin.category.label}</span>
               <span
                 className={
                   plugin.status === "verified"
-                    ? "rounded bg-[#e6faed] px-2 py-1 font-mono text-[10px] text-[#14733f]"
-                    : "rounded bg-[#fff5e7] px-2 py-1 font-mono text-[10px] text-[#9a6700]"
+                    ? "rounded bg-[var(--color-green-soft)] px-2 py-1 font-mono text-[10px] text-[var(--color-green)]"
+                    : "rounded bg-[var(--color-amber-soft)] px-2 py-1 font-mono text-[10px] text-[var(--color-amber)]"
                 }
               >
                 {plugin.status === "verified" ? "已验证" : "实验性"}
@@ -6072,9 +6309,9 @@ function MarketplaceDetail({
             </div>
             <div className="flex flex-wrap items-end justify-between gap-5">
               <div className="min-w-0">
-                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[#687381]">PLUGIN DETAIL</p>
-                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[#20252b]">{plugin.name}</h1>
-                <code className="mt-3 block break-all text-[12px] text-[#687381]">
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-faint)]">PLUGIN DETAIL</p>
+                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[var(--color-ink)]">{plugin.name}</h1>
+                <code className="mt-3 block break-all text-[12px] text-[var(--color-faint)]">
                   {plugin.packageName} · v{plugin.version}
                 </code>
               </div>
@@ -6084,75 +6321,80 @@ function MarketplaceDetail({
                 </button>
               </div>
             </div>
-            <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[#59636e]">{plugin.description}</p>
+            <p className="mt-5 max-w-3xl text-[14px] leading-7 text-[var(--color-muted)]">{plugin.description}</p>
             {notice && (
-              <p aria-live="polite" className="mt-3 text-[12px] text-[#3565c5]">
+              <p aria-live="polite" className="mt-3 text-[12px] text-[var(--color-blue)]">
                 {notice}
               </p>
             )}
             {error && (
-              <p className="mt-3 text-[12px] text-[#b42318]" role="alert">
+              <p className="mt-3 text-[12px] text-[var(--color-red)]" role="alert">
                 安装失败：{pluginActionErrorText(error)}
               </p>
             )}
           </header>
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
-              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-                <h2 className="text-[13px] font-semibold text-[#20252b]">影响范围</h2>
+              <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">影响范围</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {plugin.capabilities.map((item) => (
-                    <span className="rounded-md bg-[#f1f4f9] px-2 py-1 text-[11px] text-[#61666b]" key={item}>
+                    <span className="rounded-md bg-[var(--color-blue-soft)] px-2 py-1 text-[11px] text-[var(--color-muted)]" key={item}>
                       {capabilityLabel(item)}
                     </span>
                   ))}
                 </div>
               </section>
-              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-                <h2 className="text-[13px] font-semibold text-[#20252b]">扩展点</h2>
+              <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">扩展点</h2>
                 <div className="mt-4 space-y-2">
                   {plugin.hooks.map((item) => (
-                    <div className="rounded-md bg-[#f8f9fb] px-3 py-2 font-mono text-[11px] text-[#61666b]" key={item}>
+                    <div className="rounded-md bg-[var(--color-soft)] px-3 py-2 font-mono text-[11px] text-[var(--color-muted)]" key={item}>
                       {item}
                     </div>
                   ))}
                 </div>
               </section>
-              <section className="rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-                <h2 className="text-[13px] font-semibold text-[#20252b]">运行配置</h2>
-                <p className="mt-1 text-[12px] text-[#687381]">安装后会写入当前运行 profile。</p>
-                <pre className="mt-4 overflow-auto rounded-lg bg-[#f7f8fa] p-4 text-[11px] leading-6 text-[#3b424b]">
+              <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">运行配置</h2>
+                <p className="mt-1 text-[12px] text-[var(--color-faint)]">安装后会写入当前运行 profile。</p>
+                <pre className="mt-4 overflow-auto rounded-lg bg-[var(--color-soft)] p-4 text-[11px] leading-6 text-[var(--color-ink)]">
                   <code>{JSON.stringify(plugin.profile, null, 2)}</code>
                 </pre>
               </section>
             </div>
-            <aside className="h-fit rounded-[10px] border border-[#e3e7ee] bg-white p-5">
-              <h2 className="text-[13px] font-semibold text-[#20252b]">插件信息</h2>
+            <aside className="h-fit rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+              <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">插件信息</h2>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">作者</dt>
-                  <dd className="text-right text-[#3b424b]">{plugin.author}</dd>
+                  <dt className="text-[var(--color-faint)]">作者</dt>
+                  <dd className="text-right text-[var(--color-ink)]">{plugin.author}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">许可证</dt>
-                  <dd className="font-mono text-[#3b424b]">{plugin.license}</dd>
+                  <dt className="text-[var(--color-faint)]">许可证</dt>
+                  <dd className="font-mono text-[var(--color-ink)]">{plugin.license}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">分类</dt>
-                  <dd className="text-right text-[#3b424b]">{plugin.category.label}</dd>
+                  <dt className="text-[var(--color-faint)]">分类</dt>
+                  <dd className="text-right text-[var(--color-ink)]">{plugin.category.label}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#687381]">版本</dt>
-                  <dd className="font-mono text-[#3b424b]">{plugin.version}</dd>
+                  <dt className="text-[var(--color-faint)]">版本</dt>
+                  <dd className="font-mono text-[var(--color-ink)]">{plugin.version}</dd>
                 </div>
                 {marketplaceStatisticItems(plugin.statistics).map((item) => (
                   <div className="flex justify-between gap-4 py-3" key={item.label}>
-                    <dt className="text-[#687381]">{item.label}</dt>
-                    <dd className="font-mono text-[#3b424b]">{item.value}</dd>
+                    <dt className="text-[var(--color-faint)]">{item.label}</dt>
+                    <dd className="font-mono text-[var(--color-ink)]">{item.value}</dd>
                   </div>
                 ))}
               </dl>
-              <a className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[#3565c5]" href={plugin.repository} target="_blank" rel="noreferrer">
+              <a
+                className="mt-4 block border-t border-[#eef0f3] pt-4 text-[12px] text-[var(--color-blue)]"
+                href={plugin.repository}
+                target="_blank"
+                rel="noreferrer"
+              >
                 查看源码 ↗
               </a>
             </aside>
@@ -8008,8 +8250,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       plugin={installedPlugin}
     />
   ) : page === "plugins" && installedPluginId ? (
-    <section className="view-panel min-w-0 overflow-auto bg-[#f8f9fb]">
-      <div className="subnav plugin-detail-subnav bg-white">
+    <section className="view-panel min-w-0 overflow-auto bg-[var(--color-soft)]">
+      <div className="subnav plugin-detail-subnav bg-[var(--color-surface)]">
         <a
           href="?page=plugins"
           onClick={(event) => {
@@ -8194,18 +8436,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         <div className="composer-stack">
           {promptError && <PromptError message={promptError} />}
           {annotationSelection ? (
-            <div aria-label="添加批注" className="rounded-lg border border-[#cdddf8] bg-[#f6f8ff] px-3 py-2">
+            <div aria-label="添加批注" className="rounded-lg border border-[#cdddf8] bg-[var(--color-blue-soft)] px-3 py-2">
               <div className="flex items-start gap-2">
-                <span className="mt-0.5 shrink-0 rounded bg-[#dce9ff] px-1.5 py-0.5 text-[10px] text-[#315fb8]">选中片段</span>
-                <p className="max-h-16 flex-1 overflow-auto whitespace-pre-wrap text-[11px] text-[#30343b]">{annotationSelection}</p>
-                <button aria-label="取消批注" className="text-[12px] text-[#687381]" onClick={() => setAnnotationSelection("")} type="button">
+                <span className="mt-0.5 shrink-0 rounded bg-[var(--color-blue-soft)] px-1.5 py-0.5 text-[10px] text-[var(--color-blue)]">选中片段</span>
+                <p className="max-h-16 flex-1 overflow-auto whitespace-pre-wrap text-[11px] text-[var(--color-ink)]">{annotationSelection}</p>
+                <button aria-label="取消批注" className="text-[12px] text-[var(--color-faint)]" onClick={() => setAnnotationSelection("")} type="button">
                   ×
                 </button>
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <input
                   aria-label="批注备注"
-                  className="min-w-0 flex-1 rounded-md border border-[#dce5f5] bg-white px-2 py-1.5 text-[11px] outline-none"
+                  className="min-w-0 flex-1 rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1.5 text-[11px] outline-none"
                   onChange={(event) => setAnnotationNote(event.target.value)}
                   placeholder="备注（可选）"
                   value={annotationNote}
@@ -8218,10 +8460,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           ) : null}
           {annotations.length > 0 ? (
             <div className="flex items-center gap-2 overflow-x-auto text-[10px]">
-              <span className="shrink-0 rounded-md bg-[#edf3fe] px-2 py-1 font-medium text-[#315fb8]">批注 ×{annotations.length}</span>
+              <span className="shrink-0 rounded-md bg-[var(--color-blue-soft)] px-2 py-1 font-medium text-[var(--color-blue)]">批注 ×{annotations.length}</span>
               {annotations.map((annotation) => (
                 <button
-                  className="max-w-48 shrink-0 truncate rounded-md border border-[#dce5f5] bg-white px-2 py-1 text-left text-[#65707b]"
+                  className="max-w-48 shrink-0 truncate rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 text-left text-[var(--color-muted)]"
                   key={annotation.id}
                   onClick={() => setAnnotations((current) => current.filter((item) => item.id !== annotation.id))}
                   title="点击移除批注"
@@ -8230,7 +8472,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   #{annotation.id} {annotation.quote}
                 </button>
               ))}
-              <button className="shrink-0 text-[#687381]" onClick={() => setAnnotations([])} type="button">
+              <button className="shrink-0 text-[var(--color-faint)]" onClick={() => setAnnotations([])} type="button">
                 清空
               </button>
             </div>
@@ -8405,18 +8647,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       ? (betterSidebarPanel.data as Record<string, unknown>)
       : undefined;
   const themeStudioPanel = data.pluginPanels.find((panel) => panel.id === "theme-studio-panel");
-  const themeStudioData =
-    themeStudioPanel?.data !== null && typeof themeStudioPanel?.data === "object" && !Array.isArray(themeStudioPanel?.data)
-      ? (themeStudioPanel.data as Record<string, unknown>)
-      : undefined;
-  const themeStyle = useMemo(() => {
-    if (!themeStudioData?.tokens || typeof themeStudioData.tokens !== "object" || Array.isArray(themeStudioData.tokens)) return undefined;
-    const tokens = Object.entries(themeStudioData.tokens as Record<string, unknown>).filter(
-      ([key, token]) => key.startsWith("--") && typeof token === "string",
-    );
-    return tokens.length ? Object.fromEntries(tokens) : undefined;
-  }, [themeStudioData]);
-  const activeTheme = typeof themeStudioData?.theme === "string" ? themeStudioData.theme : undefined;
+  const themeStudioData = useMemo(() => themeStudioView(themeStudioPanel?.data), [themeStudioPanel?.data]);
+  const themeStyle = themeStudioData ? { ...themeStudioData.tokens, colorScheme: themeStudioData.theme === "midnight" ? "dark" : "light" } : undefined;
+  const activeTheme = themeStudioData?.theme;
   const insertCommand = useCallback(
     (value: string) => {
       const input = promptInputRef.current;
@@ -8804,23 +9037,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             </div>
           )}
           {betterSidebarData && (
-            <section aria-label="工作区概览" className="mx-3 mt-3 rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
+            <section aria-label="工作区概览" className="mx-3 mt-3 rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
               <div className="flex items-center justify-between gap-2">
-                <strong className="text-[11px] font-semibold text-[#253044]">工作区概览</strong>
+                <strong className="text-[11px] font-semibold text-[var(--color-ink)]">工作区概览</strong>
                 <span
-                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean === true ? "bg-[#eaf8f0] text-[#14733f]" : "bg-[#fff0f0] text-[#b42318]"}`}
+                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean === true ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
                 >
                   {betterSidebarData.clean === true ? "clean" : `${value(betterSidebarData.changedCount ?? 0)} 变更`}
                 </span>
               </div>
-              <code className="mt-2 block truncate text-[10px] text-[#315fb8]">{value(betterSidebarData.cwd ?? "当前工作区")}</code>
-              <p className="mt-1 truncate font-mono text-[10px] text-[#65707b]">{value(betterSidebarData.branch ?? "非 Git 工作区")}</p>
+              <code className="mt-2 block truncate text-[10px] text-[var(--color-blue)]">{value(betterSidebarData.cwd ?? "当前工作区")}</code>
+              <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">{value(betterSidebarData.branch ?? "非 Git 工作区")}</p>
               {Array.isArray(betterSidebarData.changedFiles) && betterSidebarData.changedFiles.length > 0 ? (
                 <div className="mt-2 grid gap-1 border-t border-[#dce5f5] pt-2">
                   {betterSidebarData.changedFiles.slice(0, 3).map((item, index) => {
                     const file = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                     return (
-                      <code className="truncate text-[9px] text-[#65707b]" key={`${value(file.path ?? "file")}-${index}`}>
+                      <code className="truncate text-[9px] text-[var(--color-muted)]" key={`${value(file.path ?? "file")}-${index}`}>
                         {value(file.status ?? "??")} {value(file.path ?? "未命名")}
                       </code>
                     );
