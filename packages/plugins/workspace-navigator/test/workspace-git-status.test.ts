@@ -25,7 +25,24 @@ describe("workspace git status", () => {
       branch: "main",
       clean: false,
       entries: [{ path: "notes.md", status: "??" }],
+      truncated: false,
+      changedCount: 1,
     });
+  });
+
+  test("preserves Unicode and newline filenames and rename pairs", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-git-names-"));
+    temporaryDirectories.push(directory);
+    const git = (args: string[]) => execFileAsync("git", args, { cwd: directory });
+    await git(["init", "-q", "-b", "main"]);
+    await writeFile(join(directory, "before.txt"), "tracked");
+    await git(["add", "."]);
+    await git(["-c", "user.name=Test", "-c", "user.email=test@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "initial"]);
+    await git(["mv", "before.txt", "after.txt"]);
+    await writeFile(join(directory, "中文\nname.txt"), "untracked");
+    const result = await readWorkspaceGitStatus(directory);
+    expect(result.entries).toContainEqual({ path: "after.txt", status: "R ", originalPath: "before.txt" });
+    expect(result.entries).toContainEqual({ path: "中文\nname.txt", status: "??" });
   });
 
   test("returns an unavailable report outside git", async () => {

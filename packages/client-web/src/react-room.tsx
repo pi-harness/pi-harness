@@ -2478,6 +2478,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         })()
       ) : panel.id === "workspace-navigator-panel" ? (
         <div className="mt-3 grid gap-3">
+          <p className="break-all text-[10px] text-[var(--color-faint)]">工作区：{value(data?.cwd, "")}</p>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
               const latest = data.latest as Record<string, unknown>;
@@ -2515,38 +2516,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <p className="text-[10px] leading-4 text-[var(--color-faint)]">
                     目录 {value(latest.directoryCount ?? 0)} 个，文件 {value(latest.fileCount ?? 0)} 个；跳过依赖和构建目录。
                   </p>
-                  {data?.git && typeof data.git === "object"
-                    ? (() => {
-                        const git = data.git as Record<string, unknown>;
-                        const entries = Array.isArray(git.entries) ? git.entries : [];
-                        const available = git.available === true;
-                        return (
-                          <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-medium text-[var(--color-ink)]">Git 状态</span>
-                              <span
-                                className={`text-[10px] ${!available ? "text-[var(--color-faint)]" : git.clean === true ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}
-                              >
-                                {!available ? "不可用" : git.clean === true ? "clean" : `${entries.length} 个变更`}
-                              </span>
-                            </div>
-                            {available ? <p className="mt-1 font-mono text-[10px] text-[var(--color-muted)]">{value(git.branch ?? "detached HEAD")}</p> : null}
-                            {entries.length > 0 ? (
-                              <div className="mt-2 grid gap-1">
-                                {entries.slice(0, 12).map((item, index) => {
-                                  const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                                  return (
-                                    <code className="truncate text-[10px] text-[var(--color-muted)]" key={`${value(entry.path ?? "file")}-${index}`}>
-                                      {value(entry.status ?? "??")} {value(entry.path ?? "未命名")}
-                                    </code>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })()
-                    : null}
+                  {latest.truncated === true || nodes.length > 36 ? (
+                    <p className="text-[10px] text-[var(--color-amber)]">
+                      目录树已截断；面板显示 {Math.min(36, nodes.length)} / {nodes.length} 个已收集节点。
+                    </p>
+                  ) : null}
                 </>
               );
             })()
@@ -2555,6 +2529,44 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               执行 workspace_tree 后显示工作区结构。
             </div>
           )}
+          {data?.git && typeof data.git === "object"
+            ? (() => {
+                const git = data.git as Record<string, unknown>;
+                const entries = Array.isArray(git.entries) ? git.entries : [];
+                const available = git.available === true;
+                return (
+                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--color-ink)]">Git 状态</span>
+                      <span
+                        className={`text-[10px] ${!available ? "text-[var(--color-faint)]" : git.clean === true ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}
+                      >
+                        {!available ? "不可用" : git.clean === true ? "clean" : `${value(git.changedCount)} 个变更`}
+                      </span>
+                    </div>
+                    {available ? <p className="mt-1 font-mono text-[10px] text-[var(--color-muted)]">{value(git.branch ?? "detached HEAD")}</p> : null}
+                    {git.truncated === true || entries.length > 12 ? (
+                      <p className="text-[10px] text-[var(--color-amber)]">
+                        显示前 {Math.min(12, entries.length)} 条；共有 {value(git.changedCount)} 个变更。
+                      </p>
+                    ) : null}
+                    {entries.length > 0 ? (
+                      <div className="mt-2 grid gap-1">
+                        {entries.slice(0, 12).map((item, index) => {
+                          const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                          return (
+                            <code className="truncate text-[10px] text-[var(--color-muted)]" key={`${value(entry.path ?? "file")}-${index}`}>
+                              {value(entry.status ?? "??")} {entry.originalPath ? `${value(entry.originalPath)} → ` : ""}
+                              {value(entry.path ?? "未命名")}
+                            </code>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()
+            : null}
         </div>
       ) : panel.id === "prompt-library-panel" ? (
         <div className="mt-3 grid gap-3">

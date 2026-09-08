@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import type { ClientMarketplacePlugin, ClientPiConfig } from "../src/control-room.js";
 import {
+  PluginPanelCard,
   ChatTurnArticle,
   CommandPalette,
   Marketplace,
@@ -404,4 +405,31 @@ describe("command palette with an empty registry", () => {
     expect(source).toContain('`描述要做的改动，⌘↵ 发送；@ 引用文件${data.commands.length ? "，/ 调用命令" : ""}`');
     expect(/className="tool-chip"\s*disabled=\{!data\.commands\.length\}/u.test(source)).toBe(true);
   });
+});
+
+test("shows navigator Git status without requiring a tree first", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "workspace-navigator-panel",
+        pluginId: "@pi-harness/plugin-workspace-navigator",
+        title: "Workspace Navigator",
+        data: {
+          cwd: "/workspace/current",
+          latest: null,
+          git: {
+            available: true,
+            branch: "feature-current",
+            clean: false,
+            changedCount: 1,
+            truncated: false,
+            entries: [{ status: "??", path: "current.txt" }],
+          },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("feature-current");
+  expect(html).toContain("current.txt");
+  expect(html).toContain("/workspace/current");
 });
