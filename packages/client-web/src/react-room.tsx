@@ -2684,6 +2684,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       className={`h-2 w-2 rounded-full ${status === "done" ? "bg-[#32a35a]" : status === "in_progress" ? "bg-[#3565c5]" : status === "skipped" ? "bg-[#a0a7b0]" : "bg-[#d7dce2]"}`}
                     />
                     <span className={`min-w-0 flex-1 truncate ${status === "done" ? "text-[#14733f]" : "text-[#30343b]"}`}>{value(item.title ?? "步骤")}</span>
+                    {Array.isArray(item.dependsOn) && item.dependsOn.length > 0 && (
+                      <span className="text-[10px] text-[#687381]">依赖步骤 {item.dependsOn.map((id) => value(id)).join(", ")}</span>
+                    )}
                     <span className="font-mono text-[10px] text-[#687381]">{status}</span>
                   </li>
                 );
