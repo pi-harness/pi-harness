@@ -1981,6 +1981,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         </div>
       ) : panel.id === "session-compare-panel" ? (
         <div className="mt-3 grid gap-3">
+          <p className="text-[10px] text-[#687381]">按日志位置比较去除首尾空白的非空文本消息。差异列表每侧保留 40 条，每条预览最多 4,000 字符。</p>
           {data?.left && typeof data.left === "object" && data?.right && typeof data.right === "object" ? (
             (() => {
               const left = data.left as Record<string, unknown>;
@@ -2006,8 +2007,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <div className="grid grid-cols-3 gap-2">
                     {[
                       ["共享", data.shared ?? 0],
-                      ["右侧新增", Array.isArray(data.added) ? data.added.length : 0],
-                      ["左侧删除", Array.isArray(data.removed) ? data.removed.length : 0],
+                      ["右侧新增", data.addedCount ?? 0],
+                      ["左侧删除", data.removedCount ?? 0],
                     ].map(([label, item]) => (
                       <div className="rounded-lg bg-[#f6f8fa] px-3 py-2" key={value(label)}>
                         <span className="block text-[10px] text-[#687381]">{value(label)}</span>
@@ -2018,11 +2019,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <div
                     className={`rounded-lg border px-3 py-3 text-[11px] ${data.changed === true ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                   >
-                    {data.changed === true ? "两个会话存在消息差异。" : "两个会话内容一致。"}
+                    {data.changed === true ? "两个会话的文本消息在对应位置存在差异。" : "两个会话的文本消息投影一致；未比较图片、工具调用参数及元数据。"}
                   </div>
                   {Array.isArray(data.added) && data.added.length > 0 ? (
                     <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">右侧新增消息</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">右侧差异预览（最多显示 4 条）</span>
                       <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[#65707b]">
                         {data.added.slice(0, 4).map((item, index) => {
                           const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};

@@ -1,9 +1,8 @@
-import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, parseSessionEntries, SessionManager, type AgentToolResult, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import { EmptyConfig } from "@pi-harness/plugin-api";
+import { EmptyConfig, readBoundedFile } from "@pi-harness/plugin-api";
 
 const maxSessions = 200;
 const maxSessionFileBytes = 4 * 1024 * 1024;
@@ -17,6 +16,10 @@ export interface SessionCompareMessage {
 
 export interface SessionCompareDiff {
   shared: number;
+  addedCount: number;
+  removedCount: number;
+  addedTruncated: boolean;
+  removedTruncated: boolean;
   added: SessionCompareMessage[];
   removed: SessionCompareMessage[];
 }
@@ -68,6 +71,8 @@ export function compareMessageEntries(left: readonly SessionCompareMessage[], ri
   const added: SessionCompareMessage[] = [];
   const removed: SessionCompareMessage[] = [];
   let shared = 0;
+  let addedCount = 0;
+  let removedCount = 0;
   const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
     const leftMessage = left[index];
@@ -76,10 +81,12 @@ export function compareMessageEntries(left: readonly SessionCompareMessage[], ri
       shared += 1;
       continue;
     }
+    if (rightMessage !== undefined) addedCount += 1;
+    if (leftMessage !== undefined) removedCount += 1;
     if (rightMessage !== undefined && added.length < maxDiffMessages) added.push({ ...rightMessage, text: rightMessage.text.slice(0, maxMessageTextLength) });
     if (leftMessage !== undefined && removed.length < maxDiffMessages) removed.push({ ...leftMessage, text: leftMessage.text.slice(0, maxMessageTextLength) });
   }
-  return { shared, added, removed };
+  return { shared, added, removed, addedCount, removedCount, addedTruncated: addedCount > added.length, removedTruncated: removedCount > removed.length };
 }
 
 function sessionName(session: SessionInfo): string {
@@ -100,10 +107,10 @@ function side(session: SessionInfo, messages: readonly SessionCompareMessage[]):
 }
 
 async function readMessages(session: SessionInfo): Promise<SessionCompareMessage[]> {
-  const metadata = await stat(session.path);
-  if (!metadata.isFile()) throw new Error(`Session is not a file: ${session.id}`);
-  if (metadata.size > maxSessionFileBytes) throw new Error(`Session ${session.id} exceeds the ${maxSessionFileBytes}-byte comparison limit`);
-  return sessionMessageEntries(parseSessionEntries(await readFile(session.path, "utf8")));
+  const bytes = await readBoundedFile(session.path, maxSessionFileBytes, "Session comparison file");
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  for (const line of text.split("\n")) if (line.trim() !== "") JSON.parse(line);
+  return sessionMessageEntries(parseSessionEntries(text));
 }
 
 function findSession(sessions: readonly SessionInfo[], requested: string): SessionInfo {
@@ -114,12 +121,29 @@ function findSession(sessions: readonly SessionInfo[], requested: string): Sessi
   return exact;
 }
 
-async function compareSessions(context: Context, leftId: string, rightId: string): Promise<SessionCompareReport> {
-  const sessions = await SessionManager.list(context.piHarnessLaunch.cwd, context.piSession.manager.getSessionDir());
+async function compareSessions(context: Context, leftId: string, rightId: string, signal: AbortSignal): Promise<SessionCompareReport> {
+  const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+  const cwd = manager.getCwd();
+  const directory = manager.getSessionDir();
+  const id = manager.getSessionId();
+  const check = (): void => {
+    if (signal.aborted) throw new Error("Session comparison was cancelled");
+    if (
+      (context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager) !== manager ||
+      manager.getSessionId() !== id ||
+      manager.getCwd() !== cwd ||
+      manager.getSessionDir() !== directory
+    )
+      throw new Error("Session comparison context changed during execution");
+  };
+  check();
+  const sessions = await SessionManager.list(cwd, directory);
+  check();
   const bounded = sessions.slice(0, maxSessions);
   const leftSession = findSession(bounded, leftId);
   const rightSession = findSession(bounded, rightId);
   const [leftMessages, rightMessages] = await Promise.all([readMessages(leftSession), readMessages(rightSession)]);
+  check();
   const diff = compareMessageEntries(leftMessages, rightMessages);
   return {
     ...diff,
@@ -136,9 +160,11 @@ function renderMessage(message: SessionCompareMessage): string {
 
 function renderReport(report: SessionCompareReport): string {
   const lines = [
-    `Compared ${report.left.id} with ${report.right.id}: ${report.changed ? "changed" : "identical"}.`,
-    `Shared messages: ${report.shared}. Added in right: ${report.added.length}. Removed from left: ${report.removed.length}.`,
+    `Compared ${report.left.id} with ${report.right.id}: ${report.changed ? "changed" : "identical text-message projection"}.`,
+    `Shared messages: ${report.shared}. Added in right: ${report.addedCount}. Removed from left: ${report.removedCount}.`,
   ];
+  lines.push("Scope: non-empty trimmed message text, compared by journal position; images, tool-call payloads, metadata and non-message entries are excluded.");
+  if (report.addedTruncated || report.removedTruncated) lines.push("Difference previews are limited to 40 messages per side and 4,000 characters per message.");
   if (report.added.length > 0) lines.push(`Added:\n${report.added.map(renderMessage).join("\n")}`);
   if (report.removed.length > 0) lines.push(`Removed:\n${report.removed.map(renderMessage).join("\n")}`);
   return lines.join("\n\n");
@@ -150,6 +176,8 @@ export default {
   Config: EmptyConfig,
   apply(context: Context) {
     let latest: SessionCompareReport | undefined;
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
     const unregister = context.piTools.register(
       defineTool({
         name: "session_compare",
@@ -164,23 +192,44 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<SessionCompareReport>> {
-          latest = await compareSessions(context, params.left, params.right);
-          return { content: [{ type: "text", text: renderReport(latest) }], details: latest };
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<SessionCompareReport>> {
+          const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          if (combined.aborted) throw new Error("Session comparison was cancelled");
+          if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Session comparison parameters must be an object");
+          const descriptors = Object.getOwnPropertyDescriptors(params);
+          if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !["left", "right"].includes(key)))
+            throw new Error("Unknown session comparison parameter");
+          const parameter = (key: "left" | "right"): string => {
+            const descriptor = descriptors[key];
+            const value: unknown = descriptor?.value;
+            if (
+              descriptor === undefined ||
+              !("value" in descriptor) ||
+              typeof value !== "string" ||
+              value.trim() === "" ||
+              value.length > 4096 ||
+              value.includes("\0")
+            )
+              throw new Error(`Invalid session comparison ${key}`);
+            return value;
+          };
+          const report = await compareSessions(context, parameter("left"), parameter("right"), combined);
+          if (combined.aborted) throw new Error("Session comparison was cancelled");
+          latest = structuredClone(report);
+          return { content: [{ type: "text", text: renderReport(report) }], details: report };
         },
       }),
     );
+    context.effect(() => unregister);
     const disposePanel = context.piPluginUi.register({
       id: "session-compare-panel",
       pluginId: "@pi-harness/plugin-session-compare",
       title: "Session Compare",
       description: "对比两个持久化会话的消息差异，不修改原始会话文件。",
       icon: "⇄",
-      read: () => latest ?? { left: null, right: null, shared: 0, added: [], removed: [], changed: false, comparedAt: null },
+      read: () =>
+        latest === undefined ? { left: null, right: null, shared: 0, added: [], removed: [], changed: false, comparedAt: null } : structuredClone(latest),
     });
-    context.effect(() => () => {
-      unregister();
-      disposePanel();
-    });
+    context.effect(() => disposePanel);
   },
 };
