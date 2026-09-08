@@ -3359,7 +3359,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                <span className="text-[#65707b]">GitHub DSH 生态</span>
+                <span className="text-[#65707b]">GitHub Pi Harness 生态</span>
                 <span className="font-mono text-[#3565c5]">
                   {value(data?.total ?? 0)} 个仓库 · {Array.isArray(data?.sources) ? data.sources.length : 0} 个来源
                 </span>
@@ -3403,10 +3403,13 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </ol>
               ) : (
                 <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-                  尚未搜索插件。Agent 可调用 plugin_radar_search 从 GitHub 发现 DSH 插件。
+                  {data?.fetchedAt ? "未找到匹配的 Pi Harness 仓库。" : "尚未搜索插件。Agent 可调用 plugin_radar_search 从 GitHub 发现 Pi Harness 插件。"}
                 </div>
               )}
-              <div className="text-[10px] text-[#687381]">只读 GitHub 搜索，按 Star 降序；不会安装、执行或修改第三方仓库。</div>
+              {data?.truncated || results.length > 8 ? (
+                <p className="text-[10px] text-[#687381]">仅展示部分结果，可缩小查询范围；GitHub 可能返回不完整结果。</p>
+              ) : null}
+              <div className="text-[10px] text-[#687381]">按 Star 排序的 Topic 匹配仓库，尚未验证插件可安装性；不会安装或执行仓库代码。</div>
             </div>
           );
         })()

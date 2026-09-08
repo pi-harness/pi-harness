@@ -10,7 +10,7 @@ const defaultTimeoutMs = 15_000;
 const maxLimit = 25;
 const maxQueryLength = 80;
 const maxResponseBytes = 1024 * 1024;
-const radarTopics = ["topic:dsh-plugin", "topic:deepseek-harness"];
+const radarTopics = ["topic:pi-harness", "topic:pi-harness-plugin"];
 const queryParameterNames = new Set(["query"]);
 
 export interface PluginRadarConfig {
@@ -42,6 +42,7 @@ export interface PluginRadarReport {
   results: PluginRadarResult[];
   fetchedAt: string;
   sources: string[];
+  truncated: boolean;
 }
 
 function normalizeApiUrl(url: string | undefined): string {
@@ -77,7 +78,7 @@ function queryParameter(value: unknown): string {
 }
 
 function clampLimit(value: number | undefined): number {
-  return Math.max(1, Math.min(maxLimit, Math.trunc(value ?? defaultLimit)));
+  return Math.max(1, Math.min(maxLimit, Math.trunc(value !== undefined && Number.isFinite(value) ? value : defaultLimit)));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -89,39 +90,46 @@ function asString(value: unknown, fallback: string): string {
 }
 
 function asNonNegativeInteger(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 function asTopics(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string").slice(0, 12) : [];
 }
 
-function parseResults(payload: unknown): { total: number; results: PluginRadarResult[] } {
+function parseResults(payload: unknown): { results: PluginRadarResult[]; truncated: boolean } {
   const root = asRecord(payload);
-  const items = root?.items;
-  const results = Array.isArray(items)
-    ? items.flatMap((entry): PluginRadarResult[] => {
-        const item = asRecord(entry);
-        if (item === undefined) return [];
-        const fullName = asString(item.full_name, "").trim();
-        const name = asString(item.name, "").trim();
-        const url = asString(item.html_url, "").trim();
-        if (fullName === "" || name === "" || !/^https:\/\/github\.com\//iu.test(url)) return [];
-        return [
-          {
-            name,
-            fullName,
-            url,
-            description: asString(item.description, ""),
-            stars: asNonNegativeInteger(item.stargazers_count),
-            language: typeof item.language === "string" ? item.language : null,
-            updatedAt: asString(item.updated_at, ""),
-            topics: asTopics(item.topics),
-          },
-        ];
-      })
-    : [];
-  return { total: asNonNegativeInteger(root?.total_count) || results.length, results };
+  if (
+    root === undefined ||
+    !Array.isArray(root.items) ||
+    typeof root.total_count !== "number" ||
+    !Number.isSafeInteger(root.total_count) ||
+    root.total_count < 0 ||
+    (root.incomplete_results !== undefined && typeof root.incomplete_results !== "boolean")
+  )
+    throw new Error("GitHub plugin radar returned an invalid response structure");
+  const items = root.items;
+  const results = items.flatMap((entry): PluginRadarResult[] => {
+    const item = asRecord(entry);
+    if (item === undefined) return [];
+    const fullName = asString(item.full_name, "").trim();
+    const name = asString(item.name, "").trim();
+    const url = asString(item.html_url, "").trim();
+    if (fullName === "" || name === "" || !/^https:\/\/github\.com\//iu.test(url)) return [];
+    return [
+      {
+        name,
+        fullName,
+        url,
+        description: asString(item.description, ""),
+        stars: asNonNegativeInteger(item.stargazers_count),
+        language: typeof item.language === "string" ? item.language : null,
+        updatedAt: asString(item.updated_at, ""),
+        topics: asTopics(item.topics),
+      },
+    ];
+  });
+  return { results, truncated: root.total_count > items.length || root.incomplete_results === true };
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -174,7 +182,7 @@ async function searchPlugins(apiUrl: string, limit: number, timeoutMs: number, r
   }, timeoutMs);
   timer.unref();
   const keyword = query.replaceAll('"', "");
-  let batches: PluginRadarResult[][];
+  let batches: { results: PluginRadarResult[]; truncated: boolean }[];
   try {
     batches = await Promise.all(
       radarTopics.map(async (topic) => {
@@ -189,7 +197,7 @@ async function searchPlugins(apiUrl: string, limit: number, timeoutMs: number, r
           signal: controller.signal,
         });
         if (!response.ok) throw new Error(`GitHub plugin radar returned HTTP ${response.status}`);
-        return parseResults(await readJson(response)).results;
+        return parseResults(await readJson(response));
       }),
     );
   } catch (error) {
@@ -202,12 +210,20 @@ async function searchPlugins(apiUrl: string, limit: number, timeoutMs: number, r
     controller.abort();
   }
   const unique = new Map<string, PluginRadarResult>();
-  for (const item of batches.flat()) {
-    const current = unique.get(item.fullName);
-    if (current === undefined || item.stars > current.stars) unique.set(item.fullName, item);
+  for (const item of batches.flatMap((batch) => batch.results)) {
+    const key = item.fullName.toLowerCase();
+    const current = unique.get(key);
+    if (current === undefined || item.stars > current.stars) unique.set(key, item);
   }
   const results = [...unique.values()].sort((left, right) => right.stars - left.stars || left.fullName.localeCompare(right.fullName)).slice(0, limit);
-  return { query, total: results.length, results, fetchedAt: new Date().toISOString(), sources: [...radarTopics] };
+  return {
+    query,
+    total: results.length,
+    results,
+    fetchedAt: new Date().toISOString(),
+    sources: [...radarTopics],
+    truncated: batches.some((batch) => batch.truncated) || unique.size > limit,
+  };
 }
 
 export default {
@@ -215,28 +231,40 @@ export default {
   inject: ["piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: PluginRadarConfig) {
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
     const apiUrl = normalizeApiUrl(config.apiUrl);
     const limit = clampLimit(config.limit);
-    const timeoutMs = Math.max(1_000, Math.min(60_000, Math.trunc(config.timeoutMs ?? defaultTimeoutMs)));
+    const timeoutMs = Math.max(
+      1_000,
+      Math.min(60_000, Math.trunc(config.timeoutMs !== undefined && Number.isFinite(config.timeoutMs) ? config.timeoutMs : defaultTimeoutMs)),
+    );
     let latest: PluginRadarReport | undefined;
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "plugin_radar_search",
-        label: "Search DSH plugins",
-        description: "Search GitHub for DSH and DeepSeek Harness plugins, sorted by stars. Read-only; never installs packages.",
-        promptSnippet: "find popular DSH plugins on GitHub",
+        label: "Search Pi Harness plugins",
+        description:
+          "Search GitHub for repositories tagged pi-harness or pi-harness-plugin, sorted by stars. Topic matching does not verify plugin installability. Read-only; never installs packages.",
+        promptSnippet: "find popular Pi Harness plugins on GitHub",
         parameters: Type.Object(
           {
-            query: Type.Optional(Type.String({ description: "Capability or repository keywords; empty searches the full DSH ecosystem" })),
+            query: Type.Optional(Type.String({ description: "Capability or repository keywords; empty searches the full Pi Harness ecosystem" })),
           },
           { additionalProperties: false },
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<PluginRadarReport>> {
-          latest = await searchPlugins(apiUrl, limit, timeoutMs, queryParameter(params), signal);
+          const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          if (combined.aborted) throw new Error("Plugin radar request was cancelled", { cause: combined.reason });
+          const report = await searchPlugins(apiUrl, limit, timeoutMs, queryParameter(params), combined);
+          if (combined.aborted) throw new Error("Plugin radar request was cancelled", { cause: combined.reason });
+          latest = report;
           const text =
-            latest.results.length === 0 ? "No DSH plugins found." : latest.results.map((item) => `${item.fullName} (${item.stars} stars)`).join("\n");
-          return { content: [{ type: "text", text }], details: latest };
+            latest.results.length === 0
+              ? "No matching Pi Harness repositories found."
+              : latest.results.map((item) => `${item.fullName} (${item.stars} stars)`).join("\n");
+          return { content: [{ type: "text", text }], details: structuredClone(latest) };
         },
       }),
     );
@@ -246,7 +274,7 @@ export default {
         id: "plugin-radar-panel",
         pluginId: "@pi-harness/plugin-plugin-radar",
         title: "Plugin Radar",
-        description: "只读发现 GitHub 上的 DSH 插件，按 Star 排序，不会自动安装代码。",
+        description: "只读发现 GitHub 上的 Pi Harness 插件，按 Star 排序，不会自动安装代码。",
         icon: "⌁",
         read: () => ({
           apiUrl,
@@ -255,8 +283,9 @@ export default {
           query: latest?.query ?? null,
           total: latest?.total ?? 0,
           fetchedAt: latest?.fetchedAt ?? null,
-          sources: latest?.sources ?? [...radarTopics],
-          results: latest?.results ?? [],
+          sources: [...(latest?.sources ?? radarTopics)],
+          results: structuredClone(latest?.results ?? []),
+          truncated: latest?.truncated ?? false,
         }),
       });
     } catch (error) {

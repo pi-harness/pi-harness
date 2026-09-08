@@ -4081,7 +4081,7 @@ describe("Pi domain plugins", () => {
     await expect(tool.execute("call-3", { path: "../invalid.yml" }, undefined, undefined, {} as never)).rejects.toThrow(/inside the current workspace/);
   });
 
-  test("searches GitHub DSH plugins and exposes a bounded radar snapshot", async () => {
+  test("searches GitHub Pi Harness plugins and exposes a bounded radar snapshot", async () => {
     const originalFetch = globalThis.fetch;
     const requests: string[] = [];
     const mockFetch: typeof fetch = (input) => {
@@ -4100,7 +4100,7 @@ describe("Pi domain plugins", () => {
                 stargazers_count: 309,
                 language: "TypeScript",
                 updated_at: "2026-09-02T07:00:00Z",
-                topics: ["dsh-plugin", "deepseek-harness"],
+                topics: ["pi-harness", "pi-harness-plugin"],
               },
               {
                 name: "dsh-taskboard",
@@ -4137,7 +4137,7 @@ describe("Pi domain plugins", () => {
         stars: 309,
       });
       expect(requests[0]).toContain("api.github.test/search/repositories?");
-      expect(requests[0]).toContain("topic%3Adsh-plugin");
+      expect(requests[0]).toContain("topic%3Api-harness");
       expect(requests).toHaveLength(2);
       const snapshot = await panels.snapshot();
       expect(snapshot).toHaveLength(1);
