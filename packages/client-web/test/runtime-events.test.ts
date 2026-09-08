@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { compactThinkingEvents } from "../src/runtime-events.js";
+import { compactThinkingEvents, eventKindLabel } from "../src/runtime-events.js";
 
 describe("runtime event compaction", () => {
   test("merges token-level thinking deltas into one renderable event", () => {
@@ -24,5 +24,19 @@ describe("runtime event compaction", () => {
       event,
       { type: "message_update", assistantMessageEvent: { type: "thinking_delta" } },
     ]);
+  });
+});
+
+describe("runtime event labels", () => {
+  test("names every event kind the runtime emits", () => {
+    // These three reached the trace as raw snake_case ids while every neighbouring row was Chinese.
+    expect(eventKindLabel("tool_execution_update")).toBe("工具进展");
+    expect(eventKindLabel("compaction_delta")).toBe("压缩进展");
+    expect(eventKindLabel("compaction_cost")).toBe("压缩开销");
+  });
+
+  test("falls back to the raw id for an event kind it has not met", () => {
+    expect(eventKindLabel("some_future_event")).toBe("some_future_event");
+    expect(eventKindLabel(undefined)).toBe("事件");
   });
 });
