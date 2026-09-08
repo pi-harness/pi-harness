@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile, chmod, access, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -10,9 +10,11 @@ import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-ha
 
 const execFileAsync = promisify(execFile);
 const contexts: Context[] = [];
+const roots: string[] = [];
 
-async function fixture() {
+async function fixture(maxDiffBytes = 64 * 1024) {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-reviewer-"));
+  roots.push(root);
   await execFileAsync("git", ["init", "-q"], { cwd: root });
   await execFileAsync("git", ["config", "user.email", "test@example.invalid"], { cwd: root });
   await execFileAsync("git", ["config", "user.name", "Pi Harness Test"], { cwd: root });
@@ -25,7 +27,7 @@ async function fixture() {
   provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
-  await context.plugin(reviewerBotPlugin, { maxDiffBytes: 64 * 1024, timeoutMs: 5_000 });
+  await context.plugin(reviewerBotPlugin, { maxDiffBytes, timeoutMs: 5_000 });
   contexts.push(context);
   const tool = tools.snapshot().customTools.find((item) => item.name === "review_changes");
   if (tool === undefined) throw new Error("review_changes was not registered");
@@ -34,6 +36,7 @@ async function fixture() {
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("reviewer bot", () => {
@@ -153,5 +156,63 @@ describe("reviewer bot", () => {
     await context.fiber.dispose();
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
+  });
+});
+
+test("does not execute configured text conversion commands", async () => {
+  const { root, tool } = await fixture();
+  await writeFile(join(root, "convert.sh"), '#!/bin/sh\nprintf called > converter-ran\ncat "$1"\n');
+  await chmod(join(root, "convert.sh"), 0o755);
+  await writeFile(join(root, ".gitattributes"), "file.txt diff=probe\n");
+  await execFileAsync("git", ["config", "diff.probe.textconv", "./convert.sh"], { cwd: root });
+  await writeFile(join(root, "file.txt"), "changed\n");
+  await tool.execute("review", {}, undefined, undefined, {} as never);
+  await expect(access(join(root, "converter-ran"))).rejects.toThrow();
+});
+
+test("withholds source lines from whitespace findings and detaches snapshots", async () => {
+  const { root, tool, panels } = await fixture();
+  const sentinel = "LOCAL_TEST_SENTINEL_12345";
+  await writeFile(join(root, "file.txt"), `password = "${sentinel}"  \n`);
+  const result = await tool.execute("review", {}, undefined, undefined, {} as never);
+  expect(result.details).toMatchObject({ status: "error" });
+  expect(JSON.stringify(result)).not.toContain(sentinel);
+  (result.details as { findings: unknown[] }).findings.length = 0;
+  const first = (await panels.snapshot())[0]!.data as { latest: { findings: unknown[] } };
+  expect(first.latest.findings.length).toBeGreaterThan(0);
+  first.latest.findings.length = 0;
+  expect(((await panels.snapshot())[0]!.data as typeof first).latest.findings.length).toBeGreaterThan(0);
+});
+
+test("rejects cancelled, disposed and non-empty-parameter calls", async () => {
+  const { tool, context } = await fixture();
+  const caller = new AbortController();
+  caller.abort();
+  await expect(tool.execute("cancel", {}, caller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+  await expect(tool.execute("params", { extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/parameters/iu);
+  await context.fiber.dispose();
+  await expect(tool.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+});
+
+test("preserves full totals when file and finding details are capped", async () => {
+  const { root, tool } = await fixture(1024 * 1024);
+  await Promise.all(Array.from({ length: 513 }, (_, index) => writeFile(join(root, `added-${index}.txt`), "TODO check\n")));
+  await writeFile(join(root, "zz-secret.txt"), 'secret = "LOCAL_ONLY_TEST_VALUE"\n');
+  await execFileAsync("git", ["add", "."], { cwd: root });
+  const result = await tool.execute("bounds", {}, undefined, undefined, {} as never);
+  const report = result.details as { files: unknown[]; findings: unknown[] };
+  expect(result.details).toMatchObject({ changedFiles: 514, findingCount: 514, filesTruncated: true, findingsTruncated: true, status: "error" });
+  expect(report.files).toHaveLength(512);
+  expect(report.findings).toHaveLength(100);
+}, 15_000);
+
+test("pins diff prefixes and color despite repository configuration", async () => {
+  const { root, tool } = await fixture();
+  await execFileAsync("git", ["config", "diff.noprefix", "true"], { cwd: root });
+  await execFileAsync("git", ["config", "color.ui", "always"], { cwd: root });
+  await execFileAsync("git", ["config", "color.diff", "always"], { cwd: root });
+  await writeFile(join(root, "file.txt"), "changed\n");
+  await expect(tool.execute("paths", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+    details: { files: [{ path: "file.txt", added: 1, removed: 1 }] },
   });
 });

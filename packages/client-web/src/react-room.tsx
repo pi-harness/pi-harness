@@ -2599,15 +2599,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
             (() => {
               const report = data.latest as Record<string, unknown>;
-              const status = value(report.status ?? "pass");
+              const status = value(report.status);
               const findings = Array.isArray(report.findings) ? report.findings : [];
               return (
                 <>
                   <div
                     className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : status === "warning" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
                   >
-                    <span>{status === "error" ? "发现阻断风险" : status === "warning" ? "需要关注" : "审查通过"}</span>
-                    <strong className="font-mono">{value(findings.length)} findings</strong>
+                    <span>{status === "error" ? "发现错误风险" : status === "warning" ? "需要关注" : "未命中检查规则"}</span>
+                    <strong className="font-mono">{value(report.findingCount)} findings</strong>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {[
@@ -2621,6 +2621,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       </div>
                     ))}
                   </div>
+                  <p className="text-[10px] text-[#687381]">
+                    仅检查相对 HEAD 的已跟踪改动；不含未跟踪文件，也不执行测试。显示 {Math.min(findings.length, 4)}/{value(report.findingCount)} 个风险项。
+                  </p>
+                  {report.filesTruncated === true || report.findingsTruncated === true ? (
+                    <p className="text-[10px] text-[#9a6700]">明细超过上限，结果已截断；总数仍包含全部检查结果。</p>
+                  ) : null}
                   {findings.length > 0 ? (
                     <ul className="grid gap-1 rounded-lg border border-[#e3e7ee] bg-white px-4 py-3 text-[10px] text-[#65707b]">
                       {findings.slice(0, 4).map((finding, index) => (
