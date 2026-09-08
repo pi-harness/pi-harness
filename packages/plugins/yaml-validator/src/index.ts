@@ -1,5 +1,5 @@
 import type { Context } from "@deepseek-ai/cordis";
-import { parseAllDocuments, isMap, isSeq, type YAMLParseError, type YAMLWarning } from "yaml";
+import { parseAllDocuments, isMap, isSeq, isAlias, visit, LineCounter, YAMLParseError, type YAMLWarning } from "yaml";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { EmptyConfig, readBoundedFile, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
@@ -91,9 +91,24 @@ export default {
     const lifecycle = new AbortController();
     let latest: YamlReport | undefined;
     let status: ValidationStatus = { state: "idle" };
-    const validate = async (requested: string, signal: AbortSignal): Promise<YamlReport> => {
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, sessionId: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      throwIfAborted(lifecycle.signal);
+      const current = readScope();
+      if (current.session !== scope.session || current.manager !== scope.manager || current.sessionId !== scope.sessionId || current.cwd !== scope.cwd) {
+        scope = current;
+        latest = undefined;
+        status = { state: "idle" };
+      }
+      return scope;
+    };
+    const validate = async (cwd: string, requested: string, signal: AbortSignal): Promise<YamlReport> => {
       throwIfAborted(signal);
-      const location = await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, requested, "YAML path must stay inside the current workspace");
+      const location = await resolveExistingWorkspacePath(cwd, requested, "YAML path must stay inside the current workspace");
       throwIfAborted(signal);
       const bytes = await readBoundedFile(location.target, maxBytes, "YAML file");
       throwIfAborted(signal);
@@ -103,9 +118,25 @@ export default {
       } catch (error) {
         throw new Error("YAML file must contain valid UTF-8", { cause: error });
       }
-      const documents = parseAllDocuments(source);
+      const lineCounter = new LineCounter();
+      const documents = parseAllDocuments(source, { lineCounter });
       throwIfAborted(signal);
       if (documents.length > maxDocuments) throw new Error(`YAML streams cannot exceed ${maxDocuments} documents`);
+      for (const document of documents) {
+        const anchors = new Set<string>();
+        visit(document, {
+          Node(_key, node) {
+            if (isAlias(node)) {
+              if (!anchors.has(node.source)) {
+                const offset = node.range?.[0] ?? 0;
+                const error = new YAMLParseError([offset, node.range?.[1] ?? offset], "BAD_ALIAS", `Unresolved alias: ${node.source}`);
+                error.linePos = [lineCounter.linePos(offset)];
+                document.errors.push(error);
+              }
+            } else if (node.anchor !== undefined) anchors.add(node.anchor);
+          },
+        });
+      }
       const errorCount = documents.reduce((total, document) => total + document.errors.length, 0);
       const warningCount = documents.reduce((total, document) => total + document.warnings.length, 0);
       const errors = documents
@@ -128,7 +159,6 @@ export default {
         errors,
         warnings,
       };
-      latest = structuredClone(report);
       return report;
     };
     const unregisterTool = context.piTools.register(
@@ -144,25 +174,37 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<YamlReport>> {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const operationScope = refreshScope();
           status = { state: "running" };
           try {
             throwIfAborted(operationSignal);
-            const report = await validate(pathParameter(params), operationSignal);
+            const report = await validate(operationScope.cwd, pathParameter(params), operationSignal);
+            throwIfAborted(operationSignal);
+            if (refreshScope() !== operationScope) throw new Error("YAML workspace changed during validation");
+            latest = structuredClone(report);
             status = { state: "completed", at: new Date().toISOString() };
             const summary = report.valid ? `YAML is valid (${report.documents} document(s)).` : `YAML is invalid with ${report.errorCount} error(s).`;
             const preview = report.errors.slice(0, maxToolDiagnostics);
-            const omitted = report.errorCount - preview.length;
+            const warningPreview = report.warnings.slice(0, Math.max(0, maxToolDiagnostics - preview.length));
+            const omitted = report.errorCount + report.warningCount - preview.length - warningPreview.length;
             return {
               content: [
                 {
                   type: "text",
-                  text: `${summary}\n${preview.map((issue) => `${issue.line ?? "?"}:${issue.column ?? "?"} ${issue.message}`).join("\n")}${omitted > 0 ? `\n… ${omitted} additional error(s) omitted from the text preview.` : ""}`,
+                  text: `${summary}
+${JSON.stringify({ ...report, errors: preview, warnings: warningPreview, diagnosticsTruncated: report.diagnosticsTruncated || omitted > 0 })}${
+                    omitted > 0
+                      ? `
+… ${omitted} additional diagnostic(s) omitted from the text preview.`
+                      : ""
+                  }`,
                 },
               ],
               details: structuredClone(report),
             };
           } catch (error) {
-            status = { state: operationSignal.aborted ? "cancelled" : "failed", at: new Date().toISOString(), error: boundedError(error) };
+            if (!lifecycle.signal.aborted && refreshScope() === operationScope)
+              status = { state: operationSignal.aborted ? "cancelled" : "failed", at: new Date().toISOString(), error: boundedError(error) };
             throw error;
           }
         },
@@ -177,9 +219,11 @@ export default {
         description: "只读解析工作区 YAML，并展示行列级语法诊断。",
         icon: "⌁",
         read: () => {
+          const current = refreshScope();
           const errors = structuredClone(latest?.errors.slice(0, maxPanelDiagnostics) ?? []);
           const warnings = structuredClone(latest?.warnings.slice(0, Math.max(0, maxPanelDiagnostics - errors.length)) ?? []);
           return {
+            cwd: current.cwd,
             latest: latest === undefined ? null : { ...structuredClone(latest), errors, warnings },
             status: structuredClone(status),
             maxBytes,

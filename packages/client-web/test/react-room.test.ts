@@ -462,3 +462,33 @@ test("shows incomplete workspace searches even when no matches were collected", 
   expect(html).toContain("结果不完整");
   expect(html).toContain("needle");
 });
+
+test("shows YAML warning text and the inspected workspace path", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "yaml-validator-panel",
+        pluginId: "@pi-harness/plugin-yaml-validator",
+        title: "YAML Validator",
+        data: {
+          cwd: "/workspace/current",
+          latest: {
+            path: "warning.yml",
+            valid: true,
+            documents: 1,
+            bytes: 20,
+            rootType: "map",
+            errorCount: 0,
+            warningCount: 1,
+            errors: [],
+            warnings: [{ message: "Unresolved tag: !unknown", code: "TAG_RESOLVE_FAILED", line: 1, column: 7 }],
+          },
+          status: { state: "completed" },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("/workspace/current");
+  expect(html).toContain("warning.yml");
+  expect(html).toContain("Unresolved tag: !unknown");
+});

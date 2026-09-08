@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -26,6 +26,58 @@ async function createValidator() {
 }
 
 describe("YAML validator boundaries", () => {
+  test("uses the native workspace and rejects a result after an in-place session change", async () => {
+    const { context, cwd, tool } = await createValidator();
+    const active = join(cwd, "active");
+    await mkdir(active);
+    await writeFile(join(active, "current.yml"), "name: current\n");
+    const session = { sessionId: "first", sessionManager: { getCwd: () => active } };
+    context.provide("piRuntime", { session } as never);
+    try {
+      await expect(tool.execute("current", { path: "current.yml" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { valid: true } });
+      const pending = tool.execute("stale", { path: "current.yml" }, undefined, undefined, {} as never);
+      session.sessionId = "second";
+      await expect(pending).rejects.toThrow(/workspace changed/iu);
+      await expect(context.piPluginUi.snapshot()).resolves.toMatchObject([{ data: { latest: null, status: { state: "idle" } } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("reports unresolved aliases without expanding valid recursive references", async () => {
+    const { context, cwd, tool } = await createValidator();
+    try {
+      await writeFile(join(cwd, "missing.yml"), "value: *missing\n");
+      await expect(tool.execute("missing", { path: "missing.yml" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { valid: false, errorCount: 1, errors: [{ code: "BAD_ALIAS", line: 1, column: 8 }] },
+      });
+      await writeFile(join(cwd, "recursive.yml"), "value: &value [*value]\n");
+      await expect(tool.execute("recursive", { path: "recursive.yml" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { valid: true },
+      });
+      await writeFile(join(cwd, "stream.yml"), "value: &value one\n---\nvalue: *value\n");
+      await expect(tool.execute("stream", { path: "stream.yml" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { valid: false, documents: 2, errors: [{ code: "BAD_ALIAS", line: 3 }] },
+      });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("includes warning evidence in model-visible output", async () => {
+    const { context, cwd, tool } = await createValidator();
+    try {
+      await writeFile(join(cwd, "warning.yml"), "name: !unknown value\n");
+      const result = await tool.execute("warning", { path: "warning.yml" }, undefined, undefined, {} as never);
+      const content = result.content[0];
+      if (content?.type !== "text") throw new Error("Expected text");
+      expect(content.text).toContain("TAG_RESOLVE_FAILED");
+      expect(result.details).toMatchObject({ valid: true, warningCount: 1 });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("rejects unknown plugin configuration before activation", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-yaml-config-"));
     temporaryDirectories.push(cwd);

@@ -75,6 +75,7 @@ export function yamlValidatorPanelView(data: unknown) {
   const at = string(rawStatus.at, 64);
   const error = string(rawStatus.error, limits.statusErrorCharacters);
   return {
+    cwd: string(source.cwd, 4096),
     latest:
       rawLatest === undefined
         ? null

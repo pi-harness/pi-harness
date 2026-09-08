@@ -4708,6 +4708,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const report = view.latest;
           return (
             <div className="mt-3 grid gap-3">
+              <p className="break-all text-[10px] text-[var(--color-faint)]">工作区：{view.cwd}</p>
               {view.status.state === "failed" || view.status.state === "cancelled" ? (
                 <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[11px] text-[var(--color-red)]">
                   最近一次校验{view.status.state === "cancelled" ? "已取消" : "失败"}。{view.status.error ?? ""}
@@ -4715,6 +4716,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ) : null}
               {report !== null ? (
                 <>
+                  <p className="break-all font-mono text-[10px] text-[var(--color-muted)]">{report.path}</p>
                   <div
                     className={`rounded-lg border px-3 py-3 text-[11px] ${report.valid ? "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]" : "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
                   >
@@ -4735,6 +4737,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   {!report.valid && report.errors.length > 0 ? (
                     <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[#f4caca] bg-[var(--color-soft)] p-3 text-[10px] leading-4 text-[var(--color-red)]">
                       {report.errors.map((error) => `${error.line ?? "?"}:${error.column ?? "?"} ${error.message}`).join("\n")}
+                    </pre>
+                  ) : null}
+                  {report.warnings.length > 0 ? (
+                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--color-amber-soft)] p-3 text-[10px] leading-4 text-[var(--color-amber)]">
+                      {report.warnings.map((warning) => `${warning.line ?? "?"}:${warning.column ?? "?"} ${warning.message}`).join("\n")}
                     </pre>
                   ) : null}
                   {report.diagnosticsTruncated ? <p className="text-[10px] text-[var(--color-amber)]">诊断预览已截断，完整计数保留在摘要中。</p> : null}
