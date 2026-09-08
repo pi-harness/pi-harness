@@ -67,8 +67,15 @@ export interface PiTelemetryEvent {
 
 export interface PiTelemetryService {
   readonly enabled: false;
-  send(event: PiTelemetryEvent): { blocked: true; name: string };
-  snapshot(): { blocked: number; names: readonly string[] };
+  send(event: PiTelemetryEvent): { discarded: true; name: string };
+  snapshot(): {
+    enabled: false;
+    discarded: number;
+    observed: number;
+    names: readonly string[];
+    namesTruncated: boolean;
+    scope: "piTelemetry-service-and-event-observation";
+  };
 }
 
 export interface PiToolsSnapshot {

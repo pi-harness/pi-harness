@@ -3541,15 +3541,15 @@ describe("Pi domain plugins", () => {
     const telemetry = context.get("piTelemetry");
     expect(telemetry).toBeDefined();
     expect(telemetry!.send({ name: "prompt_completed", properties: { prompt: "secret text", tokens: 20 } })).toMatchObject({
-      blocked: true,
+      discarded: true,
       name: "prompt_completed",
     });
     context.emit("pi/telemetry", { name: "session_started", properties: { cwd: "/private/project" } });
     const status = tools.snapshot().customTools.find((candidate) => candidate.name === "telemetry_status");
     await expect(status!.execute("call-1", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
-      details: { blocked: 2, names: ["prompt_completed", "session_started"] },
+      details: { discarded: 1, observed: 1, names: ["prompt_completed", "session_started"] },
     });
-    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "telemetry-blocker-panel", data: { blocked: 2, enabled: false } }]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ id: "telemetry-blocker-panel", data: { discarded: 1, observed: 1, enabled: false } }]);
     expect(JSON.stringify(await panels.snapshot())).not.toContain("secret text");
   });
 

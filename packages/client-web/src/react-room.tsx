@@ -4094,13 +4094,18 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : panel.id === "telemetry-blocker-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#b9e6c9] bg-[#f0fbf4] px-3 py-3 text-[11px] text-[#14733f]">
-            <span>遥测已关闭</span>
-            <strong className="font-mono">拦截 {value(data?.blocked ?? 0)} 次</strong>
+            <span>本地遥测服务不发送事件</span>
+            <strong className="font-mono">
+              丢弃 {value(data?.discarded ?? 0)} 次 · 总线观察 {value(data?.observed ?? 0)} 次
+            </strong>
           </div>
           <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[10px] text-[#65707b]">
             {Array.isArray(data?.names) && data.names.length > 0 ? `事件名：${data.names.slice(0, 8).map(String).join("、")}` : "尚未收到遥测事件。"}
           </div>
-          <p className="text-[10px] text-[#687381]">只记录事件名和计数，不保留事件属性，也不会发起网络请求。</p>
+          <p className="text-[10px] text-[#687381]">
+            最多保留 100 个事件名，界面显示前 8 个；{data?.namesTruncated === true ? "事件名已截断。" : ""}
+            不读取或保存事件属性。此服务不拦截网络，也不阻止其他事件监听器。
+          </p>
         </div>
       ) : panel.id === "plugin-dev-panel" ? (
         <div className="mt-3 grid gap-3">
