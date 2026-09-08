@@ -1,15 +1,18 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
 import taskboardPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
+const roots: string[] = [];
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-taskboard-"));
+  roots.push(root);
   const context = new Context();
   const tools = new PiToolRegistry();
   const panels = new PiPluginUiRegistry();
@@ -24,6 +27,7 @@ async function fixture() {
     return tool;
   };
   return {
+    root,
     context,
     tools,
     panels,
@@ -36,6 +40,7 @@ async function fixture() {
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("taskboard", () => {
@@ -70,4 +75,61 @@ describe("taskboard", () => {
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
   });
+});
+
+test("isolates tasks by the active native workspace", async () => {
+  const { context, create, list } = await fixture();
+  const runtime = { session: { sessionManager: SessionManager.inMemory("/active-one") } };
+  context.provide("piRuntime", runtime as never);
+  const task = await create.execute("one", { title: "工作区一" }, undefined, undefined, {} as never);
+  expect(task.details).toMatchObject({ workspace: "/active-one" });
+  runtime.session.sessionManager = SessionManager.inMemory("/active-two");
+  expect((await list.execute("two", {}, undefined, undefined, {} as never)).details).toMatchObject({ total: 0 });
+});
+
+test("rejects impossible dates, invalid parameters and cancellation before creating storage", async () => {
+  const { root, create, list } = await fixture();
+  await expect(create.execute("date", { title: "Bad date", dueDate: "2026-02-30" }, undefined, undefined, {} as never)).rejects.toThrow(/dueDate/);
+  await expect(create.execute("extra", { title: "Extra", extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/parameter/i);
+  await expect(list.execute("limit", { limit: NaN }, undefined, undefined, {} as never)).rejects.toThrow(/limit/);
+  const abort = new AbortController();
+  abort.abort();
+  await expect(create.execute("cancel", { title: "Cancelled" }, abort.signal, undefined, {} as never)).rejects.toThrow(/cancel/i);
+  await expect(lstat(join(root, "tasks.sqlite"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("persists dependencies, rejects cycles and gates acceptance on completed prerequisites", async () => {
+  const { create, update, accept, list } = await fixture();
+  await create.execute("a", { title: "Prerequisite" }, undefined, undefined, {} as never);
+  await create.execute("b", { title: "Dependent", dependsOn: ["TST-1"] }, undefined, undefined, {} as never);
+  await expect(update.execute("cycle", { key: "TST-1", dependsOn: ["TST-2"] }, undefined, undefined, {} as never)).rejects.toThrow(/cycle/i);
+  await update.execute("review", { key: "TST-2", status: "in_review" }, undefined, undefined, {} as never);
+  await expect(accept.execute("early", { key: "TST-2", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/prerequisite/i);
+  await update.execute("review-a", { key: "TST-1", status: "in_review" }, undefined, undefined, {} as never);
+  await accept.execute("accept-a", { key: "TST-1", confirm: true }, undefined, undefined, {} as never);
+  await accept.execute("accept-b", { key: "TST-2", confirm: true }, undefined, undefined, {} as never);
+  expect((await list.execute("list", { status: "done" }, undefined, undefined, {} as never)).details).toMatchObject({
+    total: 2,
+    tasks: expect.arrayContaining([expect.objectContaining({ key: "TST-2", dependsOn: ["TST-1"] })]) as unknown,
+  });
+});
+
+test("rolls back invalid dependency writes and preserves workspace isolation in queued operations", async () => {
+  const { context, create, list, update } = await fixture();
+  await expect(create.execute("bad", { title: "Must rollback", dependsOn: ["TST-99"] }, undefined, undefined, {} as never)).rejects.toThrow(
+    /prerequisite not found/,
+  );
+  expect((await list.execute("empty", {}, undefined, undefined, {} as never)).details).toMatchObject({ total: 0 });
+  await create.execute("first", { title: "First" }, undefined, undefined, {} as never);
+  await create.execute("second", { title: "Second", dependsOn: ["TST-1"] }, undefined, undefined, {} as never);
+  await update.execute("clear", { key: "TST-2", dependsOn: [] }, undefined, undefined, {} as never);
+  const limited = await list.execute("limit", { limit: 1 }, undefined, undefined, {} as never);
+  expect(limited.details).toMatchObject({ total: 2, truncated: true, tasks: [expect.anything()] });
+  expect(JSON.parse((limited.content[0] as { text: string }).text)).toEqual(limited.details);
+  const runtime = { session: { sessionManager: SessionManager.inMemory("/new-workspace") } };
+  context.provide("piRuntime", runtime as never);
+  await expect(create.execute("cross", { title: "Cross", dependsOn: ["TST-1"] }, undefined, undefined, {} as never)).rejects.toThrow(/this workspace/);
+  const pending = create.execute("stale", { title: "Stale" }, undefined, undefined, {} as never);
+  runtime.session.sessionManager = SessionManager.inMemory("/other-workspace");
+  await expect(pending).rejects.toThrow(/context changed/);
 });

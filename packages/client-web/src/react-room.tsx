@@ -2954,6 +2954,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const counts = data?.counts !== null && typeof data?.counts === "object" ? (data.counts as Record<string, unknown>) : {};
           const recent = Array.isArray(data?.recent) ? data.recent : [];
           const lanes = [
+            ["待规划", "backlog", "bg-[#edf3fe] text-[#315fb8]"],
+            ["阻塞", "blocked", "bg-[#fff5f5] text-[#b42318]"],
+            ["已取消", "canceled", "bg-[#fff5f5] text-[#b42318]"],
             ["待办", "todo", "bg-[#edf3fe] text-[#315fb8]"],
             ["进行中", "in_progress", "bg-[#fff4e5] text-[#a15c00]"],
             ["待验收", "in_review", "bg-[#f0edff] text-[#6b4fc3]"],
@@ -2962,7 +2965,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           return (
             <div className="mt-3 grid gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[#f6f8ff] px-3 py-2 text-[10px]">
-                <span className="text-[#65707b]">当前工作区任务</span>
+                <span className="text-[#65707b]">当前工作区任务：{value(data?.workspace)}</span>
                 <strong className="font-mono text-[#3565c5]">{value(data?.total ?? 0)} 个</strong>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -3018,6 +3021,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         <div className="mt-1 flex items-center gap-2 text-[9px] text-[#687381]">
                           <span>优先级 {priority}</span>
                           {task.dueDate ? <span>截止 {value(task.dueDate)}</span> : null}
+                          {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
+                            <span>前置任务：{task.dependsOn.map((key) => value(key)).join(", ")}</span>
+                          ) : null}
                         </div>
                       </li>
                     );

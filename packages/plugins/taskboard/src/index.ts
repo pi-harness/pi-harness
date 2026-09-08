@@ -6,7 +6,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 const defaultFileName = "taskboard.sqlite";
 const maxTitleLength = 200;
@@ -28,8 +28,9 @@ type Task = {
   createdAt: string;
   updatedAt: string;
   version: number;
+  dependsOn: string[];
 };
-type TaskReport = { status?: TaskStatus; query?: string; total: number; tasks: Task[] };
+type TaskReport = { workspace: string; truncated: boolean; status?: TaskStatus; query?: string; total: number; tasks: Task[] };
 type TaskboardPanel = { workspace: string; total: number; counts: Record<TaskStatus, number>; recent: Task[] };
 
 export interface TaskboardPluginConfig {
@@ -61,12 +62,15 @@ function normalizeFilePath(agentDir: string, fileName: string | undefined): stri
 }
 
 function normalizeText(value: string, field: string, maxLength: number): string {
+  if (typeof value !== "string" || value.length > maxLength || value.includes("\0")) throw new Error(`${field} must contain 1-${maxLength} characters`);
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.length > maxLength) throw new Error(`${field} must contain 1-${maxLength} characters`);
   return normalized;
 }
 
 function normalizeDescription(value: string | undefined): string {
+  if (value !== undefined && (typeof value !== "string" || value.includes("\0") || Buffer.byteLength(value, "utf8") > maxDescriptionBytes))
+    throw new Error("Invalid Taskboard description");
   const normalized = value?.trim() ?? "";
   if (Buffer.byteLength(normalized, "utf8") > maxDescriptionBytes) throw new Error(`Taskboard description must be at most ${maxDescriptionBytes} bytes`);
   return normalized;
@@ -74,8 +78,13 @@ function normalizeDescription(value: string | undefined): string {
 
 function normalizeDueDate(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
-  const normalized = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(normalized) || !Number.isFinite(Date.parse(`${normalized}T00:00:00Z`)))
+  if (typeof value !== "string" || value.length !== 10) throw new Error("Taskboard dueDate must use YYYY-MM-DD");
+  const normalized = value;
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/u.test(normalized) ||
+    !Number.isFinite(Date.parse(`${normalized}T00:00:00Z`)) ||
+    new Date(`${normalized}T00:00:00Z`).toISOString().slice(0, 10) !== normalized
+  )
     throw new Error("Taskboard dueDate must use YYYY-MM-DD");
   return normalized;
 }
@@ -86,7 +95,7 @@ function normalizeKeyPrefix(value: string | undefined): string {
   return normalized;
 }
 
-function taskFromRow(row: Record<string, unknown>): Task {
+function taskFromRow(database: DatabaseSync, row: Record<string, unknown>): Task {
   if (
     typeof row.id !== "string" ||
     typeof row.task_key !== "string" ||
@@ -113,6 +122,11 @@ function taskFromRow(row: Record<string, unknown>): Task {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     version: row.version,
+    dependsOn: (
+      database.prepare("SELECT prerequisite_key FROM task_dependencies WHERE task_key = ? ORDER BY prerequisite_key").all(row.task_key) as Array<{
+        prerequisite_key: string;
+      }>
+    ).map((item) => item.prerequisite_key),
   };
 }
 
@@ -151,19 +165,48 @@ export default {
   Config,
   apply(context: Context, config: TaskboardPluginConfig) {
     const filePath = normalizeFilePath(context.piHarnessLaunch.agentDir, config.fileName);
-    const workspace = resolve(context.piHarnessLaunch.cwd);
+    assertKnownConfigKeys("pi-taskboard", config, ["fileName", "keyPrefix"]);
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager;
+    const capture = (signal?: AbortSignal) => {
+      if (lifecycle.signal.aborted || signal?.aborted) throw new Error("Taskboard operation was cancelled");
+      const manager = currentManager();
+      const workspace = resolve(manager?.getCwd() ?? context.piHarnessLaunch.cwd);
+      const id = manager?.getSessionId();
+      const check = () => {
+        if (lifecycle.signal.aborted || signal?.aborted) throw new Error("Taskboard operation was cancelled");
+        if (currentManager() !== manager || manager?.getSessionId() !== id || resolve(manager?.getCwd() ?? context.piHarnessLaunch.cwd) !== workspace)
+          throw new Error("Taskboard context changed during execution");
+      };
+      return { workspace, check };
+    };
+    const validate = (params: unknown, allowed: string[]) => {
+      if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Taskboard parameters must be an object");
+      const descriptors = Object.getOwnPropertyDescriptors(params);
+      if (
+        Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !allowed.includes(key)) ||
+        Object.values(descriptors).some((entry) => !("value" in entry))
+      )
+        throw new Error("Invalid Taskboard parameter");
+    };
     const keyPrefix = normalizeKeyPrefix(config.keyPrefix);
     let writeQueue = Promise.resolve();
 
-    const withDatabase = async <T>(operation: (database: DatabaseSync) => T): Promise<T> => {
+    const withDatabase = async <T>(check: () => void, operation: (database: DatabaseSync) => T): Promise<T> => {
+      check();
       await mkdir(dirname(filePath), { recursive: true });
+      check();
       const expected = await prepareDatabasePath(filePath);
-      const database = new DatabaseSync(filePath);
+      check();
+      const database = new DatabaseSync(filePath, { timeout: 1000 });
       try {
         const actual = await lstat(filePath);
         if (!actual.isFile() || actual.dev !== expected.dev || actual.ino !== expected.ino)
           throw new Error("Taskboard database must remain the same regular file while opening");
+        check();
         database.exec(`
+          PRAGMA foreign_keys = ON;
           CREATE TABLE IF NOT EXISTS tasks (
             id TEXT PRIMARY KEY,
             task_key TEXT NOT NULL UNIQUE,
@@ -177,6 +220,12 @@ export default {
             updated_at TEXT NOT NULL,
             version INTEGER NOT NULL
           );
+          CREATE TABLE IF NOT EXISTS task_dependencies (
+            task_key TEXT NOT NULL REFERENCES tasks(task_key),
+            prerequisite_key TEXT NOT NULL REFERENCES tasks(task_key),
+            PRIMARY KEY (task_key, prerequisite_key),
+            CHECK (task_key <> prerequisite_key)
+          );
           CREATE INDEX IF NOT EXISTS tasks_workspace_updated ON tasks(workspace, updated_at DESC);
           CREATE INDEX IF NOT EXISTS tasks_workspace_status ON tasks(workspace, status);
         `);
@@ -186,19 +235,42 @@ export default {
       }
     };
 
-    const mutate = async <T>(operation: (database: DatabaseSync) => T): Promise<T> => {
+    const mutate = async <T>(check: () => void, operation: (database: DatabaseSync) => T): Promise<T> => {
       let result: T | undefined;
       const run = async (): Promise<void> => {
-        result = await withDatabase((database) => withTransaction(database, () => operation(database)));
+        result = await withDatabase(check, (database) => withTransaction(database, () => operation(database)));
       };
       writeQueue = writeQueue.catch(() => undefined).then(run);
       await writeQueue;
       return result as T;
     };
 
-    const findTask = (database: DatabaseSync, key: string): Task | undefined => {
+    const findTask = (database: DatabaseSync, workspace: string, key: string): Task | undefined => {
       const row = database.prepare("SELECT * FROM tasks WHERE workspace = ? AND task_key = ?").get(workspace, key) as Record<string, unknown> | undefined;
-      return row === undefined ? undefined : taskFromRow(row);
+      return row === undefined ? undefined : taskFromRow(database, row);
+    };
+
+    const dependencyKeys = (value: unknown): string[] | undefined => {
+      if (value === undefined) return undefined;
+      if (!Array.isArray(value) || value.length > 32 || value.some((item) => typeof item !== "string"))
+        throw new Error("Taskboard dependsOn must contain at most 32 task keys");
+      const keys = value.map((item) => normalizeText(item as string, "Dependency key", 32).toUpperCase());
+      if (new Set(keys).size !== keys.length) throw new Error("Taskboard dependencies must be unique");
+      return keys;
+    };
+    const setDependencies = (database: DatabaseSync, workspace: string, key: string, keys: string[]) => {
+      for (const prerequisite of keys) {
+        if (prerequisite === key) throw new Error("Taskboard dependency cycle is not allowed");
+        if (findTask(database, workspace, prerequisite) === undefined) throw new Error(`Taskboard prerequisite not found in this workspace: ${prerequisite}`);
+        const cycle = database
+          .prepare(
+            "WITH RECURSIVE ancestors(task_key) AS (SELECT ? UNION SELECT d.prerequisite_key FROM task_dependencies d JOIN ancestors a ON d.task_key = a.task_key) SELECT 1 FROM ancestors WHERE task_key = ? LIMIT 1",
+          )
+          .get(prerequisite, key);
+        if (cycle !== undefined) throw new Error("Taskboard dependency cycle is not allowed");
+      }
+      database.prepare("DELETE FROM task_dependencies WHERE task_key = ?").run(key);
+      for (const prerequisite of keys) database.prepare("INSERT INTO task_dependencies(task_key,prerequisite_key) VALUES (?,?)").run(key, prerequisite);
     };
 
     const createTool = defineTool({
@@ -212,22 +284,29 @@ export default {
           description: Type.Optional(Type.String()),
           priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("urgent")])),
           dueDate: Type.Optional(Type.String()),
+          dependsOn: Type.Optional(Type.Array(Type.String(), { maxItems: 32, uniqueItems: true })),
         },
         { additionalProperties: false },
       ),
       executionMode: "sequential",
-      async execute(_toolCallId, params): Promise<AgentToolResult<Task>> {
+      async execute(_toolCallId, params, signal): Promise<AgentToolResult<Task>> {
+        const { workspace, check } = capture(signal);
+        validate(params, ["title", "description", "priority", "dueDate", "dependsOn"]);
         const title = normalizeText(params.title, "Taskboard title", maxTitleLength);
         const description = normalizeDescription(params.description);
         const priority = params.priority ?? "medium";
+        if (!isTaskPriority(priority)) throw new Error("Invalid Taskboard priority");
         const dueDate = normalizeDueDate(params.dueDate);
-        const task = await mutate((database) => {
-          const rows = database.prepare("SELECT task_key FROM tasks WHERE task_key LIKE ?").all(`${keyPrefix}-%`) as Array<Record<string, unknown>>;
-          const nextNumber =
-            rows.reduce((max, row) => {
-              const match = typeof row.task_key === "string" ? row.task_key.match(new RegExp(`^${keyPrefix}-(\\d+)$`, "u")) : null;
-              return match === null ? max : Math.max(max, Number.parseInt(match[1] ?? "0", 10));
-            }, 0) + 1;
+        const dependsOn = dependencyKeys(params.dependsOn);
+        const task = await mutate(check, (database) => {
+          let lastNumber = 0;
+          const pattern = new RegExp(`^${keyPrefix}-(\\d+)$`, "u");
+          for (const row of database.prepare("SELECT task_key FROM tasks WHERE task_key LIKE ?").iterate(`${keyPrefix}-%`)) {
+            const match = typeof row.task_key === "string" ? row.task_key.match(pattern) : null;
+            if (match !== null) lastNumber = Math.max(lastNumber, Number(match[1]));
+          }
+          const nextNumber = lastNumber + 1;
+          if (!Number.isSafeInteger(nextNumber)) throw new Error("Taskboard key sequence is exhausted");
           const now = new Date().toISOString();
           const next: Task = {
             id: randomUUID(),
@@ -241,6 +320,7 @@ export default {
             createdAt: now,
             updatedAt: now,
             version: 1,
+            dependsOn: dependsOn ?? [],
           };
           database
             .prepare(
@@ -259,9 +339,10 @@ export default {
               next.updatedAt,
               next.version,
             );
+          setDependencies(database, workspace, next.key, next.dependsOn);
           return next;
         });
-        return { content: [{ type: "text", text: `Task created: ${task.key} (${task.id}) [${task.status}] ${task.title}` }], details: task };
+        return { content: [{ type: "text", text: JSON.stringify(task) }], details: task };
       },
     });
 
@@ -281,34 +362,40 @@ export default {
         { additionalProperties: false },
       ),
       executionMode: "sequential",
-      async execute(_toolCallId, params): Promise<AgentToolResult<TaskReport>> {
+      async execute(_toolCallId, params, signal): Promise<AgentToolResult<TaskReport>> {
+        const { workspace, check } = capture(signal);
+        validate(params, ["status", "query", "limit"]);
         const query = params.query === undefined ? undefined : normalizeText(params.query, "Taskboard query", maxQueryLength);
-        const limit = Math.max(1, Math.min(maxTasksPerList, Math.trunc(params.limit ?? 20)));
-        const report = await withDatabase((database) => {
-          const rows = database.prepare("SELECT * FROM tasks WHERE workspace = ? ORDER BY updated_at DESC, task_key DESC").all(workspace) as Array<
-            Record<string, unknown>
-          >;
-          const all = rows.map(taskFromRow).filter((task) => {
-            if (params.status !== undefined && task.status !== params.status) return false;
-            if (query === undefined) return true;
-            const needle = query.toLocaleLowerCase();
-            return `${task.key} ${task.title} ${task.description}`.toLocaleLowerCase().includes(needle);
-          });
+        const limit = params.limit ?? 20;
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxTasksPerList) throw new Error("Taskboard limit must be an integer from 1 to 100");
+        if (params.status !== undefined && !isTaskStatus(params.status)) throw new Error("Invalid Taskboard status");
+        const report = await withDatabase(check, (database) => {
+          const rows = database.prepare("SELECT * FROM tasks WHERE workspace = ? ORDER BY updated_at DESC, task_key DESC").iterate(workspace);
+          const tasks: Task[] = [];
+          let total = 0;
+          const needle = query?.toLowerCase();
+          for (const row of rows) {
+            if (typeof row.task_key !== "string" || typeof row.title !== "string" || typeof row.description !== "string")
+              throw new Error("Invalid Taskboard task text");
+            if (params.status !== undefined && row.status !== params.status) continue;
+            if (needle !== undefined && !`${row.task_key} ${row.title} ${row.description}`.toLowerCase().includes(needle)) continue;
+            total += 1;
+            if (tasks.length < limit) tasks.push(taskFromRow(database, row));
+          }
           return {
             ...(params.status === undefined ? {} : { status: params.status as TaskStatus }),
             ...(query === undefined ? {} : { query }),
-            total: all.length,
-            tasks: all.slice(0, limit),
+            workspace,
+            total,
+            tasks,
+            truncated: total > tasks.length,
           } satisfies TaskReport;
         });
         return {
           content: [
             {
               type: "text",
-              text:
-                report.total === 0
-                  ? "No taskboard tasks found."
-                  : report.tasks.map((task) => `${task.key} [${task.status}/${task.priority}] ${task.title}`).join("\n"),
+              text: JSON.stringify(report),
             },
           ],
           details: report,
@@ -336,13 +423,19 @@ export default {
           ),
           priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("urgent")])),
           dueDate: Type.Optional(Type.String()),
+          dependsOn: Type.Optional(Type.Array(Type.String(), { maxItems: 32, uniqueItems: true })),
           clearDueDate: Type.Optional(Type.Boolean()),
         },
         { additionalProperties: false },
       ),
       executionMode: "sequential",
-      async execute(_toolCallId, params): Promise<AgentToolResult<Task>> {
+      async execute(_toolCallId, params, signal): Promise<AgentToolResult<Task>> {
+        const { workspace, check } = capture(signal);
+        validate(params, ["key", "title", "description", "status", "priority", "dueDate", "clearDueDate", "dependsOn"]);
         const key = normalizeText(params.key, "Taskboard key", 32).toUpperCase();
+        if (params.status !== undefined && !isTaskStatus(params.status)) throw new Error("Invalid Taskboard status");
+        if (params.priority !== undefined && !isTaskPriority(params.priority)) throw new Error("Invalid Taskboard priority");
+        if (params.clearDueDate !== undefined && typeof params.clearDueDate !== "boolean") throw new Error("Invalid Taskboard clearDueDate");
         if (params.status === "done") throw new Error("Taskboard tasks must reach in_review before taskboard_accept can mark them done");
         if (
           params.title === undefined &&
@@ -350,15 +443,17 @@ export default {
           params.status === undefined &&
           params.priority === undefined &&
           params.dueDate === undefined &&
-          params.clearDueDate !== true
+          params.clearDueDate !== true &&
+          params.dependsOn === undefined
         )
           throw new Error("Taskboard update requires at least one changed field");
         if (params.dueDate !== undefined && params.clearDueDate === true) throw new Error("Taskboard dueDate and clearDueDate cannot be used together");
         const title = params.title === undefined ? undefined : normalizeText(params.title, "Taskboard title", maxTitleLength);
         const description = params.description === undefined ? undefined : normalizeDescription(params.description);
         const dueDate = normalizeDueDate(params.dueDate);
-        const task = await mutate((database) => {
-          const current = findTask(database, key);
+        const dependsOn = dependencyKeys(params.dependsOn);
+        const task = await mutate(check, (database) => {
+          const current = findTask(database, workspace, key);
           if (current === undefined) throw new Error(`Taskboard task not found: ${key}`);
           if (current.status === "done" || current.status === "canceled") throw new Error(`Taskboard task ${key} is ${current.status} and cannot be updated`);
           const next: Task = {
@@ -370,6 +465,7 @@ export default {
             ...(dueDate === undefined || params.clearDueDate === true ? {} : { dueDate }),
             updatedAt: new Date().toISOString(),
             version: current.version + 1,
+            dependsOn: dependsOn ?? current.dependsOn,
           };
           if (params.clearDueDate === true) delete next.dueDate;
           database
@@ -377,9 +473,10 @@ export default {
               "UPDATE tasks SET title = ?, description = ?, status = ?, priority = ?, due_date = ?, updated_at = ?, version = ? WHERE workspace = ? AND task_key = ? AND version = ?",
             )
             .run(next.title, next.description, next.status, next.priority, next.dueDate ?? null, next.updatedAt, next.version, workspace, key, current.version);
+          if (dependsOn !== undefined) setDependencies(database, workspace, key, dependsOn);
           return next;
         });
-        return { content: [{ type: "text", text: `Task updated: ${task.key} [${task.status}] ${task.title}` }], details: task };
+        return { content: [{ type: "text", text: JSON.stringify(task) }], details: task };
       },
     });
 
@@ -390,20 +487,28 @@ export default {
       promptSnippet: "accept a reviewed taskboard task as done",
       parameters: Type.Object({ key: Type.String(), confirm: Type.Boolean() }, { additionalProperties: false }),
       executionMode: "sequential",
-      async execute(_toolCallId, params): Promise<AgentToolResult<Task>> {
+      async execute(_toolCallId, params, signal): Promise<AgentToolResult<Task>> {
+        const { workspace, check } = capture(signal);
+        validate(params, ["key", "confirm"]);
         const key = normalizeText(params.key, "Taskboard key", 32).toUpperCase();
         if (params.confirm !== true) throw new Error("Accepting a task requires confirm=true");
-        const task = await mutate((database) => {
-          const current = findTask(database, key);
+        const task = await mutate(check, (database) => {
+          const current = findTask(database, workspace, key);
           if (current === undefined) throw new Error(`Taskboard task not found: ${key}`);
           if (current.status !== "in_review") throw new Error(`Taskboard task ${key} must be in_review before acceptance`);
+          const unfinished = database
+            .prepare(
+              "SELECT d.prerequisite_key FROM task_dependencies d JOIN tasks t ON t.task_key = d.prerequisite_key WHERE d.task_key = ? AND t.status <> 'done'",
+            )
+            .all(key);
+          if (unfinished.length > 0) throw new Error("Taskboard prerequisites must be done before acceptance");
           const next = { ...current, status: "done" as const, updatedAt: new Date().toISOString(), version: current.version + 1 };
           database
             .prepare("UPDATE tasks SET status = ?, updated_at = ?, version = ? WHERE workspace = ? AND task_key = ? AND version = ?")
             .run("done", next.updatedAt, next.version, workspace, key, current.version);
           return next;
         });
-        return { content: [{ type: "text", text: `Task accepted: ${task.key} [done] ${task.title}` }], details: task };
+        return { content: [{ type: "text", text: JSON.stringify(task) }], details: task };
       },
     });
 
@@ -421,16 +526,18 @@ export default {
           description: "本工作区的本地任务、状态流转与验收队列。",
           icon: "▦",
           read: async (): Promise<TaskboardPanel> => {
-            const report = await withDatabase((database) => {
-              const rows = database.prepare("SELECT * FROM tasks WHERE workspace = ? ORDER BY updated_at DESC, task_key DESC").all(workspace) as Array<
-                Record<string, unknown>
-              >;
-              const tasks = rows.map(taskFromRow);
-              const counts = Object.fromEntries(statuses.map((status) => [status, tasks.filter((task) => task.status === status).length])) as Record<
-                TaskStatus,
-                number
-              >;
-              return { workspace, total: tasks.length, counts, recent: tasks.slice(0, 8) };
+            const { workspace, check } = capture();
+            const report = await withDatabase(check, (database) => {
+              const counts = Object.fromEntries(statuses.map((status) => [status, 0])) as Record<TaskStatus, number>;
+              for (const row of database.prepare("SELECT status, COUNT(*) AS count FROM tasks WHERE workspace = ? GROUP BY status").all(workspace)) {
+                if (!isTaskStatus(row.status) || typeof row.count !== "number") throw new Error("Invalid Taskboard count");
+                counts[row.status] = row.count;
+              }
+              const recent = database
+                .prepare("SELECT * FROM tasks WHERE workspace = ? ORDER BY updated_at DESC, task_key DESC LIMIT 8")
+                .all(workspace)
+                .map((row) => taskFromRow(database, row));
+              return { workspace, total: Object.values(counts).reduce((a, b) => a + b, 0), counts, recent };
             });
             return report;
           },
