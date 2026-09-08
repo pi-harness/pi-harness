@@ -54,17 +54,16 @@ function bounded(value: string, label: string, limit: number): string {
 
 export function parseVerifierResponse(value: string): { verdict: VerifierVerdict; rationale: string } {
   const source = value.trim();
-  const verdictMatch = source.match(/^\s*VERDICT\s*:\s*(pass|fail|unknown)\b/imu);
-  const verdict = (verdictMatch?.[1]?.toLowerCase() as VerifierVerdict | undefined) ?? "unknown";
-  const rationaleMatch = source.match(/^\s*RATIONALE\s*:\s*([\s\S]*)$/imu);
-  const rationale = rationaleMatch?.[1]?.trim().slice(0, maxRationaleLength) || "Model did not return a structured verification verdict.";
-  return { verdict, rationale };
+  const match = source.match(/^VERDICT[ \t]*:[ \t]*(pass|fail|unknown)[ \t]*\r?\n[ \t]*RATIONALE[ \t]*:[ \t]*([^\r\n]+)$/iu);
+  const rationale = match?.[2]?.trim();
+  if (match === null || !rationale) return { verdict: "unknown", rationale: "Model did not return a structured verification verdict." };
+  return { verdict: match[1]!.toLowerCase() as VerifierVerdict, rationale: rationale.slice(0, maxRationaleLength) };
 }
 
 export function summarizeVerifierHistory(history: readonly Pick<VerifierReport, "verdict">[]): VerifierHistorySummary {
   const counts: Record<VerifierVerdict, number> = { pass: 0, fail: 0, unknown: 0 };
   for (const report of history) counts[report.verdict] += 1;
-  return { total: history.length, counts, recent: [...history] };
+  return { total: history.length, counts, recent: history.map(({ verdict }) => ({ verdict })) };
 }
 
 function responseText(value: unknown): string {
@@ -109,10 +108,11 @@ export default {
       );
       // A cancelled or disposed turn must not publish its verdict, even when the provider ignored the signal and completed anyway.
       throwIfAborted(signal);
+      if (response.stopReason !== "stop") throw new Error(`Verifier completion did not finish normally (${response.stopReason})`);
       const parsed = parseVerifierResponse(responseText(response));
       latest = { ...parsed, claim, evidenceChars: evidence.length, model: { provider, id: model.id }, checkedAt: new Date().toISOString() };
       history = [latest, ...history].slice(0, maxHistorySize);
-      return latest;
+      return { ...latest, model: { ...latest.model } };
     };
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -160,8 +160,12 @@ export default {
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<VerifierBatchReport>> {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           if (params.items.length < 1 || params.items.length > maxBatchSize) throw new Error(`Batch verification accepts 1-${maxBatchSize} items`);
+          const items = params.items.map((item) => ({
+            claim: bounded(item.claim, "Verification claim", maxClaimLength),
+            evidence: bounded(item.evidence, "Verification evidence", maxEvidenceLength),
+          }));
           const results: VerifierReport[] = [];
-          for (const item of params.items) results.push(await verify(item.claim, item.evidence, operationSignal));
+          for (const item of items) results.push(await verify(item.claim, item.evidence, operationSignal));
           const summary = summarizeVerifierHistory(history);
           return {
             content: [{ type: "text", text: results.map((result, index) => `${index + 1}. ${result.verdict}: ${result.rationale}`).join("\n") }],

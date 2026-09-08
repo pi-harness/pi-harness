@@ -1,5 +1,5 @@
 import { Context } from "@deepseek-ai/cordis";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import { parseVerifierResponse, summarizeVerifierHistory } from "../src/index.js";
 import llmVerifierPlugin from "../src/index.js";
@@ -24,6 +24,73 @@ describe("llm verifier", () => {
     });
   });
 
+  test("does not accept incomplete or conflicting structured verdicts", () => {
+    for (const text of [
+      "VERDICT: pass",
+      "VERDICT: pass!\nRATIONALE: incomplete",
+      "VERDICT: pass\nVERDICT: fail\nRATIONALE: conflicting",
+      "VERDICT: pass\nRATIONALE:",
+    ]) {
+      expect(parseVerifierResponse(text).verdict, text).toBe("unknown");
+    }
+  });
+
+  test("returns detached verdict-only history summaries", () => {
+    const history = [{ verdict: "pass" as const, claim: "private fixture" }];
+    const summary = summarizeVerifierHistory(history);
+    expect(summary.recent).toEqual([{ verdict: "pass" }]);
+    history[0]!.verdict = "fail" as "pass";
+    expect(summary.recent[0]?.verdict).toBe("pass");
+  });
+
+  test("rejects failed or truncated completions and validates batches before model calls", async () => {
+    const context = new Context(),
+      tools = new PiToolRegistry(),
+      panels = new PiPluginUiRegistry();
+    const complete = vi.fn().mockResolvedValue({ stopReason: "error", content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Partial result." }] });
+    context.provide("piModelRuntime", {
+      provider: "fixture",
+      model: "judge",
+      runtime: { getModel: () => ({ provider: "fixture", id: "judge" }), complete },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(llmVerifierPlugin, {});
+      const tool = tools.snapshot().customTools.find((item) => item.name === "llm_verify")!;
+      const batch = tools.snapshot().customTools.find((item) => item.name === "llm_verify_batch")!;
+      for (const stopReason of ["error", "length", "aborted"]) {
+        complete.mockResolvedValue({ stopReason, content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Partial result." }] });
+        await expect(tool.execute("failure", { claim: "Claim", evidence: "Evidence" }, undefined, undefined, {} as never)).rejects.toThrow(/completion/iu);
+      }
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null, history: { total: 0 } } }]);
+      complete.mockClear();
+      complete.mockResolvedValue({ stopReason: "stop", content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Complete result." }] });
+      await expect(
+        batch.execute(
+          "invalid",
+          {
+            items: [
+              { claim: "Valid", evidence: "Evidence" },
+              { claim: "Invalid", evidence: "" },
+            ],
+          },
+          undefined,
+          undefined,
+          {} as never,
+        ),
+      ).rejects.toThrow(/evidence/iu);
+      expect(complete).not.toHaveBeenCalled();
+      const result = await tool.execute("success", { claim: "Claim", evidence: "Evidence" }, undefined, undefined, {} as never);
+      const before = await panels.snapshot();
+      (result.details as { verdict: string; model: { id: string } }).verdict = "fail";
+      (result.details as { model: { id: string } }).model.id = "corrupted";
+      expect(await panels.snapshot()).toEqual(before);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("verifies evidence through the configured model runtime", async () => {
     const context = new Context();
     const tools = new PiToolRegistry();
@@ -34,7 +101,7 @@ describe("llm verifier", () => {
       model: "verifier-model",
       runtime: {
         getModel: () => model,
-        complete: () => Promise.resolve({ content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Evidence matches the claim." }] }),
+        complete: () => Promise.resolve({ stopReason: "stop", content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Evidence matches the claim." }] }),
       },
     } as never);
     context.provide("piTools", tools);
@@ -89,7 +156,7 @@ describe("llm verifier", () => {
         complete: (_model: unknown, _request: unknown, options?: { signal?: AbortSignal }) => {
           signals.push(options?.signal);
           turn.abort(new Error("Turn was cancelled"));
-          return Promise.resolve({ content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Evidence matches the claim." }] });
+          return Promise.resolve({ stopReason: "stop", content: [{ type: "text", text: "VERDICT: pass\nRATIONALE: Evidence matches the claim." }] });
         },
       },
     } as never);
