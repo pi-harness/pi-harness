@@ -220,3 +220,55 @@ describe("module search", () => {
     }
   });
 });
+
+test("searches the active native workspace and discards reports across session changes", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-module-native-"));
+  const active = join(cwd, "active");
+  await mkdir(active);
+  await writeFile(join(cwd, "source.ts"), "export const launchOnly = 1;");
+  await writeFile(join(active, "source.ts"), "export const activeOnly = 1;");
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  let session = { sessionId: "first", sessionManager: { getCwd: () => cwd } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await context.plugin(moduleSearchPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    await tool.execute("first", { query: "Only", path: "source.ts" }, undefined, undefined, {} as never);
+    session = { sessionId: "second", sessionManager: { getCwd: () => active } };
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: null, matchCount: 0 });
+    await expect(tool.execute("active", { query: "Only", path: "source.ts" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { matches: [{ name: "activeOnly" }] },
+    });
+    const pending = tool.execute("pending", { query: "Only" }, undefined, undefined, {} as never);
+    const rejected = expect(pending).rejects.toThrow(/workspace changed/iu);
+    session.sessionId = "third";
+    await rejected;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: null, matchCount: 0 });
+    await expect(
+      tool.execute(
+        "getter",
+        {
+          get query() {
+            session.sessionId = "fourth";
+            return "Only";
+          },
+        },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/workspace changed/iu);
+  } finally {
+    await context.fiber.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

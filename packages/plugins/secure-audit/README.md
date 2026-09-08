@@ -29,3 +29,7 @@ Directory discovery uses bounded streaming reads: at most 4,096 entries, 512 dir
 Results retain at most 200 findings while preserving total severity counts. Model-visible tool text includes coverage limitations, skipped counts and redacted finding locations. `truncated` identifies discovery or output truncation; `incomplete` identifies incomplete content coverage. General credential assignments on lines longer than 4,096 characters are skipped and counted separately; key/value windows and heuristic false positives/negatives still apply. Other patterns continue to inspect those lines. Filesystem reads are not an atomic snapshot, so avoid concurrently replacing directories during a scan.
 
 Tool cancellation or plugin disposal rejects pending scans and prevents publishing results. Failed scans retain the last successful report. The panel distinguishes the initial unscanned state; returned reports and panel snapshots are detached.
+
+## Native sessions
+
+The tool scans the active native session workspace, or the launch directory when no runtime exists. Changing the session, manager, session ID, or cwd resets the panel to its unscanned state. Pending scans check their scope at filesystem boundaries and reject stale results before caching or returning them. A same-session failure retains the last successful report.

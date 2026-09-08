@@ -128,11 +128,11 @@ export function extractModuleMatches(source: string, path: string, query: string
 
 type WalkState = { files: string[]; directories: number };
 
-async function filesUnder(target: string, root: string, state: WalkState, signal: AbortSignal, depth = 0): Promise<boolean> {
-  signal.throwIfAborted();
+async function filesUnder(target: string, root: string, state: WalkState, assertCurrent: () => void, depth = 0): Promise<boolean> {
+  assertCurrent();
   if (state.files.length >= maxFiles || state.directories >= maxDirectories || depth > maxDepth) return true;
   const metadata = await lstat(target);
-  signal.throwIfAborted();
+  assertCurrent();
   if (metadata.isSymbolicLink()) return false;
   if (metadata.isFile()) {
     if (sourceExtensions.has(target.slice(target.lastIndexOf(".")).toLocaleLowerCase())) state.files.push(target);
@@ -143,11 +143,11 @@ async function filesUnder(target: string, root: string, state: WalkState, signal
   if (depth >= maxDepth) return true;
   const entries = (await readdir(target, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
-    signal.throwIfAborted();
+    assertCurrent();
     if (state.files.length >= maxFiles || state.directories >= maxDirectories) return true;
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
     const child = resolve(target, entry.name);
-    if (await filesUnder(child, root, state, signal, depth + 1)) return true;
+    if (await filesUnder(child, root, state, assertCurrent, depth + 1)) return true;
   }
   return false;
 }
@@ -160,25 +160,41 @@ export default {
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort(new Error("Module search plugin disposed")));
     let latest: ModuleSearchReport | undefined;
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
     const search = async (
       query: string,
       requestedPath: string | undefined,
       kind: ModuleSearchKind,
       requestedLimit: number | undefined,
-      signal: AbortSignal,
+      cwd: string,
+      assertCurrent: () => void,
     ): Promise<ModuleSearchReport> => {
-      signal.throwIfAborted();
+      assertCurrent();
       const normalizedQuery = query.trim();
       if (normalizedQuery.length < 1 || normalizedQuery.length > maxQueryLength) throw new Error("Module search query must contain 1-120 characters");
       const normalizedKind = kind === "import" || kind === "export" || kind === "symbol" ? kind : "all";
       const requested = requestedPath?.trim() ?? ".";
       if (requested.length > maxPathLength || requested.includes("\\"))
         throw new Error("Module search path must be a relative POSIX path of at most 512 characters");
-      const resolved = await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, requested, "Module search path must stay inside the current workspace");
+      const resolved = await resolveExistingWorkspacePath(cwd, requested, "Module search path must stay inside the current workspace");
+      assertCurrent();
       const root = resolved.root;
       const target = resolved.target;
       const walkState: WalkState = { files: [], directories: 0 };
-      const filesTruncated = await filesUnder(target, root, walkState, signal);
+      const filesTruncated = await filesUnder(target, root, walkState, assertCurrent);
+      assertCurrent();
       const files = walkState.files;
       const limit = Math.max(
         1,
@@ -189,9 +205,10 @@ export default {
       let scannedFiles = 0;
       let skippedFiles = 0;
       for (const file of files) {
-        signal.throwIfAborted();
+        assertCurrent();
         if (matches.length >= limit) break;
         const metadata = await stat(file);
+        assertCurrent();
         if (metadata.size > maxFileBytes) {
           skippedFiles += 1;
           continue;
@@ -200,10 +217,11 @@ export default {
         try {
           source = new TextDecoder("utf-8", { fatal: true }).decode(await readBoundedFile(file, maxFileBytes, "Module search file"));
         } catch {
+          assertCurrent();
           skippedFiles += 1;
           continue;
         }
-        signal.throwIfAborted();
+        assertCurrent();
         scannedFiles += 1;
         const fileMatches = extractModuleMatches(source, relative(root, file), normalizedQuery, normalizedKind);
         const remaining = limit - matches.length;
@@ -219,9 +237,8 @@ export default {
         skippedFiles,
         truncated: filesTruncated || truncated || (matches.length >= limit && files.length > scannedFiles + skippedFiles),
       };
-      signal.throwIfAborted();
-      latest = report;
-      return structuredClone(report);
+      assertCurrent();
+      return report;
     };
     const unregister = context.piTools.register(
       defineTool({
@@ -240,13 +257,16 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<ModuleSearchReport>> {
-          const report = await search(
-            params.query,
-            params.path,
-            params.kind ?? "all",
-            params.maxResults,
-            signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]),
-          );
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          operationSignal.throwIfAborted();
+          const current = refreshScope();
+          const assertCurrent = () => {
+            operationSignal.throwIfAborted();
+            if (refreshScope() !== current) throw new Error("Module search workspace changed during execution");
+          };
+          const report = await search(params.query, params.path, params.kind ?? "all", params.maxResults, current.cwd, assertCurrent);
+          assertCurrent();
+          latest = report;
           return {
             content: [
               {
@@ -254,7 +274,7 @@ export default {
                 text: report.matches.map((match) => `${match.path}:${match.line} ${match.kind} ${match.name}`).join("\n") || "No module matches found.",
               },
             ],
-            details: report,
+            details: structuredClone(report),
           };
         },
       }),
@@ -266,7 +286,10 @@ export default {
       title: "Module Search",
       description: "按导入、导出和声明符号检索工作区源码。",
       icon: "⌕",
-      read: () => ({ latest: latest === undefined ? null : structuredClone(latest), matchCount: latest?.matches.length ?? 0 }),
+      read: () => {
+        refreshScope();
+        return { latest: latest === undefined ? null : structuredClone(latest), matchCount: latest?.matches.length ?? 0 };
+      },
     });
     context.effect(() => disposePanel);
   },

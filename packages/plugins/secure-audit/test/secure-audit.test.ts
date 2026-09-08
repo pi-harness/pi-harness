@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { PiToolRegistry, PiPluginUiRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import plugin from "../src/index.js";
-import { mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
@@ -314,5 +314,53 @@ test("rejects workspace escapes, skips symlink entries and honors in-flight canc
   } finally {
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("audits the active native cwd and rejects stale scans before caching or returning them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-audit-native-"));
+  const active = join(root, "active");
+  await mkdir(active);
+  await writeFile(join(root, "check.txt"), "normal launch text");
+  await writeFile(join(active, "check.txt"), "rm -rf /fixture-only");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  let session = { sessionId: "first", sessionManager: { getCwd: () => root } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await context.plugin(plugin);
+    const tool = tools.snapshot().customTools[0]!;
+    await expect(tool.execute("first", { path: "check.txt" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 0 } });
+    session = { sessionId: "second", sessionManager: { getCwd: () => active } };
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ hasRun: false, total: 0 });
+    await expect(tool.execute("active", { path: "check.txt" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 1, findings: [{ kind: "destructive-command" }] },
+    });
+    const pending = tool.execute("pending", {}, undefined, undefined, {} as never);
+    const rejected = expect(pending).rejects.toThrow(/workspace changed/iu);
+    session.sessionId = "third";
+    await rejected;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ hasRun: false, total: 0 });
+    const params = new Proxy(
+      { path: "check.txt" },
+      {
+        ownKeys(target) {
+          session.sessionId = "fourth";
+          return Reflect.ownKeys(target);
+        },
+      },
+    );
+    await expect(tool.execute("params", params, undefined, undefined, {} as never)).rejects.toThrow(/workspace changed/iu);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
   }
 });

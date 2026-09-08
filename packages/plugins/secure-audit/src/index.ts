@@ -249,8 +249,8 @@ function checkCancelled(signal?: AbortSignal): void {
 
 type WalkState = { files: string[]; directories: number; entries: number; truncated: boolean; skipped: number };
 
-async function workspaceFiles(root: string, current: string, state: WalkState, signal?: AbortSignal, depth = 0): Promise<void> {
-  checkCancelled(signal);
+async function workspaceFiles(root: string, current: string, state: WalkState, assertCurrent: () => void, depth = 0): Promise<void> {
+  assertCurrent();
   if (state.files.length >= maxFiles || state.directories >= maxDirectories || depth >= maxDepth) {
     state.truncated = true;
     return;
@@ -259,14 +259,15 @@ async function workspaceFiles(root: string, current: string, state: WalkState, s
   let directory: Awaited<ReturnType<typeof opendir>>;
   try {
     const checked = await resolveExistingWorkspacePath(root, current, "Audit directory must stay inside the workspace");
+    assertCurrent();
     directory = await opendir(checked.target);
   } catch {
-    checkCancelled(signal);
+    assertCurrent();
     state.skipped += 1;
     return;
   }
   for await (const entry of directory) {
-    checkCancelled(signal);
+    assertCurrent();
     if (state.files.length >= maxFiles || state.entries >= maxEntries) {
       state.truncated = true;
       return;
@@ -274,36 +275,40 @@ async function workspaceFiles(root: string, current: string, state: WalkState, s
     state.entries += 1;
     const fullPath = join(current, entry.name);
     if (entry.isDirectory()) {
-      if (!ignoredDirectories.has(entry.name)) await workspaceFiles(root, fullPath, state, signal, depth + 1);
+      if (!ignoredDirectories.has(entry.name)) await workspaceFiles(root, fullPath, state, assertCurrent, depth + 1);
     } else if (entry.isFile()) state.files.push(relative(root, fullPath));
   }
 }
 
-export async function auditWorkspace(root: string, requested = ".", signal?: AbortSignal): Promise<AuditSummary> {
-  checkCancelled(signal);
+async function scanWorkspace(root: string, requested: string, assertCurrent: () => void): Promise<AuditSummary> {
+  assertCurrent();
   const resolved = await resolveExistingWorkspacePath(root, requested, "Audit path must stay inside the current workspace");
+  assertCurrent();
   root = resolved.root;
   const target = resolved.target;
   const metadata = await stat(target);
+  assertCurrent();
   const state: WalkState = { files: [], directories: 0, entries: 0, truncated: false, skipped: 0 };
   if (metadata.isFile()) state.files.push(relative(root, target));
-  else if (metadata.isDirectory()) await workspaceFiles(root, target, state, signal);
+  else if (metadata.isDirectory()) await workspaceFiles(root, target, state, assertCurrent);
   else throw new Error("Audit target must be a file or directory");
+  assertCurrent();
   const summary = summarizeAudit([], relative(root, target) || ".", state.files.length, state.skipped);
   for (const file of state.files) {
-    checkCancelled(signal);
+    assertCurrent();
     let source: string;
     try {
       const checked = await resolveExistingWorkspacePath(root, resolve(root, file), "Audit file must stay inside the workspace");
+      assertCurrent();
       const bytes = await readBoundedFile(checked.target, maxFileBytes, "Audit file");
-      checkCancelled(signal);
+      assertCurrent();
       if (bytes.includes(0)) {
         summary.skipped += 1;
         continue;
       }
       source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
-      checkCancelled(signal);
+      assertCurrent();
       summary.skipped += 1;
       continue;
     }
@@ -315,11 +320,15 @@ export async function auditWorkspace(root: string, requested = ".", signal?: Abo
     summary.medium += found.medium;
     summary.findings.push(...found.findings.slice(0, maxFindings - summary.findings.length));
   }
-  checkCancelled(signal);
+  assertCurrent();
   summary.changed = summary.total > 0;
   summary.truncated = state.truncated || summary.total > summary.findings.length;
   summary.incomplete = state.truncated || summary.skipped > 0 || summary.credentialLinesSkipped > 0;
   return summary;
+}
+
+export async function auditWorkspace(root: string, requested = ".", signal?: AbortSignal): Promise<AuditSummary> {
+  return scanWorkspace(root, requested, () => checkCancelled(signal));
 }
 
 function emptySummary(): AuditSummary {
@@ -334,6 +343,19 @@ export default {
     let latest: AuditSummary | undefined;
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort());
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
     const unregister = context.piTools.register(
       defineTool({
         name: "security_audit",
@@ -348,6 +370,11 @@ export default {
         async execute(_toolCallId, params, callerSignal): Promise<AgentToolResult<AuditSummary>> {
           const signal = callerSignal === undefined ? lifecycle.signal : AbortSignal.any([callerSignal, lifecycle.signal]);
           checkCancelled(signal);
+          const current = refreshScope();
+          const assertCurrent = () => {
+            checkCancelled(signal);
+            if (refreshScope() !== current) throw new Error("Security audit workspace changed during execution");
+          };
           if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Audit parameters must be an object");
           const descriptors = Object.getOwnPropertyDescriptors(params);
           if (Reflect.ownKeys(descriptors).some((key) => key !== "path") || Object.values(descriptors).some((item) => !("value" in item)))
@@ -355,8 +382,8 @@ export default {
           const path = descriptors.path?.value as unknown;
           if (path !== undefined && (typeof path !== "string" || path.length > 4096 || path.includes("\0")))
             throw new Error("Audit path must be a string of at most 4096 characters without NUL");
-          const result = await auditWorkspace(context.piHarnessLaunch.cwd, path ?? ".", signal);
-          checkCancelled(signal);
+          const result = await scanWorkspace(current.cwd, path ?? ".", assertCurrent);
+          assertCurrent();
           latest = structuredClone(result);
           return {
             content: [
@@ -384,7 +411,10 @@ export default {
         title: "Secure Audit",
         description: "只读扫描工作区中的凭据泄露和危险命令，结果不会显示敏感值。",
         icon: "⌕",
-        read: () => ({ ...structuredClone(latest ?? emptySummary()), hasRun: latest !== undefined }),
+        read: () => {
+          refreshScope();
+          return { ...structuredClone(latest ?? emptySummary()), hasRun: latest !== undefined };
+        },
       });
     } catch (error) {
       lifecycle.abort();
