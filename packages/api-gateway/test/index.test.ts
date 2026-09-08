@@ -643,7 +643,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded locale parity report through the real plugin panel", async () => {
-    const i18nPairModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-i18n-pair"))) as {
+    const i18nPairModule = (await import("@pi-harness/plugin-i18n-pair")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -655,7 +655,14 @@ describe("API gateway plugin", () => {
     await writeFile(join(workspace, "locales", "en.json"), JSON.stringify({ actions: { save: "Save", cancel: "Cancel" } }), "utf8");
     await writeFile(join(workspace, "locales", "ja.json"), JSON.stringify({ actions: { save: "保存" }, onlyHere: "追加" }), "utf8");
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "i18n-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "i18n-panel-session",
+      sessionManager: SessionManager.create(workspace, join(agentDir, "sessions")),
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
