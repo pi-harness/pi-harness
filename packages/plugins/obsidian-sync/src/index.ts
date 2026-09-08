@@ -37,8 +37,28 @@ export default {
       await operations;
     });
     let last: SyncResult | undefined;
-    const sync = async (relativePath: string, content: string, confirm: boolean, signal: AbortSignal): Promise<SyncResult> => {
-      signal.throwIfAborted();
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        last = undefined;
+      }
+      return scope;
+    };
+    const sync = async (
+      relativePath: string,
+      content: string,
+      confirm: boolean,
+      signal: AbortSignal,
+      operationScope: ReturnType<typeof readScope>,
+      assertCurrent: () => void,
+    ): Promise<SyncResult> => {
+      assertCurrent();
       if (configuredVault === "") throw new Error("Obsidian sync requires vaultPath in the plugin configuration");
       if (!confirm) throw new Error("Obsidian sync requires confirm=true before writing a note");
       if (
@@ -52,17 +72,18 @@ export default {
         throw new Error("Obsidian note path must be a relative .md path of at most 512 characters");
       if (content.length === 0 || Buffer.byteLength(content, "utf8") > maxContentBytes)
         throw new Error(`Obsidian note content must be between 1 and ${maxContentBytes} bytes`);
-      const configuredRoot = resolve(context.piHarnessLaunch.cwd, configuredVault);
+      const configuredRoot = resolve(operationScope.cwd, configuredVault);
       await mkdir(configuredRoot, { recursive: true });
-      signal.throwIfAborted();
+      assertCurrent();
       const { target } = await prepareWorkspaceFile(
         configuredRoot,
         relativePath,
         "Obsidian note path must stay inside the configured vault and target a regular file",
       );
-      signal.throwIfAborted();
+      assertCurrent();
       // No explicit mode: a vault note is a user document, so replacing one keeps whatever bits the user gave it and only a note this creates falls back to atomicWriteFile's owner-only default.
-      await atomicWriteFile(target, content, { encoding: "utf8", signal });
+      await atomicWriteFile(target, content, { encoding: "utf8", signal, beforeCommit: assertCurrent });
+      assertCurrent();
       last = { relativePath, absolutePath: target, bytes: Buffer.byteLength(content, "utf8") };
       return { ...last };
     };
@@ -82,8 +103,18 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<SyncResult>> {
+          lifecycle.signal.throwIfAborted();
           const executionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
-          const result = await enqueue(() => sync(params.relativePath, params.content, params.confirm, executionSignal));
+          executionSignal.throwIfAborted();
+          const operationScope = refreshScope();
+          const assertCurrent = () => {
+            executionSignal.throwIfAborted();
+            if (refreshScope() !== operationScope) throw new Error("Obsidian workspace changed during sync");
+          };
+          const { relativePath, content, confirm } = params;
+          assertCurrent();
+          const result = await enqueue(() => sync(relativePath, content, confirm, executionSignal, operationScope, assertCurrent));
+          assertCurrent();
           return { content: [{ type: "text", text: `Obsidian note written: ${result.relativePath}` }], details: result };
         },
       }),
@@ -96,7 +127,10 @@ export default {
         title: "Obsidian Sync",
         description: "将 Agent 产出的 Markdown 安全写入指定 Obsidian vault。",
         icon: "▤",
-        read: () => ({ configured: configuredVault !== "", vaultPath: configuredVault || null, last: last === undefined ? null : { ...last } }),
+        read: () => {
+          refreshScope();
+          return { configured: configuredVault !== "", vaultPath: configuredVault || null, last: last === undefined ? null : { ...last } };
+        },
       });
     } catch (error) {
       unregisterTool();

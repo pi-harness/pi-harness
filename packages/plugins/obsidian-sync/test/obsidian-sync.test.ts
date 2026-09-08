@@ -1,10 +1,32 @@
-import { chmod, mkdir, mkdtemp, readFile, stat, symlink, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile, stat, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import obsidianSyncPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
+
+import type * as FsPromises from "node:fs/promises";
+
+// Pause after a real staging fsync so a session change can be observed before atomic publication.
+const writeHooks = vi.hoisted(() => ({ afterSync: undefined as (() => Promise<void>) | undefined }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  const open: typeof actual.open = async (...args) => {
+    const handle = await actual.open(...args);
+    if (typeof args[0] === "string" && args[0].endsWith(".tmp")) {
+      const sync = handle.sync.bind(handle);
+      Object.defineProperty(handle, "sync", {
+        value: async () => {
+          await sync();
+          await writeHooks.afterSync?.();
+        },
+      });
+    }
+    return handle;
+  };
+  return { ...actual, open };
+});
 
 const contexts: Context[] = [];
 const roots: string[] = [];
@@ -145,4 +167,92 @@ describe("Obsidian sync", () => {
     );
     expect(await readFile(join(vault, "note.md"), "utf8")).toBe(exact);
   });
+});
+
+test.each([true, false])("binds queued notes and reports to the current native session, relative vault=%s", async (relativeVault) => {
+  const { root, vault, context, panels, tool } = await fixture(relativeVault);
+  const active = join(root, "active");
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  const params = { relativePath: "note.md", content: "first", confirm: true };
+  await tool.execute("first", params, undefined, undefined, {} as never);
+  session = {
+    get sessionId() {
+      return id;
+    },
+    sessionManager: { getCwd: () => active },
+  };
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  await tool.execute("active", { ...params, content: "active" }, undefined, undefined, {} as never);
+  expect(await readFile(join(relativeVault ? join(active, "vault") : vault, "note.md"), "utf8")).toBe("active");
+  if (relativeVault) expect(await readFile(join(vault, "note.md"), "utf8")).toBe("first");
+  const pending = tool.execute("pending", { ...params, relativePath: "stale.md" }, undefined, undefined, {} as never);
+  id = "second";
+  await expect(pending).rejects.toThrow(/workspace changed/iu);
+  await expect(readFile(join(relativeVault ? join(active, "vault") : vault, "stale.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  await expect(
+    tool.execute(
+      "getter",
+      {
+        get relativePath() {
+          id = "third";
+          return "getter.md";
+        },
+        content: "x",
+        confirm: true,
+      },
+      undefined,
+      undefined,
+      {} as never,
+    ),
+  ).rejects.toThrow(/workspace changed/iu);
+});
+
+test.each([false, true])("does not publish a staged note after native session replacement, existing=%s", async (existing) => {
+  const { root, vault, context, tool, panels } = await fixture();
+  await mkdir(vault);
+  if (existing) await writeFile(join(vault, "note.md"), "original");
+  let id = "first";
+  context.provide("piRuntime", {
+    session: {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => root },
+    },
+  } as never);
+  let reached!: () => void, release!: () => void;
+  const staged = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  writeHooks.afterSync = async () => {
+    reached();
+    await held;
+  };
+  try {
+    const result = tool.execute("staged", { relativePath: "note.md", content: "new", confirm: true }, undefined, undefined, {} as never).then(
+      () => "unexpected success",
+      (error: unknown) => String(error),
+    );
+    await staged;
+    id = "replacement";
+    release();
+    expect(await result).toMatch(/workspace changed/iu);
+    if (existing) expect(await readFile(join(vault, "note.md"), "utf8")).toBe("original");
+    else await expect(readFile(join(vault, "note.md"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await readdir(vault)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  } finally {
+    writeHooks.afterSync = undefined;
+    release();
+  }
 });
