@@ -19,3 +19,7 @@ Add the entry to the Cordis profile the harness starts from:
 ```
 
 The Pi Harness plugin marketplace installs and enables this package for you; the steps above are the manual equivalent.
+
+## Workspace ownership
+
+Attachments resolve against the active native session workspace. Session replacement, a native session ID change or a workspace change clears the previous attachment panel and rejects reads that were started in the old scope. Before the native runtime is available, the launch workspace is used. File reads are bounded but are not interrupted immediately on replacement; their obsolete content is discarded before it can be returned to the model.

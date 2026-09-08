@@ -664,3 +664,45 @@ describe("at-file", () => {
     }
   });
 });
+
+test("reads the current native workspace and invalidates attachments on replacement", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-at-file-native-"));
+  const active = join(root, "active");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  try {
+    await mkdir(active);
+    await writeFile(join(root, "notes.txt"), "launch content");
+    await writeFile(join(active, "notes.txt"), "active content");
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piRuntime", {
+      get session() {
+        return session;
+      },
+    } as never);
+    await context.plugin(atFilePlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    await tool.execute("first", { path: "notes.txt" }, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { lastFile: null } }]);
+    const result = await tool.execute("active", { path: "notes.txt" }, undefined, undefined, {} as never);
+    expect(result.content).toEqual([{ type: "text", text: '<file path="notes.txt" untrusted="true">\nactive content\n</file>' }]);
+    const pending = tool.execute("pending", { path: "notes.txt" }, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { lastFile: null } }]);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -64,6 +64,19 @@ export default {
   apply(context: Context, config: AtFileConfig) {
     assertKnownConfigKeys("at-file", config, []);
     let lastFile: { path: string; bytes: number } | undefined;
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        lastFile = undefined;
+      }
+      return scope;
+    };
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort(new Error("At-file plugin was disposed")));
     const unregisterTool = context.piTools.register(
@@ -78,16 +91,23 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ path: string; bytes: number }>> {
+          throwIfCancelled(lifecycle.signal);
+          const operationScope = refreshScope();
+          const assertCurrent = () => {
+            if (refreshScope() !== operationScope) throw new Error("File context workspace changed during attachment");
+          };
           const params = fileContextParameters(rawParams);
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           throwIfCancelled(operationSignal);
+          assertCurrent();
           let resolved: Awaited<ReturnType<typeof resolveExistingWorkspacePath>>;
           try {
-            resolved = await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, params.path, "File path must stay inside the current workspace");
+            resolved = await resolveExistingWorkspacePath(operationScope.cwd, params.path, "File path must stay inside the current workspace");
           } catch (error) {
             throw new Error("Could not resolve context file inside the current workspace", { cause: error });
           }
           throwIfCancelled(operationSignal);
+          assertCurrent();
           if (
             resolved.relativePath.trim() === "" ||
             resolved.relativePath !== resolved.relativePath.trim() ||
@@ -105,6 +125,7 @@ export default {
             throw new Error("Could not read context file", { cause: error });
           }
           throwIfCancelled(operationSignal);
+          assertCurrent();
           if (source.includes(0)) throw new Error("Context file must be UTF-8 text without NUL bytes");
           const path = resolved.relativePath;
           let text: string;
@@ -129,7 +150,10 @@ export default {
       title: "@file 上下文",
       description: "将工作区内的文本文件安全附加到当前对话。",
       icon: "⌁",
-      read: () => ({ lastFile: lastFile === undefined ? null : { ...lastFile }, maxBytes }),
+      read: () => {
+        refreshScope();
+        return { lastFile: lastFile === undefined ? null : { ...lastFile }, maxBytes };
+      },
     });
     context.effect(() => disposePanel);
   },
