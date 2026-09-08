@@ -262,3 +262,69 @@ describe("archify", () => {
     await context.fiber.dispose();
   });
 });
+
+test("maps the current native workspace and discards switched, cancelled, and disposed scans", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-archify-native-"));
+  temporaryDirectories.push(root);
+  const active = join(root, "active");
+  await mkdir(join(root, "launch-only"));
+  await mkdir(join(active, "current-only"), { recursive: true });
+  await writeFile(join(active, "package.json"), JSON.stringify({ dependencies: { current: "1" } }));
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  try {
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piRuntime", {
+      get session() {
+        return session;
+      },
+    } as never);
+    await context.plugin(archifyPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    await tool.execute("first", {}, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null, componentCount: 0, dependencyCount: 0 } }]);
+    await expect(tool.execute("active", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { workspace: active, components: [{ path: "current-only" }], dependencies: ["current"] },
+    });
+    const pending = tool.execute("pending", {}, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    await expect(
+      tool.execute(
+        "getter",
+        {
+          get maxNodes() {
+            id = "getter-replacement";
+            return 100;
+          },
+        },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/workspace changed/iu);
+    const cancelled = new AbortController();
+    const cancelling = tool.execute("cancel", {}, cancelled.signal, undefined, {} as never);
+    cancelled.abort(new Error("scan cancelled"));
+    await expect(cancelling).rejects.toThrow("scan cancelled");
+    const disposing = tool.execute("dispose", {}, undefined, undefined, {} as never);
+    const disposedResult = expect(disposing).rejects.toThrow(/disposed/iu);
+    await context.fiber.dispose();
+    await disposedResult;
+    await expect(tool.execute("retained", {}, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+  } finally {
+    await context.fiber.dispose();
+  }
+});
