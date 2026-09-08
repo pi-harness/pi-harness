@@ -100,7 +100,25 @@ describe("canvas-draw", () => {
       expect(mermaid).not.toContain("<b>");
       expect(mermaid).not.toContain("ready| --> injected");
       expect(mermaid).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; next line");
-      expect(mermaid).toContain("ready&#124; --&gt; injected &lt;b&gt;");
+      expect(mermaid).toContain("ready#124; --&gt; injected &lt;b&gt;");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("isolates Mermaid identifiers and quotes edge labels containing flowchart syntax", async () => {
+    const { context, tools } = await createCanvas();
+    const nodes = [
+      { id: "end", label: "End" },
+      { id: "canvas_node_0", label: "Other" },
+    ];
+    const edges = [{ from: "end", to: "canvas_node_0", label: 'ready [a] (b) {c} | "quoted" #quot;' }];
+    try {
+      const result = await canvasTool(tools).execute("syntax", { nodes, edges }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ nodes, edges });
+      expect((result.details as { mermaid: string }).mermaid).toBe(
+        'flowchart TD\n    canvas_node_0["End"]\n    canvas_node_1["Other"]\n    canvas_node_0 -->|"ready [a] (b) {c} #124; &quot;quoted&quot; #35;quot;"| canvas_node_1',
+      );
     } finally {
       await context.fiber.dispose();
     }

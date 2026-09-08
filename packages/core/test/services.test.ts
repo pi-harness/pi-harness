@@ -3018,7 +3018,7 @@ describe("Pi domain plugins", () => {
       {} as never,
     );
     expect(drawResult.details).toMatchObject({ nodeCount: 2, edgeCount: 1 });
-    expect((drawResult.details as { mermaid?: unknown }).mermaid).toEqual(expect.stringContaining("start -->|ready| ship"));
+    expect((drawResult.details as { mermaid?: unknown }).mermaid).toEqual(expect.stringContaining('canvas_node_0 -->|"ready"| canvas_node_1'));
     await expect(
       draw.execute("call-2", { nodes: [{ id: "start", label: "Start" }], edges: [{ from: "start", to: "missing" }] }, undefined, undefined, {} as never),
     ).rejects.toThrow(/unknown node/iu);
@@ -3953,10 +3953,15 @@ describe("Pi domain plugins", () => {
     "connects to a real Chrome DevTools session for tabs, text, and clicks",
     async () => {
       if (chromeExecutable === undefined) throw new Error("Chrome availability changed after test discovery");
-      const pageServer = createServer((_request, response) => {
+      const pageServer = createServer((request, response) => {
+        if (request.url === "/redirect") {
+          response.writeHead(302, { location: "/final" });
+          response.end();
+          return;
+        }
         response.setHeader("content-type", "text/html; charset=utf-8");
         response.end(
-          '<html><body><button id="toggle" onclick="document.body.dataset.clicked=\'yes\'">Click me</button><p>Browser session fixture</p></body></html>',
+          '<html><head><title>Loaded browser fixture</title></head><body><button id="toggle" onclick="document.querySelector(\'#result\').textContent=\'Clicked once\'">Click me</button><button id="hidden" hidden onclick="document.querySelector(\'#result\').textContent=\'Forbidden click\'">Hidden</button><button id="disabled" disabled>Disabled</button><fieldset disabled><button id="inherited-disabled">Inherited disabled</button></fieldset><div inert><button id="inert">Inert</button></div><div style="opacity:0"><button id="transparent">Transparent</button></div><p>Browser session fixture</p><p id="result">Not clicked</p></body></html>',
         );
       });
       await new Promise<void>((resolve, reject) => {
@@ -3995,25 +4000,35 @@ describe("Pi domain plugins", () => {
         const navigateTool = registered.find((tool) => tool.name === "browser_navigate");
         const readTool = registered.find((tool) => tool.name === "browser_read");
         const clickTool = registered.find((tool) => tool.name === "browser_click");
+        const screenshotTool = registered.find((tool) => tool.name === "browser_screenshot");
         expect(tabsTool).toBeDefined();
         expect(navigateTool).toBeDefined();
         const tabs = await tabsTool!.execute("call-1", {}, undefined, undefined, {} as never);
         const tab = (tabs.details as { tabs: Array<{ targetId: string }> }).tabs.find((item) => item.targetId);
         expect(tab).toBeDefined();
-        await expect(
-          navigateTool!.execute(
-            "call-2",
-            { targetId: tab!.targetId, url: `http://127.0.0.1:${(pageServer.address() as { port: number }).port}/` },
-            undefined,
-            undefined,
-            {} as never,
-          ),
-        ).resolves.toMatchObject({ details: { status: "navigated" } });
+        const pageUrl = `http://127.0.0.1:${(pageServer.address() as { port: number }).port}`;
+        await expect
+          .soft(navigateTool!.execute("call-2", { targetId: tab!.targetId, url: `${pageUrl}/redirect` }, undefined, undefined, {} as never))
+          .resolves.toMatchObject({ details: { status: "navigated", title: "Loaded browser fixture", url: `${pageUrl}/final` } });
         const readResult = await readTool!.execute("call-3", { targetId: tab!.targetId }, undefined, undefined, {} as never);
         expect((readResult.details as { text?: unknown }).text).toEqual(expect.stringContaining("Browser session fixture"));
+        for (const selector of ["#hidden", "#disabled", "#inherited-disabled", "#inert", "#transparent"]) {
+          await expect
+            .soft(clickTool!.execute("blocked-click", { targetId: tab!.targetId, selector }, undefined, undefined, {} as never))
+            .rejects.toThrow(/not visible|disabled|inert/iu);
+        }
+        const beforeClick = await readTool!.execute("before-click", { targetId: tab!.targetId }, undefined, undefined, {} as never);
+        expect.soft((beforeClick.details as { text: string }).text).toContain("Not clicked");
         await expect(clickTool!.execute("call-4", { targetId: tab!.targetId, selector: "#toggle" }, undefined, undefined, {} as never)).resolves.toMatchObject({
           details: { clicked: true },
         });
+        const afterClick = await readTool!.execute("after-click", { targetId: tab!.targetId }, undefined, undefined, {} as never);
+        expect((afterClick.details as { text: string }).text).toContain("Clicked once");
+        const screenshot = await screenshotTool!.execute("screenshot", { targetId: tab!.targetId }, undefined, undefined, {} as never);
+        const image = screenshot.content[0];
+        expect(image?.type).toBe("image");
+        if (image?.type !== "image") throw new Error("Browser screenshot returned no image");
+        expect(Buffer.from(image.data, "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
       } finally {
         await stopChrome(chrome);
         await rm(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

@@ -408,14 +408,15 @@ describe("browser session boundaries", () => {
   test("records successful navigation in panel state", async () => {
     const originalFetch = globalThis.fetch;
     const OriginalWebSocket = globalThis.WebSocket;
+    let navigated = false;
     globalThis.fetch = () =>
       Promise.resolve(
         Response.json([
           {
             id: "tab-1",
-            title: "Fixture",
+            title: navigated ? "Loaded fixture" : "Fixture",
             type: "page",
-            url: "about:blank",
+            url: navigated ? "https://1.1.1.1/final" : "about:blank",
             webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/tab-1",
           },
         ]),
@@ -428,6 +429,7 @@ describe("browser session boundaries", () => {
 
       send(source: string): void {
         const request = JSON.parse(source) as { id: number; method: string };
+        if (request.method === "Page.navigate") navigated = true;
         const result = request.method === "Runtime.evaluate" ? { result: { value: "complete" } } : {};
         queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ id: request.id, result }) })));
       }
@@ -440,7 +442,7 @@ describe("browser session boundaries", () => {
       await browserTool(context, "browser_navigate").execute("call-1", { targetId: "tab-1", url: "https://1.1.1.1/next" }, undefined, undefined, {} as never);
 
       await expect(context.piPluginUi.snapshot()).resolves.toMatchObject([
-        { id: "browser-session-panel", data: { latest: { targetId: "tab-1", status: "navigated", url: "https://1.1.1.1/next" } } },
+        { id: "browser-session-panel", data: { latest: { targetId: "tab-1", status: "navigated", title: "Loaded fixture", url: "https://1.1.1.1/final" } } },
       ]);
     } finally {
       globalThis.fetch = originalFetch;
@@ -1386,14 +1388,15 @@ describe("browser session boundaries", () => {
   test("navigates to a local development server when allowPrivate is enabled", async () => {
     const originalFetch = globalThis.fetch;
     const OriginalWebSocket = globalThis.WebSocket;
+    let navigated = false;
     globalThis.fetch = () =>
       Promise.resolve(
         Response.json([
           {
             id: "tab-1",
-            title: "Fixture",
+            title: navigated ? "Loaded fixture" : "Fixture",
             type: "page",
-            url: "about:blank",
+            url: navigated ? "http://127.0.0.1:3000/" : "about:blank",
             webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/tab-1",
           },
         ]),
@@ -1406,6 +1409,7 @@ describe("browser session boundaries", () => {
 
       send(source: string): void {
         const request = JSON.parse(source) as { id: number; method: string };
+        if (request.method === "Page.navigate") navigated = true;
         const result = request.method === "Runtime.evaluate" ? { result: { value: "complete" } } : {};
         queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ id: request.id, result }) })));
       }
@@ -1418,7 +1422,7 @@ describe("browser session boundaries", () => {
       expect(browserSessionPlugin.Config.dict?.allowPrivate?.meta?.default).toBe(false);
       await expect(
         browserTool(context, "browser_navigate").execute("call-1", { targetId: "tab-1", url: "http://127.0.0.1:3000/" }, undefined, undefined, {} as never),
-      ).resolves.toMatchObject({ details: { status: "navigated", url: "http://127.0.0.1:3000/" } });
+      ).resolves.toMatchObject({ details: { status: "navigated", title: "Loaded fixture", url: "http://127.0.0.1:3000/" } });
     } finally {
       globalThis.fetch = originalFetch;
       globalThis.WebSocket = OriginalWebSocket;

@@ -329,8 +329,11 @@ async function cdp(tab: BrowserTab, method: string, params?: JsonObject, signal?
 function resultValue(result: JsonObject): unknown {
   const exception = result.exceptionDetails;
   if (exception !== undefined) {
-    const exceptionText = typeof exception === "object" && exception !== null ? (exception as JsonObject).text : undefined;
-    throw new Error(typeof exceptionText === "string" ? exceptionText : "Page evaluation failed");
+    const details = typeof exception === "object" && exception !== null ? (exception as JsonObject) : {};
+    const exceptionObject = details.exception;
+    const description = typeof exceptionObject === "object" && exceptionObject !== null ? (exceptionObject as JsonObject).description : undefined;
+    const message = typeof description === "string" && description !== "" ? description : details.text;
+    throw new Error(typeof message === "string" ? message.slice(0, maxPanelErrorChars) : "Page evaluation failed");
   }
   const value = result.result;
   if (typeof value !== "object" || value === null) throw new Error("Page evaluation returned no value");
@@ -497,8 +500,9 @@ export default {
           const navigation = await cdp(tab, "Page.navigate", { url: url.toString() }, actionSignal);
           if (typeof navigation.errorText === "string" && navigation.errorText !== "") throw new Error(`Browser navigation failed: ${navigation.errorText}`);
           await ready({ ...tab, url: url.toString() }, actionSignal);
-          latest = { targetId: tab.targetId, url: url.toString(), title: tab.title, status: "navigated" };
-          return { content: [{ type: "text", text: `Navigated to ${url.toString()}` }], details: structuredClone(latest) };
+          const navigatedTab = await getTab(targetId, actionSignal);
+          latest = { targetId: navigatedTab.targetId, url: navigatedTab.url, title: navigatedTab.title, status: "navigated" };
+          return { content: [{ type: "text", text: `Navigated to ${navigatedTab.url}` }], details: structuredClone(latest) };
         },
       }),
     );
@@ -527,7 +531,7 @@ export default {
       defineTool({
         name: "browser_click",
         label: "Browser click",
-        description: "Click one visible HTML element in a connected browser tab by CSS selector.",
+        description: "Click one visible, enabled HTML element in a connected browser tab by CSS selector.",
         promptSnippet: "click a page element in the connected browser",
         parameters: Type.Object(
           {
@@ -546,7 +550,7 @@ export default {
           const selector = JSON.stringify(rawSelector);
           const value = await evaluate(
             tab,
-            `(() => { const element = document.querySelector(${selector}); if (!(element instanceof HTMLElement)) throw new Error('Element was not found'); element.click(); return true; })()`,
+            `(() => { const element = document.querySelector(${selector}); if (!(element instanceof HTMLElement)) throw new Error('Element was not found'); if (!element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) throw new Error('Element is not visible'); if (element.matches(':disabled') || element.closest('[inert], [aria-disabled="true"]') || getComputedStyle(element).pointerEvents === 'none') throw new Error('Element is disabled or inert'); element.click(); return true; })()`,
             actionSignal,
           );
           if (value !== true) throw new Error("Browser click did not complete");
