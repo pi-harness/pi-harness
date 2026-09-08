@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/core",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "description": "Cordis boot and Pi runtime plugins for Pi Harness",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
   "bugs": {
@@ -48,7 +48,7 @@
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",
     "@deepseek-ai/cordis-plugin-logger-console": "1.0.1",
     "@deepseek-ai/cordis-plugin-timer": "1.1.3",
-    "@pi-harness/plugin-api": "0.1.34",
+    "@pi-harness/plugin-api": "0.1.35",
     "semver": "7.8.5"
   },
   "devDependencies": {
@@ -73,7 +73,7 @@
     "@pi-harness/plugin-genui": "0.1.29",
     "@pi-harness/plugin-git-time-capsule": "0.1.29",
     "@pi-harness/plugin-graph-memory": "0.1.29",
-    "@pi-harness/plugin-hello": "0.1.34",
+    "@pi-harness/plugin-hello": "0.1.35",
     "@pi-harness/plugin-history-compressor": "0.1.29",
     "@pi-harness/plugin-hol-guard": "0.1.29",
     "@pi-harness/plugin-i18n-pair": "0.1.29",
