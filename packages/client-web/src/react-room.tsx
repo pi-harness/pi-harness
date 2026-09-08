@@ -3308,6 +3308,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const savepoints = Array.isArray(data?.savepoints) ? data.savepoints : [];
           return (
             <div className="mt-3 grid gap-3">
+              <p className="break-all text-[10px] text-[var(--color-faint)]">工作区：{value(data?.cwd)}</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
                   <span className="block text-[10px] text-[var(--color-faint)]">保存点</span>
@@ -3332,7 +3333,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         <div className="flex items-center gap-2">
                           <code className="font-mono text-[10px] text-[var(--color-blue)]">{value(item.id, "unknown")}</code>
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(item.reason, "manual savepoint")}</strong>
-                          <span className="text-[9px] text-[var(--color-faint)]">{value(item.fileCount, "0")} 文件</span>
+                          <span className="text-[9px] text-[var(--color-faint)]">
+                            {value(item.fileCount, "0")} 文件{item.truncated === true ? " · 不完整" : ""}
+                          </span>
                         </div>
                       </li>
                     );
@@ -3343,7 +3346,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   尚未创建保存点。修改配置或插件代码前，让 Agent 调用 undo_savepoint 的 save 操作。
                 </div>
               )}
-              <div className="text-[10px] text-[var(--color-faint)]">恢复操作要求 confirm=true；敏感文件、二进制文件和依赖目录不会进入保存点。</div>
+              <div className="text-[10px] text-[var(--color-faint)]">
+                恢复会覆盖快照内文件，要求 confirm=true，不删除新增文件。列表为受限扫描结果，仅显示前 6 项；标为不完整的快照不能代表整个工作区。
+              </div>
             </div>
           );
         })()
