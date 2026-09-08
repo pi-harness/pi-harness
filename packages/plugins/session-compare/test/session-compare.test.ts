@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
@@ -110,4 +111,42 @@ test("retains full mismatch counts beyond display limits", () => {
   const left = Array.from({ length: 65 }, (_, index) => ({ role: "user", text: `left-${index}` }));
   const right = Array.from({ length: 70 }, (_, index) => ({ role: "user", text: `right-${index}` }));
   expect(compareMessageEntries(left, right)).toMatchObject({ shared: 0, addedCount: 70, removedCount: 65, addedTruncated: true, removedTruncated: true });
+});
+
+test("clears comparison on native session change and binds scope before parameters", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-compare-native-"));
+  directories.push(cwd);
+  const manager = SessionManager.create(cwd, join(cwd, "sessions"));
+  manager.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "native transcript" }],
+    api: "openai-completions",
+    provider: "fixture",
+    model: "fixture",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  });
+  const id = manager.getSessionId();
+  const context = new Context();
+  contexts.push(context);
+  provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+  context.provide("piSession", { manager });
+  context.provide("piTools", new PiToolRegistry());
+  context.provide("piPluginUi", new PiPluginUiRegistry());
+  await context.plugin(sessionComparePlugin);
+  const tool = context.piTools.snapshot().customTools[0]!;
+  await tool.execute("warm", { left: id, right: id }, undefined, undefined, {} as never);
+  manager.newSession();
+  expect((await context.piPluginUi.snapshot())[0]!.data).toMatchObject({ left: null, right: null });
+  const params = new Proxy(
+    { left: id, right: id },
+    {
+      ownKeys(target) {
+        manager.newSession();
+        return Reflect.ownKeys(target);
+      },
+    },
+  );
+  await expect(tool.execute("reentrant", params, undefined, undefined, {} as never)).rejects.toThrow(/context changed/iu);
 });

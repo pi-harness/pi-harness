@@ -427,6 +427,29 @@ export default {
       }
       return manager;
     };
+    const readContext = () => {
+      const session = context.get("piRuntime")?.session;
+      const manager = session?.sessionManager ?? context.piSession.manager;
+      return { session, manager, header: manager.getHeader(), id: manager.getSessionId(), cwd: manager.getCwd() };
+    };
+    let currentContext = readContext();
+    const refreshContext = () => {
+      const next = readContext();
+      if (
+        next.session !== currentContext.session ||
+        next.manager !== currentContext.manager ||
+        next.header !== currentContext.header ||
+        next.id !== currentContext.id ||
+        next.cwd !== currentContext.cwd
+      ) {
+        currentContext = next;
+        latest = undefined;
+        latestPreview = undefined;
+        status = { state: "idle" };
+        currentPreviewDirty = true;
+      }
+      return currentContext;
+    };
     const exportCurrentSession = (manager = activeManager()): BridgePackage => {
       const current = manager.buildSessionContext();
       const model = current.model === null ? undefined : current.model;
@@ -451,30 +474,33 @@ export default {
         if (digest !== undefined) queued.digests.delete(digest);
       }
     });
-    const runOperation = <T>(
+    const runOperation = async <T>(
       operation: BridgeOperation,
       callerSignal: AbortSignal | undefined,
-      action: (signal: AbortSignal) => T | Promise<T>,
+      action: (check: () => void) => T | Promise<T>,
     ): Promise<T> => {
       const operationSignal = callerSignal === undefined ? lifecycle.signal : AbortSignal.any([callerSignal, lifecycle.signal]);
+      throwIfCancelled(operationSignal);
+      const requestedContext = refreshContext();
+      const check = () => {
+        throwIfCancelled(operationSignal);
+        if (refreshContext() !== requestedContext) throw new Error("Session Bridge target session changed during execution");
+      };
       status = { state: "running", operation };
-      return Promise.resolve()
-        .then(() => action(operationSignal))
-        .then(
-          (result) => {
-            status = { state: "completed", operation, at: new Date().toISOString() };
-            return result;
-          },
-          (error: unknown) => {
-            status = {
-              state: operationSignal.aborted ? "cancelled" : "failed",
-              operation,
-              at: new Date().toISOString(),
-              error: boundedError(error),
-            };
-            throw error;
-          },
-        );
+      try {
+        const result = await Promise.resolve().then(() => {
+          check();
+          return action(check);
+        });
+        check();
+        status = { state: "completed", operation, at: new Date().toISOString() };
+        return result;
+      } catch (error) {
+        if (!lifecycle.signal.aborted && refreshContext() === requestedContext) {
+          status = { state: operationSignal.aborted ? "cancelled" : "failed", operation, at: new Date().toISOString(), error: boundedError(error) };
+        }
+        throw error;
+      }
     };
     const unregisterExport = context.piTools.register(
       defineTool({
@@ -485,11 +511,11 @@ export default {
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
         execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<BridgePackage>> {
-          return runOperation("export", signal, (operationSignal) => {
+          return runOperation("export", signal, (check) => {
             parameterDescriptors(rawParams, emptyParameterNames);
-            throwIfCancelled(operationSignal);
+            check();
             const packageValue = exportCurrentSession();
-            throwIfCancelled(operationSignal);
+            check();
             latest = {
               direction: "export",
               sessionId: packageValue.source.sessionId,
@@ -516,12 +542,12 @@ export default {
         ),
         executionMode: "sequential",
         execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ source: BridgeSource; preview: HandoffPreview }>> {
-          return runOperation("preview", signal, (operationSignal) => {
+          return runOperation("preview", signal, (check) => {
             const descriptors = parameterDescriptors(rawParams, previewParameterNames);
-            throwIfCancelled(operationSignal);
+            check();
             const packageText = packageParameter(descriptors.package?.value, false);
             const packageValue = packageText === undefined ? exportCurrentSession() : parseBridgePackage(packageText);
-            throwIfCancelled(operationSignal);
+            check();
             const preview = buildHandoffPreview(packageValue);
             latestPreview = { source: cloneSource(packageValue.source), preview: structuredClone(preview), at: new Date().toISOString() };
             return {
@@ -555,7 +581,7 @@ export default {
           const requestedManager = activeManager();
           const requestedHeader = requestedManager.getHeader();
           const requestedSession = context.get("piRuntime")?.session;
-          return runOperation("import", signal, async (operationSignal) => {
+          return runOperation("import", signal, async (check) => {
             if (
               activeManager() !== requestedManager ||
               requestedManager.getHeader() !== requestedHeader ||
@@ -563,11 +589,11 @@ export default {
             )
               throw new Error("Session Bridge target session changed before import");
             const descriptors = parameterDescriptors(rawParams, importParameterNames);
-            throwIfCancelled(operationSignal);
+            check();
             if (descriptors.confirm?.value !== true) throw new Error("Session Bridge import requires confirm=true");
             const packageText = packageParameter(descriptors.package?.value, true);
             const packageValue = parseBridgePackage(packageText);
-            throwIfCancelled(operationSignal);
+            check();
             const targetManager = activeManager();
             const digest = bridgeDigest(packageValue);
             const runtimeSession = context.get("piRuntime")?.session;
@@ -579,6 +605,7 @@ export default {
             const delivery = runtimeSession?.isStreaming === true ? ("queued" as const) : ("appended" as const);
             if (delivery === "queued" && (queued?.digests.size ?? 0) >= maxMessages)
               throw new Error("Session Bridge has 100 queued handoffs; wait for the current turn to finish");
+            check();
             try {
               if (runtimeSession === undefined) {
                 targetManager.appendCustomMessageEntry(bridgeType, importedText(packageValue), true, details);
@@ -595,10 +622,11 @@ export default {
               }
             } catch (error) {
               queued?.digests.delete(digest);
-              failedManagers.set(targetManager, targetManager.getHeader());
+              failedManagers.set(targetManager, requestedHeader);
               currentPreviewDirty = true;
               throw new Error(writeFailureMessage, { cause: error });
             }
+            check();
             currentPreviewDirty = true;
             latest = {
               direction: "import",
@@ -631,35 +659,38 @@ export default {
         title: "Session Bridge",
         description: "导出或导入可审查的会话交接包，不改写源会话树。",
         icon: "⇄",
-        read: () => ({
-          latest: latest === undefined ? null : { ...latest },
-          latestPreview:
-            latestPreview === undefined
-              ? null
-              : { source: cloneSource(latestPreview.source), preview: structuredClone(latestPreview.preview), at: latestPreview.at },
-          status: { ...status },
-          currentPreview: currentPreview(),
-          formatVersion: bridgeVersion,
-          maxMessages,
-          maxTotalChars,
-          limits: {
-            packageBytes: maxPackageBytes,
-            packageCharacters: maxPackageChars,
-            messages: maxMessages,
-            messageCharacters: maxMessageChars,
-            totalMessageCharacters: maxTotalChars,
-            contentParts: maxContentParts,
-            attachments: maxAttachments,
-            attachmentMarkerCharacters: maxAttachmentMarkerChars,
-            sessionIdCharacters: maxSessionIdChars,
-            cwdCharacters: maxCwdChars,
-            modelFieldCharacters: maxModelFieldChars,
-            previewTextCharacters: previewTextLimit,
-            previewListItems: previewListLimit,
-            duplicateScanEntries: maxDuplicateScanEntries,
-            operationErrorCharacters: maxOperationErrorChars,
-          },
-        }),
+        read: () => {
+          refreshContext();
+          return {
+            latest: latest === undefined ? null : { ...latest },
+            latestPreview:
+              latestPreview === undefined
+                ? null
+                : { source: cloneSource(latestPreview.source), preview: structuredClone(latestPreview.preview), at: latestPreview.at },
+            status: { ...status },
+            currentPreview: currentPreview(),
+            formatVersion: bridgeVersion,
+            maxMessages,
+            maxTotalChars,
+            limits: {
+              packageBytes: maxPackageBytes,
+              packageCharacters: maxPackageChars,
+              messages: maxMessages,
+              messageCharacters: maxMessageChars,
+              totalMessageCharacters: maxTotalChars,
+              contentParts: maxContentParts,
+              attachments: maxAttachments,
+              attachmentMarkerCharacters: maxAttachmentMarkerChars,
+              sessionIdCharacters: maxSessionIdChars,
+              cwdCharacters: maxCwdChars,
+              modelFieldCharacters: maxModelFieldChars,
+              previewTextCharacters: previewTextLimit,
+              previewListItems: previewListLimit,
+              duplicateScanEntries: maxDuplicateScanEntries,
+              operationErrorCharacters: maxOperationErrorChars,
+            },
+          };
+        },
       });
     } catch (error) {
       lifecycle.abort(new Error("Session Bridge plugin activation failed", { cause: error }));

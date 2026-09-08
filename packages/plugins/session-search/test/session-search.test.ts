@@ -98,7 +98,7 @@ test("searches real active-workspace journals and reports skipped files without 
 
 test("rejects cancellation, session changes, disposal and malformed parameters before publishing", async () => {
   const { manager, context, panels, tool, search } = await fixture();
-  const baseline = await search();
+  await search();
   const abort = new AbortController();
   const cancelled = search("cancelled", abort.signal);
   abort.abort();
@@ -106,7 +106,7 @@ test("rejects cancellation, session changes, disposal and malformed parameters b
   const changed = search("changed");
   manager.newSession();
   await expect(changed).rejects.toThrow(/context changed/);
-  expect(JSON.stringify(await panels.snapshot())).toContain(baseline.details.query);
+  expect((await panels.snapshot())[0]!.data).toMatchObject({ query: "", total: 0, items: [] });
   for (const params of [
     null,
     {},
@@ -163,4 +163,18 @@ test("charges failed file reads against the overall budget", async () => {
     await truncate(file, 4 * 1024 * 1024 + 1);
   }
   expect((await search()).details).toMatchObject({ scanned: 0, skipped: 8, total: 0, byteBudgetUsed: 32 * 1024 * 1024, truncated: true });
+});
+
+test("captures native scope before inspecting search parameters", async () => {
+  const { manager, tool } = await fixture();
+  const params = new Proxy(
+    { query: "needle" },
+    {
+      ownKeys(target) {
+        manager.newSession();
+        return Reflect.ownKeys(target);
+      },
+    },
+  );
+  await expect(tool.execute("reentrant", params, undefined, undefined, {} as never)).rejects.toThrow(/context changed/iu);
 });

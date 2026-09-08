@@ -121,21 +121,7 @@ function findSession(sessions: readonly SessionInfo[], requested: string): Sessi
   return exact;
 }
 
-async function compareSessions(context: Context, leftId: string, rightId: string, signal: AbortSignal): Promise<SessionCompareReport> {
-  const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
-  const cwd = manager.getCwd();
-  const directory = manager.getSessionDir();
-  const id = manager.getSessionId();
-  const check = (): void => {
-    if (signal.aborted) throw new Error("Session comparison was cancelled");
-    if (
-      (context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager) !== manager ||
-      manager.getSessionId() !== id ||
-      manager.getCwd() !== cwd ||
-      manager.getSessionDir() !== directory
-    )
-      throw new Error("Session comparison context changed during execution");
-  };
+async function compareSessions(cwd: string, directory: string, leftId: string, rightId: string, check: () => void): Promise<SessionCompareReport> {
   check();
   const sessions = await SessionManager.list(cwd, directory);
   check();
@@ -178,6 +164,27 @@ export default {
     let latest: SessionCompareReport | undefined;
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort());
+    const readContext = () => {
+      const session = context.get("piRuntime")?.session;
+      const manager = session?.sessionManager ?? context.piSession.manager;
+      return { session, manager, id: manager.getSessionId(), cwd: manager.getCwd(), directory: manager.getSessionDir() };
+    };
+    let currentContext = readContext();
+    const refreshContext = () => {
+      const next = readContext();
+      if (
+        next.session !== currentContext.session ||
+        next.manager !== currentContext.manager ||
+        next.id !== currentContext.id ||
+        next.cwd !== currentContext.cwd ||
+        next.directory !== currentContext.directory
+      ) {
+        currentContext = next;
+        latest = undefined;
+      }
+      return currentContext;
+    };
+
     const unregister = context.piTools.register(
       defineTool({
         name: "session_compare",
@@ -195,6 +202,11 @@ export default {
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<SessionCompareReport>> {
           const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           if (combined.aborted) throw new Error("Session comparison was cancelled");
+          const operationContext = refreshContext();
+          const check = () => {
+            if (combined.aborted) throw new Error("Session comparison was cancelled");
+            if (refreshContext() !== operationContext) throw new Error("Session comparison context changed during execution");
+          };
           if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Session comparison parameters must be an object");
           const descriptors = Object.getOwnPropertyDescriptors(params);
           if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !["left", "right"].includes(key)))
@@ -213,8 +225,8 @@ export default {
               throw new Error(`Invalid session comparison ${key}`);
             return value;
           };
-          const report = await compareSessions(context, parameter("left"), parameter("right"), combined);
-          if (combined.aborted) throw new Error("Session comparison was cancelled");
+          const report = await compareSessions(operationContext.cwd, operationContext.directory, parameter("left"), parameter("right"), check);
+          check();
           latest = structuredClone(report);
           return { content: [{ type: "text", text: renderReport(report) }], details: report };
         },
@@ -227,8 +239,12 @@ export default {
       title: "Session Compare",
       description: "对比两个持久化会话的消息差异，不修改原始会话文件。",
       icon: "⇄",
-      read: () =>
-        latest === undefined ? { left: null, right: null, shared: 0, added: [], removed: [], changed: false, comparedAt: null } : structuredClone(latest),
+      read: () => {
+        refreshContext();
+        return latest === undefined
+          ? { left: null, right: null, shared: 0, added: [], removed: [], changed: false, comparedAt: null }
+          : structuredClone(latest);
+      },
     });
     context.effect(() => disposePanel);
   },

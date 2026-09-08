@@ -227,9 +227,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the persisted UTC cost ledger through its dedicated panel", async () => {
-    const costMeterModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-cost-meter"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const costMeterModule = await import("@pi-harness/plugin-cost-meter");
     const context = new Context();
     contexts.push(context);
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-cost-meter-"));
@@ -400,9 +398,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes aggregated failures through the real Failure Logger panel", async () => {
-    const failLoggerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-fail-logger"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const failLoggerModule = await import("@pi-harness/plugin-fail-logger");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -464,9 +460,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded structured cards through the real GenUI panel", async () => {
-    const genUiModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-genui"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const genUiModule = await import("@pi-harness/plugin-genui");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -597,9 +591,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the persisted graph memory through the real plugin panel", async () => {
-    const graphMemoryModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-graph-memory"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const graphMemoryModule = await import("@pi-harness/plugin-graph-memory");
     const context = new Context();
     contexts.push(context);
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-graph-memory-"));
@@ -705,9 +697,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Git capsule cleanup activity through the real plugin panel", async () => {
-    const cleanerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-cleaner"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const cleanerModule = await import("@pi-harness/plugin-cleaner");
     const context = new Context();
     contexts.push(context);
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-cleaner-agent-"));
@@ -753,9 +743,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded isolated SQLite query through the real plugin panel", async () => {
-    const sqlLensModule = (await import(/* @vite-ignore */ import.meta.resolve("../../plugins/sql-lens/dist/index.js"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const sqlLensModule = await import("@pi-harness/plugin-sql-lens");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-sql-lens-workspace-"));
@@ -814,9 +802,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded MCP inventories and limits through the real plugin panel", async () => {
-    const mcpClientModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-mcp-client"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const mcpClientModule = await import("@pi-harness/plugin-mcp-client");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-mcp-client-workspace-"));
@@ -829,7 +815,15 @@ describe("API gateway plugin", () => {
       "utf8",
     );
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "mcp-client-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const manager = SessionManager.inMemory(workspace);
+    const session = {
+      sessionId: manager.getSessionId(),
+      sessionManager: manager,
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -881,9 +875,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Browser Fetch preview through the real plugin panel", async () => {
-    const browserFetchModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-browser-fetch"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const browserFetchModule = await import("@pi-harness/plugin-browser-fetch");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-browser-fetch-workspace-"));
@@ -942,9 +934,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Browser Session inventory through the real plugin panel", async () => {
-    const browserSessionModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-browser-session"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const browserSessionModule = await import("@pi-harness/plugin-browser-session");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-browser-session-workspace-"));
@@ -1010,9 +1000,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Plugin Stars inventory through the real plugin panel", async () => {
-    const pluginStarsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-plugin-stars"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const pluginStarsModule = await import("@pi-harness/plugin-plugin-stars");
     const originalFetch = globalThis.fetch;
     const context = new Context();
     contexts.push(context);
@@ -1128,9 +1116,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Plugin Dev reload state through the real plugin panel", async () => {
-    const pluginDevModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-plugin-dev"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const pluginDevModule = await import("@pi-harness/plugin-plugin-dev");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1246,9 +1232,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Session Bridge previews through the real plugin panel", async () => {
-    const sessionBridgeModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-session-bridge"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const sessionBridgeModule = await import("@pi-harness/plugin-session-bridge");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1311,9 +1295,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Skill Guard audits through the real plugin panel", async () => {
-    const skillGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-skill-guard"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const skillGuardModule = await import("@pi-harness/plugin-skill-guard");
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-api-skill-guard-"));
     temporaryDirectories.push(cwd);
     const skillPath = join(cwd, "SKILL.md");
@@ -1382,9 +1364,7 @@ describe("API gateway plugin", () => {
   }, 15_000);
 
   test("publishes bounded Recall Unread inventory through the real plugin panel", async () => {
-    const recallUnreadModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-recall-unread"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const recallUnreadModule = await import("@pi-harness/plugin-recall-unread");
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-recall-unread-workspace-"));
     const sessionDir = await mkdtemp(join(tmpdir(), "pi-harness-api-recall-unread-sessions-"));
     temporaryDirectories.push(workspace, sessionDir);
@@ -1466,9 +1446,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Context Insights through the real plugin panel", async () => {
-    const contextInsightsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-context"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const contextInsightsModule = await import("@pi-harness/plugin-context");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1517,9 +1495,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes cached Token Guard state through the real plugin panel", async () => {
-    const tokenGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-token-guard"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const tokenGuardModule = await import("@pi-harness/plugin-token-guard");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1566,9 +1542,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the bounded Context Doctor audit through the real plugin panel", async () => {
-    const contextDoctorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-context-doctor"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const contextDoctorModule = await import("@pi-harness/plugin-context-doctor");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1633,9 +1607,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded current-branch Turn Rewind candidates through the real plugin panel", async () => {
-    const turnRewindModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-turn-rewind"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const turnRewindModule = await import("@pi-harness/plugin-turn-rewind");
     const manager = SessionManager.inMemory("/workspace");
     const first = manager.appendMessage({ role: "user", content: [{ type: "text", text: "first turn" }], timestamp: Date.now() });
     manager.appendMessage({

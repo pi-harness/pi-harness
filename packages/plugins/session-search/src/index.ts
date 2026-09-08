@@ -171,6 +171,27 @@ export default {
     let latest: SessionSearchReport | undefined;
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort());
+    const readContext = () => {
+      const session = context.get("piRuntime")?.session;
+      const manager = session?.sessionManager ?? context.piSession.manager;
+      return { session, manager, id: manager.getSessionId(), cwd: manager.getCwd(), directory: manager.getSessionDir() };
+    };
+    let currentContext = readContext();
+    const refreshContext = () => {
+      const next = readContext();
+      if (
+        next.session !== currentContext.session ||
+        next.manager !== currentContext.manager ||
+        next.id !== currentContext.id ||
+        next.cwd !== currentContext.cwd ||
+        next.directory !== currentContext.directory
+      ) {
+        currentContext = next;
+        latest = undefined;
+      }
+      return currentContext;
+    };
+
     const unregister = context.piTools.register(
       defineTool({
         name: "session_search",
@@ -182,27 +203,18 @@ export default {
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<SessionSearchReport>> {
           const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           if (combined.aborted) throw new Error("Session search was cancelled");
+          const operationContext = refreshContext();
+          const check = () => {
+            if (combined.aborted) throw new Error("Session search was cancelled");
+            if (refreshContext() !== operationContext) throw new Error("Session search context changed during execution");
+          };
           if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Session search parameters must be an object");
           const descriptors = Object.getOwnPropertyDescriptors(params);
           if (Reflect.ownKeys(descriptors).some((key) => key !== "query")) throw new Error("Unknown session search parameter");
           const query: unknown = descriptors.query?.value;
           if (typeof query !== "string" || query.length > maxQueryLength || query.trim() === "" || query.includes("\0"))
             throw new Error("Session search query must contain 1-120 characters");
-          const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
-          const cwd = manager.getCwd();
-          const directory = manager.getSessionDir();
-          const sessionId = manager.getSessionId();
-          const check = (): void => {
-            if (combined.aborted) throw new Error("Session search was cancelled");
-            if (
-              (context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager) !== manager ||
-              manager.getSessionId() !== sessionId ||
-              manager.getCwd() !== cwd ||
-              manager.getSessionDir() !== directory
-            )
-              throw new Error("Session search context changed during execution");
-          };
-          const report = await searchSessions(directory, cwd, query.trim(), check);
+          const report = await searchSessions(operationContext.directory, operationContext.cwd, query.trim(), check);
           check();
           latest = structuredClone(report);
           return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
@@ -216,7 +228,10 @@ export default {
       title: "Session Search",
       description: "跨本地持久化会话搜索文本，只读不修改会话文件。",
       icon: "⌕",
-      read: () => (latest === undefined ? { query: "", total: 0, items: [], scope } : structuredClone(latest)),
+      read: () => {
+        refreshContext();
+        return latest === undefined ? { query: "", total: 0, items: [], scope } : structuredClone(latest);
+      },
     });
     context.effect(() => disposePanel);
   },

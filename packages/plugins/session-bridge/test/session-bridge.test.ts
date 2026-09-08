@@ -413,6 +413,7 @@ describe("session bridge", () => {
       getCwd: () => "/workspace",
     };
     context.provide("piRuntime", { session: { sessionManager: manager } } as never);
+    await exporter.execute("current-successful", {}, undefined, undefined, {} as never);
     try {
       failure = new Error("x".repeat(3_000));
       await expect(exporter.execute("long-error", {}, undefined, undefined, {} as never)).rejects.toThrow();
@@ -547,5 +548,41 @@ test("quarantines a real journal write failure until session reload", async () =
     await context.fiber.dispose();
     await active.dispose();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.each(["export", "preview", "import"] as const)("binds bridge %s before deferred execution and parameter inspection", async (operation) => {
+  const context = new Context();
+  const manager = SessionManager.inMemory("/workspace");
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  context.provide("piSession", { manager });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(sessionBridge);
+  const packageValue = buildBridgePackage({ sessionId: "source", cwd: "/source" }, [{ role: "user", content: "handoff" }]);
+  const params = operation === "import" ? { package: JSON.stringify(packageValue), confirm: true } : {};
+  const selected = tools.snapshot().customTools.find((tool) => tool.name === `session_bridge_${operation}`)!;
+  try {
+    const hostile = new Proxy(params, {
+      ownKeys(target) {
+        manager.newSession();
+        return Reflect.ownKeys(target);
+      },
+    });
+    await expect(selected.execute("reentrant", hostile, undefined, undefined, {} as never)).rejects.toThrow(/session changed/iu);
+    expect(manager.getEntries()).toHaveLength(0);
+    const pending = selected.execute("pending", params, undefined, undefined, {} as never);
+    manager.newSession();
+    await expect(pending).rejects.toThrow(/session changed/iu);
+    expect(manager.getEntries()).toHaveLength(0);
+    await tools
+      .snapshot()
+      .customTools.find((tool) => tool.name === "session_bridge_export")!
+      .execute("warm", {}, undefined, undefined, {} as never);
+    manager.newSession();
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: null, latestPreview: null, status: { state: "idle" } });
+  } finally {
+    await context.fiber.dispose();
   }
 });
