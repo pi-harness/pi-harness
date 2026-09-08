@@ -131,7 +131,7 @@ type RecallInventory = {
   displayTruncated: boolean;
 };
 type SessionDiscovery = { candidates: SessionCandidate[]; available: number; truncated: boolean };
-type RecallStatus = { state: "running" | "completed" | "failed" | "cancelled"; at?: string; error?: string };
+type RecallStatus = { state: "idle" | "running" | "completed" | "failed" | "cancelled"; at?: string; error?: string };
 
 function boundedMetadataText(value: unknown, maximum: number): string | undefined {
   if (typeof value !== "string" || value.includes("\0")) return undefined;
@@ -310,7 +310,7 @@ export default {
     const lifecycle = new AbortController();
     let items: UnreadSession[] = [];
     let scans = 0;
-    let inventory: RecallInventory = {
+    const emptyInventory: RecallInventory = {
       available: 0,
       candidates: 0,
       scanned: 0,
@@ -321,6 +321,7 @@ export default {
       scanTruncated: false,
       displayTruncated: false,
     };
+    let inventory = { ...emptyInventory };
     let status: RecallStatus = { state: "running" };
     let scanQueue: Promise<void> = Promise.resolve();
     let operationSequence = 0;
@@ -341,19 +342,39 @@ export default {
       );
       return result;
     };
-    const activeManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
-    const scan = async (signal: AbortSignal): Promise<UnreadSession[]> => {
+    const capture = () => {
+      const session = context.get("piRuntime")?.session;
+      const manager = session?.sessionManager ?? context.piSession.manager;
+      return { session, manager, id: manager.getSessionId(), path: manager.getSessionFile(), cwd: manager.getCwd(), directory: manager.getSessionDir() };
+    };
+    type Scope = ReturnType<typeof capture>;
+    const sameScope = (left: Scope, right: Scope) =>
+      left.session === right.session &&
+      left.manager === right.manager &&
+      left.id === right.id &&
+      left.path === right.path &&
+      left.cwd === right.cwd &&
+      left.directory === right.directory;
+    let inventoryScope: Scope | undefined;
+    const refreshScope = (scope: Scope) => {
+      if (inventoryScope !== undefined && !sameScope(inventoryScope, scope)) {
+        items = [];
+        inventory = { ...emptyInventory };
+        status = { state: "idle" };
+      }
+      inventoryScope = scope;
+    };
+    const checkScope = (scope: Scope, signal: AbortSignal) => {
       throwIfCancelled(signal);
-      const manager = activeManager();
-      const activeId = manager.getSessionId();
-      const activePath = manager.getSessionFile();
-      const cwd = manager.getCwd();
-      const discovery = await discoverSessionCandidates(manager.getSessionDir(), activePath, signal);
+      if (!sameScope(scope, capture())) throw new Error("Recall Unread session changed during scanning; run the scan again");
+    };
+    const scan = async (scope: Scope, signal: AbortSignal): Promise<UnreadSession[]> => {
+      checkScope(scope, signal);
+      const discovery = await discoverSessionCandidates(scope.directory, scope.path, signal);
+      checkScope(scope, signal);
       const scannedCandidates = discovery.candidates.slice(0, maxSessions);
-      const nextItems = await unreadSessions(scannedCandidates, activeId, cwd, signal);
-      if (activeManager() !== manager || manager.getSessionId() !== activeId || manager.getSessionFile() !== activePath || manager.getCwd() !== cwd)
-        throw new Error("Recall Unread session changed during scanning; run the scan again");
-      throwIfCancelled(signal);
+      const nextItems = await unreadSessions(scannedCandidates, scope.id, scope.cwd, signal);
+      checkScope(scope, signal);
       const shown = Math.min(nextItems.length, maxPanelItems);
       const scanTruncated = discovery.candidates.length > scannedCandidates.length;
       const displayTruncated = nextItems.length > shown;
@@ -394,14 +415,20 @@ export default {
           }>
         > {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          throwIfCancelled(lifecycle.signal);
           const sequence = ++operationSequence;
-          status = { state: "running" };
+          let scope: Scope | undefined;
           try {
+            scope = capture();
+            refreshScope(scope);
+            const requestedScope = scope;
+            checkScope(requestedScope, operationSignal);
+            const query = queryParameter(params);
+            checkScope(requestedScope, operationSignal);
+            status = { state: "running" };
             const result = await runExclusive(operationSignal, async () => {
-              throwIfCancelled(operationSignal);
-              const query = queryParameter(params);
-              const scanned = await scan(operationSignal);
-              throwIfCancelled(operationSignal);
+              const scanned = await scan(requestedScope, operationSignal);
+              checkScope(requestedScope, operationSignal);
               const matches = scanned.filter((item) => query === "" || `${item.name} ${item.message} ${item.cwd}`.toLocaleLowerCase().includes(query));
               const shown = matches.slice(0, maxToolItems);
               const resultTruncated = matches.length > shown.length;
@@ -422,10 +449,11 @@ export default {
                 details: structuredClone({ total: matches.length, items: shown, inventory: resultInventory }),
               };
             });
+            checkScope(requestedScope, operationSignal);
             if (sequence === operationSequence) status = { state: "completed", at: new Date().toISOString() };
             return result;
           } catch (error) {
-            if (sequence === operationSequence)
+            if (!lifecycle.signal.aborted && sequence === operationSequence && (scope === undefined || sameScope(scope, capture())))
               status = {
                 state: operationSignal.aborted ? "cancelled" : "failed",
                 at: new Date().toISOString(),
@@ -444,29 +472,33 @@ export default {
         title: "Recall Unread",
         description: "查看以未回答用户消息结束的原生 Pi 会话，只读不修改。",
         icon: "◌",
-        read: () => ({
-          scans,
-          total: items.length,
-          items: structuredClone(items.slice(0, maxPanelItems)),
-          inventory: { ...inventory },
-          status: { ...status },
-          limits: {
-            directoryEntries: maxDirectoryEntries,
-            sessionBytes: maxSessionFileBytes,
-            sessions: maxSessions,
-            allowedSessions: maxAllowedSessions,
-            readConcurrency: sessionReadConcurrency,
-            contentParts: maxContentParts,
-            previewCharacters: maxPreviewChars,
-            panelItems: maxPanelItems,
-            toolItems: maxToolItems,
-            queryCharacters: maxQueryLength,
-            sessionIdCharacters: maxSessionIdChars,
-            sessionNameCharacters: maxSessionNameChars,
-            sessionPathCharacters: maxSessionPathChars,
-            statusErrorCharacters: maxStatusErrorChars,
-          },
-        }),
+        read: () => {
+          throwIfCancelled(lifecycle.signal);
+          refreshScope(capture());
+          return {
+            scans,
+            total: items.length,
+            items: structuredClone(items.slice(0, maxPanelItems)),
+            inventory: { ...inventory },
+            status: { ...status },
+            limits: {
+              directoryEntries: maxDirectoryEntries,
+              sessionBytes: maxSessionFileBytes,
+              sessions: maxSessions,
+              allowedSessions: maxAllowedSessions,
+              readConcurrency: sessionReadConcurrency,
+              contentParts: maxContentParts,
+              previewCharacters: maxPreviewChars,
+              panelItems: maxPanelItems,
+              toolItems: maxToolItems,
+              queryCharacters: maxQueryLength,
+              sessionIdCharacters: maxSessionIdChars,
+              sessionNameCharacters: maxSessionNameChars,
+              sessionPathCharacters: maxSessionPathChars,
+              statusErrorCharacters: maxStatusErrorChars,
+            },
+          };
+        },
       });
     } catch (error) {
       lifecycle.abort(new Error("Recall Unread plugin activation failed", { cause: error }));
@@ -478,11 +510,16 @@ export default {
       unregister();
       disposePanel();
     });
+    let startupScope: Scope | undefined;
     try {
-      await scan(lifecycle.signal);
+      startupScope = capture();
+      refreshScope(startupScope);
+      await scan(startupScope, lifecycle.signal);
+      checkScope(startupScope, lifecycle.signal);
       status = { state: "completed", at: new Date().toISOString() };
     } catch (error) {
-      status = { state: "failed", at: new Date().toISOString(), error: boundedError(error) };
+      if (!lifecycle.signal.aborted && (startupScope === undefined || sameScope(startupScope, capture())))
+        status = { state: "failed", at: new Date().toISOString(), error: boundedError(error) };
     }
   },
 };

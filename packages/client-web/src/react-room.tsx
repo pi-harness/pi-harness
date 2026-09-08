@@ -4019,7 +4019,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               ) : (
                 <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-                  没有以未回答用户消息结束的会话。
+                  {view.status.state === "idle"
+                    ? "当前会话尚未扫描，请运行 session_recall_unread。"
+                    : view.status.state === "running"
+                      ? "正在扫描未回答的会话…"
+                      : "没有以未回答用户消息结束的会话。"}
                 </div>
               )}
               <p className="text-[10px] leading-4 text-[var(--color-faint)]">
