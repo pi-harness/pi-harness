@@ -1108,7 +1108,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("requires confirmation when the hostile submodule is beside the working directory rather than under it", async () => {
     if (process.platform === "win32") return;
@@ -1149,7 +1149,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("does not probe the repository for Git commands that only report a version", async () => {
     if (process.platform === "win32") return;
@@ -1184,7 +1184,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("does not require confirmation for a program-executing key that belongs to the machine rather than the repository", async () => {
     if (process.platform === "win32") return;

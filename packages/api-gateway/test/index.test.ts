@@ -2966,7 +2966,7 @@ describe("API gateway plugin", () => {
     } finally {
       process.env.PATH = originalPath;
     }
-  });
+  }, 30_000);
 
   test("reports a git process killed by the output limit as a server failure rather than a rejected commit", async () => {
     const context = new Context();

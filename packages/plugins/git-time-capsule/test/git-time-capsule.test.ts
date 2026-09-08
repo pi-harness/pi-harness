@@ -1524,3 +1524,60 @@ describe("git time capsule restore", () => {
     }
   });
 });
+
+test("captures and restores the current native workspace and rejects queued old-scope writes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-capsule-native-")),
+    active = join(root, "active"),
+    agentDir = join(root, "agent");
+  temporaryDirectories.push(root);
+  await mkdir(active);
+  for (const cwd of [root, active]) {
+    await execFileAsync("git", ["init", "-q"], { cwd });
+    await writeFile(join(cwd, "note.txt"), "base\n");
+    await execFileAsync("git", ["add", "note.txt"], { cwd });
+    await execFileAsync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base"], { cwd });
+  }
+  await writeFile(join(root, "note.txt"), "launch\n");
+  await writeFile(join(active, "note.txt"), "active\n");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let id = "source";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  context.provide("piHarnessLaunch", { cwd: root, agentDir, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await context.plugin(gitTimeCapsulePlugin, {});
+    const capture = tools.snapshot().customTools.find((t) => t.name === "git_snapshot")!;
+    const restore = tools.snapshot().customTools.find((t) => t.name === "git_restore")!;
+    await capture.execute("source", {}, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    const result = await capture.execute("active", {}, undefined, undefined, {} as never);
+    const { name } = result.details as { name: string };
+    await restore.execute("restore", { name, confirm: true }, undefined, undefined, {} as never);
+    expect(await readFile(join(root, "note.txt"), "utf8")).toBe("launch\n");
+    expect(await readFile(join(active, "note.txt"), "utf8")).toBe("base\n");
+    await writeFile(join(active, "note.txt"), "active\n");
+    const capturing = capture.execute("queued-capture", {}, undefined, undefined, {} as never);
+    const restoring = restore.execute("queued-restore", { name, confirm: true }, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(capturing).rejects.toThrow(/workspace changed/iu);
+    await expect(restoring).rejects.toThrow(/workspace changed/iu);
+    expect(await readFile(join(active, "note.txt"), "utf8")).toBe("active\n");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+  } finally {
+    await context.fiber.dispose();
+  }
+});
