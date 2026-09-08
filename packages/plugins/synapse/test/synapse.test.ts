@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -55,7 +58,9 @@ describe("synapse", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     provideLaunchContext(context, { cwd: "/workspace", agentDir: "/agent", args: [], requestExit() {} });
-    context.provide("piSession", { manager: { getSessionDir: () => "/agent/sessions", getSessionFile: () => "/root.jsonl" } } as never);
+    context.provide("piSession", {
+      manager: { getCwd: () => "/workspace", getSessionId: () => "root", getSessionDir: () => "/agent/sessions", getSessionFile: () => "/root.jsonl" },
+    } as never);
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
     await context.plugin(synapsePlugin, { maxSessions: 10 });
@@ -79,7 +84,9 @@ describe("synapse", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     provideLaunchContext(context, { cwd: "/workspace", agentDir: "/agent", args: [], requestExit() {} });
-    context.provide("piSession", { manager: { getSessionDir: () => "/agent/sessions", getSessionFile: () => "/root.jsonl" } } as never);
+    context.provide("piSession", {
+      manager: { getCwd: () => "/workspace", getSessionId: () => "root", getSessionDir: () => "/agent/sessions", getSessionFile: () => "/root.jsonl" },
+    } as never);
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
     await context.plugin(synapsePlugin, { maxSessions: 10 });
@@ -101,7 +108,9 @@ describe("synapse", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     provideLaunchContext(context, { cwd: "/workspace", agentDir: "/agent", args: [], requestExit() {} });
-    context.provide("piSession", { manager: { getSessionDir: () => "/agent/sessions", getSessionFile: () => "/root.jsonl" } } as never);
+    context.provide("piSession", {
+      manager: { getCwd: () => "/workspace", getSessionId: () => "root", getSessionDir: () => "/agent/sessions", getSessionFile: () => "/root.jsonl" },
+    } as never);
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
     await context.plugin(synapsePlugin, { maxSessions: 10 });
@@ -121,4 +130,109 @@ describe("synapse", () => {
     await tool.execute("map", {}, undefined, undefined, {} as never);
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { refreshes: 1 } }]);
   });
+});
+
+test("keeps maps tied to active native managers and returns detached model-visible results", async () => {
+  const root = SessionManager.inMemory("/launch");
+  const active = SessionManager.inMemory("/active");
+  const runtime = { session: { sessionManager: active } };
+  const list = vi
+    .spyOn(SessionManager, "list")
+    .mockResolvedValue([{ id: "native", path: "/native.jsonl", cwd: "/active", firstMessage: "当前工作区", messageCount: 1, modified: new Date() } as never]);
+  const context = new Context();
+  contexts.push(context);
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  provideLaunchContext(context, { cwd: "/launch", agentDir: "/agent", args: [], requestExit() {} });
+  context.provide("piSession", { manager: root } as never);
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(synapsePlugin, {});
+  const tool = tools.snapshot().customTools.find((item) => item.name === "synapse_session_map")!;
+  const result = await tool.execute("map", {}, undefined, undefined, {} as never);
+  expect(list).toHaveBeenLastCalledWith("/active", active.getSessionDir());
+  expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({ cwd: "/active", nodes: [{ label: "当前工作区" }] });
+  (result.details as { nodes: unknown[] }).nodes.length = 0;
+  expect((await panels.snapshot())[0]?.data).toMatchObject({ nodes: [{ id: "native" }] });
+  runtime.session.sessionManager = SessionManager.inMemory("/second");
+  await panels.snapshot();
+  expect(list).toHaveBeenLastCalledWith("/second", runtime.session.sessionManager.getSessionDir());
+  const abort = new AbortController();
+  abort.abort();
+  await expect(tool.execute("abort", {}, abort.signal, undefined, {} as never)).rejects.toThrow(/cancel/i);
+  await expect(tool.execute("invalid", { extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/parameter/i);
+});
+
+test("rejects scans that outlive their native session and does not commit cancelled work", async () => {
+  const manager = SessionManager.inMemory("/workspace");
+  let finish!: (value: never[]) => void;
+  vi.spyOn(SessionManager, "list").mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const context = new Context();
+  contexts.push(context);
+  const tools = new PiToolRegistry();
+  provideLaunchContext(context, { cwd: "/workspace", agentDir: "/agent", args: [], requestExit() {} });
+  context.provide("piSession", { manager } as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", new PiPluginUiRegistry());
+  await context.plugin(synapsePlugin, {});
+  const tool = tools.snapshot().customTools[0]!;
+  const pending = tool.execute("map", {}, undefined, undefined, {} as never);
+  const panel = context.piPluginUi.snapshot();
+  finish([]);
+  await expect(pending).resolves.toMatchObject({ details: { nodes: [] } });
+  await expect(panel).resolves.toMatchObject([{ data: { nodes: [] } }]);
+  const stale = tool.execute("stale", {}, undefined, undefined, {} as never);
+  manager.newSession();
+  finish([]);
+  await expect(stale).rejects.toThrow(/context changed/i);
+  const abort = new AbortController();
+  const cancelled = tool.execute("map", {}, abort.signal, undefined, {} as never);
+  abort.abort();
+  finish([]);
+  await expect(cancelled).rejects.toThrow(/cancel/i);
+});
+
+test("maps real persisted native forks without modifying journals and reports truncation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "synapse-native-"));
+  const manager = SessionManager.create(root, join(root, "sessions"));
+  const context = new Context();
+  try {
+    manager.appendMessage({ role: "user", content: "根任务", timestamp: Date.now() });
+    manager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "answer" }],
+      api: "openai-completions",
+      provider: "fixture",
+      model: "fixture",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    });
+    const parentFile = manager.getSessionFile()!;
+    const parentId = manager.getSessionId();
+    manager.createBranchedSession(manager.getLeafId()!);
+    const childFile = manager.getSessionFile()!;
+    const childId = manager.getSessionId();
+    const before = await Promise.all([readFile(parentFile), readFile(childFile)]);
+    const tools = new PiToolRegistry();
+    provideLaunchContext(context, { cwd: "/wrong-launch", agentDir: root, args: [], requestExit() {} });
+    context.provide("piSession", { manager } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(synapsePlugin, { maxSessions: 1 });
+    const result = await tools.snapshot().customTools[0]!.execute("map", {}, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ cwd: root, total: 2, truncated: true, nodes: [expect.anything()] });
+    const graph = buildSynapseGraph(await SessionManager.list(root, manager.getSessionDir()), childFile);
+    expect(graph).toMatchObject({ activeSessionId: childId, edges: [{ from: parentId, to: childId, kind: "fork" }] });
+    expect(await Promise.all([readFile(parentFile), readFile(childFile)])).toEqual(before);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 });

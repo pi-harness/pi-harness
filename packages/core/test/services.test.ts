@@ -260,7 +260,7 @@ describe("Pi domain plugins", () => {
     expect(panels).toHaveLength(1);
     expect(panels[0]?.id).toBe("synapse-panel");
     expect(panels[0]?.pluginId).toBe("@pi-harness/plugin-synapse");
-    expect(panels[0]?.data).toEqual({ nodes: [], edges: [], orphanCount: 0, refreshes: 0 });
+    expect(panels[0]?.data).toMatchObject({ nodes: [], edges: [], orphanCount: 0, refreshes: 0, total: 0, truncated: false });
   });
 
   test("classifies hol-guard preflight input without retaining the source", () => {

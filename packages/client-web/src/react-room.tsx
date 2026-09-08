@@ -3515,9 +3515,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  ["会话", data?.nodes ?? 0],
-                  ["分支", data?.edges ?? 0],
-                  ["孤儿", data?.orphanCount ?? 0],
+                  ["会话", nodes.length],
+                  ["分支", edges.length],
+                  ["父会话未显示", data?.orphanCount ?? 0],
                 ].map(([label, count]) => (
                   <div className="rounded-lg border border-[#edf0f3] bg-[#f8fafc] px-3 py-2" key={value(label)}>
                     <span className="block text-[10px] text-[#687381]">{value(label)}</span>
@@ -3578,7 +3578,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   })}
                 </div>
               ) : null}
-              <div className="text-[10px] text-[#687381]">数据来源：Pi 原生 JSONL 会话；Agent 可调用 synapse_session_map 刷新。</div>
+              <div className="text-[10px] text-[#687381]">
+                数据来源：Pi 原生 JSONL 会话；Agent 可调用 synapse_session_map 刷新。节点展示 {nodes.length} / {value(data?.total)}；
+                {data?.truncated === true ? "结果已截断，未显示的父会话不代表文件丢失。" : "已返回全部列出的会话。"} 当前工作区：{value(data?.cwd)}
+                。面板最多显示 8 个节点和 5 条关系。
+              </div>
             </div>
           );
         })()
