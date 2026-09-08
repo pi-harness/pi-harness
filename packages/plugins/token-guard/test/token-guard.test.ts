@@ -474,7 +474,7 @@ test("resets on a native session ID change without aborting from panel polling",
   }
 });
 
-test("counts finalized usage once before and after native persistence", async () => {
+test.each(["assistant", "toolResult"])("counts finalized %s usage once before and after native persistence", async (role) => {
   const context = new Context(),
     panels = new PiPluginUiRegistry();
   let total = 100;
@@ -488,7 +488,7 @@ test("counts finalized usage once before and after native persistence", async ()
     context.emit("pi/session-event", { type: "agent_start" } as never);
     context.emit("pi/session-event", {
       type: "message_end",
-      message: { role: "assistant", usage: { input: 5, output: 15, cacheRead: 20, cacheWrite: 20 } },
+      message: { role, usage: { input: 5, output: 15, cacheRead: 20, cacheWrite: 20 } },
     } as never);
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { runTokens: 60, aborts: 0 } }]);
     total = 160;

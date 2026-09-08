@@ -88,16 +88,18 @@ function readSessionTokens(session: { getSessionStats?: () => unknown }): TokenS
     : { total: null, error: "Session statistics response is invalid" };
 }
 
-function finalizedAssistantTokens(event: unknown): TokenSnapshot {
+function finalizedMessageTokens(event: unknown): TokenSnapshot {
   if (dataProperty(event, "type") !== "message_end") return { total: 0, error: null };
   const message = dataProperty(event, "message");
-  if (dataProperty(message, "role") !== "assistant") return { total: 0, error: null };
+  const role = dataProperty(message, "role");
+  if (role !== "assistant" && role !== "toolResult") return { total: 0, error: null };
   const usage = dataProperty(message, "usage");
+  if (role === "toolResult" && usage === undefined) return { total: 0, error: null };
   let total = 0;
   for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
     const value = dataProperty(usage, key);
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(total + value))
-      return { total: null, error: "Finalized assistant usage is invalid" };
+      return { total: null, error: "Finalized message usage is invalid" };
     total += value;
   }
   return { total, error: null };
@@ -174,8 +176,8 @@ export default {
       if (session !== activeSession || session.sessionId !== activeSessionId) resetForSession(session);
       const usage = readUsage(session);
       const sessionTokens = maxRunTokens > 0 ? readSessionTokens(session) : { total: null, error: null };
-      // Native message_end listeners run before this assistant message is appended to session statistics.
-      const finalized = maxRunTokens > 0 ? finalizedAssistantTokens(event) : { total: 0, error: null };
+      // Native message_end listeners run before this message is appended to session statistics.
+      const finalized = maxRunTokens > 0 ? finalizedMessageTokens(event) : { total: 0, error: null };
       inspectionError = usage.error ?? sessionTokens.error ?? finalized.error;
       lastPercent = usage.percent;
       lastTokens = usage.tokens;
