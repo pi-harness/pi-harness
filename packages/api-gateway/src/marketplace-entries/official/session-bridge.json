@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-session-bridge",
   "version": "0.1.29",
   "name": "Session Bridge",
-  "description": "Preview and export handoffs, then require confirmed import of a strictly validated, bounded package into the active LLM context with duplicate protection.",
+  "description": "预览并导出会话交接包；导入需要确认，包体经过严格校验并防重复注入。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["session bridge tools", "active session manager", "custom context messages", "plugin UI"],
+  "hooks": ["会话桥接工具", "当前会话管理器", "自定义上下文消息", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-session-bridge",
     "config": {}

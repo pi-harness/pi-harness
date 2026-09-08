@@ -3,18 +3,18 @@
   "packageName": "@pi-harness/plugin-graph-memory",
   "version": "0.1.29",
   "name": "Graph Memory",
-  "description": "Store bounded typed task, skill, and event nodes with validated directed relations, atomic locked persistence, and inspectable cross-session search.",
+  "description": "把任务、技能、事件存成带类型的节点和有向关系，落盘加锁，可跨会话检索。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
   "category": {
-    "id": "memory",
-    "label": "记忆与上下文"
+    "id": "context",
+    "label": "上下文管理"
   },
   "capabilities": ["reads-files", "writes-files"],
-  "hooks": ["graph memory tools", "local graph file", "plugin UI"],
+  "hooks": ["图记忆工具", "本地图文件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-graph-memory",
     "config": {

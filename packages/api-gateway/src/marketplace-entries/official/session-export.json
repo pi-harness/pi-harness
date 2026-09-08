@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-session-export",
   "version": "0.1.29",
   "name": "Session Export",
-  "description": "Export the current Pi conversation to a bounded Markdown file inside the workspace without changing session history.",
+  "description": "把当前 Pi 对话导出成工作区内的 Markdown 文件，不改动会话历史。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["session-data", "writes-files"],
-  "hooks": ["Pi session", "workspace files", "plugin UI"],
+  "hooks": ["Pi 会话", "工作区文件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-session-export",
     "config": {}

@@ -27,17 +27,27 @@ const metadata: ClientMarketplacePlugin = {
   profile: { name: plugin.name, config: {} },
 };
 
+const capabilityLabel = (id: string): string => ({ "multi-agent": "多 Agent", tasks: "任务" })[id] ?? id;
+
 describe("installed plugin card content", () => {
   it("uses the same marketplace metadata as the detail surface", () => {
-    expect(installedPluginCardContent(plugin, metadata)).toEqual({
+    expect(installedPluginCardContent(plugin, metadata, capabilityLabel)).toEqual({
       packageLabel: `${plugin.name} · v1.2.3`,
       description: metadata.description,
-      tags: ["multi-agent", "tasks", "hook:session lifecycle"],
+      tags: ["多 Agent", "任务", "hook:session lifecycle"],
     });
   });
 
+  // A capability the catalog does not label still has to render as something, and its id is the only honest thing left to show.
+  it("falls back to the capability id when the catalog carries no label for it", () => {
+    expect(installedPluginCardContent(plugin, { ...metadata, capabilities: ["unknown-capability"] }, capabilityLabel).tags).toEqual([
+      "unknown-capability",
+      "hook:session lifecycle",
+    ]);
+  });
+
   it("keeps an explicit runtime fallback for plugins without catalog metadata", () => {
-    expect(installedPluginCardContent({ ...plugin, enabled: false, state: "disabled" }, undefined)).toEqual({
+    expect(installedPluginCardContent({ ...plugin, enabled: false, state: "disabled" }, undefined, capabilityLabel)).toEqual({
       packageLabel: plugin.name,
       description: "由当前运行时加载但已停用。",
       tags: ["loader", "state:disabled"],

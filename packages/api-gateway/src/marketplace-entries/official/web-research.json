@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-web-research",
   "version": "0.1.29",
   "name": "Web Research",
-  "description": "Search the public web through a configurable provider and return bounded, cited source evidence.",
+  "description": "通过可配置的搜索服务检索公网，返回带出处、有上限的证据。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "网页与研究"
   },
   "capabilities": ["network-access"],
-  "hooks": ["network request", "plugin UI"],
+  "hooks": ["网络请求", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-web-research",
     "config": {}

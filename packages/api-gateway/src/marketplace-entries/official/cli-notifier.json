@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-cli-notifier",
   "version": "0.1.29",
   "name": "CLI Notifier",
-  "description": "Send local desktop notifications when an agent turn completes, fails, or is aborted, and when context compaction fails.",
+  "description": "agent 轮次结束、失败、被中断，或上下文压缩失败时，发一条本机桌面通知。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["runs-commands"],
-  "hooks": ["agent end", "compaction error", "plugin UI"],
+  "hooks": ["运行结束", "压缩失败", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-cli-notifier",
     "config": {}

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-plugin-dev",
   "version": "0.1.29",
   "name": "Plugin Dev",
-  "description": "Defer Pi session resource reloads until the agent is settled, enforce a single active reload with bounded status, and expose the operation only for trusted local development.",
+  "description": "把 Pi 会话的资源重载推迟到 agent 空闲后执行，同时只允许一个重载在跑，仅对本机开发开放。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "开发工具"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["session resource reload tool", "Pi session lifecycle", "plugin UI"],
+  "hooks": ["会话资源重载工具", "Pi 会话生命周期", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-plugin-dev",
     "config": {}

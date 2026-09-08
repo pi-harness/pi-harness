@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-auto-mode",
   "version": "0.1.29",
   "name": "Auto Mode",
-  "description": "Execute argv commands under a safe policy that blocks shell wrappers and requires confirmation for risky operations.",
+  "description": "在受控策略下执行 argv 命令：拒绝 shell 包装，危险操作要求确认。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "安全"
   },
   "capabilities": ["reads-files", "runs-commands"],
-  "hooks": ["argv execution", "plugin UI"],
+  "hooks": ["argv 执行", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-auto-mode",
     "config": {

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-turn-rewind",
   "version": "0.1.29",
   "name": "Turn Rewind",
-  "description": "Scans a bounded current branch for user turns, supports queued serialized cancellable rewinds after the agent settles, and navigates the native session tree while preserving abandoned branches.",
+  "description": "扫描当前分支上的用户轮次，等 agent 空闲后按队列串行回退，并在原生会话树里导航，保留被放弃的分支。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["session rewind tool", "active session tree", "agent settled lifecycle", "plugin UI"],
+  "hooks": ["会话回退工具", "当前会话树", "agent 空闲生命周期", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-turn-rewind",
     "config": {}

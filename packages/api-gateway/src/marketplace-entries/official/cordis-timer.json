@@ -3,14 +3,20 @@
   "packageName": "@deepseek-ai/cordis-plugin-timer",
   "version": "1.1.3",
   "name": "Timer",
-  "description": "Provides bounded lifecycle-owned scheduling with async intervals, throttling, and debouncing.",
+  "description": "提供随生命周期回收的定时能力：异步定时器、节流与防抖。",
   "author": "DeepSeek AI",
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "runtime", "label": "运行时" },
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
   "capabilities": ["read-only"],
-  "hooks": ["Cordis timer service", "plugin UI"],
-  "profile": { "name": "@deepseek-ai/cordis-plugin-timer", "config": {} }
+  "hooks": ["Cordis 定时服务", "插件面板"],
+  "profile": {
+    "name": "@deepseek-ai/cordis-plugin-timer",
+    "config": {}
+  }
 }

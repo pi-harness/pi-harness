@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-browser-fetch",
   "version": "0.1.29",
   "name": "Browser Fetch",
-  "description": "Fetch public HTTP and HTTPS pages as bounded text with descriptor-safe inputs, DNS pinning, per-redirect private-network validation, textual MIME enforcement, cancellation, a whole-request timeout, and validated fail-closed panel reporting.",
+  "description": "抓取公网 HTTP/HTTPS 页面并转成有上限的文本，固定 DNS、拦截内网地址、只接受文本类型，可取消且有整体超时。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "网页与研究"
   },
   "capabilities": ["network-access"],
-  "hooks": ["network request", "plugin UI"],
+  "hooks": ["网络请求", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-browser-fetch",
     "config": {

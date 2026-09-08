@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-reverse-skill",
   "version": "0.1.29",
   "name": "Reverse Skill Firewall",
-  "description": "Inspect untrusted Skill text and inject it only through an explicit bounded data boundary.",
+  "description": "检查不可信的 Skill 文本，只通过一条显式的数据边界注入。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "安全"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["skill guard", "bounded content", "plugin UI"],
+  "hooks": ["skill 守卫", "受限内容", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-reverse-skill",
     "config": {}

@@ -180,6 +180,8 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
         provideLaunchContext(context, {
           cwd: environment.cwd,
           agentDir: environment.agentDir,
+          // The booted profile, so a diagnostic that tells the user to edit it can name the file instead of the two placeholders it was resolved from.
+          configPath,
           args: invocation.args,
           requestExit(code) {
             requestedExit?.(code);

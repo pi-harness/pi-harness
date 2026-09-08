@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-session-compare",
   "version": "0.1.29",
   "name": "Session Compare",
-  "description": "Compare two persisted Pi sessions by message role and text without modifying either session file.",
+  "description": "按角色和文本比较两个已保存的 Pi 会话，不修改任何会话文件。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "发现与生态"
   },
   "capabilities": ["read-only", "session-data", "reads-files"],
-  "hooks": ["session manager", "JSONL sessions", "plugin UI"],
+  "hooks": ["会话管理器", "JSONL 会话文件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-session-compare",
     "config": {}

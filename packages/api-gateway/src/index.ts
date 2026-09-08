@@ -43,6 +43,10 @@ const IMPORT_CONTENT_LIMIT_BYTES = 10 * 1024 * 1024;
 const IMPORT_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
 // Retained trajectory events are replayed to every SSE client and returned by /api/session, so the array must stay bounded.
 const MAX_RETAINED_EVENTS = 2000;
+// Tool calls that opened but never closed. Far above any real concurrency, so the cap only ever trims a run the runtime abandoned.
+const MAX_PENDING_TOOL_CALLS = 256;
+/** A session event with the two fields the gateway owns: when it arrived, and for a tool call how long it took. */
+type StampedSessionEvent = AgentSessionEvent & { readonly receivedAt: number; readonly durationMs?: number };
 const GIT_TIMEOUT_MS = 15_000;
 const PROCESS_FAILURE_TEXT_LIMIT = 400;
 const PROCESS_TIMEOUT_MS = 120_000;
@@ -332,6 +336,42 @@ function pluginSummary(entry: LoaderEntrySummary) {
     removable: entry.options.id.startsWith("marketplace-") || marketplacePlugin !== undefined,
     category: marketplacePlugin?.category,
   };
+}
+
+/** The state a marketplace plugin is in between the install that wrote it and the restart that loads it. It is not a loader state because the loader has no entry for it at all. */
+const RESTART_REQUIRED_STATE = "restart-required";
+
+// The install writes the entry as two adjacent lines, so this reads back exactly what `marketplaceProfileEntry` writes rather than parsing the profile as YAML, which the `!!js` tags in it would need a schema for.
+const MARKETPLACE_PROFILE_ENTRY_PATTERN = /^[ \t]*- id: (marketplace-\S+)[ \t]*\r?\n[ \t]*name: "([^"]+)"/gmu;
+
+/** The loader holds what is running; the profile file holds what is installed. The two differ for a plugin that contributes tools, which cannot join a harness that is already running: the install leaves its package and its profile entry in place and the plugin arrives on the next start. Reading only the loader makes that plugin indistinguishable from one that was never installed, which is why the console answered an install that had just succeeded with "nothing is installed" and then could not uninstall what it had hidden. */
+async function readMarketplaceProfileEntries(configPath: string): Promise<readonly { readonly id: string; readonly packageName: string }[]> {
+  const source = await readFile(configPath, "utf8").catch(() => undefined);
+  if (source === undefined) return [];
+  const entries: { id: string; packageName: string }[] = [];
+  for (const match of source.matchAll(MARKETPLACE_PROFILE_ENTRY_PATTERN)) entries.push({ id: match[1] ?? "", packageName: match[2] ?? "" });
+  return entries;
+}
+
+/** The installed plugins the loader does not have, described the same way a loaded one is so the console can list them side by side instead of leaving the user to guess what happened to the install. */
+async function restartPendingSummaries(services: ApiServices): Promise<readonly ReturnType<typeof pluginSummary>[]> {
+  const configPath = services.launch.configPath;
+  if (configPath === undefined || services.loader === undefined) return [];
+  const loaded = new Set([...services.loader.entries()].map((entry) => entry.options.id));
+  const entries = await readMarketplaceProfileEntries(configPath);
+  return entries
+    .filter((entry) => !loaded.has(entry.id))
+    .map((entry) => {
+      const plugin = MARKETPLACE_PLUGINS.find((item) => item.packageName === entry.packageName);
+      return {
+        id: entry.id,
+        name: entry.packageName,
+        enabled: true,
+        state: RESTART_REQUIRED_STATE,
+        removable: true,
+        category: plugin?.category,
+      };
+    });
 }
 
 function pluginLoaded(services: ApiServices, packageName: string): boolean {
@@ -777,9 +817,31 @@ export default {
     };
     const disposePluginPanels = registerPluginPanels(context, services);
     let busy = false;
-    const events: AgentSessionEvent[] = [];
+    const events: StampedSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
-    const handleEvent = (event: AgentSessionEvent) => {
+    // Pi puts a wall-clock on a message payload and nowhere else, so a tool call has no time of its own and nothing downstream can recover when the harness saw it. The gateway is the one place that sees every event as it happens, so it stamps each one on arrival, and pairs a tool call's two events to record how long the call took.
+    // The stamp is written onto the event rather than onto a copy: a copy would give every event a new identity, and the serializer's cycle detection reads identity, so a self-referential event would serialize one level deeper on every hop.
+    const toolCallStartedAt = new Map<string, number>();
+    const stampEvent = (event: AgentSessionEvent): StampedSessionEvent => {
+      const receivedAt = Date.now();
+      const toolCallId = (event as { readonly toolCallId?: unknown }).toolCallId;
+      if (typeof toolCallId === "string" && event.type === "tool_execution_start") {
+        // A call whose end never arrives would otherwise keep its entry forever; the oldest is dropped rather than letting a stalled run grow the map without bound.
+        if (toolCallStartedAt.size >= MAX_PENDING_TOOL_CALLS) {
+          const oldest = toolCallStartedAt.keys().next().value;
+          if (oldest !== undefined) toolCallStartedAt.delete(oldest);
+        }
+        toolCallStartedAt.set(toolCallId, receivedAt);
+      }
+      if (typeof toolCallId === "string" && event.type === "tool_execution_end") {
+        const startedAt = toolCallStartedAt.get(toolCallId);
+        toolCallStartedAt.delete(toolCallId);
+        if (startedAt !== undefined) return Object.assign(event, { receivedAt, durationMs: receivedAt - startedAt });
+      }
+      return Object.assign(event, { receivedAt });
+    };
+    const handleEvent = (rawEvent: AgentSessionEvent) => {
+      const event = stampEvent(rawEvent);
       // Streaming deltas reach clients live over SSE and each one carries the whole partial message, so only durable events are retained for snapshots.
       if (event.type !== "message_update") {
         events.push(event);
@@ -1098,8 +1160,10 @@ export default {
     });
     const disposePlugins = services.webServer.register({
       path: "/api/plugins",
-      handler(_request, response) {
-        const items = services.loader ? [...services.loader.entries()].map(pluginSummary) : [];
+      async handler(_request, response) {
+        const loaded = services.loader ? [...services.loader.entries()].map(pluginSummary) : [];
+        // The pending entries follow the loaded ones so a list that was stable before an install stays in the same order after it.
+        const items = [...loaded, ...(await restartPendingSummaries(services))];
         sendJson(response, 200, jsonSafe({ items }));
       },
     });
@@ -1191,6 +1255,11 @@ export default {
           const existing = [...loader.entries()].find((entry) => entry.options.name === plugin.packageName);
           if (existing !== undefined) {
             sendJson(response, 409, { error: "Plugin is already installed", plugin });
+            return;
+          }
+          // A plugin already waiting for a restart is installed even though the loader has no entry for it, so installing it again would re-run npm and report a fresh restart for work that is already done.
+          if ((await readMarketplaceProfileEntries(configPath)).some((entry) => entry.packageName === plugin.packageName)) {
+            sendJson(response, 200, { plugin, installed: true, restartRequired: true });
             return;
           }
           const installDirectory = await marketplaceInstallDirectory(configPath, services.launch.cwd);
@@ -1322,7 +1391,23 @@ export default {
           }
           const entry = [...loader.entries()].find((item) => item.id === payload.id || item.options.id === payload.id);
           if (entry === undefined) {
-            sendJson(response, 404, { error: "Installed plugin was not found" });
+            // A plugin waiting for a restart has no loader entry to remove, only the profile entry and the package the install left behind. Refusing here left the user unable to undo an install until they restarted the very process they installed it to avoid restarting.
+            const pending = (await readMarketplaceProfileEntries(configPath)).find((item) => item.id === payload.id);
+            const pendingPlugin = pending === undefined ? undefined : MARKETPLACE_PLUGINS.find((item) => item.packageName === pending.packageName);
+            if (pending === undefined || pendingPlugin === undefined) {
+              sendJson(response, 404, { error: "Installed plugin was not found" });
+              return;
+            }
+            const pendingProfileBefore = await readFile(configPath, "utf8");
+            const pendingInstallDirectory = await marketplaceInstallDirectory(configPath, services.launch.cwd);
+            try {
+              await updateMarketplaceProfile(configPath, pending.id, { remove: true });
+              await runProcess("npm", ["uninstall", "--package-lock=false", marketplaceNpmPackageName(pendingPlugin.packageName)], pendingInstallDirectory);
+              sendJson(response, 200, { uninstalled: true, id: payload.id });
+            } catch (error) {
+              await writeFile(configPath, pendingProfileBefore, "utf8").catch(() => {});
+              sendJson(response, 502, { error: errorText(error) });
+            }
             return;
           }
           const plugin = marketplacePluginForEntry(entry);

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-tab-manager",
   "version": "0.1.29",
   "name": "Session Tabs",
-  "description": "Organize active Pi sessions into named tabs and switch between them without losing session identity.",
+  "description": "把正在进行的 Pi 会话整理成命名标签页并在其间切换，不影响会话本身。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["session-data", "reads-files", "writes-files"],
-  "hooks": ["session registry", "plugin UI"],
+  "hooks": ["会话注册表", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-tab-manager",
     "config": {}

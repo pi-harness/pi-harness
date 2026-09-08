@@ -3,18 +3,18 @@
   "packageName": "@pi-harness/plugin-llm-verifier",
   "version": "0.1.29",
   "name": "LLM Verifier",
-  "description": "Ask a configured verifier model to judge a claim against bounded, untrusted evidence.",
+  "description": "让指定的校验模型对着有上限的证据判断一条结论是否成立。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
   "category": {
-    "id": "testing",
-    "label": "测试与质量"
+    "id": "developer",
+    "label": "开发工具"
   },
   "capabilities": ["model-calls"],
-  "hooks": ["model runtime", "structured verdict", "plugin UI"],
+  "hooks": ["模型运行时", "结构化结论", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-llm-verifier",
     "config": {}

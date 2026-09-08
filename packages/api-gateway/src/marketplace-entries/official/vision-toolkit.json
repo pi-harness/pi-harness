@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-vision-toolkit",
   "version": "0.1.29",
   "name": "Vision Toolkit",
-  "description": "Catalog signature-verified PNG, JPEG, GIF, and WebP metadata with bounded header reads, cancellable workspace traversal, explicit partial results, and a local-only normalized panel.",
+  "description": "读取 PNG、JPEG、GIF、WebP 的签名与元数据并建立目录，只读文件头，遍历可取消，结果仅在本机面板展示。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "视觉与多模态"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["image metadata tools", "workspace access", "plugin UI"],
+  "hooks": ["图像元数据工具", "工作区访问", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-vision-toolkit",
     "config": {}

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-i18n-pair",
   "version": "0.1.29",
   "name": "I18n Pair",
-  "description": "Strict read-only comparison of bounded JSON locale files from no-follow workspace paths, with collision-safe missing and extra keys, stable failures, cancellation, and validated panel status.",
+  "description": "只读比对两份 JSON 语言文件，列出缺失键和多余键，路径不跟随符号链接，可取消。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["i18n check tool", "workspace locale files", "plugin UI"],
+  "hooks": ["i18n 检查工具", "工作区语言文件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-i18n-pair",
     "config": {}

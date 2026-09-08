@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-plugin-stars",
   "version": "0.1.29",
   "name": "Plugin Stars",
-  "description": "Search a curated raw.githubusercontent.com plugin snapshot through descriptor-safe inputs, strict bounded validation, a cancellable lifecycle, and fail-closed panel reporting.",
+  "description": "在 raw.githubusercontent.com 上的插件榜单快照里检索，输入受限、校验严格、可取消，失败即关闭面板。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "发现与生态"
   },
   "capabilities": ["network-access"],
-  "hooks": ["ranking search tool", "raw GitHub snapshot", "plugin UI"],
+  "hooks": ["榜单搜索工具", "GitHub 原始快照", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-plugin-stars",
     "config": {

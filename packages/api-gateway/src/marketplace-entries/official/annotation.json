@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-annotation",
   "version": "0.1.29",
   "name": "Annotations",
-  "description": "Capture bounded selections and notes from the conversation for later agent context.",
+  "description": "把对话里选中的片段和批注存下来，作为后续对话的上下文。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "上下文管理"
   },
   "capabilities": ["read-only"],
-  "hooks": ["plugin UI"],
+  "hooks": ["插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-annotation",
     "config": {}

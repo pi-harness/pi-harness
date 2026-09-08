@@ -3,18 +3,18 @@
   "packageName": "@pi-harness/plugin-mcp-panel",
   "version": "0.1.29",
   "name": "MCP Panel",
-  "description": "Inspect MCP server health and tools, preview profile patches, and apply changes only with an explicit confirmation and backup.",
+  "description": "查看 MCP 服务的健康状况和工具列表，预览 profile 补丁，确认并备份后才写入。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
   "category": {
-    "id": "tools",
-    "label": "工具"
+    "id": "developer",
+    "label": "开发工具"
   },
   "capabilities": ["reads-files", "writes-files", "runs-commands"],
-  "hooks": ["MCP runtime", "plugin UI"],
+  "hooks": ["MCP 运行时", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-mcp-panel",
     "config": {}

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-token-guard",
   "version": "0.1.29",
   "name": "Token Guard",
-  "description": "Use descriptor-safe monitoring to issue at most one abort request per run when a context percentage or billed run-token budget is reached, with bounded errors and a cached normalized panel.",
+  "description": "上下文占比或计费 token 超过预算时，一次运行最多发出一次中止请求，并提供缓存的面板视图。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "可观测性"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["Pi session lifecycle", "active runtime abort", "session usage and statistics", "plugin UI"],
+  "hooks": ["Pi 会话生命周期", "当前运行中止", "会话用量与统计", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-token-guard",
     "config": {

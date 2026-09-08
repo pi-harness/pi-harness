@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-reviewer-bot",
   "version": "0.1.29",
   "name": "Reviewer Bot",
-  "description": "Review the current Git diff for risky changes, unfinished markers, and large files without modifying the workspace.",
+  "description": "评审当前 Git diff 里的高风险改动、未完成标记和超大文件，不改动工作区。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["runs-commands"],
-  "hooks": ["workspace Git", "plugin UI"],
+  "hooks": ["工作区 Git", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-reviewer-bot",
     "config": {}

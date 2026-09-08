@@ -3,14 +3,25 @@
   "packageName": "@deepseek-ai/cordis-plugin-logger-console",
   "version": "1.0.1",
   "name": "Console logger",
-  "description": "Exports bounded Cordis diagnostics to the host console with severity filters and a safe recent-log panel.",
+  "description": "按严重级别把 Cordis 诊断日志输出到宿主控制台，并提供一个最近日志面板。",
   "author": "DeepSeek AI",
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "observability", "label": "可观测性" },
+  "category": {
+    "id": "observability",
+    "label": "可观测性"
+  },
   "capabilities": ["read-only"],
-  "hooks": ["Cordis logger exporter", "plugin UI"],
-  "profile": { "name": "@deepseek-ai/cordis-plugin-logger-console", "config": { "levels": { "default": 2 }, "maxLength": 8192 } }
+  "hooks": ["Cordis 日志导出", "插件面板"],
+  "profile": {
+    "name": "@deepseek-ai/cordis-plugin-logger-console",
+    "config": {
+      "levels": {
+        "default": 2
+      },
+      "maxLength": 8192
+    }
+  }
 }

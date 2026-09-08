@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-dependency-checker",
   "version": "0.1.29",
   "name": "Dependency Checker",
-  "description": "Run a bounded, offline, read-only check of workspace package.json and requirements*.txt manifests for local package presence, duplicate declaration consistency, unresolved constraints, and unsupported Python directives.",
+  "description": "离线只读检查工作区的 package.json 与 requirements*.txt：本地是否已安装、重复声明是否一致、约束能否解析。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "开发工具"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["dependency check tool", "workspace manifest read", "plugin UI"],
+  "hooks": ["依赖检查工具", "工作区清单读取", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-dependency-checker",
     "config": {}

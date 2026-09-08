@@ -72,11 +72,19 @@ let harness: Awaited<ReturnType<typeof bootHarness>> | undefined;
 const exitCodeFor = (signal: NodeJS.Signals): number => (signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143);
 // The Cordis loader wraps this failure in its own entry path and stack, none of which a user with an unprovisioned agent directory can act on, so the recognized case reports the remedy first and keeps exactly one line naming the model that is missing. Every other failure is still reported in full, because nothing here knows what it means.
 const UNREGISTERED_EVERYAPI_MODEL = /Pi model is not registered: (everyapi\/[^\s"'`,;)\]]+)/u;
+// Node reports a taken port as a bare errno, and the overwhelmingly likely cause is a Pi Harness the user already started, so the failure names that possibility and the variable that moves this one out of the way.
+const ADDRESS_IN_USE = /\bEADDRINUSE\b/u;
 // This launcher takes no arguments and has no help output, so the one place a user can learn that the frames are still available is the failure that dropped them.
 const DEBUG_HINT = "Set PI_HARNESS_DEBUG=1 and start again to keep the stack frames.";
 const formatStartupError = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   const debug = process.env.PI_HARNESS_DEBUG === "1";
+  if (ADDRESS_IN_USE.test(message)) {
+    const authority = `${host.includes(":") ? `[${host}]` : host}:${port}`;
+    const holder = process.platform === "win32" ? `netstat -ano | findstr :${port}` : `lsof -nP -iTCP:${port} -sTCP:LISTEN`;
+    const remedy = `Port ${port} on ${host} is already in use. If that is a Pi Harness you already started, its console is at http://${authority}/. Otherwise set PI_HARNESS_PORT to a free port, or stop whatever holds this one (${holder}).`;
+    return debug ? `${remedy}\n${message}` : remedy;
+  }
   const unregistered = UNREGISTERED_EVERYAPI_MODEL.exec(message);
   if (unregistered === null) return debug ? message : `${message}\n${DEBUG_HINT}`;
   const remedy = `The EveryAPI model catalog is not provisioned in PI_AGENT_DIR. Start with \`everyapi use pi-harness\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-openpets",
   "version": "0.1.29",
   "name": "OpenPets",
-  "description": "Keep a bounded durable companion state from validated recent session entries without retaining message contents, with descriptor-safe actions and explicit persistence health.",
+  "description": "根据最近的会话事件维护一只桌面宠物的状态，不保存消息内容，操作受限且持久化状态可见。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "网页与研究"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["session events", "pet reaction tool", "session storage", "plugin UI"],
+  "hooks": ["会话事件", "宠物反应工具", "会话存储", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-openpets",
     "config": {}

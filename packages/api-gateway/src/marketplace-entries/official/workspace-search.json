@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-workspace-search",
   "version": "0.1.29",
   "name": "Workspace Search",
-  "description": "Search bounded text files in the active workspace with ignored directories and binary content excluded.",
+  "description": "在当前工作区的文本文件里搜索，自动跳过忽略目录和二进制内容。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "上下文管理"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["workspace files", "plugin UI"],
+  "hooks": ["工作区文件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-workspace-search",
     "config": {}

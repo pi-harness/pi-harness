@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-canvas-draw",
   "version": "0.1.29",
   "name": "Canvas Draw",
-  "description": "Generate validated, bounded Mermaid flowchart source from structured nodes and edges in the workspace UI.",
+  "description": "在面板里用结构化的节点和连线生成经过校验的 Mermaid 流程图源码。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "视觉与多模态"
   },
   "capabilities": ["read-only"],
-  "hooks": ["plugin UI"],
+  "hooks": ["插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-canvas-draw",
     "config": {}

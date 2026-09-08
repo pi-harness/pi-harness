@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-obsidian-sync",
   "version": "0.1.29",
   "name": "Obsidian Sync",
-  "description": "Write explicitly requested session notes to a bounded Obsidian vault path without reading unrelated vault files.",
+  "description": "把明确指定的会话笔记写进 Obsidian 库的指定路径，不会读取库里其他文件。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["reads-files", "writes-files"],
-  "hooks": ["vault path", "plugin UI"],
+  "hooks": ["库路径", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-obsidian-sync",
     "config": {}

@@ -3,18 +3,18 @@
   "packageName": "@pi-harness/plugin-test-harness",
   "version": "0.1.29",
   "name": "Test Harness",
-  "description": "Run five fixed npm script names from a trusted workspace, reporting real status with a sanitized 12 KiB UTF-8-safe untrusted output tail, a bounded configurable timeout, and cancellable process-tree cleanup.",
+  "description": "运行工作区里五个固定名字的 npm 脚本，返回真实状态和清理过的 12 KiB 输出尾部；超时可配置，取消时清理整棵进程树。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
   "category": {
-    "id": "testing",
-    "label": "测试与质量"
+    "id": "developer",
+    "label": "开发工具"
   },
   "capabilities": ["runs-commands"],
-  "hooks": ["project verification tool", "workspace npm scripts", "plugin UI"],
+  "hooks": ["项目验证工具", "工作区 npm 脚本", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-test-harness",
     "config": {

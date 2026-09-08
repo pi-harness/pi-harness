@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-recall-unread",
   "version": "0.1.29",
   "name": "Recall Unread",
-  "description": "Read-only bounded discovery with strict UTF-8 session reads finds current workspace conversations ending in an unanswered user message, uses cached startup inventory, and rescans only on explicit tool calls.",
+  "description": "只读扫描当前工作区的会话文件，找出最后一条是用户发言、还没被回复的对话；启动时用缓存，仅在显式调用时重扫。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["read-only", "session-data", "reads-files"],
-  "hooks": ["recall unread tool", "native session storage", "active session manager", "plugin UI"],
+  "hooks": ["未读回溯工具", "原生会话存储", "当前会话管理器", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-recall-unread",
     "config": {}

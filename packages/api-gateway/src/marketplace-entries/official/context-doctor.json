@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-context-doctor",
   "version": "0.1.29",
   "name": "Context Doctor",
-  "description": "Descriptor-safe bounded context audits detect pressure, oversized or uninspectable messages, and tool errors. Compaction requests are queued until the agent has settled; confirmed model-backed compaction may incur cost and provides cancellable waits with dedicated cancellation.",
+  "description": "体检当前上下文：找出压力来源、超大或读不出的消息以及工具报错。压缩请求会排到 agent 空闲后，确认后才调用模型（会产生费用），等待可取消。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "可观测性"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["context doctor tool", "session messages and usage", "Pi session lifecycle", "manual compaction", "plugin UI"],
+  "hooks": ["上下文体检工具", "会话消息与用量", "Pi 会话生命周期", "手动压缩", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-context-doctor",
     "config": {}

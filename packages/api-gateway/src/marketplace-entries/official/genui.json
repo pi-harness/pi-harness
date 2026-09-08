@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-genui",
   "version": "0.1.29",
   "name": "GenUI",
-  "description": "Render bounded structured cards with text, badge, and decimal progress blocks while displaying HTML and scripts as plain text.",
+  "description": "把结构化数据渲染成文本、标签和进度条卡片，HTML 与脚本一律按纯文本显示。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "界面增强"
   },
   "capabilities": ["read-only"],
-  "hooks": ["GenUI render tool", "plugin UI"],
+  "hooks": ["GenUI 渲染工具", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-genui",
     "config": {}
