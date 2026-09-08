@@ -1,10 +1,10 @@
-import { lstat, mkdir, realpath } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { isAbsolute, resolve, win32 } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { atomicWriteFile } from "@pi-harness/plugin-api";
+import { atomicWriteFile, prepareWorkspaceFile } from "@pi-harness/plugin-api";
 
 const maxContentBytes = 512 * 1024;
 const maxRelativePathLength = 512;
@@ -16,41 +16,55 @@ export interface ObsidianSyncPluginConfig {
 
 export const Config: z<ObsidianSyncPluginConfig> = z.object({ vaultPath: z.string().default("") });
 
-function isInside(root: string, target: string): boolean {
-  const remainder = relative(root, target);
-  return remainder === "" || (remainder !== ".." && !remainder.startsWith(`..${"/"}`) && !remainder.startsWith(`..${"\\"}`) && !remainder.startsWith("/"));
-}
-
 export default {
   name: "pi-obsidian-sync",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: ObsidianSyncPluginConfig) {
     const configuredVault = config.vaultPath?.trim() ?? "";
+    const lifecycle = new AbortController();
+    let operations = Promise.resolve();
+    const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
+      const result = operations.then(operation);
+      operations = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    };
+    context.effect(() => async () => {
+      lifecycle.abort(new Error("Obsidian sync plugin disposed"));
+      await operations;
+    });
     let last: SyncResult | undefined;
-    const sync = async (relativePath: string, content: string, confirm: boolean): Promise<SyncResult> => {
+    const sync = async (relativePath: string, content: string, confirm: boolean, signal: AbortSignal): Promise<SyncResult> => {
+      signal.throwIfAborted();
       if (configuredVault === "") throw new Error("Obsidian sync requires vaultPath in the plugin configuration");
       if (!confirm) throw new Error("Obsidian sync requires confirm=true before writing a note");
-      if (relativePath.length === 0 || relativePath.length > maxRelativePathLength || !relativePath.toLowerCase().endsWith(".md"))
+      if (
+        isAbsolute(relativePath) ||
+        win32.isAbsolute(relativePath) ||
+        relativePath.includes("\\") ||
+        relativePath.length === 0 ||
+        relativePath.length > maxRelativePathLength ||
+        !relativePath.toLowerCase().endsWith(".md")
+      )
         throw new Error("Obsidian note path must be a relative .md path of at most 512 characters");
       if (content.length === 0 || Buffer.byteLength(content, "utf8") > maxContentBytes)
         throw new Error(`Obsidian note content must be between 1 and ${maxContentBytes} bytes`);
-      await mkdir(configuredVault, { recursive: true });
-      const vault = await realpath(configuredVault);
-      const target = resolve(vault, relativePath);
-      if (!isInside(vault, target)) throw new Error("Obsidian note path must stay inside the configured vault");
-      const parent = dirname(target);
-      await mkdir(parent, { recursive: true });
-      if (!isInside(vault, await realpath(parent))) throw new Error("Obsidian note path must stay inside the configured vault");
-      try {
-        if ((await lstat(target)).isSymbolicLink()) throw new Error("Obsidian note target cannot be a symbolic link");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
+      const configuredRoot = resolve(context.piHarnessLaunch.cwd, configuredVault);
+      await mkdir(configuredRoot, { recursive: true });
+      signal.throwIfAborted();
+      const { target } = await prepareWorkspaceFile(
+        configuredRoot,
+        relativePath,
+        "Obsidian note path must stay inside the configured vault and target a regular file",
+      );
+      signal.throwIfAborted();
       // No explicit mode: a vault note is a user document, so replacing one keeps whatever bits the user gave it and only a note this creates falls back to atomicWriteFile's owner-only default.
-      await atomicWriteFile(target, content, { encoding: "utf8" });
+      await atomicWriteFile(target, content, { encoding: "utf8", signal });
       last = { relativePath, absolutePath: target, bytes: Buffer.byteLength(content, "utf8") };
-      return last;
+      return { ...last };
     };
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -67,8 +81,9 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<SyncResult>> {
-          const result = await sync(params.relativePath, params.content, params.confirm);
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<SyncResult>> {
+          const executionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const result = await enqueue(() => sync(params.relativePath, params.content, params.confirm, executionSignal));
           return { content: [{ type: "text", text: `Obsidian note written: ${result.relativePath}` }], details: result };
         },
       }),
@@ -81,7 +96,7 @@ export default {
         title: "Obsidian Sync",
         description: "将 Agent 产出的 Markdown 安全写入指定 Obsidian vault。",
         icon: "▤",
-        read: () => ({ configured: configuredVault !== "", vaultPath: configuredVault || null, last: last ?? null }),
+        read: () => ({ configured: configuredVault !== "", vaultPath: configuredVault || null, last: last === undefined ? null : { ...last } }),
       });
     } catch (error) {
       unregisterTool();
