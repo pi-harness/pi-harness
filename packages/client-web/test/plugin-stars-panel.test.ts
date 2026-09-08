@@ -69,4 +69,10 @@ describe("Plugin Stars panel", () => {
     expect(html).not.toContain("owner/repository-8");
     expect(html).not.toContain("面板数据异常");
   });
+  test("renders an unconfigured source without inventing a default ranking", () => {
+    const html = renderPanel({ source: "", limit: 10, timeoutMs: 15_000, latest: null, inventory: { total: 0, shown: 0, truncated: false }, limits });
+    expect(html).toContain("需要配置榜单来源 sourceUrl");
+    expect(html).not.toContain("面板数据异常");
+    expect(html).not.toContain("dsh-plugin-stars");
+  });
 });

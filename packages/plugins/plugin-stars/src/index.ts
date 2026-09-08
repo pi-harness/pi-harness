@@ -4,7 +4,6 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type {} from "@pi-harness/plugin-api";
 
-const defaultSourceUrl = "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json";
 const maxResponseBytes = 2 * 1024 * 1024;
 const maxQueryLength = 120;
 const maxLimit = 50;
@@ -282,7 +281,7 @@ export interface PluginStarsConfig {
 }
 
 export const Config: z<PluginStarsConfig> = z.object({
-  sourceUrl: z.string().min(1).max(maxSourceUrlLength).default(defaultSourceUrl),
+  sourceUrl: z.string().min(1).max(maxSourceUrlLength),
   limit: z.number().min(1).max(maxLimit).step(1).default(10),
   timeoutMs: z.number().min(1_000).max(60_000).step(1).default(15_000),
 });
@@ -292,7 +291,7 @@ export default {
   inject: ["piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: PluginStarsConfig) {
-    const source = sourceUrl(config.sourceUrl ?? defaultSourceUrl);
+    const source = config.sourceUrl === undefined ? "" : sourceUrl(config.sourceUrl);
     const limit = Math.max(1, Math.min(maxLimit, Math.trunc(config.limit ?? 10)));
     const timeoutMs = Math.max(1_000, Math.min(60_000, Math.trunc(config.timeoutMs ?? 15_000)));
     const lifecycle = new AbortController();
@@ -305,8 +304,8 @@ export default {
         defineTool({
           name: "plugin_stars_search",
           label: "Plugin Stars",
-          description: "Read the curated DSH Plugin Stars ranking, filter it locally, and return sorted repository evidence. Never installs plugins.",
-          promptSnippet: "search the curated DSH plugin ranking",
+          description: "Read the configured Pi Harness repository ranking, filter it locally, and return sorted repository evidence. Never installs plugins.",
+          promptSnippet: "search the configured Pi Harness ranking",
           parameters: Type.Object(
             {
               query: Type.Optional(Type.String({ description: "Plugin name, repository, capability, or topic", maxLength: maxQueryLength })),
@@ -316,7 +315,11 @@ export default {
           executionMode: "sequential",
           async execute(_toolCallId, params, signal): Promise<AgentToolResult<PluginStarsReport>> {
             const query = queryParameter(params);
-            const payload = await fetchReport(source, timeoutMs, executionSignal(signal));
+            const combined = executionSignal(signal);
+            if (combined.aborted) throw new Error("Plugin stars request was cancelled", { cause: combined.reason });
+            if (source === "") throw new Error("Configure plugin-stars sourceUrl with a Pi Harness ranking JSON before searching");
+            const payload = await fetchReport(source, timeoutMs, combined);
+            if (combined.aborted) throw new Error("Plugin stars request was cancelled", { cause: combined.reason });
             const matches = searchPluginStars(payload, query);
             const results = matches.slice(0, limit);
             latest = { source: payload.source, generatedAt: payload.generatedAt, total: matches.length, query, results, fetchedAt: new Date().toISOString() };
@@ -338,7 +341,7 @@ export default {
         id: "plugin-stars-panel",
         pluginId: "@pi-harness/plugin-plugin-stars",
         title: "Plugin Stars",
-        description: "读取 dsh-plugin-stars 策展榜单，按 Star 和关键词查看社区插件，不自动安装。",
+        description: "读取已配置的 Pi Harness 榜单，按 GitHub Star 排序，不自动安装。",
         icon: "★",
         read: () => {
           const panelResults = structuredClone(latest?.results.slice(0, maxPanelItems) ?? []);

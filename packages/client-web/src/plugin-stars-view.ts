@@ -192,7 +192,7 @@ function malformedView(): PluginStarsPanelView {
 export function pluginStarsPanelView(data: unknown): PluginStarsPanelView {
   const source = ownDataRecord(data, rootKeys);
   if (source === undefined || !exact(source, rootKeys)) return malformedView();
-  const sourceUrl = text(source.source, 2_048, false);
+  const sourceUrl = text(source.source, 2_048);
   const limit = integer(source.limit, 1, 50);
   const timeoutMs = integer(source.timeoutMs, 1_000, 60_000);
   const limits = limitsView(source.limits);
@@ -213,6 +213,7 @@ export function pluginStarsPanelView(data: unknown): PluginStarsPanelView {
   let latest: PluginStarsPanelView["latest"] = null;
   // The payload carries up to `limits.panelItems` results while the panel renders only `visibleRows` of them, so `inventory.shown` is validated against the accepted count rather than the rendered one.
   let acceptedResults = 0;
+  if (rawLatest !== null && sourceUrl === "") return malformedView();
   if (rawLatest !== null) {
     const latestSource = ownDataRecord(rawLatest, latestKeys);
     if (latestSource === undefined || !exact(latestSource, latestKeys)) return malformedView();

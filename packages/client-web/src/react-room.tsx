@@ -2746,11 +2746,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ) : (
                     <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的社区插件。</div>
                   )}
-                  <p className="text-[10px] leading-4 text-[#687381]">来源：{latest.source || "dsh-plugin-stars"} · 仅展示公开仓库信息，不会自动安装。</p>
+                  <p className="text-[10px] leading-4 text-[#687381]">来源：{latest.source} · 仅展示公开仓库信息，不会自动安装。</p>
                 </>
               ) : (
                 <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-                  Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。
+                  {view.source === "" ? "需要配置榜单来源 sourceUrl，尚未连接 Pi Harness 排行榜。" : "Agent 可调用 plugin_stars_search 拉取并筛选社区排行榜。"}
                 </div>
               )}
             </div>
