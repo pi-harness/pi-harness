@@ -250,6 +250,8 @@ export default {
               mount,
               "--workdir",
               "/workspace",
+              "--entrypoint",
+              "",
               image,
               ...params.command,
             ];

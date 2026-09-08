@@ -76,6 +76,10 @@ describe("Docker sandbox production boundaries", () => {
         .split("\n")
         .map((line) => JSON.parse(line) as string[]);
       expect(calls[0]).toEqual(["image", "inspect", "alpine:3.20"]);
+      const entrypointIndex = calls[1]!.indexOf("--entrypoint");
+      expect(entrypointIndex).toBeGreaterThan(0);
+      expect(calls[1]![entrypointIndex + 1]).toBe("");
+      expect(calls[1]!.slice(-3)).toEqual(["alpine:3.20", "printf", "ok"]);
       expect(calls[1]).toEqual(
         expect.arrayContaining([
           "run",
