@@ -1930,7 +1930,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             return (
               <>
                 <div className="rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3 text-[11px] leading-5 text-[#315fb8]">
-                  预览不会创建目标会话，也不会修改源会话。
+                  预览不会创建目标会话，也不会修改源会话。运行中的导入先排队，当前轮结束后追加到会话，后续模型轮可见；排队不代表已保存。
                 </div>
                 {view.status.state === "failed" || view.status.state === "cancelled" ? (
                   <div
@@ -1973,7 +1973,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <span>正文 {view.limits.totalMessageCharacters} 字符</span>
                   <span>附件标记 {view.limits.attachments} 个</span>
                   {view.source !== null ? <span className="max-w-full truncate">来源 {view.source.sessionId}</span> : null}
-                  {view.latest !== null ? <span>{view.latest.direction === "import" ? "最近导入" : "最近导出"}</span> : null}
+                  {view.latest !== null ? <span>{view.latest.direction === "import" ? "最近导入请求" : "最近导出"}</span> : null}
                 </div>
               </>
             );

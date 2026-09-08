@@ -1,11 +1,70 @@
+import { mkdtemp, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, ModelRuntime, DefaultResourceLoader, SettingsManager, SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import { buildBridgePackage, buildHandoffPreview, parseBridgePackage } from "../src/index.js";
 import sessionBridge from "../src/index.js";
 import sessionPlugin from "@pi-harness/core/plugins/session";
 import toolsPlugin from "@pi-harness/core/plugins/tools";
+
+async function realSession(manager: SessionManager) {
+  const root = await mkdtemp(join(tmpdir(), "pi-bridge-test-"));
+  const modelRuntime = await ModelRuntime.create({
+    authPath: join(root, "auth.json"),
+    modelsStorePath: join(root, "models.json"),
+    modelsPath: null,
+    refreshOnCreate: false,
+    allowModelNetwork: false,
+  });
+  const settingsManager = SettingsManager.inMemory();
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: root,
+    agentDir: root,
+    settingsManager,
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+  });
+  await resourceLoader.reload();
+  modelRuntime.registerProvider("local-fixture", {
+    baseUrl: "http://127.0.0.1:9/v1",
+    api: "openai-completions",
+    apiKey: "local-fixture",
+    models: [
+      {
+        id: "fixture",
+        name: "fixture",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 32000,
+        maxTokens: 128,
+      },
+    ],
+  });
+  const { session } = await createAgentSession({
+    sessionManager: manager,
+    settingsManager,
+    cwd: root,
+    agentDir: root,
+    resourceLoader,
+    modelRuntime,
+    model: modelRuntime.getModel("local-fixture", "fixture"),
+    noTools: "builtin",
+  });
+  return {
+    session,
+    async dispose() {
+      session.dispose();
+      await rm(root, { recursive: true, force: true });
+    },
+  };
+}
 
 describe("session bridge", () => {
   test("exports a bounded handoff package with model intent and attachment markers", () => {
@@ -255,7 +314,8 @@ describe("session bridge", () => {
     context.piSession.manager.appendMessage({ role: "user", content: [{ type: "text", text: "stale session" }], timestamp: Date.now() });
     const activeManager = SessionManager.inMemory("/active");
     activeManager.appendMessage({ role: "user", content: [{ type: "text", text: "active session" }], timestamp: Date.now() });
-    context.provide("piRuntime", { session: { sessionManager: activeManager } } as never);
+    const active = await realSession(activeManager);
+    context.provide("piRuntime", { session: active.session } as never);
     await context.plugin(sessionBridge);
     const previewer = context.piTools.snapshot().customTools.find((tool) => tool.name === "session_bridge_preview");
     const importer = context.piTools.snapshot().customTools.find((tool) => tool.name === "session_bridge_import");
@@ -265,6 +325,8 @@ describe("session bridge", () => {
     expect(result.details).toMatchObject({ source: { cwd: "/active" }, preview: { goal: "active session" } });
     const packageValue = buildBridgePackage({ sessionId: "source", cwd: "/source" }, [{ role: "user", content: "handoff" }]);
     await importer!.execute("import", { package: JSON.stringify(packageValue), confirm: true }, undefined, undefined, {} as never);
+    expect(JSON.stringify(active.session.messages)).toContain("handoff");
+    await active.dispose();
     expect(activeManager.getEntries().some((entry) => entry.type === "custom_message" && entry.customType === "pi-harness/session-bridge")).toBe(true);
     expect(context.piSession.manager.getEntries().some((entry) => entry.type === "custom_message" && entry.customType === "pi-harness/session-bridge")).toBe(
       false,
@@ -344,6 +406,7 @@ describe("session bridge", () => {
         }
         return { model: null, messages: [] };
       },
+      getHeader: () => null,
       getSessionId: () => "active-session",
       getCwd: () => "/workspace",
     };
@@ -389,6 +452,7 @@ describe("session bridge", () => {
         contextBuilds += 1;
         return { model: null, messages: [] };
       },
+      getHeader: () => null,
       getSessionId: () => "session",
       getCwd: () => "/workspace",
     };
@@ -407,4 +471,79 @@ describe("session bridge", () => {
       await context.fiber.dispose();
     }
   });
+});
+
+test("rejects a queued import after its target session changes and refreshes same-manager previews", async () => {
+  const context = new Context();
+  const manager = SessionManager.inMemory("/workspace");
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  context.provide("piSession", { manager });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(sessionBridge);
+  try {
+    manager.appendMessage({ role: "user", content: "original goal", timestamp: Date.now() });
+    expect(JSON.stringify(await panels.snapshot())).toContain("original goal");
+    const importer = tools.snapshot().customTools.find((tool) => tool.name === "session_bridge_import")!;
+    const packageValue = buildBridgePackage({ sessionId: "source", cwd: "/source" }, [{ role: "user", content: "handoff" }]);
+    const pending = importer.execute("switch", { package: JSON.stringify(packageValue), confirm: true }, undefined, undefined, {} as never);
+    manager.newSession();
+    await expect(pending).rejects.toThrow(/target session changed/);
+    expect(manager.getEntries()).toHaveLength(0);
+    expect(JSON.stringify(await panels.snapshot())).not.toContain("original goal");
+  } finally {
+    await context.fiber.dispose();
+  }
+});
+
+test("quarantines a real journal write failure until session reload", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-bridge-failure-"));
+  const manager = SessionManager.create(root, join(root, "sessions"));
+  manager.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "Initialize persisted journal" }],
+    api: "openai-completions",
+    provider: "fixture",
+    model: "fixture",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  });
+  let active = await realSession(manager);
+  const runtime = { session: active.session };
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  context.provide("piSession", { manager });
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(sessionBridge);
+    const importer = tools.snapshot().customTools.find((tool) => tool.name === "session_bridge_import")!;
+    const exporter = tools.snapshot().customTools.find((tool) => tool.name === "session_bridge_export")!;
+    const packageValue = buildBridgePackage({ sessionId: "source", cwd: "/source" }, [{ role: "user", content: "phantom handoff" }]);
+    const file = manager.getSessionFile()!;
+    const disk = await readFile(file, "utf8");
+    await rename(file, file + ".backup");
+    await mkdir(file);
+    await expect(importer.execute("failure", { package: JSON.stringify(packageValue), confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /write failed/,
+    );
+    await expect(exporter.execute("blocked", {}, undefined, undefined, {} as never)).rejects.toThrow(/reload the session/);
+    await rm(file, { recursive: true });
+    await rename(file + ".backup", file);
+    await active.dispose();
+    manager.setSessionFile(file);
+    active = await realSession(manager);
+    runtime.session = active.session;
+    expect(JSON.stringify(active.session.messages)).not.toContain("phantom handoff");
+    await expect(exporter.execute("recovered", {}, undefined, undefined, {} as never)).resolves.toBeDefined();
+    expect(await readFile(file, "utf8")).toBe(disk);
+  } finally {
+    await context.fiber.dispose();
+    await active.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 });

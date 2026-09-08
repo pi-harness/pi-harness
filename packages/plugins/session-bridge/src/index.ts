@@ -19,6 +19,8 @@ const maxPackageChars = 256 * 1024;
 const maxAttachmentMarkerChars = 256;
 const maxDuplicateScanEntries = 10_000;
 const maxOperationErrorChars = 2_000;
+const failedManagers = new WeakMap<SessionManager, object | null>();
+const writeFailureMessage = "Session Bridge write failed; reload the session from disk before using the bridge again";
 const bridgeType = "pi-harness/session-bridge";
 const roles = new Set(["user", "assistant", "toolResult", "system", "other"]);
 const emptyParameterNames = new Set<string>();
@@ -414,8 +416,17 @@ export default {
     let status: BridgeStatus = { state: "idle" };
     let currentPreviewCache: HandoffPreview | undefined;
     let currentPreviewManager: SessionManager | undefined;
+    let currentPreviewHeader: object | null | undefined;
     let currentPreviewDirty = true;
-    const activeManager = (): SessionManager => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+    const queuedImports = new WeakMap<SessionManager, { header: object | null; digests: Set<string> }>();
+    const activeManager = (): SessionManager => {
+      const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+      if (failedManagers.has(manager)) {
+        if (failedManagers.get(manager) === manager.getHeader()) throw new Error(writeFailureMessage);
+        failedManagers.delete(manager);
+      }
+      return manager;
+    };
     const exportCurrentSession = (manager = activeManager()): BridgePackage => {
       const current = manager.buildSessionContext();
       const model = current.model === null ? undefined : current.model;
@@ -423,17 +434,28 @@ export default {
     };
     const currentPreview = (): HandoffPreview => {
       const manager = activeManager();
-      if (currentPreviewCache === undefined || currentPreviewDirty || manager !== currentPreviewManager) {
+      if (currentPreviewCache === undefined || currentPreviewDirty || manager !== currentPreviewManager || manager.getHeader() !== currentPreviewHeader) {
         currentPreviewCache = buildHandoffPreview(exportCurrentSession(manager));
         currentPreviewManager = manager;
+        currentPreviewHeader = manager.getHeader();
         currentPreviewDirty = false;
       }
       return structuredClone(currentPreviewCache);
     };
-    const invalidatePreview = context.on("pi/session-event", () => {
+    const invalidatePreview = context.on("pi/session-event", (event) => {
       currentPreviewDirty = true;
+      const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+      const queued = queuedImports.get(manager);
+      if (queued !== undefined && event.type === "message_end" && event.message.role === "custom") {
+        const digest = importedBridgeDigest({ type: "custom_message", customType: event.message.customType, details: event.message.details });
+        if (digest !== undefined) queued.digests.delete(digest);
+      }
     });
-    const runOperation = <T>(operation: BridgeOperation, callerSignal: AbortSignal | undefined, action: (signal: AbortSignal) => T): Promise<T> => {
+    const runOperation = <T>(
+      operation: BridgeOperation,
+      callerSignal: AbortSignal | undefined,
+      action: (signal: AbortSignal) => T | Promise<T>,
+    ): Promise<T> => {
       const operationSignal = callerSignal === undefined ? lifecycle.signal : AbortSignal.any([callerSignal, lifecycle.signal]);
       status = { state: "running", operation };
       return Promise.resolve()
@@ -503,7 +525,7 @@ export default {
             const preview = buildHandoffPreview(packageValue);
             latestPreview = { source: cloneSource(packageValue.source), preview: structuredClone(preview), at: new Date().toISOString() };
             return {
-              content: [{ type: "text" as const, text: `Prepared a five-part handoff preview for ${packageValue.source.sessionId}.` }],
+              content: [{ type: "text" as const, text: JSON.stringify({ source: packageValue.source, preview }) }],
               details: { source: cloneSource(packageValue.source), preview: structuredClone(preview) },
             };
           });
@@ -524,8 +546,22 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ imported: true; source: BridgeSource; messages: number }>> {
-          return runOperation("import", signal, (operationSignal) => {
+        async execute(
+          _toolCallId,
+          rawParams,
+          signal,
+        ): Promise<AgentToolResult<{ accepted: true; delivery: "appended" | "queued"; source: BridgeSource; messages: number }>> {
+          throwIfCancelled(signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]));
+          const requestedManager = activeManager();
+          const requestedHeader = requestedManager.getHeader();
+          const requestedSession = context.get("piRuntime")?.session;
+          return runOperation("import", signal, async (operationSignal) => {
+            if (
+              activeManager() !== requestedManager ||
+              requestedManager.getHeader() !== requestedHeader ||
+              context.get("piRuntime")?.session !== requestedSession
+            )
+              throw new Error("Session Bridge target session changed before import");
             const descriptors = parameterDescriptors(rawParams, importParameterNames);
             throwIfCancelled(operationSignal);
             if (descriptors.confirm?.value !== true) throw new Error("Session Bridge import requires confirm=true");
@@ -534,12 +570,35 @@ export default {
             throwIfCancelled(operationSignal);
             const targetManager = activeManager();
             const digest = bridgeDigest(packageValue);
-            if (wasImported(targetManager, digest)) throw new Error("This Session Bridge handoff was already imported into the active session");
-            targetManager.appendCustomMessageEntry(bridgeType, importedText(packageValue), true, {
-              source: cloneSource(packageValue.source),
-              messageCount: packageValue.messageCount,
-              digest,
-            });
+            const runtimeSession = context.get("piRuntime")?.session;
+            let queued = queuedImports.get(targetManager);
+            if (queued?.header !== targetManager.getHeader()) queued = undefined;
+            if (wasImported(targetManager, digest) || queued?.digests.has(digest))
+              throw new Error("This Session Bridge handoff was already imported or queued in the active session");
+            const details = { source: cloneSource(packageValue.source), messageCount: packageValue.messageCount, digest };
+            const delivery = runtimeSession?.isStreaming === true ? ("queued" as const) : ("appended" as const);
+            if (delivery === "queued" && (queued?.digests.size ?? 0) >= maxMessages)
+              throw new Error("Session Bridge has 100 queued handoffs; wait for the current turn to finish");
+            try {
+              if (runtimeSession === undefined) {
+                targetManager.appendCustomMessageEntry(bridgeType, importedText(packageValue), true, details);
+              } else {
+                if (delivery === "queued") {
+                  queued ??= { header: targetManager.getHeader(), digests: new Set<string>() };
+                  queued.digests.add(digest);
+                  queuedImports.set(targetManager, queued);
+                }
+                await runtimeSession.sendCustomMessage(
+                  { customType: bridgeType, content: importedText(packageValue), display: true, details },
+                  { triggerTurn: false },
+                );
+              }
+            } catch (error) {
+              queued?.digests.delete(digest);
+              failedManagers.set(targetManager, targetManager.getHeader());
+              currentPreviewDirty = true;
+              throw new Error(writeFailureMessage, { cause: error });
+            }
             currentPreviewDirty = true;
             latest = {
               direction: "import",
@@ -549,8 +608,16 @@ export default {
               at: new Date().toISOString(),
             };
             return {
-              content: [{ type: "text" as const, text: `Imported ${packageValue.messageCount} handoff message(s).` }],
-              details: { imported: true, source: cloneSource(packageValue.source), messages: packageValue.messageCount },
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    delivery === "queued"
+                      ? `Queued ${packageValue.messageCount} handoff message(s) for the end of the current turn; they will be available to a subsequent model turn.`
+                      : `Imported ${packageValue.messageCount} handoff message(s).`,
+                },
+              ],
+              details: { accepted: true, delivery, source: cloneSource(packageValue.source), messages: packageValue.messageCount },
             };
           });
         },
