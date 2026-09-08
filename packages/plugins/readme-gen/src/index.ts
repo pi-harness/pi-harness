@@ -232,11 +232,9 @@ function loaderPluginNames(loader: unknown): string[] {
       throw new Error("README loader entry must be descriptor-accessible", { cause: error });
     }
     const fiberDescriptor = entryDescriptors.fiber;
-    if (fiberDescriptor !== undefined) {
-      if (!("value" in fiberDescriptor)) throw new Error("README loader entry fiber must be a data property");
-      if (fiberDescriptor.value === undefined || fiberDescriptor.value === null) continue;
-      if (typeof fiberDescriptor.value !== "object") throw new Error("README loader entry fiber must be an object when active");
-    }
+    if (fiberDescriptor === undefined || !("value" in fiberDescriptor)) throw new Error("README loader entry fiber must be a data property");
+    if (fiberDescriptor.value === undefined) continue;
+    if (fiberDescriptor.value === null || typeof fiberDescriptor.value !== "object") throw new Error("README loader entry fiber must be an object when active");
     const optionsDescriptor = entryDescriptors.options;
     if (optionsDescriptor === undefined || !("value" in optionsDescriptor)) throw new Error("README loader entry options must be a data property");
     const options: unknown = optionsDescriptor.value;
@@ -246,13 +244,6 @@ function loaderPluginNames(loader: unknown): string[] {
       optionDescriptors = Object.getOwnPropertyDescriptors(options);
     } catch (error) {
       throw new Error("README loader entry options must be descriptor-accessible", { cause: error });
-    }
-    const disabledDescriptor = optionDescriptors.disabled;
-    if (fiberDescriptor === undefined) {
-      if (disabledDescriptor !== undefined && !("value" in disabledDescriptor)) throw new Error("README loader disabled flag must be a data property");
-      const disabled: unknown = disabledDescriptor?.value;
-      if (disabled !== undefined && disabled !== null && typeof disabled !== "boolean") throw new Error("README loader disabled flag must be boolean or null");
-      if (disabled === true) continue;
     }
     const nameDescriptor = optionDescriptors.name;
     if (nameDescriptor === undefined || !("value" in nameDescriptor) || typeof nameDescriptor.value !== "string")
@@ -294,29 +285,31 @@ export function renderReadme(metadata: ReadmeMetadata): string {
   ].join("\n");
 }
 
-async function generate(context: Context, signal: AbortSignal): Promise<ReadmeReport> {
-  throwIfCancelled(signal);
-  const path = join(context.piHarnessLaunch.cwd, "package.json");
+async function generate(context: Context, cwd: string, assertCurrent: () => void): Promise<ReadmeReport> {
+  assertCurrent();
+  const path = join(cwd, "package.json");
   let source: string;
   try {
     source = await readBoundedTextFile(path, maxManifestBytes, "package.json");
   } catch (error) {
+    assertCurrent();
     if (error instanceof BoundedFileSizeError) throw new Error("package.json exceeds the 1 MiB limit", { cause: error });
     if (error instanceof BoundedFileTypeError) throw new Error("package.json must be a regular file and cannot be a symbolic link", { cause: error });
     throw new Error("Could not read package.json", { cause: error });
   }
-  throwIfCancelled(signal);
+  assertCurrent();
   let parsed: unknown;
   try {
     parsed = JSON.parse(source) as unknown;
   } catch (error) {
+    assertCurrent();
     throw new Error("Invalid package.json", { cause: error });
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("package.json root must be an object");
   const packageJson = parsed as Record<string, unknown>;
   const { name, version, description, scripts } = manifestMetadata(packageJson);
   const plugins = loaderPluginNames(context.get("loader"));
-  throwIfCancelled(signal);
+  assertCurrent();
   const metadata = { name, version, description, scripts, plugins };
   return { ...metadata, markdown: renderReadme(metadata) };
 }
@@ -340,28 +333,36 @@ function outputPath(root: string, requested: string): string {
   return target;
 }
 
-async function ensureSafeParent(workspace: string, parent: string): Promise<void> {
+async function ensureSafeParent(workspace: string, parent: string, assertCurrent: () => void): Promise<void> {
   const remainder = relative(workspace, parent);
   const segments = remainder === "" ? [] : remainder.split(sep);
   let current = workspace;
   for (const segment of segments) {
+    assertCurrent();
     current = join(current, segment);
     let metadata: Awaited<ReturnType<typeof lstat>>;
     try {
+      assertCurrent();
       metadata = await lstat(current);
     } catch (error) {
+      assertCurrent();
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       try {
+        assertCurrent();
         await mkdir(current);
       } catch (mkdirError) {
         if ((mkdirError as NodeJS.ErrnoException).code !== "EEXIST") throw mkdirError;
       }
+      assertCurrent();
       metadata = await lstat(current);
     }
+    assertCurrent();
     if (metadata.isSymbolicLink()) throw new Error("README output parent cannot be a symbolic link");
     if (!metadata.isDirectory()) throw new Error("README output parent must be a directory");
   }
+  assertCurrent();
   const canonicalParent = await realpath(parent);
+  assertCurrent();
   const parentRemainder = relative(workspace, canonicalParent);
   if (parentRemainder === ".." || parentRemainder.startsWith(`..${sep}`) || isAbsolute(parentRemainder))
     throw new Error("README output path must stay inside the workspace");
@@ -373,16 +374,17 @@ async function writeReadmeFileInternal(
   requestedPath: string,
   confirm: boolean,
   overwrite = false,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  assertCurrent: () => void,
 ): Promise<ReadmeWriteReport> {
-  if (signal !== undefined) throwIfCancelled(signal);
+  assertCurrent();
   if (!confirm) throw new Error("Writing a README requires confirm=true");
   const workspace = await realpath(resolve(root));
-  if (signal !== undefined) throwIfCancelled(signal);
+  assertCurrent();
   const target = outputPath(workspace, requestedPath);
   const parent = dirname(target);
-  await ensureSafeParent(workspace, parent);
-  if (signal !== undefined) throwIfCancelled(signal);
+  await ensureSafeParent(workspace, parent, assertCurrent);
+  assertCurrent();
   let overwritten = false;
   try {
     const metadata = await lstat(target);
@@ -392,12 +394,13 @@ async function writeReadmeFileInternal(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  if (signal !== undefined) throwIfCancelled(signal);
+  assertCurrent();
   try {
     // No explicit mode: a README is a committed project file, so regenerating it keeps the bits it already has and only a README this creates falls back to the owner-only default.
     await atomicWriteFile(target, markdown, {
       encoding: "utf8",
       overwrite,
+      beforeCommit: assertCurrent,
       ...(signal === undefined ? {} : { signal }),
     });
   } catch (error) {
@@ -405,7 +408,26 @@ async function writeReadmeFileInternal(
       throw new Error("Overwriting an existing README requires overwrite=true", { cause: error });
     throw error;
   }
+  assertCurrent();
   return { path: relative(workspace, target), bytes: Buffer.byteLength(markdown, "utf8"), overwritten };
+}
+
+async function writeReadmeFileChecked(
+  root: string,
+  markdown: string,
+  requestedPath: string,
+  confirm: boolean,
+  overwrite = false,
+  signal: AbortSignal | undefined,
+  assertCurrent: () => void,
+): Promise<ReadmeWriteReport> {
+  try {
+    return await writeReadmeFileInternal(root, markdown, requestedPath, confirm, overwrite, signal, assertCurrent);
+  } catch (error) {
+    assertCurrent();
+    if (errnoCode(error) !== undefined) throw new Error("Could not write README inside the workspace", { cause: error });
+    throw error;
+  }
 }
 
 export async function writeReadmeFile(
@@ -416,13 +438,9 @@ export async function writeReadmeFile(
   overwrite = false,
   signal?: AbortSignal,
 ): Promise<ReadmeWriteReport> {
-  try {
-    return await writeReadmeFileInternal(root, markdown, requestedPath, confirm, overwrite, signal);
-  } catch (error) {
-    if (signal?.aborted === true) throwIfCancelled(signal);
-    if (errnoCode(error) !== undefined) throw new Error("Could not write README inside the workspace", { cause: error });
-    throw error;
-  }
+  return writeReadmeFileChecked(root, markdown, requestedPath, confirm, overwrite, signal, () => {
+    if (signal !== undefined) throwIfCancelled(signal);
+  });
 }
 
 export default {
@@ -435,6 +453,35 @@ export default {
     let lastWrite: ReadmeWriteReport | undefined;
     let status: ReadmeStatus = { state: "idle" };
     const lifecycle = new AbortController();
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+        lastWrite = undefined;
+        status = { state: "idle" };
+      }
+      return scope;
+    };
+    const operation = (signal: AbortSignal | undefined) => {
+      throwIfCancelled(lifecycle.signal);
+      const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+      const current = refreshScope();
+      return {
+        signal: operationSignal,
+        cwd: current.cwd,
+        isCurrent: () => !lifecycle.signal.aborted && refreshScope() === current,
+        assertCurrent: () => {
+          throwIfCancelled(operationSignal);
+          if (refreshScope() !== current) throw new Error("README workspace changed during execution");
+        },
+      };
+    };
     let unregisterTool: () => void = () => undefined;
     let unregisterWrite: () => void = () => undefined;
     let disposePanel: () => void = () => undefined;
@@ -448,21 +495,25 @@ export default {
           parameters: Type.Object({}, { additionalProperties: false }),
           executionMode: "sequential",
           async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<ReadmeReport>> {
-            reportParameters(rawParams);
-            const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+            const current = operation(signal);
+            const operationSignal = current.signal;
             status = { state: "running", operation: "report" };
             try {
-              const report = await generate(context, operationSignal);
+              current.assertCurrent();
+              reportParameters(rawParams);
+              const report = await generate(context, current.cwd, current.assertCurrent);
+              current.assertCurrent();
               latest = structuredClone(report);
               status = { state: "completed", operation: "report", at: new Date().toISOString() };
               return { content: [{ type: "text", text: report.markdown }], details: structuredClone(report) };
             } catch (error) {
-              status = {
-                state: operationSignal.aborted ? "cancelled" : "failed",
-                operation: "report",
-                at: new Date().toISOString(),
-                error: boundedError(error),
-              };
+              if (current.isCurrent())
+                status = {
+                  state: operationSignal.aborted ? "cancelled" : "failed",
+                  operation: "report",
+                  at: new Date().toISOString(),
+                  error: boundedError(error),
+                };
               throw error;
             }
           },
@@ -484,21 +535,26 @@ export default {
           ),
           executionMode: "sequential",
           async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<ReadmeWriteReport>> {
-            const params = writeParameters(rawParams);
-            const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+            const current = operation(signal);
+            const operationSignal = current.signal;
             status = { state: "running", operation: "write" };
             try {
-              throwIfCancelled(operationSignal);
+              current.assertCurrent();
+              const params = writeParameters(rawParams);
+              current.assertCurrent();
               if (!params.confirm) throw new Error("Writing a README requires confirm=true");
-              const report = await generate(context, operationSignal);
-              const write = await writeReadmeFile(
-                context.piHarnessLaunch.cwd,
+              const report = await generate(context, current.cwd, current.assertCurrent);
+              current.assertCurrent();
+              const write = await writeReadmeFileChecked(
+                current.cwd,
                 report.markdown,
                 params.outputPath,
                 params.confirm,
                 params.overwrite,
                 operationSignal,
+                current.assertCurrent,
               );
+              current.assertCurrent();
               latest = structuredClone(report);
               lastWrite = { ...write };
               status = { state: "completed", operation: "write", at: new Date().toISOString() };
@@ -507,12 +563,13 @@ export default {
                 details: { ...write },
               };
             } catch (error) {
-              status = {
-                state: operationSignal.aborted ? "cancelled" : "failed",
-                operation: "write",
-                at: new Date().toISOString(),
-                error: boundedError(error),
-              };
+              if (current.isCurrent())
+                status = {
+                  state: operationSignal.aborted ? "cancelled" : "failed",
+                  operation: "write",
+                  at: new Date().toISOString(),
+                  error: boundedError(error),
+                };
               throw error;
             }
           },
@@ -524,8 +581,9 @@ export default {
         title: "README Generator",
         description: "从当前项目清单生成 Markdown 概览；写入文件需要显式确认，默认不会覆盖 README。",
         icon: "▰",
-        read: () =>
-          latest === undefined
+        read: () => {
+          refreshScope();
+          return latest === undefined
             ? { generated: false, lastWrite: lastWrite === undefined ? null : { ...lastWrite }, status: structuredClone(status) }
             : {
                 generated: true,
@@ -534,7 +592,8 @@ export default {
                 plugins: latest.plugins.length,
                 lastWrite: lastWrite === undefined ? null : { ...lastWrite },
                 status: structuredClone(status),
-              },
+              };
+        },
       });
     } catch (error) {
       disposePanel();
