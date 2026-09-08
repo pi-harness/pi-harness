@@ -148,3 +148,39 @@ test("persists real labels across reopen and quarantines failed writes until dis
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("labels only the current native manager and rejects a pending native switch", async () => {
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  const launch = SessionManager.inMemory("/launch"),
+    active = SessionManager.inMemory("/active");
+  const oldEntry = launch.appendCustomEntry("fixture", {}),
+    activeEntry = active.appendCustomEntry("fixture", {});
+  const runtime = { session: { sessionManager: launch } };
+  context.provide("piSession", { manager: launch });
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(sessionBookmarksPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    const call = (params: unknown) => tool.execute("native", params, undefined, undefined, {} as never);
+    await call({ action: "add", entryId: oldEntry, label: "launch" });
+    const launchEntries = structuredClone(launch.getEntries());
+    runtime.session.sessionManager = active;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ total: 0, bookmarks: [] });
+    await call({ action: "add", entryId: activeEntry, label: "active" });
+    expect((await call({ action: "list" })).details).toMatchObject({ bookmarks: [{ entryId: activeEntry, label: "active" }] });
+    expect(launch.getEntries()).toEqual(launchEntries);
+    const activeEntries = structuredClone(active.getEntries());
+    const pending = call({ action: "remove", bookmarkId: activeEntry });
+    runtime.session.sessionManager = launch;
+    await expect(pending).rejects.toThrow(/session changed/);
+    expect(active.getEntries()).toEqual(activeEntries);
+    expect(launch.getEntries()).toEqual(launchEntries);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ bookmarks: [{ label: "launch" }] });
+  } finally {
+    await context.fiber.dispose();
+  }
+});

@@ -58,8 +58,9 @@ export default {
   apply(context: Context) {
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort());
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
     const readBookmarks = (): SessionBookmark[] => {
-      const manager = context.piSession.manager;
+      const manager = currentManager();
       if (failedManagers.has(manager)) {
         if (failedManagers.get(manager) === manager.getHeader()) throw new Error(writeFailureMessage);
         failedManagers.delete(manager);
@@ -84,11 +85,11 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ bookmarks: SessionBookmark[] }>> {
           if (signal?.aborted === true || lifecycle.signal.aborted) throw new Error("Bookmark request was cancelled");
-          const manager = context.piSession.manager;
+          const manager = currentManager();
           const header = manager.getHeader();
           return Promise.resolve().then(() => {
             if (signal?.aborted === true || lifecycle.signal.aborted) throw new Error("Bookmark request was cancelled");
-            if (context.piSession.manager !== manager || manager.getHeader() !== header) throw new Error("Bookmark session changed before execution");
+            if (currentManager() !== manager || manager.getHeader() !== header) throw new Error("Bookmark session changed before execution");
             const params = parameters(rawParams);
             readBookmarks();
             const persist = (entryId: string, label: string | undefined): void => {

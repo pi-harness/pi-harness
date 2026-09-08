@@ -94,13 +94,17 @@ function parameters(value: unknown): Parameters {
   return item as Parameters;
 }
 
+function currentManager(context: Context) {
+  return context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+}
+
 function readState(context: Context): PromptLibraryState {
-  const manager = context.piSession.manager;
+  const manager = currentManager(context);
   if (failedManagers.has(manager)) {
     if (failedManagers.get(manager) === manager.getHeader()) throw new Error(writeFailureMessage);
     failedManagers.delete(manager);
   }
-  const entry = [...context.piSession.manager.getEntries()].reverse().find((item) => item.type === "custom" && item.customType === customType);
+  const entry = [...currentManager(context).getEntries()].reverse().find((item) => item.type === "custom" && item.customType === customType);
   if (entry === undefined) return { templates: [] };
   if (entry.type !== "custom") throw new Error("Invalid prompt library entry");
   const value = ownRecord(entry.data);
@@ -127,7 +131,7 @@ function readState(context: Context): PromptLibraryState {
 }
 
 function persist(context: Context, state: PromptLibraryState): void {
-  const manager = context.piSession.manager;
+  const manager = currentManager(context);
   try {
     manager.appendCustomEntry(customType, structuredClone(state));
   } catch (error) {
@@ -169,11 +173,11 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<PromptLibraryState & { selected?: PromptTemplate }>> {
           if (signal?.aborted === true || lifecycle.signal.aborted) throw new Error("Prompt library request was cancelled");
-          const manager = context.piSession.manager;
+          const manager = currentManager(context);
           const header = manager.getHeader();
           return Promise.resolve().then(() => {
             if (signal?.aborted === true || lifecycle.signal.aborted) throw new Error("Prompt library request was cancelled");
-            if (context.piSession.manager !== manager || manager.getHeader() !== header) throw new Error("Prompt library session changed before execution");
+            if (currentManager(context) !== manager || manager.getHeader() !== header) throw new Error("Prompt library session changed before execution");
             const params = parameters(rawParams);
             const state = readState(context);
             if (params.action === "save") {

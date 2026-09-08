@@ -1,3 +1,4 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
@@ -179,4 +180,38 @@ describe("prompt library", () => {
       await f.context.fiber.dispose();
     }
   });
+});
+
+test("follows the native manager while the launch service stays unchanged and rejects pending session switches", async () => {
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  const launch = SessionManager.inMemory("/launch"),
+    active = SessionManager.inMemory("/active");
+  const runtime = { session: { sessionManager: launch } };
+  context.provide("piSession", { manager: launch });
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(promptLibraryPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    const call = (params: unknown) => tool.execute("native", params, undefined, undefined, {} as never);
+    await call({ action: "save", title: "launch", prompt: "launch body" });
+    const launchEntries = structuredClone(launch.getEntries());
+    runtime.session.sessionManager = active;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ total: 0, templates: [] });
+    await call({ action: "save", title: "active", prompt: "active body" });
+    expect((await call({ action: "list" })).details).toMatchObject({ templates: [{ title: "active" }] });
+    expect(launch.getEntries()).toEqual(launchEntries);
+    const activeEntries = structuredClone(active.getEntries());
+    const pending = call({ action: "save", title: "obsolete", prompt: "must not persist" });
+    runtime.session.sessionManager = launch;
+    await expect(pending).rejects.toThrow(/session changed/);
+    expect(active.getEntries()).toEqual(activeEntries);
+    expect(launch.getEntries()).toEqual(launchEntries);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ templates: [{ title: "launch" }] });
+  } finally {
+    await context.fiber.dispose();
+  }
 });
