@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { win32 } from "node:path";
@@ -8,10 +8,12 @@ import imageCompressorPlugin, { isImageCompressorPathInside } from "../src/index
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
+const roots: string[] = [];
 const onePixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-image-"));
+  roots.push(root);
   const context = new Context();
   const tools = new PiToolRegistry();
   const panels = new PiPluginUiRegistry();
@@ -27,6 +29,7 @@ async function fixture() {
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("image compressor", () => {
@@ -56,6 +59,38 @@ describe("image compressor", () => {
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
   });
+  test("rejects an escaping output ancestor before creating directories", async () => {
+    const { root, tool } = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-image-outside-"));
+    roots.push(outside);
+    await writeFile(join(root, "input.png"), onePixelPng);
+    await symlink(outside, join(root, "linked"));
+    await expect(
+      tool.execute("escape", { path: "input.png", outputPath: "linked/new/out.png", confirm: true }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/inside/iu);
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  test("rejects cancelled and disposed writes without creating output", async () => {
+    const { root, context, tool } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    const controller = new AbortController();
+    controller.abort(new Error("Image request cancelled"));
+    await expect(tool.execute("cancel", { path: "input.png", confirm: true }, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", { path: "input.png", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    expect(await readdir(root)).toEqual(["input.png"]);
+  });
+
+  test("keeps the compression receipt independent from returned details", async () => {
+    const { root, tool, panels } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    const result = await tool.execute("compress", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+    const before = await panels.snapshot();
+    (result.details as { savedBytes: number }).savedBytes = 999999;
+    expect(await panels.snapshot()).toEqual(before);
+  });
+
   test("writes the default output next to the input and refuses to replace an existing derived file", async () => {
     const { root, tool } = await fixture();
     await mkdir(join(root, "assets", "icons"), { recursive: true });
