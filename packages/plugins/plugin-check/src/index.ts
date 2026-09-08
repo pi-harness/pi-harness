@@ -1,4 +1,4 @@
-import { opendir, readdir, stat } from "node:fs/promises";
+import { opendir, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
@@ -36,7 +36,7 @@ const schemaChecks = [
   { code: "invalid-name-format", label: "package name follows npm naming rules" },
   { code: "missing-main-or-types", label: "main or types entry is declared" },
   { code: "no-source-entry", label: "a source entry or src directory exists" },
-  { code: "no-patch", label: "Runtime patch or bundle declaration exists" },
+  { code: "no-patch", label: "Runtime patch or independent Cordis npm package is declared" },
   { code: "malformed-patch", label: "patch root is a sequence of entries" },
   { code: "duplicate-row-id", label: "patch row ids are unique" },
   { code: "core-row-id", label: "patch does not replace core rows" },
@@ -63,6 +63,7 @@ export interface PluginCheckReport {
 export interface PluginCheckScanReport {
   root: string;
   scanned: number;
+  truncated?: boolean;
   reports: PluginCheckReport[];
 }
 
@@ -80,6 +81,28 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
+function isNpmPlugin(manifest: Record<string, unknown> | undefined): boolean {
+  const peers = asObject(manifest?.peerDependencies);
+  return (
+    Array.isArray(manifest?.keywords) &&
+    manifest.keywords.some((keyword) => keyword === "pi-harness-plugin" || keyword === "cordis") &&
+    typeof peers?.["@deepseek-ai/cordis"] === "string"
+  );
+}
+
+function hasNpmProfileExample(readme: string, packageName: string): boolean {
+  if (!readme.includes("npm install") || !readme.includes(packageName)) return false;
+  for (const block of readme.matchAll(/```(?:yaml|yml)\s*\n([\s\S]*?)```/gu)) {
+    try {
+      const rows: unknown = parse(block[1] ?? "");
+      if (Array.isArray(rows) && rows.some((row) => asObject(row)?.name === packageName)) return true;
+    } catch {
+      /* Invalid examples are not accepted as installation instructions. */
+    }
+  }
+  return false;
+}
+
 async function readBoundedText(path: string): Promise<string> {
   return readBoundedTextFile(path, maxMetadataBytes, "Plugin metadata file");
 }
@@ -91,7 +114,10 @@ function metadataFailure(name: string, error: unknown): string | undefined {
   return undefined;
 }
 
-async function scanTypeScriptSources(sourceDir: string): Promise<{ sources: string[]; checked: number; skipped: number; truncated: boolean }> {
+async function scanTypeScriptSources(
+  sourceDir: string,
+  signal: AbortSignal,
+): Promise<{ sources: string[]; checked: number; skipped: number; truncated: boolean }> {
   const sources: string[] = [];
   let checked = 0;
   let skipped = 0;
@@ -100,6 +126,7 @@ async function scanTypeScriptSources(sourceDir: string): Promise<{ sources: stri
   let truncated = false;
   const directory = await opendir(sourceDir, { recursive: true });
   for await (const entry of directory) {
+    signal.throwIfAborted();
     entries += 1;
     if (entries > maxSourceEntries) {
       truncated = true;
@@ -144,7 +171,8 @@ export function hasExtensionlessRelativeImport(source: string): boolean {
   return false;
 }
 
-async function checkRepository(path: string, strict: boolean): Promise<PluginCheckReport> {
+async function checkRepository(path: string, strict: boolean, signal: AbortSignal): Promise<PluginCheckReport> {
+  signal.throwIfAborted();
   const root = resolve(path);
   const checks: Check[] = [];
   const suggestions: string[] = [];
@@ -153,6 +181,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   try {
     const parsed = JSON.parse(await readBoundedText(join(root, "package.json"))) as unknown;
     manifest = asObject(parsed);
+    if (manifest === undefined) throw new Error("Manifest must be an object");
   } catch (error) {
     addIssue(checks, "no-manifest", "failed", metadataFailure("package.json", error) ?? "package.json is missing or invalid JSON");
   }
@@ -190,11 +219,22 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
       patchIssue ??= metadataFailure(filename, error);
     }
   }
-  if (patchSource === undefined) addIssue(checks, "no-patch", "failed", patchIssue ?? "no runtime patch or bundle declaration found");
+  const npmPlugin = isNpmPlugin(manifest);
+  if (patchSource === undefined && npmPlugin && patchIssue === undefined)
+    checks.push({ code: "no-patch", status: "passed", message: "independent Cordis npm plugin does not require a patch file" });
+  else if (patchSource === undefined) addIssue(checks, "no-patch", "failed", patchIssue ?? "no runtime patch or bundle declaration found");
   else {
     try {
       const parsed = parse(patchSource) as unknown;
-      if (!Array.isArray(parsed)) addIssue(checks, "malformed-patch", "failed", "patch root must be a sequence");
+      if (
+        !Array.isArray(parsed) ||
+        parsed.length === 0 ||
+        parsed.some((entry) => {
+          const row = asObject(entry);
+          return typeof row?.id !== "string" || row.id.trim() === "" || typeof row.name !== "string" || row.name.trim() === "";
+        })
+      )
+        addIssue(checks, "malformed-patch", "failed", "patch must be a non-empty sequence of entries with id and name");
       else {
         checks.push({ code: "malformed-patch", status: "passed", message: "patch root is a sequence" });
         const ids = parsed.flatMap((entry) => {
@@ -210,15 +250,21 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
       addIssue(checks, "malformed-patch", "failed", "patch could not be parsed: " + (error instanceof Error ? error.message : String(error)));
     }
   }
-  if (/(?:dsh|pi)\s+plugin\s+--profile\s+\S+\s+add/iu.test(readme))
+  if (/(?:dsh|pi)\s+plugin\s+--profile\s+\S+\s+add/iu.test(readme) || (npmPlugin && hasNpmProfileExample(readme, packageName)))
     checks.push({ code: "missing-profile-install-example", status: "passed", message: "README has a profile install example" });
   else addIssue(checks, "missing-profile-install-example", "warning", readmeIssue ?? "README has no standard profile install example");
   if (/(?:git\s+apply|cp\s+.*(?:monorepo|src\/)|modify\s+.*core)/iu.test(readme))
     addIssue(checks, "core-modification-required", "failed", "README requires host source modification");
   else checks.push({ code: "core-modification-required", status: "passed", message: "README does not require host source changes" });
   if (await isDirectory(join(root, "src"))) {
-    const sourceDir = join(root, "src");
-    const scan = await scanTypeScriptSources(sourceDir);
+    let scan: Awaited<ReturnType<typeof scanTypeScriptSources>>;
+    try {
+      const resolved = await resolveExistingWorkspacePath(root, "src", "Plugin source directory must stay inside the repository");
+      scan = await scanTypeScriptSources(resolved.target, signal);
+    } catch {
+      signal.throwIfAborted();
+      scan = { sources: [], checked: 0, skipped: 1, truncated: true };
+    }
     sourceScan = { checked: scan.checked, skipped: scan.skipped, truncated: scan.truncated };
     const { sources } = scan;
     if (sources.some((source) => hasExtensionlessRelativeImport(source)))
@@ -235,7 +281,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
   if (errors.some((entry) => entry.code === "no-patch" || entry.code === "malformed-patch"))
     suggestions.push("Add a valid runtime patch sequence with a unique plugin row id.");
   if (warnings.some((entry) => entry.code === "missing-profile-install-example"))
-    suggestions.push("Document the standard pi plugin --profile web add installation command.");
+    suggestions.push("Document npm installation and a Cordis profile entry matching the package name.");
   const verdict = errors.length > 0 || (strict && warnings.length > 0) ? "fail" : warnings.length > 0 ? "warn" : "pass";
   const passed = checks.filter((check) => check.status === "passed").length;
   return {
@@ -252,7 +298,7 @@ async function checkRepository(path: string, strict: boolean): Promise<PluginChe
 }
 
 function schemaReport(): { checks: Array<{ code: string; label: string }>; verdict: "pass" } {
-  return { checks: [...schemaChecks], verdict: "pass" };
+  return { checks: schemaChecks.map((check) => ({ ...check })), verdict: "pass" };
 }
 
 export default {
@@ -260,12 +306,18 @@ export default {
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: PluginCheckConfig = {}) {
-    const scanLimit = Math.max(1, Math.min(maxScanEntries, Math.trunc(config.scanLimit ?? maxScanEntries)));
+    const scanLimit = Math.max(
+      1,
+      Math.min(maxScanEntries, Math.trunc(config.scanLimit !== undefined && Number.isFinite(config.scanLimit) ? config.scanLimit : maxScanEntries)),
+    );
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort(new Error("Plugin Check disposed")));
     let latest: PluginCheckReport | PluginCheckScanReport | ReturnType<typeof schemaReport> | undefined;
-    const run = async (action: "check" | "scan" | "schema", requestedPath: string | undefined, strict: boolean): Promise<unknown> => {
+    const run = async (action: "check" | "scan" | "schema", requestedPath: string | undefined, strict: boolean, signal: AbortSignal): Promise<unknown> => {
+      signal.throwIfAborted();
       if (action === "schema") {
         latest = schemaReport();
-        return latest;
+        return structuredClone(latest);
       }
       const requested = requestedPath ?? ".";
       const workspaceRequest = isAbsolute(requested) ? relative(resolve(context.piHarnessLaunch.cwd), resolve(requested)) || "." : requested;
@@ -273,17 +325,36 @@ export default {
         await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, workspaceRequest, "Plugin repository path must stay inside the current workspace")
       ).target;
       if (action === "check") {
-        latest = await checkRepository(target, strict);
-        return latest;
+        const report = await checkRepository(target, strict, signal);
+        signal.throwIfAborted();
+        latest = report;
+        return structuredClone(latest);
       }
-      const entries = await readdir(target, { withFileTypes: true });
-      const candidates = entries
-        .filter((entry) => entry.isDirectory() && isPluginRepositoryName(entry.name))
-        .slice(0, scanLimit)
-        .map((entry) => join(target, entry.name));
-      const reports = await Promise.all(candidates.map((candidate) => checkRepository(candidate, strict)));
-      latest = { root: target, scanned: reports.length, reports };
-      return latest;
+      const reports: PluginCheckReport[] = [];
+      const directory = await opendir(target);
+      let entries = 0;
+      let truncated = false;
+      for await (const entry of directory) {
+        signal.throwIfAborted();
+        if (++entries > maxSourceEntries || reports.length >= scanLimit) {
+          truncated = true;
+          break;
+        }
+        if (!entry.isDirectory() || ignoredScanDirectories.has(entry.name) || entry.name.startsWith(".")) continue;
+        const candidate = join(target, entry.name);
+        let recognized = isPluginRepositoryName(entry.name);
+        if (!recognized) {
+          try {
+            recognized = isNpmPlugin(asObject(JSON.parse(await readBoundedText(join(candidate, "package.json")))));
+          } catch {
+            signal.throwIfAborted();
+          }
+        }
+        if (recognized) reports.push(await checkRepository(candidate, strict, signal));
+      }
+      signal.throwIfAborted();
+      latest = { root: target, scanned: reports.length, reports, truncated };
+      return structuredClone(latest);
     };
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -300,10 +371,15 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<unknown>> {
           const action = params.action;
           if (action !== "check" && action !== "scan" && action !== "schema") throw new Error("plugin_check action must be check, scan, or schema");
-          const details = await run(action, params.path, params.strict === true);
+          const details = await run(
+            action,
+            params.path,
+            params.strict === true,
+            signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]),
+          );
           const text =
             action === "schema"
               ? schemaChecks.length + " plugin health checks available."
@@ -314,13 +390,14 @@ export default {
         },
       }),
     );
+    context.effect(() => unregisterTool);
     const disposePanel = context.piPluginUi.register({
       id: "plugin-check-panel",
       pluginId: "@pi-harness/plugin-plugin-check",
       title: "Plugin Check",
       description: "只读检查插件清单、patch 和构建陷阱，不修改或构建被检仓库。",
       icon: "✓",
-      read: () => ({ scanLimit, latest: latest ?? null }),
+      read: () => ({ scanLimit, latest: latest === undefined ? null : structuredClone(latest) }),
     });
     context.effect(() => () => {
       unregisterTool();

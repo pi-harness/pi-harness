@@ -16,12 +16,13 @@ async function fixture() {
   const tools = new PiToolRegistry();
   provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
   context.provide("piTools", tools);
-  context.provide("piPluginUi", new PiPluginUiRegistry());
+  const panels = new PiPluginUiRegistry();
+  context.provide("piPluginUi", panels);
   await context.plugin(pluginCheckPlugin, {});
   contexts.push(context);
   const tool = tools.snapshot().customTools.find((item) => item.name === "plugin_check");
   if (tool === undefined) throw new Error("plugin_check was not registered");
-  return { root, tool };
+  return { root, tool, context, panels };
 }
 
 afterEach(async () => {
@@ -89,4 +90,65 @@ describe("plugin metadata read failures", () => {
       /README\.md is not a readable regular file/u,
     );
   });
+});
+
+describe("independent npm plugins", () => {
+  test("discovers unprefixed packages and accepts npm installation with a matching Cordis example", async () => {
+    const { root, tool } = await fixture();
+    const repo = join(root, "example");
+    await mkdir(join(repo, "src"), { recursive: true });
+    await writeFile(join(repo, "src/index.ts"), "export default {}; ");
+    await writeFile(
+      join(repo, "package.json"),
+      JSON.stringify({
+        name: "@example/companion",
+        main: "dist/index.js",
+        keywords: ["pi-harness-plugin"],
+        peerDependencies: { "@deepseek-ai/cordis": "4.0.1" },
+        scripts: { build: "tsc" },
+      }),
+    );
+    await writeFile(
+      join(repo, "README.md"),
+      'npm install --save-exact @example/companion\n```yaml\n- id: companion\n  name: "@example/companion"\n  config: {}\n```',
+    );
+    const result = await tool.execute("scan", { action: "scan" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ scanned: 1, reports: [{ verdict: "pass", errors: [], warnings: [] }] });
+  });
+
+  test("rejects cancelled and disposed actions and detaches schema results", async () => {
+    const { tool, context, panels } = await fixture();
+    const result = await tool.execute("schema", { action: "schema" }, undefined, undefined, {} as never);
+    (result.details as { checks: { label: string }[] }).checks[0]!.label = "changed";
+    expect(JSON.stringify((await panels.snapshot())[0]!.data)).not.toContain("changed");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(tool.execute("cancel", { action: "schema" }, controller.signal, undefined, {} as never)).rejects.toThrow();
+    await context.fiber.dispose();
+    await expect(tool.execute("dispose", { action: "schema" }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+  });
+
+  test("does not scan an external symlinked source directory", async () => {
+    const { root, tool } = await fixture();
+    const repo = join(root, "pi-linked-source"),
+      outside = join(root, "outside");
+    await mkdir(repo);
+    await mkdir(outside);
+    await writeFile(join(outside, "secret.ts"), 'import hidden from "./secret";');
+    await symlink(outside, join(repo, "src"));
+    const result = await tool.execute("check", { action: "check", path: "pi-linked-source" }, undefined, undefined, {} as never);
+    expect((result.details as PluginCheckReport).warnings).toContainEqual(expect.objectContaining({ code: "source-scan-incomplete" }));
+    expect((result.details as PluginCheckReport).warnings.some((x) => x.code === "missing-ts-ext-imports")).toBe(false);
+  });
+});
+
+test("rejects empty or malformed legacy patch rows", async () => {
+  const { root, tool } = await fixture();
+  const repo = join(root, "pi-malformed");
+  await mkdir(repo);
+  for (const patch of ["[]", "- null", "- id: example", "- id: ''\n  name: example"]) {
+    await writeFile(join(repo, "cordis.patch.yml"), patch);
+    const result = await tool.execute("bad-patch", { action: "check", path: "pi-malformed" }, undefined, undefined, {} as never);
+    expect((result.details as PluginCheckReport).errors).toContainEqual(expect.objectContaining({ code: "malformed-patch" }));
+  }
 });
