@@ -3832,6 +3832,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   {view.status.error === null ? "" : `：${view.status.error}`}
                 </div>
               ) : null}
+              {data?.query ? <p className="text-[10px] text-[#687381]">最近完成扫描的查询：{value(data.query)}</p> : null}
               <div className="grid grid-cols-3 gap-2">
                 {[
                   ["已扫描", view.total],
@@ -3853,7 +3854,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                           className={`h-2 w-2 rounded-full ${report.risk === "blocked" ? "bg-[#d64545]" : report.risk === "review" ? "bg-[#e0a11a]" : "bg-[#22a06b]"}`}
                         ></span>
                         <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{report.name}</strong>
-                        <span className="text-[10px] text-[#687381]">{report.risk === "blocked" ? "高风险" : report.risk === "review" ? "复核" : "安全"}</span>
+                        <span className="text-[10px] text-[#687381]">
+                          {report.risk === "blocked" ? "高风险" : report.risk === "review" ? "复核" : "未命中规则"}
+                        </span>
                       </div>
                       {report.findings.length > 0 ? (
                         <p className="mt-1 truncate text-[10px] text-[#65707b]">{report.findings.map((finding) => finding.code).join(" · ")}</p>
@@ -3867,8 +3870,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 )}
               </div>
               <p className="text-[10px] text-[#687381]">
-                已扫描 {view.inventory.scanned}/{view.inventory.available} 个入口，面板显示 {Math.min(view.reports.length, 8)} 个；风险等级仅供审计，不会禁用
-                Skill。
+                已加载 {view.inventory.available} 个入口，本次查询匹配 {value(data?.matched)} 个，扫描 {view.inventory.scanned} 个，面板显示{" "}
+                {Math.min(view.reports.length, 8)} 个；风险等级仅供审计，不会禁用 Skill，也不证明内容安全。
               </p>
             </div>
           );

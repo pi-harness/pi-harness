@@ -110,10 +110,10 @@ function queryParameter(value: unknown): string {
   if (Object.values(descriptors).some((descriptor) => !("value" in descriptor))) throw new Error("Skill Guard parameters must use data properties");
   const query = descriptors.query?.value as unknown;
   if (query !== undefined && typeof query !== "string") throw new Error("Skill Guard query must be a string");
+  if (typeof query === "string" && query.length > maxQueryLength) throw new Error(`Skill guard query must contain 0-${maxQueryLength} characters`);
   const normalized = (query ?? "").trim();
-  if (normalized.length > maxQueryLength) throw new Error(`Skill guard query must contain 0-${maxQueryLength} characters`);
   if (normalized.includes("\0")) throw new Error("Skill Guard query must not contain NUL characters");
-  return normalized.toLocaleLowerCase();
+  return normalized.toLowerCase();
 }
 
 export function inspectSkillText(text: string, name: string): SkillGuardReport {
@@ -159,20 +159,44 @@ function reviewReport(
   };
 }
 
-type SkillScan = { reports: ScannedSkillReport[]; available: number; truncated: boolean };
+type SkillMetadata = { name: string; path: string; source: string };
+type SkillSelection = { entries: Array<SkillMetadata | null>; available: number; matched: number };
+type SkillScan = { reports: ScannedSkillReport[]; available: number; matched: number; query: string; truncated: boolean; assertCurrent: () => void };
 
-async function scanLoadedSkills(context: Context, signal: AbortSignal): Promise<SkillScan> {
-  throwIfCancelled(signal);
-  const loadedDescriptors = dataPropertyDescriptors(context.piResources.resourceLoader.getSkills(), "Loaded Skills result");
+function selectSkills(loaded: unknown, query: string): SkillSelection {
+  const loadedDescriptors = dataPropertyDescriptors(loaded, "Loaded Skills result");
   const skills = loadedDescriptors.skills?.value as unknown;
   if (!Array.isArray(skills)) throw new Error("Loaded Skills result must contain a skills array");
-  const reports: ScannedSkillReport[] = [];
-  for (const skill of skills.slice(0, maxSkills)) {
-    throwIfCancelled(signal);
-    let metadata: { name: string; path: string; source: string };
+  const entries: Array<SkillMetadata | null> = [];
+  let matched = 0;
+  for (const skill of skills) {
+    let metadata: SkillMetadata | null;
     try {
       metadata = skillMetadata(skill);
     } catch {
+      metadata = null;
+    }
+    if (query !== "" && (metadata === null || !`${metadata.name} ${metadata.source}`.toLowerCase().includes(query))) continue;
+    matched += 1;
+    if (entries.length < maxSkills) entries.push(metadata);
+  }
+  return { entries, available: skills.length, matched };
+}
+
+async function scanLoadedSkills(context: Context, signal: AbortSignal, query = ""): Promise<SkillScan> {
+  throwIfCancelled(signal);
+  const loader = context.piResources.resourceLoader;
+  const selection = selectSkills(loader.getSkills(), query);
+  const fingerprint = JSON.stringify(selection);
+  const assertCurrent = (): void => {
+    throwIfCancelled(signal);
+    if (context.piResources.resourceLoader !== loader || JSON.stringify(selectSkills(loader.getSkills(), query)) !== fingerprint)
+      throw new Error("Loaded skill metadata changed during scan");
+  };
+  const reports: ScannedSkillReport[] = [];
+  for (const metadata of selection.entries) {
+    throwIfCancelled(signal);
+    if (metadata === null) {
       reports.push(reviewReport("metadata_error"));
       continue;
     }
@@ -197,8 +221,8 @@ async function scanLoadedSkills(context: Context, signal: AbortSignal): Promise<
       );
     }
   }
-  throwIfCancelled(signal);
-  return { reports, available: skills.length, truncated: skills.length > reports.length };
+  assertCurrent();
+  return { reports, available: selection.available, matched: selection.matched, query, truncated: selection.matched > reports.length, assertCurrent };
 }
 
 export default {
@@ -209,11 +233,16 @@ export default {
     const lifecycle = new AbortController();
     let reports: ScannedSkillReport[] = [];
     let available = 0;
+    let matched = 0;
+    let latestQuery = "";
     let truncated = false;
     let scans = 0;
     let status: SkillGuardStatus = { state: "running" };
     const commitScan = (scan: SkillScan): void => {
+      scan.assertCurrent();
       reports = structuredClone(scan.reports);
+      matched = scan.matched;
+      latestQuery = scan.query;
       available = scan.available;
       truncated = scan.truncated;
       scans += 1;
@@ -237,7 +266,9 @@ export default {
             blocked: number;
             review: number;
             reports: ScannedSkillReport[];
-            inventory: { available: number; scanned: number; truncated: boolean };
+            inventory: { available: number; matched: number; scanned: number; truncated: boolean };
+            query: string;
+            scope: string;
           }>
         > {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
@@ -245,23 +276,26 @@ export default {
           try {
             throwIfCancelled(operationSignal);
             const query = queryParameter(params);
-            const scan = await scanLoadedSkills(context, operationSignal);
+            const scan = await scanLoadedSkills(context, operationSignal, query);
             throwIfCancelled(operationSignal);
             commitScan(scan);
-            const filtered = reports.filter((report) => query === "" || `${report.name} ${report.source}`.toLocaleLowerCase().includes(query));
+            const filtered = reports;
             const result = {
               total: filtered.length,
               blocked: filtered.filter((report) => report.risk === "blocked").length,
               review: filtered.filter((report) => report.risk === "review").length,
               reports: structuredClone(filtered),
-              inventory: { available, scanned: reports.length, truncated },
+              inventory: { available, matched, scanned: reports.length, truncated },
+              query,
+              scope:
+                "Heuristic read-only audit of loaded skill entry files. Risk labels do not disable skills; safe means no rule matched, not proof of safety. Query filters metadata before the 50-file scan limit. Files are read at scan time, not as an atomic snapshot.",
             };
             status = { state: "completed", at: new Date().toISOString() };
             return {
               content: [
                 {
                   type: "text",
-                  text: `${result.total} matching skill(s) from ${result.inventory.scanned} scanned: ${result.blocked} high-risk, ${result.review} review.`,
+                  text: JSON.stringify(result),
                 },
               ],
               details: structuredClone(result),
@@ -289,6 +323,8 @@ export default {
           const panelReports = structuredClone(reports.slice(0, maxPanelReports));
           return {
             scans,
+            query: latestQuery,
+            matched,
             total: reports.length,
             blocked: reports.filter((report) => report.risk === "blocked").length,
             review: reports.filter((report) => report.risk === "review").length,
@@ -296,6 +332,7 @@ export default {
             status: { ...status },
             inventory: {
               available,
+              matched,
               scanned: reports.length,
               shown: panelReports.length,
               truncated: truncated || reports.length > panelReports.length,
