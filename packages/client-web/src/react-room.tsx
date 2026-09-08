@@ -5000,7 +5000,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : panel.id === "web-research-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3 text-[11px]">
-            <span className="text-[var(--color-blue)]">{data?.keyless === true ? "Firecrawl 匿名模式" : "Firecrawl 已认证"}</span>
+            <span className="text-[var(--color-blue)]">{data?.keyless === true ? "未配置搜索 API key" : "已配置搜索 API key"}</span>
             <strong className="font-mono text-[var(--color-blue)]">最多 {value(data?.maxResults ?? 8)} 条</strong>
           </div>
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
@@ -5015,6 +5015,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       前 {Math.min(8, items.length)} / 共 {items.length}
                     </span>
                   </div>
+                  {report.status === "degraded" ? (
+                    <p className="rounded-lg bg-[var(--color-amber-soft)] px-3 py-2 text-[11px] text-[var(--color-amber)]">
+                      搜索结果不完整或没有可用来源。{value(report.summary, "")}
+                    </p>
+                  ) : null}
                   <div className="grid gap-2">
                     {items.slice(0, 8).map((entry, index) => {
                       const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
