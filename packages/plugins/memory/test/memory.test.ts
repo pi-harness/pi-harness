@@ -7,9 +7,11 @@ import memoryPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
+const roots: string[] = [];
 
 async function fixture(config: { fileName?: string; maxEntries?: number } = { fileName: "memory.json", maxEntries: 5 }) {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-memory-"));
+  roots.push(root);
   const context = new Context();
   const tools = new PiToolRegistry();
   const panels = new PiPluginUiRegistry();
@@ -28,9 +30,93 @@ async function fixture(config: { fileName?: string; maxEntries?: number } = { fi
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("memory", () => {
+  test("rejects cancelled and disposed writes without creating a store", async () => {
+    const { root, context, set } = await fixture();
+    const controller = new AbortController();
+    controller.abort(new Error("Memory request cancelled"));
+    await expect(set.execute("cancel", { key: "cancel", value: "never written" }, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    await context.fiber.dispose();
+    await expect(set.execute("disposed", { key: "disposed", value: "never written" }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    await expect(lstat(join(root, "memory.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("keeps returned search details separate from the stored panel report", async () => {
+    const { set, search, panels } = await fixture();
+    await set.execute("set", { key: "language", value: "TypeScript", tags: ["code"] }, undefined, undefined, {} as never);
+    const result = await search.execute("search", { query: "script" }, undefined, undefined, {} as never);
+    const report = result.details as { query: string; memories: Array<{ value: string; tags: string[] }> };
+    report.query = "changed";
+    report.memories[0]!.value = "changed";
+    report.memories[0]!.tags.push("changed");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: { query: "script", memories: [{ value: "TypeScript", tags: ["code"] }] } } }]);
+  });
+
+  test("reads its own maximum-sized escaped JSON value", async () => {
+    const { set, search } = await fixture({ maxEntries: 1 });
+    const value = "x" + "\u0000".repeat(64 * 1024 - 1);
+    await set.execute("escaped", { key: "escaped", value }, undefined, undefined, {} as never);
+    await expect(search.execute("search", { query: "escaped" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { memories: [{ value }] },
+    });
+  });
+
+  test("reports every eviction after reducing the configured capacity", async () => {
+    const { root, set } = await fixture({ maxEntries: 2 });
+    const now = new Date().toISOString();
+    const stored = Array.from({ length: 5 }, (_, i) => ({ id: `id-${i}`, key: `key-${i}`, value: `value-${i}`, tags: [], createdAt: now, updatedAt: now }));
+    await writeFile(join(root, "memory.json"), JSON.stringify({ version: 1, memories: stored }));
+    await expect(set.execute("set", { key: "fresh", value: "new" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      content: [{ text: "Memory saved: fresh (evicted key-1, key-2, key-3, key-4 to stay within 2 entries)" }],
+    });
+  });
+
+  test("cancels lock waiters and queued writes without disturbing another owner", async () => {
+    const { root, set } = await fixture();
+    const lock = join(root, "memory.json.lock");
+    await mkdir(lock);
+    await writeFile(join(lock, "live.owner"), JSON.stringify({ pid: process.pid }));
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const first = set.execute("first", { key: "first", value: "cancelled" }, firstController.signal, undefined, {} as never);
+    const second = set.execute("second", { key: "second", value: "cancelled" }, secondController.signal, undefined, {} as never);
+    const secondRejected = expect(second).rejects.toThrow(/cancelled/iu);
+    secondController.abort(new Error("Queued write cancelled"));
+    try {
+      await secondRejected;
+      const firstRejected = expect(first).rejects.toThrow(/cancelled/iu);
+      firstController.abort(new Error("Lock waiter cancelled"));
+      await firstRejected;
+      expect(JSON.parse(await readFile(join(lock, "live.owner"), "utf8"))).toEqual({ pid: process.pid });
+      await expect(lstat(join(root, "memory.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      firstController.abort();
+      secondController.abort();
+      await Promise.allSettled([first, second]);
+      await rm(lock, { recursive: true, force: true });
+    }
+    await expect(set.execute("after", { key: "after", value: "works" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { key: "after" },
+    });
+    const persisted = JSON.parse(await readFile(join(root, "memory.json"), "utf8")) as { memories: Array<{ key: string }> };
+    expect(persisted.memories.map((item) => item.key)).toEqual(["after"]);
+  });
+
+  test("deletes a hidden record without dropping unrelated records after a capacity reduction", async () => {
+    const { root, remove } = await fixture({ maxEntries: 1 });
+    const now = new Date().toISOString();
+    const stored = Array.from({ length: 3 }, (_, i) => ({ id: `id-${i}`, key: `key-${i}`, value: `value-${i}`, tags: [], createdAt: now, updatedAt: now }));
+    await writeFile(join(root, "memory.json"), JSON.stringify({ version: 1, memories: stored }));
+    await expect(remove.execute("delete", { key: "key-2", confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { removed: true },
+    });
+    const persisted = JSON.parse(await readFile(join(root, "memory.json"), "utf8")) as { memories: Array<{ key: string }> };
+    expect(persisted.memories.map((item) => item.key)).toEqual(["key-0", "key-1"]);
+  });
+
   test("falls back to a finite entry limit for non-finite configuration", async () => {
     const { set } = await fixture({ fileName: "memory.json", maxEntries: Number.NaN });
 

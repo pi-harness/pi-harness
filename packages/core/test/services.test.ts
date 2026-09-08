@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer, Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -2799,9 +2799,11 @@ describe("Pi domain plugins", () => {
     );
   });
 
-  test("bounds the memory file size according to the configured entry limit", async () => {
+  test("bounds the memory file size independently of the configured retention limit", async () => {
     const { context, agentDir } = await createContext();
-    await writeFile(join(agentDir, "memory.json"), Buffer.alloc(128 * 1024));
+    // A sparse file verifies the hard read ceiling without allocating hundreds of megabytes in the test process.
+    await writeFile(join(agentDir, "memory.json"), "");
+    await truncate(join(agentDir, "memory.json"), 256 * 1024 * 1024);
     const tools = new PiToolRegistry();
     context.provide("piTools", tools);
     context.provide("piPluginUi", new PiPluginUiRegistry());
@@ -4784,7 +4786,7 @@ describe("Pi domain plugins", () => {
     });
   });
 
-  test("reports MCP server health and bridged tools through the console plugin", async () => {
+  test("reports MCP server health and discovers tools through the console plugin", async () => {
     const { context, agentDir } = await createContext();
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
@@ -4795,11 +4797,14 @@ describe("Pi domain plugins", () => {
     });
     tools.register(
       defineTool({
-        name: "mcp__docs__search",
-        label: "MCP search",
-        description: "Search documentation",
-        parameters: Type.Object({}),
-        execute: () => Promise.resolve({ content: [{ type: "text", text: "ok" }], details: {} }),
+        name: "mcp_list_tools",
+        label: "MCP tools",
+        description: "Discover server tools",
+        parameters: Type.Object({ serverId: Type.String() }),
+        execute: (_id, params) => {
+          expect(params.serverId).toBe("docs");
+          return Promise.resolve({ content: [], details: { tools: [{ name: "search", description: "Search documentation" }] } });
+        },
       }),
     );
     const patchPath = join(agentDir, "cordis.patch.yml");
@@ -4807,10 +4812,12 @@ describe("Pi domain plugins", () => {
     const tool = tools.snapshot().customTools.find((entry) => entry.name === "mcp_panel");
     if (tool === undefined) throw new Error("mcp_panel was not registered");
     const status = await tool.execute("status", { action: "status" }, undefined, undefined, {} as never);
-    expect(status.details).toMatchObject({ servers: [{ id: "docs", status: "running", toolCount: 1 }] });
+    expect(status.details).toMatchObject({ servers: [{ id: "docs", status: "running", toolCount: null }] });
     expect(JSON.stringify(status.details)).not.toContain("server.js");
     const listed = await tool.execute("tools", { action: "tools", serverId: "docs" }, undefined, undefined, {} as never);
-    expect(listed.details).toMatchObject({ serverId: "docs", tools: [{ name: "mcp__docs__search" }] });
+    expect(listed.details).toMatchObject({ serverId: "docs", tools: [{ name: "search" }] });
+    const discovered = await tool.execute("status-after-discovery", { action: "status" }, undefined, undefined, {} as never);
+    expect(discovered.details).toMatchObject({ servers: [{ id: "docs", toolCount: 1 }] });
     const health = await tool.execute("health", { action: "health", serverId: "docs" }, undefined, undefined, {} as never);
     expect(health.details).toMatchObject({ serverId: "docs", status: "running", severity: "ok", suggestions: [] });
     const preview = await tool.execute(

@@ -1,11 +1,12 @@
-import { lstat, mkdir, opendir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, opendir, rmdir, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readBoundedTextFile } from "@pi-harness/plugin-api";
+import { setTimeout as delay } from "node:timers/promises";
+import { atomicWriteFile, readBoundedTextFile } from "@pi-harness/plugin-api";
 
 const defaultFileName = "memory.json";
 const maxKeyLength = 128;
@@ -18,7 +19,7 @@ const lockTimeoutMs = 10_000;
 const staleLockMs = 30_000;
 const maxLockOwnerBytes = 1024;
 const memoryFileOverheadBytes = 1024;
-const memoryEntryOverheadBytes = maxValueBytes + maxTags * maxTagLength * 4 + maxKeyLength * 8 + 8 * 1024;
+const memoryEntryOverheadBytes = maxValueBytes * 6 + maxTags * maxTagLength * 6 + maxKeyLength * 12 + 8 * 1024;
 
 type Memory = { id: string; key: string; value: string; tags: string[]; createdAt: string; updatedAt: string };
 type MemoryFile = { version: 1; memories: Memory[] };
@@ -100,10 +101,10 @@ function isMemory(value: unknown): value is Memory {
   );
 }
 
-async function readMemoryFile(filePath: string, entryLimit: number): Promise<Memory[]> {
+async function readMemoryFile(filePath: string): Promise<Memory[]> {
   let source: string;
   try {
-    const maxFileBytes = memoryFileOverheadBytes + entryLimit * memoryEntryOverheadBytes;
+    const maxFileBytes = memoryFileOverheadBytes + maxEntries * memoryEntryOverheadBytes;
     source = await readBoundedTextFile(filePath, maxFileBytes, "Memory file");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
@@ -119,26 +120,27 @@ async function readMemoryFile(filePath: string, entryLimit: number): Promise<Mem
   const file = parsed as Partial<MemoryFile>;
   if (file.version !== 1 || !Array.isArray(file.memories)) throw new Error("Memory file has an unsupported format");
   if (!file.memories.every(isMemory)) throw new Error("Memory file contains invalid memories");
-  // maxEntries is the hard file ceiling that detects a corrupt or hand-grown file. The configured entryLimit only trims what this read returns, so lowering it no longer rejects a file that still fits the byte bound above.
+  // Read the complete bounded store before applying the configured retention limit so mutations can preserve record identities and report every eviction.
   if (file.memories.length > maxEntries) throw new Error(`Memory file exceeds its ${maxEntries}-entry limit`);
   const keys = new Set(file.memories.map((memory) => memory.key));
   const ids = new Set(file.memories.map((memory) => memory.id));
   if (keys.size !== file.memories.length || ids.size !== file.memories.length) throw new Error("Memory file contains duplicate memories");
-  return file.memories.slice(0, entryLimit);
+  return file.memories;
 }
 
-async function writeMemoryFile(filePath: string, memories: Memory[]): Promise<void> {
+async function writeMemoryFile(filePath: string, memories: Memory[], signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
   const payload = JSON.stringify({ version: 1, memories } satisfies MemoryFile, null, 2);
-  await mkdir(dirname(filePath), { recursive: true });
-  const temporary = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
-  let renamed = false;
-  try {
-    await writeFile(temporary, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    await rename(temporary, filePath);
-    renamed = true;
-  } finally {
-    if (!renamed) await rm(temporary, { force: true }).catch(() => undefined);
-  }
+  await atomicWriteFile(filePath, payload, { encoding: "utf8", mode: 0o600, signal });
+}
+
+function withCancellation<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason instanceof Error ? signal.reason : new Error("Memory operation cancelled", { cause: signal.reason }));
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    void operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 function memoryLockOwnerIsAlive(value: unknown): boolean | undefined {
@@ -206,10 +208,12 @@ async function reclaimStaleMemoryLock(lockPath: string, lockMetadata: Awaited<Re
   }
 }
 
-async function acquireMemoryLock(lockPath: string): Promise<() => Promise<void>> {
+async function acquireMemoryLock(lockPath: string, signal: AbortSignal): Promise<() => Promise<void>> {
+  signal.throwIfAborted();
   await mkdir(dirname(lockPath), { recursive: true });
   const deadline = Date.now() + lockTimeoutMs;
   while (true) {
+    signal.throwIfAborted();
     try {
       await mkdir(lockPath, { mode: 0o700 });
       const token = randomUUID();
@@ -245,7 +249,7 @@ async function acquireMemoryLock(lockPath: string): Promise<() => Promise<void>>
       if (!metadata.isDirectory()) throw new Error("Memory file lock must be a directory", { cause: error });
       if (await reclaimStaleMemoryLock(lockPath, metadata)) continue;
       if (Date.now() >= deadline) throw new Error("Timed out waiting for memory file lock", { cause: error });
-      await new Promise<void>((resolve) => setTimeout(resolve, lockRetryMs));
+      await delay(lockRetryMs, undefined, { signal });
     }
   }
 }
@@ -261,28 +265,35 @@ export default {
       typeof configuredEntryLimit === "number" && Number.isFinite(configuredEntryLimit)
         ? Math.max(1, Math.min(maxEntries, Math.trunc(configuredEntryLimit)))
         : maxEntries;
+    const lifecycle = new AbortController();
+    const operationSignal = (signal?: AbortSignal) => (signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]));
     let memories: Memory[] = [];
     let mutationQueue = Promise.resolve();
     let last: MemorySearchReport | undefined;
-    const refresh = async (): Promise<void> => {
-      memories = await readMemoryFile(filePath, entryLimit);
+    const refresh = async (signal: AbortSignal = lifecycle.signal): Promise<void> => {
+      signal.throwIfAborted();
+      const current = await readMemoryFile(filePath);
+      signal.throwIfAborted();
+      memories = current.slice(0, entryLimit);
     };
-    const mutate = async <T>(operation: (current: Memory[]) => { memories: Memory[]; result: T }): Promise<T> => {
+    const mutate = async <T>(operation: (current: Memory[]) => { memories: Memory[]; result: T }, signal: AbortSignal): Promise<T> => {
+      signal.throwIfAborted();
       let result: T | undefined;
       const run = async (): Promise<void> => {
-        const release = await acquireMemoryLock(`${filePath}.lock`);
+        const release = await acquireMemoryLock(`${filePath}.lock`, signal);
         try {
-          const current = await readMemoryFile(filePath, entryLimit);
+          const current = await readMemoryFile(filePath);
+          signal.throwIfAborted();
           const next = operation(current);
-          await writeMemoryFile(filePath, next.memories);
-          memories = next.memories;
+          await writeMemoryFile(filePath, next.memories, signal);
+          memories = next.memories.slice(0, entryLimit);
           result = next.result;
         } finally {
           await release();
         }
       };
       mutationQueue = mutationQueue.catch(() => undefined).then(run);
-      await mutationQueue;
+      await withCancellation(mutationQueue, signal);
       return result as T;
     };
     const unregisterSet = context.piTools.register(
@@ -293,7 +304,9 @@ export default {
         promptSnippet: "save an explicit fact for future sessions",
         parameters: Type.Object({ key: Type.String(), value: Type.String(), tags: Type.Optional(Type.Array(Type.String())) }, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<Memory>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<Memory>> {
+          const currentSignal = operationSignal(signal);
+          currentSignal.throwIfAborted();
           const key = normalizeKey(params.key);
           const value = normalizeValue(params.value);
           const tags = normalizeTags(params.tags);
@@ -304,12 +317,12 @@ export default {
               existing === undefined ? { id: randomUUID(), key, value, tags, createdAt: now, updatedAt: now } : { ...existing, value, tags, updatedAt: now };
             const ordered = [next, ...current.filter((item) => item.key !== key)];
             return { memories: ordered.slice(0, entryLimit), result: { memory: next, evicted: ordered.slice(entryLimit).map((item) => item.key) } };
-          });
+          }, currentSignal);
           const text =
             saved.evicted.length === 0
               ? `Memory saved: ${key}`
               : `Memory saved: ${key} (evicted ${saved.evicted.join(", ")} to stay within ${entryLimit} entries)`;
-          return { content: [{ type: "text", text }], details: saved.memory };
+          return { content: [{ type: "text", text }], details: structuredClone(saved.memory) };
         },
       }),
     );
@@ -321,8 +334,9 @@ export default {
         promptSnippet: "search remembered facts from earlier sessions",
         parameters: Type.Object({ query: Type.String() }, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<MemorySearchReport>> {
-          await refresh();
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<MemorySearchReport>> {
+          const currentSignal = operationSignal(signal);
+          await refresh(currentSignal);
           const query = params.query.trim().toLocaleLowerCase();
           if (query.length < 2 || query.length > maxKeyLength) throw new Error(`Memory search query must contain 2-${maxKeyLength} characters`);
           const results = memories.filter((item) => [item.key, item.value, ...item.tags].some((field) => field.toLocaleLowerCase().includes(query)));
@@ -334,7 +348,7 @@ export default {
                 text: results.length === 0 ? `No memories found for ${params.query.trim()}.` : results.map((item) => `${item.key}: ${item.value}`).join("\n"),
               },
             ],
-            details: last,
+            details: structuredClone(last),
           };
         },
       }),
@@ -347,13 +361,15 @@ export default {
         promptSnippet: "forget a stored memory after confirmation",
         parameters: Type.Object({ key: Type.String(), confirm: Type.Boolean() }, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<{ key: string; removed: boolean }>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ key: string; removed: boolean }>> {
+          const currentSignal = operationSignal(signal);
+          currentSignal.throwIfAborted();
           const key = normalizeKey(params.key);
           if (params.confirm !== true) throw new Error("Deleting a memory requires confirm=true");
           const removed = await mutate((current) => {
             const next = current.filter((item) => item.key !== key);
             return { memories: next, result: next.length !== current.length };
-          });
+          }, currentSignal);
           return { content: [{ type: "text", text: removed ? `Memory deleted: ${key}` : `Memory not found: ${key}` }], details: { key, removed } };
         },
       }),
@@ -368,7 +384,7 @@ export default {
         icon: "▣",
         read: async () => {
           await refresh();
-          return { filePath, count: memories.length, last: last ?? null, memories: memories.slice(0, 8) };
+          return structuredClone({ filePath, count: memories.length, last: last ?? null, memories: memories.slice(0, 8) });
         },
       });
     } catch (error) {
@@ -377,11 +393,13 @@ export default {
       unregisterDelete();
       throw error;
     }
-    context.effect(() => () => {
+    context.effect(() => async () => {
+      lifecycle.abort(new Error("Memory plugin is disposed"));
       unregisterSet();
       unregisterSearch();
       unregisterDelete();
       disposePanel();
+      await mutationQueue.catch(() => undefined);
     });
   },
 };
