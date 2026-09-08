@@ -2062,8 +2062,13 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           <div
             className={`rounded-lg border px-3 py-3 text-[11px] ${Number(data?.total ?? 0) > 0 ? "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
           >
-            {Number(data?.total ?? 0) > 0 ? "发现需要人工确认的安全风险。" : "未发现凭据泄露或危险命令。"}
+            {data?.hasRun !== true ? "尚未扫描。" : Number(data.total) > 0 ? "发现需要人工确认的安全风险。" : "本次扫描范围内未命中规则，不代表安全。"}
           </div>
+          {data?.incomplete === true || data?.truncated === true ? (
+            <p className="text-[10px] text-[#9a6700]">
+              扫描或显示不完整：跳过 {value(data.skipped)} 个文件/目录，{value(data.credentialLinesSkipped)} 行未检查通用凭据赋值；明细最多 200 项。
+            </p>
+          ) : null}
           {Array.isArray(data?.findings) && data.findings.length > 0 ? (
             <div className="grid gap-2">
               {data.findings.slice(0, 6).map((item, index) => {
