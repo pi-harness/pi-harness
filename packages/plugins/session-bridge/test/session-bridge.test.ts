@@ -47,6 +47,8 @@ async function realSession(manager: SessionManager) {
       },
     ],
   });
+  const model = modelRuntime.getModel("local-fixture", "fixture");
+  if (model === undefined) throw new Error("Registered fixture model was not found");
   const { session } = await createAgentSession({
     sessionManager: manager,
     settingsManager,
@@ -54,7 +56,7 @@ async function realSession(manager: SessionManager) {
     agentDir: root,
     resourceLoader,
     modelRuntime,
-    model: modelRuntime.getModel("local-fixture", "fixture"),
+    model,
     noTools: "builtin",
   });
   return {

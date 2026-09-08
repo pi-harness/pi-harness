@@ -2211,6 +2211,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         </div>
       ) : panel.id === "session-search-panel" ? (
         <div className="mt-3 grid gap-3">
+          <p className="text-[10px] leading-4 text-[#687381]">
+            只搜索持久化日志中的用户和助手文本，包含历史分支；不含图片、思考或工具输出。以下为最近一次搜索，最多显示 8 个会话。
+          </p>
+          {data?.query ? (
+            <p className="text-[10px] leading-4 text-[#687381]">
+              已扫描 {value(data.scanned)} 个文件，跳过 {value(data.skipped)} 个；{data.truncated ? "扫描范围或结果预览已截断" : "未触及扫描或预览上限"}
+              。跳过的文件不计入匹配结果。
+            </p>
+          ) : null}
           {data?.query ? (
             <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
               <code className="min-w-0 truncate text-[11px] text-[#315fb8]">{value(data.query)}</code>
@@ -2227,6 +2236,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 return (
                   <div className="rounded-lg border border-[#edf0f3] bg-white px-3 py-2" key={`${value(session.id ?? "session")}-${index}`}>
                     <strong className="block truncate text-[11px] text-[#30343b]">{value(session.name ?? session.id ?? "未命名会话")}</strong>
+                    <p className="mt-1 text-[10px] text-[#687381]">
+                      {value(session.totalHits)} 条匹配消息 · 返回 {hits.length} 条预览
+                    </p>
                     <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#65707b]">
                       {hits
                         .map((hit) => (hit !== null && typeof hit === "object" ? value((hit as Record<string, unknown>).text ?? "") : value(hit)))
@@ -2237,7 +2249,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               })}
             </div>
           ) : data?.query ? (
-            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">没有找到匹配的历史会话。</div>
+            <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">已扫描范围内没有匹配的用户或助手文本。</div>
           ) : null}
         </div>
       ) : panel.id === "session-bookmarks-panel" ? (

@@ -1,18 +1,21 @@
-import { readFile, stat } from "node:fs/promises";
+import { opendir } from "node:fs/promises";
+import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, parseSessionEntries, SessionManager, type AgentToolResult, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import { EmptyConfig } from "@pi-harness/plugin-api";
+import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { EmptyConfig, readBoundedFile } from "@pi-harness/plugin-api";
 
 const maxQueryLength = 120;
 const maxPreviewLength = 500;
 const maxSessions = 200;
-const maxHits = 100;
+const maxItems = 100;
+const maxHitsPerSession = 10;
+const maxDirectoryEntries = 4096;
+const maxTotalBytes = 32 * 1024 * 1024;
 const maxSessionFileBytes = 4 * 1024 * 1024;
-const sessionReadConcurrency = 8;
 
 export type SessionSearchHit = { role: string; text: string };
-export type SessionSearchItem = { id: string; name: string; path: string; modified: string; hits: SessionSearchHit[] };
+export type SessionSearchItem = { id: string; name: string; path: string; modified: string; hits: SessionSearchHit[]; totalHits: number };
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -32,49 +35,132 @@ function contentText(value: unknown): string {
 
 function matchingPreview(text: string, normalizedQuery: string): string {
   if (text.length <= maxPreviewLength) return text;
-  const matchIndex = text.toLocaleLowerCase().indexOf(normalizedQuery);
+  const foldedIndex = text.toLowerCase().indexOf(normalizedQuery);
+  let matchIndex = 0;
+  let foldedOffset = 0;
+  for (const character of text) {
+    if (foldedOffset >= foldedIndex) break;
+    foldedOffset += character.toLowerCase().length;
+    matchIndex += character.length;
+  }
   const idealStart = matchIndex - Math.floor((maxPreviewLength - normalizedQuery.length) / 2);
   const start = Math.max(0, Math.min(idealStart, text.length - maxPreviewLength));
   return text.slice(start, start + maxPreviewLength);
 }
 
-export function searchSessionEntries(entries: readonly unknown[], query: string): SessionSearchHit[] {
-  const normalized = query.trim().toLocaleLowerCase();
+export function searchSessionEntries(entries: readonly unknown[], query: string): { total: number; hits: SessionSearchHit[] } {
+  const normalized = query.trim().toLowerCase();
   if (normalized.length < 1 || normalized.length > maxQueryLength) throw new Error("Session search query must contain 1-120 characters");
-  return entries.flatMap((entry) => {
+  const hits: SessionSearchHit[] = [];
+  let total = 0;
+  for (const entry of entries) {
     const item = record(entry);
     const message = record(item?.message);
-    if (item?.type !== "message" || typeof message?.role !== "string") return [];
+    if (item?.type !== "message" || (message?.role !== "user" && message?.role !== "assistant")) continue;
     const text = contentText(message.content);
-    return text.toLocaleLowerCase().includes(normalized) ? [{ role: message.role, text: matchingPreview(text, normalized) }] : [];
-  });
+    if (!text.toLowerCase().includes(normalized)) continue;
+    total += 1;
+    if (hits.length < maxHitsPerSession) hits.push({ role: message.role, text: matchingPreview(text, normalized) });
+  }
+  return { total, hits };
 }
 
-async function searchSession(session: SessionInfo, query: string): Promise<SessionSearchItem | undefined> {
+export interface SessionSearchReport {
+  query: string;
+  total: number;
+  items: SessionSearchItem[];
+  cwd: string;
+  directory: string;
+  scanned: number;
+  skipped: number;
+  directoryEntries: number;
+  byteBudgetUsed: number;
+  truncated: boolean;
+  scope: string;
+}
+
+const scope =
+  "User and assistant text in persisted native journals, including historical branches. Images, thinking and tool output are excluded. Directory order; up to 200 files / 4096 entries / 32 MiB read budget (failed reads charge their allowance) / 4 MiB per file. Up to 100 matching sessions, 10 previews per session, 500 characters each. This is a read-only search, not an atomic snapshot.";
+
+async function searchSessions(directory: string, cwd: string, query: string, check: () => void): Promise<SessionSearchReport> {
+  const report: SessionSearchReport = {
+    query,
+    total: 0,
+    items: [],
+    cwd,
+    directory,
+    scanned: 0,
+    skipped: 0,
+    directoryEntries: 0,
+    byteBudgetUsed: 0,
+    truncated: false,
+    scope,
+  };
+  check();
+  let dir: Awaited<ReturnType<typeof opendir>>;
   try {
-    const metadata = await stat(session.path);
-    if (!metadata.isFile() || metadata.size > maxSessionFileBytes) return undefined;
-    const hits = searchSessionEntries(parseSessionEntries(await readFile(session.path, "utf8")), query);
-    if (hits.length === 0) return undefined;
-    return {
-      id: session.id,
-      name: session.name?.trim() || session.firstMessage.trim() || session.id,
-      path: session.path,
-      modified: session.modified.toISOString(),
-      hits,
-    };
-  } catch {
-    return undefined;
+    dir = await opendir(directory);
+  } catch (error) {
+    check();
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return report;
+    throw error;
   }
-}
-
-async function searchSessions(sessions: readonly SessionInfo[], query: string): Promise<SessionSearchItem[]> {
-  const results: SessionSearchItem[] = [];
-  for (let index = 0; index < sessions.length; index += sessionReadConcurrency) {
-    const batch = await Promise.all(sessions.slice(index, index + sessionReadConcurrency).map((session) => searchSession(session, query)));
-    results.push(...batch.filter((item): item is SessionSearchItem => item !== undefined));
+  for await (const entry of dir) {
+    check();
+    if (report.directoryEntries >= maxDirectoryEntries || report.scanned + report.skipped >= maxSessions || report.byteBudgetUsed >= maxTotalBytes) {
+      report.truncated = true;
+      break;
+    }
+    report.directoryEntries += 1;
+    if (!entry.name.endsWith(".jsonl")) continue;
+    if (!entry.isFile()) {
+      report.skipped += 1;
+      continue;
+    }
+    const path = join(directory, entry.name);
+    let entries: unknown[];
+    try {
+      const allowance = Math.min(maxSessionFileBytes, maxTotalBytes - report.byteBudgetUsed);
+      report.byteBudgetUsed += allowance;
+      const bytes = await readBoundedFile(path, allowance, "Session search file");
+      report.byteBudgetUsed -= allowance - bytes.length;
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      entries = text
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .map((line) => JSON.parse(line) as unknown);
+    } catch {
+      check();
+      report.skipped += 1;
+      continue;
+    }
+    check();
+    const header = record(entries[0]);
+    if (header?.type !== "session" || header.version !== 3 || typeof header.id !== "string" || header.id.length > 256 || header.cwd !== cwd) {
+      report.skipped += 1;
+      continue;
+    }
+    report.scanned += 1;
+    const found = searchSessionEntries(entries, query);
+    if (found.total === 0) continue;
+    report.total += 1;
+    if (report.items.length >= maxItems) {
+      report.truncated = true;
+      continue;
+    }
+    const firstUser = entries.map(record).find((item) => item?.type === "message" && record(item.message)?.role === "user");
+    let name = contentText(record(firstUser?.message)?.content).slice(0, 256) || header.id;
+    let modified = typeof header.timestamp === "string" ? header.timestamp.slice(0, 64) : "";
+    for (const value of entries) {
+      const item = record(value);
+      if (item?.type === "session_info" && typeof item.name === "string" && item.name.trim() !== "") name = item.name.trim().slice(0, 256);
+      if (typeof item?.timestamp === "string") modified = item.timestamp.slice(0, 64);
+    }
+    report.items.push({ id: header.id, name, path, modified, hits: found.hits, totalHits: found.total });
+    if (found.total > found.hits.length) report.truncated = true;
   }
-  return results;
+  check();
+  return report;
 }
 
 export default {
@@ -82,15 +168,9 @@ export default {
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
   Config: EmptyConfig,
   apply(context: Context) {
-    let latest: { query: string; total: number; items: SessionSearchItem[] } | undefined;
-    const search = async (query: string): Promise<SessionSearchItem[]> => {
-      const normalized = query.trim();
-      if (normalized.length < 1 || normalized.length > maxQueryLength) throw new Error("Session search query must contain 1-120 characters");
-      const sessions = await SessionManager.list(context.piHarnessLaunch.cwd, context.piSession.manager.getSessionDir());
-      const items = (await searchSessions(sessions.slice(0, maxSessions), normalized)).slice(0, maxHits);
-      latest = { query: normalized, total: items.length, items };
-      return items;
-    };
+    let latest: SessionSearchReport | undefined;
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
     const unregister = context.piTools.register(
       defineTool({
         name: "session_search",
@@ -99,31 +179,45 @@ export default {
         promptSnippet: "search previous Pi sessions for a phrase",
         parameters: Type.Object({ query: Type.String({ description: "Text to search for, 1-120 characters" }) }, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<{ query: string; total: number; items: SessionSearchItem[] }>> {
-          const items = await search(params.query);
-          return {
-            content: [
-              {
-                type: "text",
-                text: items.map((item) => `${item.name}: ${item.hits.map((hit) => hit.text).join(" | ")}`).join("\n") || "No matching sessions found.",
-              },
-            ],
-            details: latest!,
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<SessionSearchReport>> {
+          const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          if (combined.aborted) throw new Error("Session search was cancelled");
+          if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Session search parameters must be an object");
+          const descriptors = Object.getOwnPropertyDescriptors(params);
+          if (Reflect.ownKeys(descriptors).some((key) => key !== "query")) throw new Error("Unknown session search parameter");
+          const query: unknown = descriptors.query?.value;
+          if (typeof query !== "string" || query.length > maxQueryLength || query.trim() === "" || query.includes("\0"))
+            throw new Error("Session search query must contain 1-120 characters");
+          const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+          const cwd = manager.getCwd();
+          const directory = manager.getSessionDir();
+          const sessionId = manager.getSessionId();
+          const check = (): void => {
+            if (combined.aborted) throw new Error("Session search was cancelled");
+            if (
+              (context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager) !== manager ||
+              manager.getSessionId() !== sessionId ||
+              manager.getCwd() !== cwd ||
+              manager.getSessionDir() !== directory
+            )
+              throw new Error("Session search context changed during execution");
           };
+          const report = await searchSessions(directory, cwd, query.trim(), check);
+          check();
+          latest = structuredClone(report);
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
         },
       }),
     );
+    context.effect(() => unregister);
     const disposePanel = context.piPluginUi.register({
       id: "session-search-panel",
       pluginId: "@pi-harness/plugin-session-search",
       title: "Session Search",
       description: "跨本地持久化会话搜索文本，只读不修改会话文件。",
       icon: "⌕",
-      read: () => latest ?? { query: "", total: 0, items: [] },
+      read: () => (latest === undefined ? { query: "", total: 0, items: [], scope } : structuredClone(latest)),
     });
-    context.effect(() => () => {
-      unregister();
-      disposePanel();
-    });
+    context.effect(() => disposePanel);
   },
 };
