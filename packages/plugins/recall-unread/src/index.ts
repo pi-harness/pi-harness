@@ -347,9 +347,12 @@ export default {
       const manager = activeManager();
       const activeId = manager.getSessionId();
       const activePath = manager.getSessionFile();
+      const cwd = manager.getCwd();
       const discovery = await discoverSessionCandidates(manager.getSessionDir(), activePath, signal);
       const scannedCandidates = discovery.candidates.slice(0, maxSessions);
-      const nextItems = await unreadSessions(scannedCandidates, activeId, manager.getCwd(), signal);
+      const nextItems = await unreadSessions(scannedCandidates, activeId, cwd, signal);
+      if (activeManager() !== manager || manager.getSessionId() !== activeId || manager.getSessionFile() !== activePath || manager.getCwd() !== cwd)
+        throw new Error("Recall Unread session changed during scanning; run the scan again");
       throwIfCancelled(signal);
       const shown = Math.min(nextItems.length, maxPanelItems);
       const scanTruncated = discovery.candidates.length > scannedCandidates.length;

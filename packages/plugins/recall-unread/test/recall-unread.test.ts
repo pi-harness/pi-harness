@@ -541,6 +541,43 @@ describe("recall unread", () => {
     }
   });
 
+  test.each(["id", "path", "cwd", "manager"])("rejects a %s switch during discovery without publishing mixed inventory", async (field) => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-harness-recall-unread-switch-"));
+    temporaryDirectories.push(sessionDir);
+    await writeSession(join(sessionDir, "unread.jsonl"), "unread", [{ role: "user", text: "keep previous scan" }]);
+    const active: { id: string; path?: string } = { id: "original" };
+    const { context, tools, panels } = await loadPlugin(sessionDir, active);
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_recall_unread");
+    if (tool === undefined) throw new Error("Recall Unread tool was not registered");
+    vi.spyOn(context.piSession.manager, "getSessionDir").mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        if (field === "id") active.id = "replacement";
+        else if (field === "path") active.path = join(sessionDir, "replacement.jsonl");
+        else if (field === "cwd") vi.spyOn(context.piSession.manager, "getCwd").mockReturnValue("/replacement");
+        else
+          context.provide("piRuntime", {
+            session: {
+              sessionManager: {
+                getSessionDir: () => sessionDir,
+                getSessionId: () => "replacement",
+                getSessionFile: () => undefined,
+                getCwd: () => "/workspace",
+              },
+            },
+          } as never);
+      });
+      return sessionDir;
+    });
+    try {
+      await expect(tool.execute("switch", {}, undefined, undefined, {} as never)).rejects.toThrow(/session changed/iu);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { scans: 1, total: 1, status: { state: "failed" } } }]);
+      await expect(tool.execute("retry", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: field === "cwd" ? 0 : 1 } });
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { scans: 2, status: { state: "completed" } } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("commits concurrent rescans in invocation order", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-recall-unread-order-"));
     temporaryDirectories.push(root);
