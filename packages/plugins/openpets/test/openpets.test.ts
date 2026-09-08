@@ -270,4 +270,17 @@ describe("OpenPets boundaries", () => {
       await fixture.context.fiber.dispose();
     }
   });
+  test("rejects cancelled queued actions and retained actions after disposal without writing session state", async () => {
+    const fixture = await createOpenPets();
+    const controller = new AbortController();
+    const pending = fixture.tool.execute("queued", { action: "feed" }, controller.signal, undefined, {} as never);
+    controller.abort();
+    await expect(pending).rejects.toThrow(/cancelled/iu);
+    await fixture.context.fiber.dispose();
+    await expect(fixture.tool.execute("retained", { action: "play" }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    await expect(fixture.tool.execute("status", { action: "status" }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    fixture.context.emit("pi/session-event", { type: "agent_start" } as never);
+    expect(fixture.entries).toHaveLength(0);
+    expect(await fixture.panels.snapshot()).toHaveLength(0);
+  });
 });

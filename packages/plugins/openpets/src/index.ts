@@ -154,6 +154,8 @@ export default {
   inject: ["piSession", "piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: OpenPetsPluginConfig) {
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort(new Error("OpenPets plugin disposed")));
     const name = companionName(config);
     const recovered = readState(context, name);
     let state = recovered.state;
@@ -201,6 +203,7 @@ export default {
         executionMode: "sequential",
         execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<PetState>> {
           return Promise.resolve().then(() => {
+            lifecycle.signal.throwIfAborted();
             const params = petParameters(rawParams);
             throwIfCancelled(signal);
             if (params.action === "status")
