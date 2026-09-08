@@ -12,6 +12,7 @@ export interface SidebarOverviewInput {
   readonly gitAvailable: boolean;
   readonly branch: string | null;
   readonly clean: boolean;
+  readonly changedCount: number;
   readonly changedFiles: readonly { readonly path: string; readonly status: string }[];
   readonly directoryCount: number;
   readonly fileCount: number;
@@ -20,12 +21,11 @@ export interface SidebarOverviewInput {
 }
 
 export interface SidebarOverview extends SidebarOverviewInput {
-  readonly changedCount: number;
   readonly summary: string;
 }
 
 export function summarizeSidebar(input: SidebarOverviewInput): SidebarOverview {
-  const changedCount = input.changedFiles.length;
+  const changedCount = input.changedCount;
   const summary = !input.gitAvailable
     ? `非 Git 工作区 · ${changedCount > 0 ? `${changedCount} 个变更` : "无变更"}`
     : `${input.branch ?? "detached HEAD"} · ${changedCount > 0 ? `${changedCount} 个变更` : "clean"}`;
@@ -68,10 +68,11 @@ export function createSidebarInspector(input: {
       gitAvailable: git.available,
       branch: git.available ? git.branch : null,
       clean: git.available && git.clean,
+      changedCount: git.changedCount,
       changedFiles: git.entries,
       directoryCount: currentTree.directoryCount,
       fileCount: currentTree.fileCount,
-      truncated: currentTree.truncated,
+      truncated: currentTree.truncated || git.truncated,
       sessionId: input.getSessionId(),
     });
   };
