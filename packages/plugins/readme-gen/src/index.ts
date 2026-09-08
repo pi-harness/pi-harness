@@ -111,14 +111,15 @@ function writeParameters(value: unknown): { outputPath: string; confirm: boolean
 }
 
 function plainMarkdown(value: string): string {
-  return value.replaceAll(/[\p{Cc}\p{Cf}\p{Cs}]+/gu, " ").replaceAll(/([\\*_[\]<>#~|>])/gu, "\\$1");
+  return value.replaceAll(/[\p{Cc}\p{Cf}\p{Cs}]+/gu, " ").replaceAll(/([\\`*_[\]<>#~|>])/gu, "\\$1");
 }
 
 function codeSpan(value: string): string {
   const normalized = value.replaceAll(/[\p{Cc}\p{Cf}\p{Cs}]+/gu, " ");
   const longestRun = Math.max(0, ...(normalized.match(/`+/gu)?.map((run) => run.length) ?? []));
   const fence = "`".repeat(longestRun + 1);
-  return `${fence}${normalized}${fence}`;
+  const padding = normalized.startsWith("`") || normalized.endsWith("`") || (/^ .* $/u.test(normalized) && !/^ +$/u.test(normalized)) ? " " : "";
+  return `${fence}${padding}${normalized}${padding}${fence}`;
 }
 
 function boundedString(descriptor: PropertyDescriptor | undefined, fallback: string, label: string, maxCharacters: number, maxBytes: number): string {
@@ -149,7 +150,11 @@ function manifestMetadata(packageJson: Record<string, unknown>): Omit<ReadmeMeta
   if (rawScripts === null || typeof rawScripts !== "object" || Array.isArray(rawScripts)) throw new Error("Package scripts must be an object");
   const scripts = Object.keys(rawScripts).sort();
   if (scripts.length > maxScripts) throw new Error(`Package scripts must contain at most ${maxScripts} entries`);
+  const scriptDescriptors = Object.getOwnPropertyDescriptors(rawScripts);
   for (const script of scripts) {
+    const descriptor = scriptDescriptors[script];
+    if (descriptor === undefined || !("value" in descriptor) || typeof descriptor.value !== "string")
+      throw new Error("Package script commands must be strings");
     if (script === "") throw new Error("Script name must be non-empty");
     if (script !== script.trim()) throw new Error("Script name must not have leading or trailing whitespace");
     if ([...script].length > maxScriptNameCharacters) throw new Error(`Script name must be at most ${maxScriptNameCharacters} characters`);
@@ -264,6 +269,11 @@ function loaderPluginNames(loader: unknown): string[] {
   return [...plugins].sort();
 }
 
+function scriptCommand(script: string): string {
+  if (/^[A-Za-z0-9][A-Za-z0-9:._-]*$/u.test(script)) return `npm run ${script}`;
+  return `npm run -- '${script.replaceAll("'", "'\"'\"'")}'`;
+}
+
 export function renderReadme(metadata: ReadmeMetadata): string {
   const { name, version, description, scripts, plugins } = metadata;
   return [
@@ -275,7 +285,7 @@ export function renderReadme(metadata: ReadmeMetadata): string {
     "",
     "## Scripts",
     "",
-    ...(scripts.length ? scripts.map((script) => `- ${codeSpan(`npm run ${script}`)}`) : ["- No npm scripts declared."]),
+    ...(scripts.length ? scripts.map((script) => `- ${codeSpan(scriptCommand(script))}`) : ["- No npm scripts declared."]),
     "",
     "## Runtime plugins",
     "",

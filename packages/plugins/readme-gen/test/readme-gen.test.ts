@@ -122,7 +122,7 @@ describe("readme generator", () => {
     expect(markdown).not.toContain("\n## injected\n");
     expect(markdown).toContain("Version: 1.0\\_\\[draft\\]");
     expect(markdown).toContain("Text \\# heading \\<tag\\>");
-    expect(markdown).toContain("- ``npm run build` && injected``");
+    expect(markdown).toContain("- ``npm run -- 'build` && injected'``");
     expect(markdown).toContain("- ```plugin``name```");
   });
 
@@ -458,5 +458,25 @@ describe("readme generator", () => {
     expect(() => readmeGenPlugin.apply(context, {})).toThrow(/already registered/iu);
     expect(tools.snapshot().customTools).toEqual([]);
     await expect(panels.snapshot()).resolves.toMatchObject([{ pluginId: "fixture", title: "Existing panel" }]);
+  });
+  test("quotes shell metacharacters and preserves code-span boundary backticks", () => {
+    const markdown = renderReadme({
+      name: "demo",
+      version: "1",
+      description: "Use `code` literally",
+      scripts: ["build; touch unexpected", "--help", "it's here"],
+      plugins: ["`edge`"],
+    });
+    expect(markdown).toContain("npm run -- 'build; touch unexpected'");
+    expect(markdown).toContain("npm run -- '--help'");
+    expect(markdown).toContain("npm run -- 'it'\"'\"'s here'");
+    expect(markdown).toContain("- `` `edge` ``");
+    expect(markdown).toContain("Use \\`code\\` literally");
+  });
+
+  test("rejects non-string npm scripts rather than documenting them as runnable", async () => {
+    const { tools } = await pluginFixture({ name: "demo", scripts: { build: 42 } });
+    const tool = tools.snapshot().customTools.find((entry) => entry.name === "readme_report")!;
+    await expect(tool.execute("report", {}, undefined, undefined, {} as never)).rejects.toThrow(/script.*string/iu);
   });
 });
