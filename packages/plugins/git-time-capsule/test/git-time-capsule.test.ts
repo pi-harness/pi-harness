@@ -27,6 +27,40 @@ afterEach(async () => {
 });
 
 describe("git time capsule restore", () => {
+  test.each(["no-prefix", "custom-prefix"])("round-trips capsules with %s diff configuration", async (mode) => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-prefix-workspace-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-capsule-prefix-agent-"));
+    temporaryDirectories.push(workspace, agentDir);
+    const git = (args: string[]) => execFileAsync("git", args, { cwd: workspace });
+    await git(["init", "-q"]);
+    await writeFile(join(workspace, "tracked.txt"), "before\n");
+    await git(["add", "tracked.txt"]);
+    await writeFile(join(workspace, "tracked.txt"), "after\n");
+    if (mode === "no-prefix") await git(["config", "diff.noprefix", "true"]);
+    else {
+      await git(["config", "diff.srcPrefix", "custom/old/"]);
+      await git(["config", "diff.dstPrefix", "custom/new/"]);
+    }
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(gitTimeCapsulePlugin);
+      const snapshot = tools.snapshot().customTools.find((tool) => tool.name === "git_snapshot")!;
+      const result = await snapshot.execute("capture", {}, undefined, undefined, {} as never);
+      const { name } = result.details as { name: string };
+      const patch = await readFile(join(agentDir, "capsules", name), "utf8");
+      expect(patch).toContain("diff --git a/tracked.txt b/tracked.txt");
+      await applyCapsule(workspace, join(agentDir, "capsules", name));
+      expect(await readFile(join(workspace, "tracked.txt"), "utf8")).toBe("before\n");
+      expect((await git(["show", ":tracked.txt"])).stdout).toBe("before\n");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("checks and applies a capsule to a real git workspace", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-workspace-"));
     const capsules = await mkdtemp(join(tmpdir(), "pi-harness-capsules-"));

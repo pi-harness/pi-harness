@@ -344,7 +344,7 @@ export default {
               await ensureGitWorkingTree(context.piHarnessLaunch.cwd, timeoutMs, operationSignal);
               const patch = await git(
                 context.piHarnessLaunch.cwd,
-                ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--", ".", ":(exclude).pi-harness/capsules"],
+                ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--", ".", ":(exclude).pi-harness/capsules"],
                 timeoutMs,
                 operationSignal,
               );
