@@ -179,8 +179,8 @@ function npmPackagePath(name: string): readonly string[] | undefined {
   return segment.test(name) ? [name] : undefined;
 }
 
-function npmDependencyEntries(record: Record<string, unknown>): Array<{ name: string; constraint: string; optional: boolean }> {
-  const entries: Array<{ name: string; constraint: string; optional: boolean }> = [];
+function npmDependencyEntries(record: Record<string, unknown>): Array<{ name: string; constraint: string; optional: boolean; section: string }> {
+  const entries: Array<{ name: string; constraint: string; optional: boolean; section: string }> = [];
   const optionalPeers = new Set<string>();
   const peerMetadata = record.peerDependenciesMeta;
   if (peerMetadata !== undefined) {
@@ -199,7 +199,7 @@ function npmDependencyEntries(record: Record<string, unknown>): Array<{ name: st
       if (typeof constraint !== "string" || constraint.length > maxConstraintLength)
         throw new Error(`Manifest dependency constraints must be strings of at most ${maxConstraintLength} characters`);
       if (/[\p{Cc}\p{Cf}\p{Cs}]/u.test(constraint)) throw new Error("Dependency constraint cannot contain Unicode control characters");
-      entries.push({ name, constraint, optional: section === "optionalDependencies" || (section === "peerDependencies" && optionalPeers.has(name)) });
+      entries.push({ name, constraint, optional: section === "optionalDependencies" || (section === "peerDependencies" && optionalPeers.has(name)), section });
     }
   }
   return entries;
@@ -426,8 +426,10 @@ export async function inspectManifest(workspace: string, requested = "package.js
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Manifest root must be an object");
   const record = parsed as Record<string, unknown>;
-  const entries = npmDependencyEntries(record);
-  if (entries.length > maxDependencyDeclarations) throw new Error(`Dependency manifest exceeds the ${maxDependencyDeclarations}-dependency scan limit`);
+  const declarations = npmDependencyEntries(record);
+  if (declarations.length > maxDependencyDeclarations) throw new Error(`Dependency manifest exceeds the ${maxDependencyDeclarations}-dependency scan limit`);
+  const overrides = new Set(declarations.filter((entry) => entry.section === "optionalDependencies").map((entry) => entry.name));
+  const entries = declarations.filter((entry) => entry.section !== "dependencies" || !overrides.has(entry.name));
   const unique = [...new Set(entries.map((entry) => entry.name))];
   const optionalNames = new Set(entries.filter((entry) => entry.optional).map((entry) => entry.name));
   const requiredNames = new Set(entries.filter((entry) => !entry.optional).map((entry) => entry.name));

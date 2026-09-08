@@ -30,6 +30,31 @@ async function setupPlugin(root: string): Promise<{ context: Context; panels: Pi
 }
 
 describe("dependency checker", () => {
+  test("uses optional dependencies instead of overridden required declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-dependency-checker-override-"));
+    temporaryDirectories.push(root);
+    await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { feature: "^1.0.0" }, optionalDependencies: { feature: "^2.0.0" } }));
+    await expect(inspectManifest(root)).resolves.toMatchObject({
+      declared: 1,
+      installed: 0,
+      missing: [],
+      optionalMissing: ["feature"],
+      conflicts: [],
+      unresolved: [],
+    });
+
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ dependencies: { feature: "workspace:*" }, optionalDependencies: { feature: "^2.0.0" }, peerDependencies: { feature: "^3.0.0" } }),
+    );
+    await expect(inspectManifest(root)).resolves.toMatchObject({
+      missing: ["feature"],
+      optionalMissing: [],
+      conflicts: [{ name: "feature", constraints: ["^2.0.0", "^3.0.0"] }],
+      unresolved: [],
+    });
+  });
+
   test("parses Python requirements, detects conflicts, and checks a local virtualenv", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-dependency-checker-"));
     temporaryDirectories.push(root);
