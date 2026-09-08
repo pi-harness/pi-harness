@@ -244,14 +244,15 @@ async function runCliSnapshot(
   prompt: string | undefined,
   timeoutMs: number,
   signal: AbortSignal,
+  assertCurrent: () => void,
 ): Promise<string> {
-  throwIfAborted(signal);
+  assertCurrent();
   const directory = await mkdtemp(join(tmpdir(), "pi-harness-modlens-"));
   try {
-    throwIfAborted(signal);
+    assertCurrent();
     const snapshotPath = join(directory, `image${extension}`);
     await writeFile(snapshotPath, data, { flag: "wx", mode: 0o600 });
-    throwIfAborted(signal);
+    assertCurrent();
     return await runCli(cliPath, snapshotPath, workingDirectory, prompt, timeoutMs, signal);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -379,6 +380,21 @@ export default {
     const cache = new Map<string, unknown>();
     let lastImage: ModlensReport | undefined;
     let status: ModlensStatus = { state: "idle" };
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        cache.clear();
+        lastImage = undefined;
+        status = { state: "idle" };
+      }
+      return scope;
+    };
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "vision_inspect",
@@ -395,20 +411,29 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal, _onUpdate, executionContext): Promise<AgentToolResult<unknown>> {
+          throwIfAborted(lifecycle.signal);
+          const current = refreshScope();
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const assertCurrent = () => {
+            throwIfAborted(operationSignal);
+            if (refreshScope() !== current) throw new Error("ModLens workspace changed during execution");
+          };
           const mode: ModlensMode = executionContext.model?.input.includes("image") === true ? "native" : "evidence";
           let statusPath = "invalid tool input";
           try {
+            assertCurrent();
             const params = parameters(rawParams);
+            assertCurrent();
             statusPath = params.path;
             status = { state: "running", mode, path: statusPath, at: new Date().toISOString() };
-            throwIfAborted(operationSignal);
-            const resolved = await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, params.path, "Image path must stay inside the current workspace");
+            assertCurrent();
+            const resolved = await resolveExistingWorkspacePath(current.cwd, params.path, "Image path must stay inside the current workspace");
+            assertCurrent();
             const mimeType = mimeByExtension[extname(resolved.target).toLowerCase()];
             if (mimeType === undefined) throw new Error("Unsupported image type; use png, jpeg, gif, or webp");
             const data = await readBoundedFile(resolved.target, maxImageBytes, "Image");
             if (detectedMimeType(data) !== mimeType) throw new Error(`Image bytes do not match the ${mimeType.slice("image/".length)} file extension`);
-            throwIfAborted(operationSignal);
+            assertCurrent();
             if (mode === "native") {
               const report: ModlensReport = { mode, path: resolved.relativePath, mimeType, bytes: data.length, cached: false, at: new Date().toISOString() };
               lastImage = structuredClone(report);
@@ -423,18 +448,18 @@ export default {
               cache.set(key, evidence);
             }
             if (evidence === undefined) {
-              evidence = parseEvidence(
-                await runCliSnapshot(
-                  cliPath,
-                  data,
-                  extname(resolved.target).toLowerCase(),
-                  dirname(resolved.target),
-                  params.prompt,
-                  timeoutMs,
-                  operationSignal,
-                ),
+              const stdout = await runCliSnapshot(
+                cliPath,
+                data,
+                extname(resolved.target).toLowerCase(),
+                dirname(resolved.target),
+                params.prompt,
+                timeoutMs,
+                operationSignal,
+                assertCurrent,
               );
-              throwIfAborted(operationSignal);
+              assertCurrent();
+              evidence = parseEvidence(stdout);
               putCache(cache, key, evidence);
             }
             const report: ModlensReport = {
@@ -450,14 +475,16 @@ export default {
             status = { state: "completed", ...reportMetadata(report) };
             return { content: [{ type: "text", text: evidenceText(evidence) }], details: structuredClone(report) };
           } catch (error) {
+            if (!operationSignal.aborted) assertCurrent();
             const message = boundedError(error);
-            status = {
-              state: operationSignal.aborted ? "cancelled" : "failed",
-              mode,
-              path: statusPath,
-              at: new Date().toISOString(),
-              error: message,
-            };
+            if (!lifecycle.signal.aborted && refreshScope() === current)
+              status = {
+                state: operationSignal.aborted ? "cancelled" : "failed",
+                mode,
+                path: statusPath,
+                at: new Date().toISOString(),
+                error: message,
+              };
             throw new Error(message, { cause: error });
           }
         },
@@ -470,21 +497,24 @@ export default {
       title: "ModLens 视觉桥接",
       description: "原生视觉模型安全直读图片；纯文本模型通过独立 ModLens 引擎获得结构化视觉证据。",
       icon: "◉",
-      read: () => ({
-        attached: lastImage !== undefined,
-        image: lastImage === undefined ? null : structuredClone(reportMetadata(lastImage)),
-        status: structuredClone(status),
-        supportedTypes: Object.keys(mimeByExtension).map((extension) => extension.slice(1)),
-        limits: {
-          imageBytes: maxImageBytes,
-          pathCharacters: maxPathLength,
-          promptCharacters: maxPromptLength,
-          evidenceBytes: maxEvidenceBytes,
-          agentTextBytes: maxAgentTextBytes,
-          timeoutMs,
-          cacheEntries: maxCacheEntries,
-        },
-      }),
+      read: () => {
+        refreshScope();
+        return {
+          attached: lastImage !== undefined,
+          image: lastImage === undefined ? null : structuredClone(reportMetadata(lastImage)),
+          status: structuredClone(status),
+          supportedTypes: Object.keys(mimeByExtension).map((extension) => extension.slice(1)),
+          limits: {
+            imageBytes: maxImageBytes,
+            pathCharacters: maxPathLength,
+            promptCharacters: maxPromptLength,
+            evidenceBytes: maxEvidenceBytes,
+            agentTextBytes: maxAgentTextBytes,
+            timeoutMs,
+            cacheEntries: maxCacheEntries,
+          },
+        };
+      },
     });
     context.effect(() => disposePanel);
     context.effect(() => () => {
