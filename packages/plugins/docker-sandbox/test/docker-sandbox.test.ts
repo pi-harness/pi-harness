@@ -1,10 +1,23 @@
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import dockerSandboxPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
+
+import type * as FsPromises from "node:fs/promises";
+
+// Hold real temporary-directory cleanup after removal to exercise the final result publication boundary.
+const cleanupHooks = vi.hoisted(() => ({ afterRemove: undefined as (() => Promise<void>) | undefined }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  const rm: typeof actual.rm = async (...args) => {
+    await actual.rm(...args);
+    if (typeof args[0] === "string" && /pi-harness-docker-sandbox-[A-Za-z0-9]{6}$/u.test(args[0])) await cleanupHooks.afterRemove?.();
+  };
+  return { ...actual, rm };
+});
 
 const temporaryDirectories: string[] = [];
 const originalPath = process.env.PATH;
@@ -171,4 +184,177 @@ describe("Docker sandbox production boundaries", () => {
     await expect(fixture.tool.execute("disposed", params, undefined, undefined, {} as never)).rejects.toThrow("Docker sandbox plugin disposed");
     expect(accessed).toBe(false);
   });
+});
+
+test("mounts the active native workspace and clears the previous session report", async () => {
+  if (process.platform === "win32") return;
+  const fixture = await createFixture();
+  const active = join(fixture.cwd, "active");
+  await mkdir(active);
+  const log = await installFakeDocker(fixture.cwd);
+  let session = { sessionId: "first", sessionManager: { getCwd: () => fixture.cwd } };
+  fixture.context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await fixture.tool.execute("first", { command: ["printf", "ok"] }, undefined, undefined, {} as never);
+    session = { sessionId: "second", sessionManager: { getCwd: () => active } };
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    await fixture.tool.execute("active", { command: ["printf", "ok"] }, undefined, undefined, {} as never);
+    const calls = (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+    const run = calls[3]!;
+    expect(run[run.indexOf("--mount") + 1]).toBe(`type=bind,"src=${active}",dst=/workspace,readonly`);
+    const pending = fixture.tool.execute("pending", { command: ["printf", "old"] }, undefined, undefined, {} as never);
+    session = { sessionId: "third", sessionManager: { getCwd: () => active } };
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    const finalCalls = (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+    expect(finalCalls.filter((args) => args[0] === "run")).toHaveLength(2);
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test.each([0, 7])("discards an already-started container result with exit code %i after an in-place session change", async (exitCode) => {
+  if (process.platform === "win32") return;
+  const fixture = await createFixture();
+  const log = await installFakeDocker(fixture.cwd);
+  const ready = join(fixture.cwd, "ready"),
+    release = join(fixture.cwd, "release");
+  await writeFile(
+    join(fixture.cwd, "bin/docker"),
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.appendFileSync(process.env.PI_HARNESS_FAKE_DOCKER_LOG, JSON.stringify(process.argv.slice(2)) + "\\n");
+if (process.argv[2] === "run") {
+  fs.writeFileSync(${JSON.stringify(ready)}, "ready");
+  const timer = setInterval(() => {
+    if (!fs.existsSync(${JSON.stringify(release)})) return;
+    clearInterval(timer);
+    process.stdout.write("old session output");
+    process.exit(${exitCode});
+  }, 10);
+}
+`,
+  );
+  let id = "first";
+  fixture.context.provide("piRuntime", {
+    session: {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => fixture.cwd },
+    },
+  } as never);
+  try {
+    const result = fixture.tool.execute("held", { command: ["printf", "old"] }, undefined, undefined, {} as never).then(
+      () => "unexpected success",
+      (error: unknown) => String(error),
+    );
+    const deadline = Date.now() + 3000;
+    while (true) {
+      try {
+        await access(ready);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || Date.now() >= deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    id = "replacement";
+    await writeFile(release, "release");
+    expect(await result).toMatch(/workspace changed/iu);
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    const calls = (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+    expect(calls.some((args) => args[0] === "rm" && args[1] === "--force")).toBe(true);
+  } finally {
+    await writeFile(release, "release");
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test.each([0, 7])("rejects scope changes during final cleanup after container exit %i", async (exitCode) => {
+  if (process.platform === "win32") return;
+  const fixture = await createFixture();
+  await installFakeDocker(fixture.cwd);
+  const docker = join(fixture.cwd, "bin/docker");
+  await writeFile(docker, (await readFile(docker, "utf8")) + `\nif (process.argv[2] === "run") process.exit(${exitCode});\n`);
+  let id = "first";
+  fixture.context.provide("piRuntime", {
+    session: {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => fixture.cwd },
+    },
+  } as never);
+  let reached!: () => void, release!: () => void;
+  const cleaning = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  cleanupHooks.afterRemove = async () => {
+    reached();
+    await held;
+  };
+  try {
+    const result = fixture.tool.execute("cleanup", { command: ["printf", "old"] }, undefined, undefined, {} as never).then(
+      () => "unexpected success",
+      (error: unknown) => String(error),
+    );
+    await cleaning;
+    id = "replacement";
+    release();
+    expect(await result).toMatch(/workspace changed/iu);
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+  } finally {
+    cleanupHooks.afterRemove = undefined;
+    release();
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test.each(["missing", "denied"])("requires confirmed absence after auto-removal races cleanup: %s", async (outcome) => {
+  if (process.platform === "win32") return;
+  const fixture = await createFixture();
+  const log = await installFakeDocker(fixture.cwd);
+  const counter = join(fixture.cwd, "inspections");
+  await writeFile(
+    join(fixture.cwd, "bin/docker"),
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.appendFileSync(process.env.PI_HARNESS_FAKE_DOCKER_LOG, JSON.stringify(process.argv.slice(2)) + "\\n");
+if (process.argv[2] === "run") { process.stderr.write("command failed"); process.exit(7); }
+if (process.argv[2] === "rm") { process.stderr.write("removal of container is already in progress"); process.exit(1); }
+if (process.argv[2] === "container") {
+  if (!fs.existsSync(${JSON.stringify(counter)})) { fs.writeFileSync(${JSON.stringify(counter)},"1"); process.stdout.write("[]"); }
+  else { process.stderr.write(${JSON.stringify(outcome === "missing" ? "Error: No such container: fixture" : "Docker daemon permission denied")}); process.exit(1); }
+}
+`,
+  );
+  try {
+    const result = fixture.tool.execute("race", { command: ["printf", "ok"] }, undefined, undefined, {} as never);
+    if (outcome === "missing") await expect(result).resolves.toMatchObject({ details: { status: "failed", exitCode: 7, output: "command failed" } });
+    else await expect(result).rejects.toThrow(/cleanup could not be confirmed.*permission denied/iu);
+    const calls = (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+    expect(calls.filter((args) => args[0] === "container" && args[1] === "inspect")).toHaveLength(2);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
 });
