@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-context",
   "version": "0.1.29",
   "name": "Context Insights",
-  "description": "Inspect context usage and descriptor-safe bounded message composition with cached active-session lifecycle counters and a fixed-limit normalized browser panel.",
+  "description": "查看上下文占用与消息构成，带缓存的会话计数和固定上限的面板。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "上下文管理"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["context inspection tool", "active runtime session", "Pi session lifecycle", "plugin UI"],
+  "hooks": ["上下文检查工具", "当前运行会话", "Pi 会话生命周期", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-context",
     "config": {}

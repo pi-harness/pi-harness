@@ -2122,7 +2122,7 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=read-only&category=runtime&page=0&pageSize=1");
+    const response = await fetch(context.webServer.url + "/api/marketplace?q=timer&capability=read-only&category=workflow&page=0&pageSize=1");
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       items?: readonly { packageName?: unknown; status?: unknown }[];
@@ -2137,7 +2137,7 @@ describe("API gateway plugin", () => {
     expect(payload.items?.[0]).toMatchObject({ packageName: "@deepseek-ai/cordis-plugin-timer", status: "verified" });
     expect(payload).toMatchObject({ total: 1, page: 0, pageSize: 1, hasNext: false });
     expect(payload.capabilities).toEqual(expect.arrayContaining([expect.objectContaining({ id: "read-only", label: "只读运行" })]));
-    expect(payload.categories).toEqual(expect.arrayContaining([expect.objectContaining({ id: "runtime", label: "运行时", count: 1 })]));
+    expect(payload.categories).toEqual(expect.arrayContaining([expect.objectContaining({ id: "workflow", label: "工作流", count: 20 })]));
     const tooLong = await fetch(context.webServer.url + "/api/marketplace?q=" + "x".repeat(121));
     expect(tooLong.status).toBe(400);
     const invalidPage = await fetch(context.webServer.url + "/api/marketplace?page=-1");
@@ -3248,8 +3248,13 @@ describe("API gateway plugin", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as { messages: unknown[]; events: Array<Record<string, unknown>> };
     expect(payload.messages).toEqual([message]);
-    expect(payload.events[0]).toEqual({ type: "message_end", message });
-    expect(payload.events[1]).toEqual({ type: "turn_end", self: "[Circular]" });
+    // The gateway stamps every event with the wall-clock it arrived at, which is the only record of when a tool call ran, so the stamp is asserted by type and the rest of the event verbatim.
+    const { receivedAt: firstStamp, ...firstEvent } = payload.events[0] ?? {};
+    const { receivedAt: secondStamp, ...secondEvent } = payload.events[1] ?? {};
+    expect(typeof firstStamp).toBe("number");
+    expect(typeof secondStamp).toBe("number");
+    expect(firstEvent).toEqual({ type: "message_end", message });
+    expect(secondEvent).toEqual({ type: "turn_end", self: "[Circular]" });
   });
 
   test("returns git status paths verbatim when they hold spaces, non-ASCII characters or a rename", async () => {

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-plugin-check",
   "version": "0.1.29",
   "name": "Plugin Check",
-  "description": "Inspect installed plugin manifests and report unsafe, malformed, or incompatible extension metadata before loading it.",
+  "description": "在加载前检查已安装插件的清单，报告不安全、格式错误或不兼容的元数据。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "安全"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["plugin loader", "plugin UI"],
+  "hooks": ["插件加载器", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-plugin-check",
     "config": {}

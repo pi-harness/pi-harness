@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-change-verifier",
   "version": "0.1.29",
   "name": "Change Verifier",
-  "description": "Combine project tests and Git change review into one explicit verification gate before handoff.",
+  "description": "交接前把项目测试和 Git 变更评审合成一道显式的验收关卡。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["read-only"],
-  "hooks": ["project scripts", "Git diff", "plugin UI"],
+  "hooks": ["项目脚本", "Git 变更", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-change-verifier",
     "config": {}

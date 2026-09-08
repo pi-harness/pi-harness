@@ -3,14 +3,21 @@
   "packageName": "@deepseek-ai/cordis-plugin-group",
   "version": "1.0.1",
   "name": "Plugin groups",
-  "description": "Composes nested plugin trees with explicit ownership and rollback.",
+  "description": "把插件组织成带明确归属和回滚的嵌套树。",
   "author": "DeepSeek AI",
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
-  "category": { "id": "composition", "label": "组合编排" },
+  "category": {
+    "id": "workflow",
+    "label": "工作流"
+  },
   "capabilities": ["read-only"],
-  "hooks": ["loader entry tree"],
-  "profile": { "name": "@deepseek-ai/cordis-plugin-group", "group": true, "config": [] }
+  "hooks": ["加载器条目树"],
+  "profile": {
+    "name": "@deepseek-ai/cordis-plugin-group",
+    "group": true,
+    "config": []
+  }
 }

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-modlens",
   "version": "0.1.29",
   "name": "ModLens Vision Bridge",
-  "description": "Send bounded workspace images to native vision models or return schema-validated evidence from the bundled ModLens engine for text-only models.",
+  "description": "把工作区图片交给原生视觉模型；纯文本模型则用内置 ModLens 引擎返回结构化的图像证据。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "视觉与多模态"
   },
   "capabilities": ["reads-files", "writes-files", "runs-commands"],
-  "hooks": ["tool execution", "plugin UI"],
+  "hooks": ["工具调用", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-modlens",
     "config": {}

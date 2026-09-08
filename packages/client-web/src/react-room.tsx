@@ -19,9 +19,9 @@ import {
   type ClientWorkspace,
 } from "./control-room.js";
 import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
-import { compactThinkingEvents } from "./runtime-events.js";
+import { compactThinkingEvents, eventKindLabel, eventOrigin, eventOutputText, formatEventClock, formatEventDuration } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
-import { messageText, projectChatTurns } from "./message-content.js";
+import { type ChatToolCall, messageText, messageThinking, projectChatTurns } from "./message-content.js";
 import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
 import {
   marketplaceCapabilityLabeller,
@@ -166,11 +166,25 @@ function useModalFocus(open: boolean, onClose: () => void, busy = false, returnF
 }
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : "未选择工作区");
+const EVENT_LABEL_LIMIT = 120;
 const eventLabel = (event: Record<string, unknown>): string => {
   const type = value(event.type, "");
   if (type === "file_diff") return "文件差异";
   if (type === "file") return "文件详情";
-  return value(event.summary ?? event.message ?? event.toolName ?? event.type ?? event.event, "未命名事件");
+  if (typeof event.summary === "string" && event.summary !== "") return previewText(event.summary, EVENT_LABEL_LIMIT);
+  // The whole message object used to be stringified into this cell, which filled the column with protocol and buried the one line a reader is looking for.
+  const message = typeof event.message === "object" && event.message !== null ? (event.message as Record<string, unknown>) : undefined;
+  if (message !== undefined) {
+    const role = value(message.role, "message");
+    const text = messageText(message) || messageThinking(message);
+    return text ? previewText(`${role}: ${text}`, EVENT_LABEL_LIMIT) : role;
+  }
+  // A tool row that prints only the tool's name repeats the 产生者 column beside it; the arguments say which file was read and the result says what came back.
+  if (typeof event.toolName === "string" && event.toolName !== "") {
+    const detail = event.args !== undefined ? toolArgumentSummary(event.args) : previewText(eventOutputText(event.result) ?? "", EVENT_LABEL_LIMIT);
+    return detail ? previewText(`${event.toolName} · ${detail}`, EVENT_LABEL_LIMIT) : event.toolName;
+  }
+  return eventKindLabel(type);
 };
 const capability = (name: string): string => {
   const entries: readonly [string, string][] = [
@@ -256,6 +270,8 @@ const capability = (name: string): string => {
   ];
   return entries.find(([needle]) => name.includes(needle))?.[1] ?? "运行时";
 };
+// The state the gateway reports for a plugin that is installed in the profile but has no loader entry yet, which is every marketplace install until the next start.
+const RESTART_REQUIRED_PLUGIN_STATE = "restart-required";
 // The runtime leases the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools joins on the next start rather than immediately. The notice names no start command because the harness is reachable through more than one of them, and it covers enabling as well as installing because both actions share it.
 const RESTART_REQUIRED_NOTICE =
   "改动已写入 profile（~/.pi-harness/profiles/<profile>/cordis.yml）。控制台无法自行重启，请回到启动 Pi Harness 的终端按 Ctrl-C，再用原来的命令重新启动；在那之前这次改动不会生效，刚安装的插件也不会出现在「已安装」列表里。";
@@ -882,6 +898,7 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
       </aside>
     );
   const output = event.output ?? event.result ?? event.message;
+  const outputText = eventOutputText(output);
   const fileDetail = event.type === "file" || event.type === "file_diff";
   const stats: readonly [string, string][] = fileDetail
     ? [
@@ -889,10 +906,10 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
         ["文件", value(event.path)],
       ]
     : [
-        ["来源", value(event.type ?? event.source, "event")],
-        ["产生者", value(event.by ?? event.source)],
-        ["耗时", value(event.duration ?? event.dur)],
-        ["时间", value(event.timestamp ?? event.ts ?? event.time)],
+        ["类型", eventKindLabel(event.type)],
+        ["产生者", eventOrigin(event)],
+        ["耗时", formatEventDuration(event)],
+        ["时间", formatEventClock(event)],
       ];
   return (
     <aside className="details-panel">
@@ -914,7 +931,8 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
         {output !== undefined && (
           <div className="detail-section">
             <small>输出</small>
-            <pre className="tool-output">{typeof output === "string" ? output : JSON.stringify(output, null, 2)}</pre>
+            {/* A tool result is text wrapped in a content envelope, and printing the envelope made the panel show JSON where the file the tool read should be. The raw payload is still one disclosure below. */}
+            <pre className="tool-output">{outputText ?? JSON.stringify(output, null, 2)}</pre>
           </div>
         )}
         <div className="detail-section">
@@ -971,29 +989,29 @@ function Trajectory({ events, onSelect }: { events: readonly Record<string, unkn
           全部 {events.length}
         </button>
         {[...counts].map(([type, count]) => (
-          <button className={`filter ${filter === type ? "active" : ""}`} key={type} onClick={() => setFilter(type)} type="button">
-            {type} {count}
+          <button className={`filter ${filter === type ? "active" : ""}`} key={type} onClick={() => setFilter(type)} title={type} type="button">
+            {eventKindLabel(type)} {count}
           </button>
         ))}
       </div>
       <div className="event-table">
         <div className="event-head">
           <span>时间</span>
-          <span>来源</span>
+          <span>类型</span>
           <span>事件</span>
           <span>产生者</span>
           <span>耗时</span>
         </div>
         {visible.map((event, index) => (
           <button className="event-row" key={index} onClick={() => onSelect(event)} type="button">
-            <span>{value(event.timestamp ?? event.ts ?? event.time)}</span>
-            <span>
+            <span>{formatEventClock(event)}</span>
+            <span title={value(event.type, "event")}>
               <i className="event-dot"></i>
-              {value(event.type, "event")}
+              {eventKindLabel(event.type)}
             </span>
             <strong>{eventLabel(event)}</strong>
-            <span>{value(event.by ?? event.source)}</span>
-            <span>{value(event.duration ?? event.dur)}</span>
+            <span>{eventOrigin(event)}</span>
+            <span>{formatEventDuration(event)}</span>
           </button>
         ))}
         {!visible.length && <div className="empty-state">暂无轨迹事件。</div>}
@@ -5187,7 +5205,6 @@ function Plugins({
   panels,
   catalog,
   capabilityLabel,
-  restartPendingPackages,
   onMarketplace,
   onOpenDetail,
   onToml,
@@ -5198,7 +5215,6 @@ function Plugins({
   panels: readonly ClientPluginPanel[];
   catalog: readonly ClientMarketplacePlugin[];
   capabilityLabel: (id: string) => string;
-  restartPendingPackages: ReadonlySet<string>;
   onMarketplace: () => void;
   onOpenDetail: (plugin: ClientPlugin) => void;
   onToml: () => void;
@@ -5274,7 +5290,6 @@ function Plugins({
               插件市场
             </button>
           </div>
-          <span>已安装插件</span>
           <a
             href="#"
             onClick={(event) => {
@@ -5305,7 +5320,8 @@ function Plugins({
               const categoryLabel = metadata?.category.label ?? plugin.category?.label;
               const shortName = capability(plugin.name);
               const pluginTitle = metadata?.name ?? displayPluginName(plugin.name);
-              const cardContent = installedPluginCardContent(plugin, metadata);
+              const cardContent = installedPluginCardContent(plugin, metadata, capabilityLabel);
+              const awaitingRestart = plugin.state === RESTART_REQUIRED_PLUGIN_STATE;
               return (
                 <article className="catalog-card plugin-card" key={plugin.id}>
                   <div className="plugin-card-head">
@@ -5314,7 +5330,9 @@ function Plugins({
                       <div className="plugin-heading">
                         <div className="plugin-title">
                           <strong>{pluginTitle}</strong>
-                          <span className={`plugin-state ${plugin.enabled ? "active" : ""}`}>{plugin.enabled ? "运行中" : "已停用"}</span>
+                          <span className={`plugin-state ${awaitingRestart ? "" : plugin.enabled ? "active" : ""}`}>
+                            {awaitingRestart ? "重启后生效" : plugin.enabled ? "运行中" : "已停用"}
+                          </span>
                           {categoryLabel && <span className="capability">{categoryLabel}</span>}
                           {categoryLabel !== shortName && <span className="capability">{shortName}</span>}
                         </div>
@@ -5325,8 +5343,9 @@ function Plugins({
                                 aria-label={`${plugin.enabled ? "停用" : "启用"} ${pluginTitle}`}
                                 aria-pressed={plugin.enabled}
                                 className="plugin-switch-button"
-                                disabled={busyPlugin !== undefined}
+                                disabled={busyPlugin !== undefined || awaitingRestart}
                                 onClick={() => void runPluginAction(plugin, (item) => onToggle(item))}
+                                title={awaitingRestart ? "插件已安装但还没加载，重启 Pi Harness 后才能停用或启用" : undefined}
                                 type="button"
                               >
                                 <span aria-hidden="true" className={`switch ${plugin.enabled ? "on" : ""}`}>
@@ -5373,11 +5392,7 @@ function Plugins({
               );
             })}
             {!installedPlugins.length ? (
-              <div className="empty-state">
-                {restartPendingPackages.size
-                  ? `已有 ${restartPendingPackages.size} 个插件安装完成并写入 profile，重启 Pi Harness 后会出现在这里。`
-                  : "还没有安装可管理的插件。去插件市场安装一个吧。"}
-              </div>
+              <div className="empty-state">还没有安装可管理的插件。去插件市场安装一个吧。</div>
             ) : !visiblePlugins.length ? (
               <div className="empty-state">没有匹配当前搜索与分类条件的已安装插件。</div>
             ) : null}
@@ -5447,6 +5462,7 @@ function InstalledPluginDetail({
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const [busyAction, setBusyAction] = useState<"toggle" | "uninstall">();
+  const awaitingRestart = plugin.state === RESTART_REQUIRED_PLUGIN_STATE;
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState(false);
@@ -5505,11 +5521,12 @@ function InstalledPluginDetail({
                 <div className="plugin-detail-actions">
                   <button
                     className="plugin-detail-action"
-                    disabled={busyAction !== undefined}
+                    disabled={busyAction !== undefined || awaitingRestart}
                     onClick={() => void run("toggle", () => onToggle(plugin))}
+                    title={awaitingRestart ? "插件已安装但还没加载，重启 Pi Harness 后才能停用或启用" : undefined}
                     type="button"
                   >
-                    {busyAction === "toggle" ? "处理中…" : plugin.enabled ? "停用插件" : "启用插件"}
+                    {busyAction === "toggle" ? "处理中…" : awaitingRestart ? "等待重启" : plugin.enabled ? "停用插件" : "启用插件"}
                   </button>
                   <button
                     className="plugin-detail-action danger"
@@ -5581,7 +5598,7 @@ function InstalledPluginDetail({
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[#687381]">运行状态</dt>
-                  <dd className="font-mono text-[#3b424b]">{plugin.state}</dd>
+                  <dd className="font-mono text-[#3b424b]">{awaitingRestart ? "已安装，重启后生效" : plugin.state}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[#687381]">配置标识</dt>
@@ -5701,7 +5718,6 @@ export function Marketplace({
               插件市场
             </button>
           </div>
-          <span>已审核插件目录</span>
           <a
             href="#"
             onClick={(event) => {
@@ -7003,42 +7019,90 @@ export function marketplaceDetailPlan(
   return resolvedId === pluginId ? { kind: "keep" } : { kind: "fetch" };
 }
 
-// Memoised on primitive props so a poll that returns an identical transcript does not re-run marked + DOMPurify over every turn.
-export const ChatTurnArticle = memo(function ChatTurnArticle({
-  role,
-  text,
-  thinking,
-  stopped = false,
-  onMouseUp,
-}: {
-  role: "user" | "assistant";
-  text: string;
-  thinking: string;
-  stopped?: boolean;
-  onMouseUp: () => void;
-}) {
-  return (
-    <article className={`turn ${role === "user" ? "user" : "text"}`}>
-      {role === "user" ? (
-        <UserMessageBubble text={text} />
-      ) : (
-        <>
-          {thinking && (
-            <details className="reasoning message-reasoning">
-              <summary className="reasoning-head">思考</summary>
-              <div className="reasoning-body">
-                <MarkdownMessage text={thinking} />
-              </div>
-            </details>
-          )}
-          {text && <MarkdownMessage onMouseUp={onMouseUp} text={text} />}
-          {/* An interrupted turn otherwise looks exactly like one that finished on its own, and the aborted flag the prompt call returns is gone after a reload, so the marker is read back from the stored message. */}
-          {stopped && <p className="turn-stopped">已中断</p>}
-        </>
-      )}
-    </article>
-  );
-});
+/** At most `limit` characters, collapsed to one line unless the caller wants the original line breaks kept. */
+function previewText(value: string, limit: number, singleLine = true): string {
+  const collapsed = singleLine ? value.replace(/\s+/gu, " ").trim() : value;
+  return collapsed.length <= limit ? collapsed : `${collapsed.slice(0, limit - 1)}…`;
+}
+
+const TOOL_ARGUMENT_PREVIEW_LIMIT = 140;
+// A tool result is untrusted text of any length, and the row it belongs to is collapsed, so the transcript keeps a readable head of it rather than pushing megabytes of file contents into the document.
+const TOOL_RESULT_PREVIEW_LIMIT = 4_000;
+
+/** The arguments of a call as one line, so the row says which file was read rather than only that `read` ran. */
+export function toolArgumentSummary(args: unknown): string {
+  if (args === undefined || args === null) return "";
+  // A tool is free to take a bare scalar rather than an object of named arguments, and `value` already knows how to print one of those without falling back to [object Object].
+  if (typeof args !== "object") return previewText(value(args, ""), TOOL_ARGUMENT_PREVIEW_LIMIT);
+  const parts = Object.entries(args as Record<string, unknown>)
+    .filter(([, item]) => item !== undefined && item !== null && item !== "")
+    .map(([key, item]) => `${key}=${typeof item === "string" ? item : JSON.stringify(item)}`);
+  return previewText(parts.join(" · "), TOOL_ARGUMENT_PREVIEW_LIMIT);
+}
+
+function toolSignature(tools: readonly ChatToolCall[]): string {
+  return tools.map((tool) => `${tool.id}:${tool.name}:${tool.failed ? 1 : 0}:${tool.result?.length ?? -1}`).join("|");
+}
+
+// Memoised on primitive props so a poll that returns an identical transcript does not re-run marked + DOMPurify over every turn. The tool list is a fresh array on every poll, so it is compared by content instead of by identity, which is what the default shallow comparison would do.
+export const ChatTurnArticle = memo(
+  function ChatTurnArticle({
+    role,
+    text,
+    thinking,
+    tools = [],
+    stopped = false,
+    onMouseUp,
+  }: {
+    role: "user" | "assistant";
+    text: string;
+    thinking: string;
+    tools?: readonly ChatToolCall[];
+    stopped?: boolean;
+    onMouseUp: () => void;
+  }) {
+    return (
+      <article className={`turn ${role === "user" ? "user" : "text"}`}>
+        {role === "user" ? (
+          <UserMessageBubble text={text} />
+        ) : (
+          <>
+            {/* A model that emits only whitespace as its reasoning would otherwise open an empty disclosure titled 思考. */}
+            {thinking.trim() && (
+              <details className="reasoning message-reasoning">
+                <summary className="reasoning-head">思考</summary>
+                <div className="reasoning-body">
+                  <MarkdownMessage text={thinking} />
+                </div>
+              </details>
+            )}
+            {/* Without these rows the transcript jumps from the prompt to an answer the model could not have known, because a message whose only content is a tool call carries no text at all. */}
+            {tools.map((tool, index) => (
+              <details className={`turn-tool ${tool.failed ? "failed" : ""}`} key={tool.id || `${tool.name}-${index}`}>
+                <summary className="turn-tool-head">
+                  <strong>{tool.name}</strong>
+                  <span className="turn-tool-args">{toolArgumentSummary(tool.arguments)}</span>
+                  <span className="turn-tool-status">{tool.result === undefined ? "执行中…" : tool.failed ? "失败" : "完成"}</span>
+                </summary>
+                {tool.result !== undefined && <pre className="turn-tool-output">{previewText(tool.result, TOOL_RESULT_PREVIEW_LIMIT, false)}</pre>}
+              </details>
+            ))}
+            {text && <MarkdownMessage onMouseUp={onMouseUp} text={text} />}
+            {/* An interrupted turn otherwise looks exactly like one that finished on its own, and the aborted flag the prompt call returns is gone after a reload, so the marker is read back from the stored message. */}
+            {stopped && <p className="turn-stopped">已中断</p>}
+          </>
+        )}
+      </article>
+    );
+  },
+  (previous, next) =>
+    previous.role === next.role &&
+    previous.text === next.text &&
+    previous.thinking === next.thinking &&
+    previous.stopped === next.stopped &&
+    previous.onMouseUp === next.onMouseUp &&
+    toolSignature(previous.tools ?? []) === toolSignature(next.tools ?? []),
+);
 
 export function ControlRoomView({ api = createClientApi(), appVersion }: { api?: ClientApi; appVersion?: string }) {
   const initialQueryState = useMemo(readQueryState, []);
@@ -7148,8 +7212,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [data.commands, data.files, promptCompletion]);
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
   const promptCompletionActiveIndex = Math.min(promptCompletionIndex, Math.max(promptCompletionItems.length - 1, 0));
-  const installedPackages = useMemo(() => new Set(data.plugins.filter((plugin) => plugin.removable).map((plugin) => plugin.name)), [data.plugins]);
-  // Kept apart from installedPackages, which feeds the sidebar count and the 已安装 list: a plugin waiting for a restart is on disk and in the profile but not loaded, so counting it as installed would claim it is running.
+  const installedPackages = useMemo(
+    () => new Set(data.plugins.filter((plugin) => plugin.removable && plugin.state !== RESTART_REQUIRED_PLUGIN_STATE).map((plugin) => plugin.name)),
+    [data.plugins],
+  );
+  // Kept apart from installedPackages, which decides whether the marketplace says 已安装: a plugin waiting for a restart is on disk and in the profile but not loaded, so counting it as installed would claim it is running.
+  // The gateway reads the profile, so it reports an install this browser never made and one that survives a reload; the local set below only has to cover the moment between an install and the next poll.
+  const reportedRestartPending = useMemo(
+    () => new Set(data.plugins.filter((plugin) => plugin.state === RESTART_REQUIRED_PLUGIN_STATE).map((plugin) => plugin.name)),
+    [data.plugins],
+  );
   const harnessProcess = data.status?.processStartedAt ?? "";
   const capabilityLabel = useMemo(() => marketplaceCapabilityLabeller(data.marketplaceCapabilities), [data.marketplaceCapabilities]);
   const [restartPending, setRestartPending] = useState<RestartPendingState>(() => readRestartPendingPackages(browserStorage()));
@@ -7172,6 +7244,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   useEffect(() => {
     writeRestartPendingPackages(browserStorage(), restartPending);
   }, [restartPending]);
+  const restartPendingPackages = useMemo(() => new Set([...reportedRestartPending, ...restartPending.packages]), [reportedRestartPending, restartPending]);
   const workspaceReady =
     !workspaceChooserOpen && Boolean(selectedWorkspacePath || data.status?.cwd || data.workspaces.find((workspace) => workspace.current)?.path || data.session);
   const installedPluginCount = useMemo(() => {
@@ -7827,7 +7900,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       plugins={data.plugins}
       panels={data.pluginPanels}
       catalog={marketplaceCatalog.length ? marketplaceCatalog : data.marketplace}
-      restartPendingPackages={restartPending.packages}
       onMarketplace={() => pushMarketplacePluginRoute(undefined)}
       onOpenDetail={(plugin) => pushInstalledPluginRoute(plugin.name)}
       onToml={() => {
@@ -7851,7 +7923,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         plugin={marketplaceDetail}
         capabilityLabel={capabilityLabel}
         installed={installedPackages.has(marketplaceDetail.packageName)}
-        restartPending={restartPending.packages.has(marketplaceDetail.packageName)}
+        restartPending={restartPendingPackages.has(marketplaceDetail.packageName)}
         onBack={() => pushMarketplacePluginRoute(undefined)}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
@@ -7910,7 +7982,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           setSettings("toml");
         }}
         installedPackages={installedPackages}
-        restartPendingPackages={restartPending.packages}
+        restartPendingPackages={restartPendingPackages}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
@@ -7938,6 +8010,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               stopped={turn.stopped}
               text={turn.text}
               thinking={turn.thinking}
+              tools={turn.tools}
             />
           ))
         ) : (
@@ -8691,17 +8764,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <strong>
               {settings
                 ? "设置"
-                : page === "plugins"
-                  ? installedPluginId
+                : page === "plugins" || page === "marketplace"
+                  ? installedPluginId || marketplacePluginId
                     ? "插件详情"
-                    : "运行时插件"
-                  : page === "marketplace"
-                    ? marketplacePluginId
-                      ? "插件详情"
-                      : "插件市场"
-                    : data.session?.messages.length
-                      ? data.session.sessionId.slice(0, 12)
-                      : "新会话"}
+                    : "插件"
+                  : data.session?.messages.length
+                    ? data.session.sessionId.slice(0, 12)
+                    : "新会话"}
             </strong>
             <small>
               {settings
@@ -8709,7 +8778,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 : page === "plugins"
                   ? installedPluginId
                     ? (installedPluginMetadata?.name ?? displayPluginName(installedPluginId))
-                    : "已安装插件"
+                    : "安装、启用与卸载"
                   : page === "marketplace"
                     ? marketplacePluginId
                       ? (marketplaceDetail?.name ?? marketplacePluginId)

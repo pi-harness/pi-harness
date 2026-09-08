@@ -3,18 +3,18 @@
   "packageName": "@pi-harness/plugin-mock-server",
   "version": "0.1.29",
   "name": "Mock Server",
-  "description": "Start a local, bounded HTTP mock server from explicit routes for integration testing without external services.",
+  "description": "按显式路由起一个本地 HTTP mock 服务，用来做集成测试，不依赖外部服务。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
   "source": "official",
   "status": "verified",
   "category": {
-    "id": "tools",
-    "label": "工具"
+    "id": "developer",
+    "label": "开发工具"
   },
   "capabilities": ["local-server"],
-  "hooks": ["local HTTP server", "plugin UI"],
+  "hooks": ["本地 HTTP 服务", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-mock-server",
     "config": {}

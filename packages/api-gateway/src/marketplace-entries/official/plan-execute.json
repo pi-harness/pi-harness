@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-plan-execute",
   "version": "0.1.29",
   "name": "Plan Execute",
-  "description": "Track an explicit multi-step execution plan with progress, dependencies, and completion state in the current session.",
+  "description": "在当前会话里跟踪一份多步执行计划：进度、依赖和完成状态。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["read-only"],
-  "hooks": ["session state", "plugin UI"],
+  "hooks": ["会话状态", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-plan-execute",
     "config": {}

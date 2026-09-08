@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-skill-guard",
   "version": "0.1.29",
   "name": "Skill Guard",
-  "description": "Audit each loaded Skill entry Markdown file with bounded heuristics for instruction override, secret exfiltration, destructive commands, and obfuscation; it reports risk labels and does not disable loaded Skills.",
+  "description": "用启发式规则审计每个已加载 Skill 的 Markdown：指令覆盖、密钥外传、破坏性命令和混淆。只给风险标签，不会停用 Skill。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "安全"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["skill scan tool", "resource loader", "plugin UI"],
+  "hooks": ["skill 扫描工具", "资源加载器", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-skill-guard",
     "config": {}

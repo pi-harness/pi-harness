@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-workspace-navigator",
   "version": "0.1.29",
   "name": "Workspace Navigator",
-  "description": "Show a bounded workspace tree and read-only Git status for a high-signal coding sidebar.",
+  "description": "显示有上限的工作区目录树和只读 Git 状态，作为写代码时的侧边栏。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "开发工具"
   },
   "capabilities": ["reads-files", "runs-commands"],
-  "hooks": ["workspace files", "bounded scan", "read-only Git", "plugin UI"],
+  "hooks": ["工作区文件", "受限扫描", "只读 Git", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-workspace-navigator",
     "config": {}

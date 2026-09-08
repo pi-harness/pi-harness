@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-telemetry-blocker",
   "version": "0.1.29",
   "name": "Telemetry Blocker",
-  "description": "Block configured outbound telemetry destinations and report blocked attempts without collecting payload contents.",
+  "description": "拦截配置好的遥测出站地址并记录拦截次数，不收集载荷内容。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "安全"
   },
   "capabilities": ["read-only"],
-  "hooks": ["network policy", "plugin UI"],
+  "hooks": ["网络策略", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-telemetry-blocker",
     "config": {}

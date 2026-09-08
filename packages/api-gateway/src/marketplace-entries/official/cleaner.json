@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-cleaner",
   "version": "0.1.29",
   "name": "Cleaner",
-  "description": "Strict descriptor-safe configuration and parameters, display-safe bounded Pi Harness Git capsule inventory, removal with explicit confirmation and retention controls, symlink and replacement defenses, cancellable serialization, and a fail-closed normalized panel.",
+  "description": "列出 Pi Harness 的 Git 胶囊目录并按保留策略清理，删除需要显式确认，防符号链接与文件替换，可取消。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "开发工具"
   },
   "capabilities": ["reads-files", "writes-files"],
-  "hooks": ["capsule cleanup tool", "agent capsule directory", "plugin UI"],
+  "hooks": ["胶囊清理工具", "agent 胶囊目录", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-cleaner",
     "config": {}

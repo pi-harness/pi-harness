@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-browser-session",
   "version": "0.1.29",
   "name": "Browser Session",
-  "description": "Control a loopback-only Chrome DevTools session with descriptor-safe commands, bounded discovery, cancellable operations, screenshot metadata protection, and validated fail-closed panel previews.",
+  "description": "通过 Chrome DevTools 协议控制一个仅限本机回环的浏览器会话，命令受限、可取消，截图元数据会被清理。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "网页与研究"
   },
   "capabilities": ["network-access"],
-  "hooks": ["browser session tools", "Chrome DevTools Protocol", "plugin UI"],
+  "hooks": ["浏览器会话工具", "Chrome DevTools 协议", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-browser-session",
     "config": {

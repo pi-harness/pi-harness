@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-session-insights",
   "version": "0.1.29",
   "name": "Session Insights",
-  "description": "Publish descriptor-safe validated cached session statistics and run only confirmed settled-session compaction with explicit model usage and cost guidance plus cancellable lifecycle handling.",
+  "description": "发布经过校验并缓存的会话统计；压缩只在会话空闲且确认后执行，并给出模型用量与费用提示，可取消。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "可观测性"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["session report tool", "active runtime session", "Pi session lifecycle", "plugin UI"],
+  "hooks": ["会话报告工具", "当前运行会话", "Pi 会话生命周期", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-session-insights",
     "config": {}

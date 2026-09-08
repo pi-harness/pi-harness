@@ -35,73 +35,71 @@ describe("plugin marketplace registry", () => {
 
   test("publishes the high-value official plugins in the same marketplace registry", () => {
     const official = new Map(MARKETPLACE_PLUGINS.filter((plugin) => plugin.source === "official").map((plugin) => [plugin.id, plugin]));
-    expect(official.get("agent-teams")?.category.id).toBe("collaboration");
+    expect(official.get("agent-teams")?.category.id).toBe("workflow");
     expect(official.get("plugin-stars")?.category.id).toBe("discovery");
-    expect(official.get("plugin-stars")?.description).toMatch(
-      /curated.*raw\.githubusercontent\.com.*descriptor-safe.*bounded.*cancellable.*fail-closed.*panel/iu,
-    );
+    expect(official.get("plugin-stars")?.description).toMatch(/raw\.githubusercontent\.com.*输入受限.*校验严格.*可取消.*失败即关闭/u);
     expect(official.get("plugin-stars")?.capabilities).toEqual(["network-access"]);
-    expect(official.get("plugin-stars")?.hooks).toEqual(["ranking search tool", "raw GitHub snapshot", "plugin UI"]);
+    expect(official.get("plugin-stars")?.hooks).toEqual(["榜单搜索工具", "GitHub 原始快照", "插件面板"]);
     expect(official.get("plugin-stars")?.profile.config).toEqual({
       sourceUrl: "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json",
       limit: 10,
       timeoutMs: 15_000,
     });
     expect(official.get("vision-toolkit")?.category.id).toBe("multimodal");
-    expect(official.get("vision-toolkit")?.description).toMatch(/signature-verified.*PNG.*JPEG.*GIF.*WebP.*bounded header.*cancellable.*local/iu);
+    expect(official.get("vision-toolkit")?.description).toMatch(/PNG.*JPEG.*GIF.*WebP.*只读文件头.*可取消.*本机/u);
     expect(official.get("vision-toolkit")?.capabilities).toEqual(["read-only", "reads-files"]);
-    expect(official.get("vision-toolkit")?.hooks).toEqual(["image metadata tools", "workspace access", "plugin UI"]);
+    expect(official.get("vision-toolkit")?.hooks).toEqual(["图像元数据工具", "工作区访问", "插件面板"]);
     expect(official.get("vision-toolkit")?.profile.config).toEqual({});
     expect(official.get("session-bridge")?.category.id).toBe("workflow");
-    expect(official.get("session-bridge")?.description).toMatch(/preview.*export.*confirmed import.*strictly validated.*bounded.*LLM context.*duplicate/iu);
+    expect(official.get("session-bridge")?.description).toMatch(/预览.*导出.*导入需要确认.*严格校验.*防重复注入/u);
     expect(official.get("session-bridge")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("session-bridge")?.hooks).toEqual(["session bridge tools", "active session manager", "custom context messages", "plugin UI"]);
+    expect(official.get("session-bridge")?.hooks).toEqual(["会话桥接工具", "当前会话管理器", "自定义上下文消息", "插件面板"]);
     expect(official.get("session-bridge")?.profile.config).toEqual({});
     expect(official.get("skill-guard")?.category.id).toBe("security");
-    expect(official.get("skill-guard")?.description).toMatch(/loaded Skill entry.*bounded heuristic.*does not disable/iu);
+    expect(official.get("skill-guard")?.description).toMatch(/启发式.*已加载 Skill.*不会停用/u);
     expect(official.get("skill-guard")?.capabilities).toEqual(["read-only", "reads-files"]);
-    expect(official.get("skill-guard")?.hooks).toEqual(["skill scan tool", "resource loader", "plugin UI"]);
+    expect(official.get("skill-guard")?.hooks).toEqual(["skill 扫描工具", "资源加载器", "插件面板"]);
     expect(official.get("skill-guard")?.profile.config).toEqual({});
     expect(official.get("cost-meter")?.category.id).toBe("observability");
-    expect(official.get("cost-meter")?.description).toMatch(/runtime-reported.*UTC daily increments.*bounded local ledger/iu);
+    expect(official.get("cost-meter")?.description).toMatch(/运行时上报的费用.*UTC.*本地账本/u);
     expect(official.get("cost-meter")?.capabilities).toEqual(["session-data", "reads-files", "writes-files"]);
-    expect(official.get("cost-meter")?.hooks).toEqual(["agent end", "cost report tool", "plugin UI"]);
+    expect(official.get("cost-meter")?.hooks).toEqual(["运行结束", "费用报告工具", "插件面板"]);
     expect(official.get("cost-meter")?.profile.config).toEqual({ dailyBudget: 0, maxEntries: 365 });
     expect(official.get("skill-catalog")?.category.id).toBe("discovery");
     expect(official.get("prompt-guard")?.category.id).toBe("security");
     expect(official.get("browser-fetch")?.category.id).toBe("web");
-    expect(official.get("browser-fetch")?.description).toMatch(/bounded.*text.*descriptor-safe.*DNS.*pinn.*redirect.*private.*timeout.*validated.*panel/iu);
+    expect(official.get("browser-fetch")?.description).toMatch(/有上限的文本.*固定 DNS.*内网.*文本类型.*可取消.*超时/u);
     expect(official.get("browser-fetch")?.capabilities).toEqual(["network-access"]);
     expect(official.get("browser-fetch")?.profile.config).toEqual({ allowPrivate: false, timeoutMs: 20_000 });
     expect(official.get("web-research")?.category.id).toBe("web");
-    expect(official.get("mcp-client")?.category.id).toBe("tools");
-    expect(official.get("mcp-client")?.description).toMatch(/MCP stdio.*bounded.*pagination.*tool.*resource.*prompt.*cancellable.*lifecycle/iu);
+    expect(official.get("mcp-client")?.category.id).toBe("developer");
+    expect(official.get("mcp-client")?.description).toMatch(/MCP stdio.*工具、资源与提示词.*可取消.*生命周期/u);
     expect(official.get("mcp-client")?.capabilities).toEqual(["runs-commands"]);
-    expect(official.get("mcp-client")?.hooks).toEqual(["MCP stdio tools", "managed server lifecycle", "plugin UI"]);
+    expect(official.get("mcp-client")?.hooks).toEqual(["MCP stdio 工具", "托管服务进程", "插件面板"]);
     expect(official.get("mcp-client")?.profile.config).toEqual({ servers: [] });
     expect(official.get("at-file")?.category.id).toBe("context");
-    expect(official.get("at-file")?.description).toMatch(/bounded 256 KiB.*UTF-8.*canonical.*untrusted.*closing-tag.*cancellable.*sequential/iu);
+    expect(official.get("at-file")?.description).toMatch(/256 KiB.*UTF-8.*只读上下文.*工作区内.*符号链接/u);
     expect(official.get("at-file")?.capabilities).toEqual(["read-only", "reads-files"]);
-    expect(official.get("at-file")?.hooks).toEqual(["file context tool", "workspace file read", "plugin UI"]);
+    expect(official.get("at-file")?.hooks).toEqual(["文件上下文工具", "工作区文件读取", "插件面板"]);
     expect(official.get("at-file")?.profile.config).toEqual({});
     expect(official.get("dependency-checker")?.category.id).toBe("developer");
-    expect(official.get("dependency-checker")?.description).toMatch(/bounded.*offline.*read-only.*package\.json.*requirements.*presence.*unresolved/iu);
+    expect(official.get("dependency-checker")?.description).toMatch(/离线.*只读.*package\.json.*requirements.*已安装.*约束/u);
     expect(official.get("dependency-checker")?.capabilities).toEqual(["read-only", "reads-files"]);
-    expect(official.get("dependency-checker")?.hooks).toEqual(["dependency check tool", "workspace manifest read", "plugin UI"]);
+    expect(official.get("dependency-checker")?.hooks).toEqual(["依赖检查工具", "工作区清单读取", "插件面板"]);
     expect(official.get("token-guard")?.category.id).toBe("observability");
-    expect(official.get("token-guard")?.description).toMatch(/descriptor-safe.*one abort.*per run.*context.*billed run-token.*cached.*normalized panel/iu);
+    expect(official.get("token-guard")?.description).toMatch(/上下文占比.*计费 token.*一次运行最多发出一次中止.*缓存/u);
     expect(official.get("token-guard")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("token-guard")?.hooks).toEqual(["Pi session lifecycle", "active runtime abort", "session usage and statistics", "plugin UI"]);
+    expect(official.get("token-guard")?.hooks).toEqual(["Pi 会话生命周期", "当前运行中止", "会话用量与统计", "插件面板"]);
     expect(official.get("token-guard")?.profile.config).toEqual({ maxPercent: 90, maxRunTokens: 0 });
     expect(official.get("recall-unread")?.category.id).toBe("workflow");
-    expect(official.get("recall-unread")?.description).toMatch(/read-only.*bounded.*strict UTF-8.*current workspace.*unanswered.*cached/iu);
+    expect(official.get("recall-unread")?.description).toMatch(/只读.*当前工作区.*还没被回复.*缓存/u);
     expect(official.get("recall-unread")?.capabilities).toEqual(["read-only", "session-data", "reads-files"]);
-    expect(official.get("recall-unread")?.hooks).toEqual(["recall unread tool", "native session storage", "active session manager", "plugin UI"]);
+    expect(official.get("recall-unread")?.hooks).toEqual(["未读回溯工具", "原生会话存储", "当前会话管理器", "插件面板"]);
     expect(official.get("recall-unread")?.profile.config).toEqual({});
     expect(official.get("turn-rewind")?.category.id).toBe("workflow");
-    expect(official.get("turn-rewind")?.description).toMatch(/bounded.*current branch.*queued.*cancellable.*native session tree/iu);
+    expect(official.get("turn-rewind")?.description).toMatch(/当前分支.*agent 空闲.*串行回退.*原生会话树/u);
     expect(official.get("turn-rewind")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("turn-rewind")?.hooks).toEqual(["session rewind tool", "active session tree", "agent settled lifecycle", "plugin UI"]);
+    expect(official.get("turn-rewind")?.hooks).toEqual(["会话回退工具", "当前会话树", "agent 空闲生命周期", "插件面板"]);
     expect(official.get("turn-rewind")?.profile.config).toEqual({});
     expect(official.get("context-doctor")?.category.id).toBe("observability");
     expect(official.get("history-compressor")?.category.id).toBe("context");
@@ -109,165 +107,134 @@ describe("plugin marketplace registry", () => {
     expect(official.get("auto-mode")?.category.id).toBe("security");
     expect(official.get("plan-execute")?.category.id).toBe("workflow");
     expect(official.get("canvas-draw")?.category.id).toBe("multimodal");
-    expect(official.get("canvas-draw")?.description).toMatch(/Mermaid flowchart source/iu);
-    expect(official.get("canvas-draw")?.hooks).toEqual(["plugin UI"]);
+    expect(official.get("canvas-draw")?.description).toMatch(/Mermaid 流程图源码/u);
+    expect(official.get("canvas-draw")?.hooks).toEqual(["插件面板"]);
     expect(official.get("image-compressor")?.category.id).toBe("multimodal");
-    expect(official.get("code2skill")?.category.id).toBe("tools");
-    expect(official.get("code2skill")?.description).toMatch(/selected workspace source files/iu);
+    expect(official.get("code2skill")?.category.id).toBe("developer");
+    expect(official.get("code2skill")?.description).toMatch(/选中的工作区源码/u);
     expect(official.get("code2skill")?.capabilities).toEqual(["reads-files", "writes-files"]);
     expect(official.get("workspace-search")?.category.id).toBe("context");
     expect(official.get("plugin-check")?.category.id).toBe("security");
-    expect(official.get("test-harness")?.category.id).toBe("testing");
-    expect(official.get("test-harness")?.description).toMatch(
-      /five fixed npm script.*trusted workspace.*12 KiB.*UTF-8.*untrusted.*timeout.*cancellable process-tree/iu,
-    );
+    expect(official.get("test-harness")?.category.id).toBe("developer");
+    expect(official.get("test-harness")?.description).toMatch(/五个固定名字的 npm 脚本.*12 KiB.*超时.*取消.*进程树/u);
     expect(official.get("test-harness")?.capabilities).toEqual(["runs-commands"]);
-    expect(official.get("test-harness")?.hooks).toEqual(["project verification tool", "workspace npm scripts", "plugin UI"]);
+    expect(official.get("test-harness")?.hooks).toEqual(["项目验证工具", "工作区 npm 脚本", "插件面板"]);
     expect(official.get("test-harness")?.profile.config).toEqual({ timeoutMs: 120_000 });
     expect(official.get("git-time-capsule")?.category.id).toBe("workflow");
-    expect(official.get("git-time-capsule")?.description).toMatch(/unstaged tracked Git diff.*byte.*validated.*reverse/iu);
+    expect(official.get("git-time-capsule")?.description).toMatch(/未暂存的 Git 改动.*逐字节.*确认后.*反向应用/u);
     expect(official.get("git-time-capsule")?.capabilities).toEqual(["reads-files", "writes-files", "runs-commands"]);
-    expect(official.get("git-time-capsule")?.hooks).toEqual(["Git snapshot tool", "Git restore tool", "plugin UI"]);
+    expect(official.get("git-time-capsule")?.hooks).toEqual(["Git 快照工具", "Git 还原工具", "插件面板"]);
     expect(official.get("git-time-capsule")?.profile.config).toEqual({ timeoutMs: 15_000 });
-    expect(official.get("graph-memory")?.description).toMatch(/bounded typed.*directed relations.*atomic.*cross-session/iu);
+    expect(official.get("graph-memory")?.description).toMatch(/带类型的节点.*有向关系.*加锁.*跨会话/u);
     expect(official.get("graph-memory")?.capabilities).toEqual(["reads-files", "writes-files"]);
-    expect(official.get("graph-memory")?.hooks).toEqual(["graph memory tools", "local graph file", "plugin UI"]);
+    expect(official.get("graph-memory")?.hooks).toEqual(["图记忆工具", "本地图文件", "插件面板"]);
     expect(official.get("graph-memory")?.profile.config).toEqual({ fileName: "graph-memory.json", maxNodes: 2_000, maxRelations: 5_000 });
     expect(official.get("yaml-validator")?.category.id).toBe("developer");
-    expect(official.get("yaml-validator")?.description).toMatch(/workspace-contained.*UTF-8.*multi-document.*bounded.*cancellable/iu);
+    expect(official.get("yaml-validator")?.description).toMatch(/工作区内.*UTF-8.*多文档 YAML.*受限.*可取消/u);
     expect(official.get("yaml-validator")?.capabilities).toEqual(["read-only", "reads-files"]);
-    expect(official.get("yaml-validator")?.hooks).toEqual(["YAML validation tool", "workspace files", "plugin UI"]);
+    expect(official.get("yaml-validator")?.hooks).toEqual(["YAML 校验工具", "工作区文件", "插件面板"]);
     expect(official.get("yaml-validator")?.profile.config).toEqual({});
     expect(official.get("browser-session")?.category.id).toBe("web");
     expect(official.get("browser-session")?.category).toEqual(official.get("browser-fetch")?.category);
-    expect(official.get("browser-session")?.description).toMatch(/loopback-only.*descriptor-safe.*bounded.*cancellable.*screenshot.*validated.*panel/iu);
+    expect(official.get("browser-session")?.description).toMatch(/本机回环.*命令受限.*可取消.*截图元数据/u);
     expect(official.get("browser-session")?.capabilities).toEqual(["network-access"]);
-    expect(official.get("browser-session")?.hooks).toEqual(["browser session tools", "Chrome DevTools Protocol", "plugin UI"]);
+    expect(official.get("browser-session")?.hooks).toEqual(["浏览器会话工具", "Chrome DevTools 协议", "插件面板"]);
     expect(official.get("browser-session")?.profile.config).toEqual({ endpoint: "http://127.0.0.1:9222" });
     expect(official.get("docker-sandbox")?.category.id).toBe("security");
-    expect(official.get("docker-sandbox")?.description).toMatch(
-      /descriptor-safe.*local-only.*no container network.*read-only workspace.*CPU.*memory.*PID.*sanitized output.*strict panel.*cancellation cleanup/iu,
-    );
+    expect(official.get("docker-sandbox")?.description).toMatch(/本地镜像.*无网络.*只读.*CPU.*内存.*进程数.*输出会清理.*取消/u);
     expect(official.get("docker-sandbox")?.capabilities).toEqual(["reads-files", "writes-files", "runs-commands"]);
-    expect(official.get("docker-sandbox")?.hooks).toEqual(["sandbox execution tool", "Docker CLI", "plugin UI"]);
+    expect(official.get("docker-sandbox")?.hooks).toEqual(["沙箱执行工具", "Docker CLI", "插件面板"]);
     expect(official.get("docker-sandbox")?.profile.config).toEqual({});
-    expect(official.get("mock-server")?.category.id).toBe("tools");
-    expect(official.get("sql-lens")?.category.id).toBe("tools");
-    expect(official.get("sql-lens")?.description).toMatch(
-      /workspace.*SQLite.*strict.*descriptor-safe.*single.*read-only.*bounded.*symlink.*timed.*cancellation.*fail-closed.*panel/iu,
-    );
+    expect(official.get("mock-server")?.category.id).toBe("developer");
+    expect(official.get("sql-lens")?.category.id).toBe("developer");
+    expect(official.get("sql-lens")?.description).toMatch(/SQLite.*一次一条只读语句.*有上限.*符号链接.*超时.*取消/u);
     expect(official.get("sql-lens")?.capabilities).toEqual(["reads-files", "runs-commands"]);
-    expect(official.get("sql-lens")?.hooks).toEqual(["SQL read-only tool", "workspace SQLite files", "plugin UI"]);
+    expect(official.get("sql-lens")?.hooks).toEqual(["SQL 只读工具", "工作区 SQLite 文件", "插件面板"]);
     expect(official.get("sql-lens")?.profile.config).toEqual({ timeoutMs: 5_000 });
     expect(official.get("i18n-pair")?.category.id).toBe("workflow");
-    expect(official.get("i18n-pair")?.description).toMatch(
-      /strict read-only.*bounded JSON locale.*no-follow workspace.*collision-safe missing.*extra.*stable failures.*cancellation.*validated panel/iu,
-    );
+    expect(official.get("i18n-pair")?.description).toMatch(/只读.*JSON 语言文件.*缺失键.*多余键.*符号链接.*可取消/u);
     expect(official.get("i18n-pair")?.capabilities).toEqual(["read-only", "reads-files"]);
-    expect(official.get("i18n-pair")?.hooks).toEqual(["i18n check tool", "workspace locale files", "plugin UI"]);
+    expect(official.get("i18n-pair")?.hooks).toEqual(["i18n 检查工具", "工作区语言文件", "插件面板"]);
     expect(official.get("i18n-pair")?.profile.config).toEqual({});
     expect(official.get("plugin-finder")?.category.id).toBe("discovery");
     expect(official.get("readme-gen")?.category.id).toBe("developer");
-    expect(official.get("readme-gen")?.description).toMatch(
-      /strictly bounded manifest.*descriptor-safe loader.*Markdown-safe.*confirmed.*no-clobber atomic.*explicit overwrite.*cancellable/iu,
-    );
+    expect(official.get("readme-gen")?.description).toMatch(/依赖清单.*加载器清单.*Markdown 转义.*不覆盖.*显式确认/u);
     expect(official.get("readme-gen")?.capabilities).toEqual(["reads-files", "writes-files"]);
-    expect(official.get("readme-gen")?.hooks).toEqual([
-      "README report and write tools",
-      "workspace manifest and files",
-      "Cordis loader inventory",
-      "plugin UI",
-    ]);
+    expect(official.get("readme-gen")?.hooks).toEqual(["README 报告与写入工具", "工作区清单与文件", "Cordis 加载器清单", "插件面板"]);
     expect(official.get("readme-gen")?.profile.config).toEqual({});
     expect(official.get("anchored-standard")?.category.id).toBe("security");
-    expect(official.get("annotation")?.hooks).toEqual(["plugin UI"]);
+    expect(official.get("annotation")?.hooks).toEqual(["插件面板"]);
     expect(official.get("change-verifier")?.category.id).toBe("workflow");
     expect(official.get("openpets")?.category.id).toBe("web");
-    expect(official.get("openpets")?.description).toMatch(
-      /bounded.*companion state.*validated.*session entr.*without retaining message contents.*persistence/iu,
-    );
+    expect(official.get("openpets")?.description).toMatch(/会话事件.*不保存消息内容.*操作受限.*持久化状态/u);
     expect(official.get("openpets")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("openpets")?.hooks).toEqual(["session events", "pet reaction tool", "session storage", "plugin UI"]);
+    expect(official.get("openpets")?.hooks).toEqual(["会话事件", "宠物反应工具", "会话存储", "插件面板"]);
     expect(official.get("openpets")?.profile.config).toEqual({});
     expect(official.get("session-insights")?.category.id).toBe("observability");
-    expect(official.get("session-insights")?.description).toMatch(
-      /descriptor-safe.*validated.*cached.*session.*statistics.*confirmed.*settled.*compaction.*model.*usage.*cost.*cancellable/iu,
-    );
+    expect(official.get("session-insights")?.description).toMatch(/校验.*缓存.*会话空闲.*确认.*用量.*费用.*可取消/u);
     expect(official.get("session-insights")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("session-insights")?.hooks).toEqual(["session report tool", "active runtime session", "Pi session lifecycle", "plugin UI"]);
+    expect(official.get("session-insights")?.hooks).toEqual(["会话报告工具", "当前运行会话", "Pi 会话生命周期", "插件面板"]);
     expect(official.get("session-insights")?.profile.config).toEqual({});
-    expect(official.get("mcp-panel")?.category.id).toBe("tools");
+    expect(official.get("mcp-panel")?.category.id).toBe("developer");
     expect(official.get("fail-logger")?.category.id).toBe("observability");
-    expect(official.get("fail-logger")?.description).toMatch(
-      /bounded.*extension.*Agent.*non-aborted compaction.*descriptor-safe event inspection.*safe diagnostic.*occurrence counts/iu,
-    );
+    expect(official.get("fail-logger")?.description).toMatch(/插件错误.*agent 失败.*压缩失败.*摘要.*次数.*不留原始载荷/u);
     expect(official.get("fail-logger")?.capabilities).toEqual(["read-only"]);
-    expect(official.get("fail-logger")?.hooks).toEqual(["extension error", "agent end", "compaction end", "plugin UI"]);
-    expect(official.get("genui")?.description).toMatch(/bounded.*text, badge, and decimal progress.*plain text/iu);
+    expect(official.get("fail-logger")?.hooks).toEqual(["插件错误", "运行结束", "压缩结束", "插件面板"]);
+    expect(official.get("genui")?.description).toMatch(/文本、标签和进度条.*纯文本/u);
     expect(official.get("genui")?.capabilities).toEqual(["read-only"]);
-    expect(official.get("genui")?.hooks).toEqual(["GenUI render tool", "plugin UI"]);
+    expect(official.get("genui")?.hooks).toEqual(["GenUI 渲染工具", "插件面板"]);
     expect(official.get("plugin-dev")?.category.id).toBe("developer");
-    expect(official.get("plugin-dev")?.description).toMatch(/defer.*session resource.*agent.*settled.*single.*reload.*bounded.*trusted.*development/iu);
+    expect(official.get("plugin-dev")?.description).toMatch(/推迟.*agent 空闲.*只允许一个重载.*本机开发/u);
     expect(official.get("plugin-dev")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("plugin-dev")?.hooks).toEqual(["session resource reload tool", "Pi session lifecycle", "plugin UI"]);
+    expect(official.get("plugin-dev")?.hooks).toEqual(["会话资源重载工具", "Pi 会话生命周期", "插件面板"]);
     expect(official.get("plugin-dev")?.profile.config).toEqual({});
     expect(official.get("session-export")?.category.id).toBe("workflow");
     expect(official.get("session-search")?.category.id).toBe("discovery");
     expect(official.get("session-compare")?.category.id).toBe("discovery");
     expect(official.get("secure-audit")?.category.id).toBe("security");
     expect(official.get("session-bookmarks")?.category.id).toBe("workflow");
-    expect(official.get("llm-verifier")?.category.id).toBe("testing");
+    expect(official.get("llm-verifier")?.category.id).toBe("developer");
     expect(official.get("module-search")?.category.id).toBe("discovery");
     expect(official.get("workspace-navigator")?.category.id).toBe("developer");
     expect(official.get("reverse-skill")?.category.id).toBe("security");
     expect(official.get("colleague-skill")?.category.id).toBe("workflow");
-    expect(official.get("colleague-skill")?.hooks).toEqual(["session storage", "plugin UI"]);
+    expect(official.get("colleague-skill")?.hooks).toEqual(["会话存储", "插件面板"]);
     expect(official.get("context-insights")?.category.id).toBe("context");
-    expect(official.get("context-insights")?.description).toMatch(
-      /descriptor-safe.*bounded message composition.*cached.*active-session.*lifecycle.*normalized browser/iu,
-    );
+    expect(official.get("context-insights")?.description).toMatch(/上下文占用.*消息构成.*缓存.*会话计数.*上限/u);
     expect(official.get("context-insights")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("context-insights")?.hooks).toEqual(["context inspection tool", "active runtime session", "Pi session lifecycle", "plugin UI"]);
+    expect(official.get("context-insights")?.hooks).toEqual(["上下文检查工具", "当前运行会话", "Pi 会话生命周期", "插件面板"]);
     expect(official.get("context-insights")?.profile.config).toEqual({});
     expect(official.get("context-doctor")?.category.id).toBe("observability");
-    expect(official.get("context-doctor")?.description).toMatch(/descriptor-safe.*bounded.*queued.*agent.*settled.*confirmed.*model.*cost.*cancellable/iu);
+    expect(official.get("context-doctor")?.description).toMatch(/压力来源.*工具报错.*排到 agent 空闲.*确认后.*费用.*可取消/u);
     expect(official.get("context-doctor")?.capabilities).toEqual(["read-only", "session-data"]);
-    expect(official.get("context-doctor")?.hooks).toEqual([
-      "context doctor tool",
-      "session messages and usage",
-      "Pi session lifecycle",
-      "manual compaction",
-      "plugin UI",
-    ]);
+    expect(official.get("context-doctor")?.hooks).toEqual(["上下文体检工具", "会话消息与用量", "Pi 会话生命周期", "手动压缩", "插件面板"]);
     expect(official.get("context-doctor")?.profile.config).toEqual({});
-    expect(official.get("cordis-group")?.category.id).toBe("composition");
+    expect(official.get("cordis-group")?.category.id).toBe("workflow");
     expect(official.get("cordis-group")?.capabilities).toEqual(["read-only"]);
-    expect(official.get("cordis-group")?.hooks).toEqual(["loader entry tree"]);
+    expect(official.get("cordis-group")?.hooks).toEqual(["加载器条目树"]);
     expect(official.get("cordis-logger-console")?.category.id).toBe("observability");
     expect(official.get("cordis-logger-console")?.capabilities).toEqual(["read-only"]);
-    expect(official.get("cordis-logger-console")?.hooks).toEqual(["Cordis logger exporter", "plugin UI"]);
+    expect(official.get("cordis-logger-console")?.hooks).toEqual(["Cordis 日志导出", "插件面板"]);
     expect(official.get("cordis-logger-console")?.profile.config).toEqual({ levels: { default: 2 }, maxLength: 8_192 });
-    expect(official.get("cordis-timer")?.category.id).toBe("runtime");
+    expect(official.get("cordis-timer")?.category.id).toBe("workflow");
     expect(official.get("cordis-timer")?.capabilities).toEqual(["read-only"]);
-    expect(official.get("cordis-timer")?.hooks).toEqual(["Cordis timer service", "plugin UI"]);
+    expect(official.get("cordis-timer")?.hooks).toEqual(["Cordis 定时服务", "插件面板"]);
     expect(official.get("prompt-library")?.category.id).toBe("workflow");
     expect(official.get("cleaner")?.category.id).toBe("developer");
-    expect(official.get("cleaner")?.description).toMatch(
-      /strict.*descriptor-safe.*display-safe.*bounded.*Git capsule.*explicit confirmation.*retention.*symlink.*replacement.*cancellable.*fail-closed/iu,
-    );
+    expect(official.get("cleaner")?.description).toMatch(/Git 胶囊.*保留策略.*显式确认.*符号链接.*文件替换.*可取消/u);
     expect(official.get("cleaner")?.capabilities).toEqual(["reads-files", "writes-files"]);
-    expect(official.get("cleaner")?.hooks).toEqual(["capsule cleanup tool", "agent capsule directory", "plugin UI"]);
+    expect(official.get("cleaner")?.hooks).toEqual(["胶囊清理工具", "agent 胶囊目录", "插件面板"]);
     expect(official.get("cleaner")?.profile.config).toEqual({});
     expect(official.get("cli-notifier")?.category.id).toBe("workflow");
-    expect(official.get("cli-notifier")?.description).toMatch(/local desktop notifications/iu);
+    expect(official.get("cli-notifier")?.description).toMatch(/本机桌面通知/u);
     expect(official.get("cli-notifier")?.description).not.toMatch(/webhook/iu);
     expect(official.get("cli-notifier")?.capabilities).toEqual(["runs-commands"]);
-    expect(official.get("cli-notifier")?.hooks).toEqual(["agent end", "compaction error", "plugin UI"]);
+    expect(official.get("cli-notifier")?.hooks).toEqual(["运行结束", "压缩失败", "插件面板"]);
     expect(official.get("obsidian-sync")?.category.id).toBe("workflow");
     expect(official.get("tab-manager")?.category.id).toBe("workflow");
     expect(official.get("telemetry-blocker")?.category.id).toBe("security");
     expect(official.get("runtime-doctor")?.category.id).toBe("developer");
-    expect(official.get("better-sidebar")?.category.id).toBe("developer");
+    expect(official.get("better-sidebar")?.category.id).toBe("interface");
   });
 
   test("lists every plugin as an installable npm package rather than a launcher subpath", () => {
@@ -285,10 +252,12 @@ describe("plugin marketplace registry", () => {
   });
 
   test("filters by a declared category independently from capabilities", () => {
-    const result = searchMarketplace("", "", "runtime");
+    const result = searchMarketplace("timer", "", "workflow");
     expect(result.map((plugin) => plugin.packageName)).toEqual(["@deepseek-ai/cordis-plugin-timer"]);
-    expect(result[0]?.category).toEqual({ id: "runtime", label: "运行时" });
-    expect(MARKETPLACE_CATEGORIES).toEqual(expect.arrayContaining([{ id: "runtime", label: "运行时", count: 1 }]));
+    expect(result[0]?.category).toEqual({ id: "workflow", label: "工作流" });
+    expect(MARKETPLACE_CATEGORIES).toEqual(expect.arrayContaining([{ id: "workflow", label: "工作流", count: 20 }]));
+    // A tab that holds a single plugin is a tab nobody clicks, and the filter is only worth its width if each option narrows the list to something worth reading.
+    expect(MARKETPLACE_CATEGORIES.every((category) => category.count > 1)).toBe(true);
   });
 
   test("loads one entry per file and paginates the filtered result", () => {

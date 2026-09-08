@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-colleague-skill",
   "version": "0.1.29",
   "name": "Colleague Skill",
-  "description": "Create durable, structured handoff packets for another role without hidden agents or external message delivery.",
+  "description": "为另一个角色生成结构化的交接包，不会隐式启动 agent，也不会代发消息。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["session storage", "plugin UI"],
+  "hooks": ["会话存储", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-colleague-skill",
     "config": {}

@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-git-time-capsule",
   "version": "0.1.29",
   "name": "Git Time Capsule",
-  "description": "Capture the current unstaged tracked Git diff as a byte-exact, validated undo capsule without external diff or textconv helpers, then reverse-apply it only after explicit confirmation.",
+  "description": "把当前未暂存的 Git 改动存成一份逐字节精确的撤销胶囊，确认后才反向应用。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "工作流"
   },
   "capabilities": ["reads-files", "writes-files", "runs-commands"],
-  "hooks": ["Git snapshot tool", "Git restore tool", "plugin UI"],
+  "hooks": ["Git 快照工具", "Git 还原工具", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-git-time-capsule",
     "config": {

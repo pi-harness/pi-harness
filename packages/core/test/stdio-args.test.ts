@@ -525,11 +525,27 @@ describe("stdio run outcome", () => {
 
     await expect(application.run()).resolves.toBe(1);
     expect(stdio.errors).toHaveLength(2);
-    expect(stdio.errors[0]).toContain("No API key found for deepseek");
+    expect(stdio.errors[0]).toBe("No API key found for deepseek.\n");
+    // Pi's own remedy names a command this launcher does not have and its pointer is an absolute path inside a dependency, so neither is echoed back before the guidance contradicts them.
+    expect(stdio.errors[0]).not.toContain("/login");
+    expect(stdio.errors[0]).not.toContain("node_modules");
     expect(stdio.errors[1]).toContain("pih has no /login command");
     expect(stdio.errors[1]).toContain("/tmp/auth.json");
     expect(stdio.errors[1]).toContain("everyapi use pi-harness");
     expect(stdio.errors[1]?.split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  test("names the profile that actually booted when the launch knows it", async () => {
+    const runtime = createRuntime();
+    runtime.prompt = () => Promise.reject(new Error("No API key found for deepseek. Use /login to log into a provider via OAuth or API key."));
+    const stdio = createStdio("prompt");
+    const launch: PiHarnessLaunch = { ...createLaunch(["--prompt", "hi"]), configPath: "/tmp/pi-harness-home/profiles/default/cordis.yml" };
+    const application = new StdioApplication(runtime, launch, stdio);
+
+    await expect(application.run()).resolves.toBe(1);
+    expect(stdio.errors[1]).toContain("edit /tmp/pi-harness-home/profiles/default/cordis.yml");
+    // The placeholder is what the guidance falls back to, and a launcher that resolved the path has no reason to make the reader resolve it again.
+    expect(stdio.errors[1]).not.toContain("<PI_HARNESS_HOME");
   });
 
   test("leaves an unrelated provider rejection without credential instructions", async () => {

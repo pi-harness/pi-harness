@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-image-compressor",
   "version": "0.1.29",
   "name": "Image Compressor",
-  "description": "Create bounded image copies for model context while preserving the original file and reporting saved bytes.",
+  "description": "为模型上下文生成体积受限的图片副本，保留原图并报告省下的字节数。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "视觉与多模态"
   },
   "capabilities": ["reads-files", "writes-files"],
-  "hooks": ["workspace files", "plugin UI"],
+  "hooks": ["工作区文件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-image-compressor",
     "config": {}

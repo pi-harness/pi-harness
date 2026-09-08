@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-anchored-standard",
   "version": "0.1.29",
   "name": "Anchored Standard",
-  "description": "Audit agent trajectories against an explicit tool-call allowlist and flag activity outside the anchored run.",
+  "description": "按显式的工具白名单审计 agent 的执行轨迹，标出越界的调用。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "安全"
   },
   "capabilities": ["read-only"],
-  "hooks": ["session events", "plugin UI"],
+  "hooks": ["会话事件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-anchored-standard",
     "config": {}

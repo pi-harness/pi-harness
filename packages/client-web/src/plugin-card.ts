@@ -6,12 +6,17 @@ export interface InstalledPluginCardContent {
   readonly tags: readonly string[];
 }
 
-export function installedPluginCardContent(plugin: ClientPlugin, metadata: ClientMarketplacePlugin | undefined): InstalledPluginCardContent {
+/** `capabilityLabel` is the same labeller the marketplace grid uses, so one capability reads the same on both tabs instead of appearing as its raw id here and its label there. */
+export function installedPluginCardContent(
+  plugin: ClientPlugin,
+  metadata: ClientMarketplacePlugin | undefined,
+  capabilityLabel: (id: string) => string,
+): InstalledPluginCardContent {
   if (metadata) {
     return {
       packageLabel: `${plugin.name} · v${metadata.version}`,
       description: metadata.description,
-      tags: [...metadata.capabilities, ...metadata.hooks.map((hook) => `hook:${hook}`)],
+      tags: [...metadata.capabilities.map(capabilityLabel), ...metadata.hooks.map((hook) => `hook:${hook}`)],
     };
   }
   return {

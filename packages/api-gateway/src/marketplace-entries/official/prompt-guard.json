@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-prompt-guard",
   "version": "0.1.29",
   "name": "Prompt Guard",
-  "description": "Detect prompt override, secret exfiltration, remote payloads, and hidden-instruction indicators without retaining input text.",
+  "description": "识别提示词覆盖、密钥外传、远程载荷和隐藏指令的迹象，不保留输入原文。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "安全"
   },
   "capabilities": ["read-only", "session-data"],
-  "hooks": ["session event", "plugin UI"],
+  "hooks": ["会话事件", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-prompt-guard",
     "config": {}

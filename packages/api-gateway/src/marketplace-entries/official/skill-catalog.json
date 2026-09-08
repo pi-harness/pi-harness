@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-skill-catalog",
   "version": "0.1.29",
   "name": "Skills Catalog",
-  "description": "List loaded Agent Skills and safely inspect one through a bounded untrusted-data boundary, plus managed MCP status.",
+  "description": "列出已加载的 Agent Skills，通过受限的不可信数据边界安全查看其中一个，并显示托管 MCP 的状态。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "发现与生态"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["resource loader", "skill guard", "plugin UI"],
+  "hooks": ["资源加载器", "skill 守卫", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-skill-catalog",
     "config": {}

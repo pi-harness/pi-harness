@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-at-file",
   "version": "0.1.29",
   "name": "@file Context",
-  "description": "Attach a bounded 256 KiB strict UTF-8 workspace file using canonical workspace path confinement and no-follow regular-file reads, framing it as offline, read-only, untrusted model context with closing-tag neutralization and cancellable sequential execution.",
+  "description": "把工作区里的单个文件（上限 256 KiB、严格 UTF-8）作为只读上下文附给模型，路径限定在工作区内且不跟随符号链接。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "上下文管理"
   },
   "capabilities": ["read-only", "reads-files"],
-  "hooks": ["file context tool", "workspace file read", "plugin UI"],
+  "hooks": ["文件上下文工具", "工作区文件读取", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-at-file",
     "config": {}
