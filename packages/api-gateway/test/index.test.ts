@@ -1044,7 +1044,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded YAML diagnostics through the real plugin panel", async () => {
-    const yamlValidatorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-yaml-validator"))) as {
+    const yamlValidatorModule = (await import("@pi-harness/plugin-yaml-validator")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1054,7 +1054,14 @@ describe("API gateway plugin", () => {
     temporaryDirectories.push(workspace, agentDir);
     await writeFile(join(workspace, "invalid.yml"), "duplicate: true\n".repeat(102), "utf8");
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "yaml-validator-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "yaml-validator-panel-session",
+      sessionManager: { getCwd: () => workspace },
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -1149,26 +1156,33 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded OpenPets state through the real plugin panel", async () => {
-    const openPetsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-openpets"))) as {
+    const openPetsModule = (await import("@pi-harness/plugin-openpets")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const entries: unknown[] = [];
-    const session = { sessionId: "openpets-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const manager = {
+      getHeader: () => null,
+      getEntries: () => entries,
+      appendCustomEntry: (customType: string, data: unknown) => {
+        entries.push({ type: "custom", customType, data });
+        return String(entries.length);
+      },
+    };
+    const session = {
+      sessionId: "openpets-panel-session",
+      sessionManager: manager,
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
-    context.provide("piSession", {
-      manager: {
-        getEntries: () => entries,
-        appendCustomEntry: (customType: string, data: unknown) => {
-          entries.push({ type: "custom", customType, data });
-          return String(entries.length);
-        },
-      },
-    } as never);
+    context.provide("piSession", { manager } as never);
     const registry = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     context.reflect.provide("piPluginUi", registry);

@@ -56,6 +56,10 @@ function persistedState(title: string, taskCount = 1, memberCount = 1, messageCo
   };
 }
 
+function checkpoint(state: unknown) {
+  return { journalVersion: 1, kind: "checkpoint", revision: 1, state };
+}
+
 describe("agent teams dependency graph", () => {
   test("finds a cycle and returns its task ids", () => {
     const tasks = [
@@ -79,7 +83,7 @@ describe("agent teams dependency graph", () => {
 });
 
 describe("agent teams plugin", () => {
-  test.each(["checkpoint", "delta"])("migrates active tasks from an old %s without dropping later journal entries", async (kind) => {
+  test.each(["checkpoint", "delta"])("rejects an inconsistent %s and its dependent deltas without migrating state", async (kind) => {
     const { manager, tool } = await createPlugin();
     await tool.execute("plan", { action: "add_task", id: "plan", title: "Plan", status: "done" }, undefined, undefined, {} as never);
     await tool.execute(
@@ -109,14 +113,14 @@ describe("agent teams plugin", () => {
 
     const expected = {
       tasks: [
-        { id: "plan", status: "todo" },
-        { id: "review", status: "blocked" },
+        { id: "plan", status: "done" },
+        { id: "review", status: "in_progress" },
       ],
-      messages: [message],
+      messages: [],
     };
-    await expect(tool.execute("migrated", { action: "get_state" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: expected });
+    await expect(tool.execute("validated", { action: "get_state" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: expected });
     await tool.execute("write", { action: "add_member", id: "helper", name: "Helper" }, undefined, undefined, {} as never);
-    expect(manager.getEntries().at(-1)).toMatchObject({ data: { kind: "checkpoint", revision: 5 } });
+    expect(manager.getEntries().at(-1)).toMatchObject({ data: { revision: 3 } });
     const reopened = await createPlugin(manager);
     await expect(reopened.tool.execute("state", { action: "get_state" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: expected });
   });
@@ -170,10 +174,10 @@ describe("agent teams plugin", () => {
 
   test("restores state from the active session branch rather than a newer abandoned branch", async () => {
     const manager = SessionManager.inMemory();
-    const base = manager.appendCustomEntry("pi-harness/agent-teams", persistedState("Base"));
-    const active = manager.appendCustomEntry("pi-harness/agent-teams", persistedState("Active branch"));
+    const base = manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(persistedState("Base")));
+    const active = manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(persistedState("Active branch")));
     manager.branch(base);
-    manager.appendCustomEntry("pi-harness/agent-teams", persistedState("Abandoned branch"));
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(persistedState("Abandoned branch")));
     manager.branch(active);
     const { panels } = await createPlugin(manager);
 
@@ -182,7 +186,7 @@ describe("agent teams plugin", () => {
 
   test("restores durable state after more than ten thousand unrelated branch entries", async () => {
     const manager = SessionManager.inMemory();
-    manager.appendCustomEntry("pi-harness/agent-teams", persistedState("Long-lived board"));
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(persistedState("Long-lived board")));
     for (let index = 0; index < 10_001; index += 1) {
       manager.appendMessage({ role: "user", content: `Unrelated turn ${index}`, timestamp: index });
     }
@@ -357,7 +361,7 @@ describe("agent teams plugin", () => {
 
   test("publishes bounded panel inventories with complete counts", async () => {
     const manager = SessionManager.inMemory();
-    manager.appendCustomEntry("pi-harness/agent-teams", persistedState("First", 30, 20, 10));
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(persistedState("First", 30, 20, 10)));
     const { panels } = await createPlugin(manager);
     const [panel] = await panels.snapshot();
     if (panel === undefined) throw new Error("agent-teams-panel was not registered");
@@ -382,7 +386,7 @@ describe("agent teams plugin", () => {
     const manager = SessionManager.inMemory();
     const state = persistedState("Mailbox", 0, 1, 55);
     for (const message of state.messages) message.read = false;
-    manager.appendCustomEntry("pi-harness/agent-teams", state);
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(state));
     const { tool } = await createPlugin(manager);
 
     const result = await tool.execute("read", { action: "read_messages", to: "member-1", unreadOnly: true }, undefined, undefined, {} as never);
@@ -481,19 +485,19 @@ describe("agent teams plugin", () => {
         title: "t".repeat(200),
         assignee: "member-1",
         status: "todo",
-        dependsOn: taskIds,
+        dependsOn: [],
       })),
       messages: Array.from({ length: 1_000 }, (_, index) => ({
         id: `m${String(index).padStart(63, "0")}`,
         from: "member-1",
         to: "member-1",
-        body: "m".repeat(4_000),
+        body: "文".repeat(4_000),
         timestamp: new Date(0).toISOString(),
         read: false,
       })),
     };
     expect(Buffer.byteLength(JSON.stringify(state), "utf8")).toBeGreaterThan(8 * 1024 * 1024);
-    manager.appendCustomEntry("pi-harness/agent-teams", state);
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(state));
     const { tool } = await createPlugin(manager);
 
     await expect(
@@ -506,7 +510,7 @@ describe("agent teams plugin", () => {
     const manager = SessionManager.inMemory();
     const state = persistedState("Reviewer task", 1, 2);
     state.tasks[0]!.assignee = "member-2";
-    manager.appendCustomEntry("pi-harness/agent-teams", state);
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(state));
     const { tool } = await createPlugin(manager);
 
     await expect(tool.execute("claim", { action: "claim_task", assignee: "member-1" }, undefined, undefined, {} as never)).rejects.toThrow(
@@ -520,9 +524,11 @@ describe("agent teams plugin", () => {
   test("bounds Agent-facing state text even when task dependency metadata is large", async () => {
     const manager = SessionManager.inMemory();
     const state = persistedState("x".repeat(200), 256, 1);
-    const dependencyIds = state.tasks.slice(0, 200).map((task) => task.id);
-    for (const task of state.tasks) task.dependsOn = dependencyIds;
-    manager.appendCustomEntry("pi-harness/agent-teams", state);
+    for (const [index, task] of state.tasks.entries()) {
+      task.dependsOn = state.tasks.slice(0, Math.min(index, 200)).map((dependency) => dependency.id);
+      task.status = index === 0 ? "todo" : "blocked";
+    }
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(state));
     const { tool } = await createPlugin(manager);
 
     const result = await tool.execute("state", { action: "get_state" }, undefined, undefined, {} as never);
@@ -549,7 +555,7 @@ describe("agent teams plugin", () => {
         return "unsafe";
       },
     });
-    manager.appendCustomEntry("pi-harness/agent-teams", { members: [member], tasks: [], messages: [] });
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint({ members: [member], tasks: [], messages: [] }));
     const { panels } = await createPlugin(manager);
 
     const [panel] = await panels.snapshot();
@@ -570,7 +576,7 @@ describe("agent teams plugin", () => {
         return { id: "unsafe", name: "Unsafe", role: "Unsafe", status: "idle" };
       },
     });
-    manager.appendCustomEntry("pi-harness/agent-teams", { members, tasks: [], messages: [] });
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint({ members, tasks: [], messages: [] }));
     const { panels } = await createPlugin(manager);
 
     const [panel] = await panels.snapshot();
@@ -581,12 +587,45 @@ describe("agent teams plugin", () => {
 
   test("falls back to an older valid snapshot when the newest snapshot contains unsafe arrays", async () => {
     const manager = SessionManager.inMemory();
-    manager.appendCustomEntry("pi-harness/agent-teams", persistedState("Safe snapshot"));
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(persistedState("Safe snapshot")));
     const members: unknown[] = [];
     Object.defineProperty(members, "0", { enumerable: true, get: () => ({ id: "unsafe", name: "Unsafe" }) });
-    manager.appendCustomEntry("pi-harness/agent-teams", { members, tasks: [], messages: [] });
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint({ members, tasks: [], messages: [] }));
     const { panels } = await createPlugin(manager);
 
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { tasks: [{ title: "Safe snapshot" }] } }]);
   });
+});
+
+test("reads and writes the current native board and rejects queued session replacement", async () => {
+  const { context, manager: launch, tool, panels } = await createPlugin();
+  const active = SessionManager.inMemory();
+  const runtime = { session: { sessionManager: launch } };
+  context.provide("piRuntime", runtime as never);
+  const call = (params: unknown) => tool.execute("native", params, undefined, undefined, {} as never);
+  await call({ action: "add_task", title: "launch task" });
+  const original = structuredClone(launch.getEntries());
+  runtime.session.sessionManager = active;
+  expect((await call({ action: "get_state" })).details).toMatchObject({ tasks: [] });
+  await call({ action: "add_task", title: "active task" });
+  expect((await panels.snapshot())[0]!.data).toMatchObject({ tasks: [{ title: "active task" }] });
+  expect(launch.getEntries()).toEqual(original);
+  const activeEntries = structuredClone(active.getEntries());
+  const pending = call({ action: "add_task", title: "must not cross sessions" });
+  runtime.session.sessionManager = launch;
+  await expect(pending).rejects.toThrow(/session changed/);
+  expect(active.getEntries()).toEqual(activeEntries);
+  expect(launch.getEntries()).toEqual(original);
+  expect((await panels.snapshot())[0]!.data).toMatchObject({ tasks: [{ title: "launch task" }] });
+  const stale = call({ action: "add_task", title: "must not enter new session" });
+  launch.newSession();
+  await expect(stale).rejects.toThrow(/session changed/);
+  expect(launch.getEntries()).toEqual([]);
+});
+
+test("ignores unversioned snapshots instead of migrating them into the current board", async () => {
+  const manager = SessionManager.inMemory();
+  manager.appendCustomEntry("pi-harness/agent-teams", persistedState("legacy task"));
+  const { tool } = await createPlugin(manager);
+  expect((await tool.execute("current", { action: "get_state" }, undefined, undefined, {} as never)).details).toMatchObject({ tasks: [] });
 });

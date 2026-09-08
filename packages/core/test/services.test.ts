@@ -516,6 +516,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -638,6 +639,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -671,6 +673,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -734,9 +737,16 @@ describe("Pi domain plugins", () => {
   test("recovers agent team operations from malformed persisted members", async () => {
     const context = new Context();
     contexts.push(context);
-    const entries: unknown[] = [{ type: "custom", customType: "pi-harness/agent-teams", data: { members: [null], tasks: [], messages: [] } }];
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: { journalVersion: 1, kind: "checkpoint", revision: 1, state: { members: [null], tasks: [], messages: [] } },
+      },
+    ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -758,14 +768,19 @@ describe("Pi domain plugins", () => {
     ]);
   });
 
-  test("restores the default role for a persisted agent team member", async () => {
+  test("rejects an agent team checkpoint with missing member fields without repairing it", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
-      { type: "custom", customType: "pi-harness/agent-teams", data: { members: [{ id: "observer", name: "Observer" }], tasks: [], messages: [] } },
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: { journalVersion: 1, kind: "checkpoint", revision: 1, state: { members: [{ id: "observer", name: "Observer" }], tasks: [], messages: [] } },
+      },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -774,9 +789,13 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
-    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { members: [{ id: "observer", name: "Observer", role: "协作成员", status: "idle" }] } }]);
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
+    ]);
+    expect(entries).toEqual(originalEntries);
   });
 
   test("recovers agent team state from a malformed persisted root value", async () => {
@@ -785,6 +804,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [{ type: "custom", customType: "pi-harness/agent-teams", data: null }];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -808,15 +828,21 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "observer", name: "Observer", role: "Observe", status: "idle" }],
-          tasks: [{ id: "task-1", title: "Preserved", assignee: "observer", status: "todo", dependsOn: [] }],
-          messages: [],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "observer", name: "Observer", role: "Observe", status: "idle" }],
+            tasks: [{ id: "task-1", title: "Preserved", assignee: "observer", status: "todo", dependsOn: [] }],
+            messages: [],
+          },
         },
       },
       { type: "custom", customType: "pi-harness/agent-teams", data: null },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -830,7 +856,7 @@ describe("Pi domain plugins", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { members: [{ id: "observer" }], tasks: [{ id: "task-1", title: "Preserved" }] } }]);
   });
 
-  test("deduplicates agent team identities loaded from persisted session state", async () => {
+  test("rejects duplicate identities in an agent team checkpoint without deduplication", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -838,23 +864,29 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [
-            { id: "builder", name: "Builder", role: "Build", status: "idle" },
-            { id: "builder", name: "Duplicate", role: "Duplicate", status: "working" },
-          ],
-          tasks: [
-            { id: "task-1", title: "First", assignee: "builder", status: "todo", dependsOn: [] },
-            { id: "task-1", title: "Duplicate", assignee: "builder", status: "done", dependsOn: [] },
-          ],
-          messages: [
-            { id: "message-1", from: "builder", to: "builder", body: "First", timestamp: "2026-09-05T00:00:00.000Z", read: false },
-            { id: "message-1", from: "builder", to: "builder", body: "Duplicate", timestamp: "2026-09-05T00:00:01.000Z", read: false },
-          ],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [
+              { id: "builder", name: "Builder", role: "Build", status: "idle" },
+              { id: "builder", name: "Duplicate", role: "Duplicate", status: "working" },
+            ],
+            tasks: [
+              { id: "task-1", title: "First", assignee: "builder", status: "todo", dependsOn: [] },
+              { id: "task-1", title: "Duplicate", assignee: "builder", status: "done", dependsOn: [] },
+            ],
+            messages: [
+              { id: "message-1", from: "builder", to: "builder", body: "First", timestamp: "2026-09-05T00:00:00.000Z", read: false },
+              { id: "message-1", from: "builder", to: "builder", body: "Duplicate", timestamp: "2026-09-05T00:00:01.000Z", read: false },
+            ],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -863,20 +895,16 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
     await expect(panels.snapshot()).resolves.toMatchObject([
-      {
-        data: {
-          members: [{ id: "builder", name: "Builder" }],
-          tasks: [{ id: "task-1", title: "First" }],
-          messages: [{ id: "message-1", body: "First" }],
-        },
-      },
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
     ]);
+    expect(entries).toEqual(originalEntries);
   });
 
-  test("repairs dangling agent team references loaded from persisted session state", async () => {
+  test("rejects dangling references in an agent team checkpoint without repairing them", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -884,17 +912,23 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [{ id: "task-1", title: "Recovered", assignee: "missing-member", status: "todo", dependsOn: [] }],
-          messages: [
-            { id: "message-1", from: "missing-member", to: "builder", body: "Ghost", timestamp: "2026-09-05T00:00:00.000Z", read: false },
-            { id: "message-2", from: "builder", to: "builder", body: "Keep", timestamp: "2026-09-05T00:00:01.000Z", read: false },
-          ],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [{ id: "task-1", title: "Recovered", assignee: "missing-member", status: "todo", dependsOn: [] }],
+            messages: [
+              { id: "message-1", from: "missing-member", to: "builder", body: "Ghost", timestamp: "2026-09-05T00:00:00.000Z", read: false },
+              { id: "message-2", from: "builder", to: "builder", body: "Keep", timestamp: "2026-09-05T00:00:01.000Z", read: false },
+            ],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -903,19 +937,16 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
     await expect(panels.snapshot()).resolves.toMatchObject([
-      {
-        data: {
-          tasks: [{ id: "task-1", assignee: "unassigned" }],
-          messages: [{ id: "message-2", from: "builder", to: "builder", body: "Keep" }],
-        },
-      },
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
     ]);
+    expect(entries).toEqual(originalEntries);
   });
 
-  test("requeues an in-progress agent team task whose persisted assignee is missing", async () => {
+  test("rejects an agent team checkpoint whose active assignee is missing", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -923,14 +954,20 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [{ id: "task-1", title: "Recover", assignee: "missing-member", status: "in_progress", dependsOn: [] }],
-          messages: [],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [{ id: "task-1", title: "Recover", assignee: "missing-member", status: "in_progress", dependsOn: [] }],
+            messages: [],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -939,53 +976,16 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
-    await context.plugin(agentTeamsPlugin);
-
-    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { tasks: [{ id: "task-1", assignee: "unassigned", status: "todo" }] } }]);
-  });
-
-  test("reconciles agent team member statuses with persisted in-progress tasks", async () => {
-    const context = new Context();
-    contexts.push(context);
-    const entries: unknown[] = [
-      {
-        type: "custom",
-        customType: "pi-harness/agent-teams",
-        data: {
-          members: [
-            { id: "builder", name: "Builder", role: "Build", status: "working" },
-            { id: "reviewer", name: "Reviewer", role: "Review", status: "idle" },
-          ],
-          tasks: [{ id: "task-1", title: "Review", assignee: "reviewer", status: "in_progress", dependsOn: [] }],
-          messages: [],
-        },
-      },
-    ];
-    context.provide("piSession", {
-      manager: {
-        getEntries: () => entries,
-        getBranch: () => entries,
-        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
-      },
-    } as never);
-    const panels = new PiPluginUiRegistry();
-    context.provide("piTools", new PiToolRegistry());
-    context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
     await expect(panels.snapshot()).resolves.toMatchObject([
-      {
-        data: {
-          members: [
-            { id: "builder", status: "idle" },
-            { id: "reviewer", status: "working" },
-          ],
-        },
-      },
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
     ]);
+    expect(entries).toEqual(originalEntries);
   });
 
-  test("normalizes whitespace around persisted agent team statuses", async () => {
+  test("rejects inconsistent member statuses in an agent team checkpoint", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -993,14 +993,23 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: " working " }],
-          tasks: [{ id: "task-1", title: "Active", assignee: "builder", status: " in_progress ", dependsOn: [] }],
-          messages: [],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [
+              { id: "builder", name: "Builder", role: "Build", status: "working" },
+              { id: "reviewer", name: "Reviewer", role: "Review", status: "idle" },
+            ],
+            tasks: [{ id: "task-1", title: "Review", assignee: "reviewer", status: "in_progress", dependsOn: [] }],
+            messages: [],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1009,14 +1018,16 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
     await expect(panels.snapshot()).resolves.toMatchObject([
-      { data: { members: [{ id: "builder", status: "working" }], tasks: [{ id: "task-1", status: "in_progress" }] } },
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
     ]);
+    expect(entries).toEqual(originalEntries);
   });
 
-  test("reconciles persisted agent team task readiness before rendering state", async () => {
+  test("rejects padded statuses in an agent team checkpoint without normalization", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -1024,17 +1035,20 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [
-            { id: "waiting", title: "Waiting", assignee: "builder", status: "todo", dependsOn: ["dependency"] },
-            { id: "ready", title: "Ready", assignee: "builder", status: "blocked", dependsOn: [] },
-          ],
-          messages: [],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: " working " }],
+            tasks: [{ id: "task-1", title: "Active", assignee: "builder", status: " in_progress ", dependsOn: [] }],
+            messages: [],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1043,22 +1057,16 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
     await expect(panels.snapshot()).resolves.toMatchObject([
-      {
-        data: {
-          tasks: [
-            { id: "waiting", status: "blocked" },
-            { id: "ready", status: "todo" },
-          ],
-          readyTasks: ["ready"],
-        },
-      },
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
     ]);
+    expect(entries).toEqual(originalEntries);
   });
 
-  test("reopens a persisted completed agent team task whose dependency is incomplete", async () => {
+  test("rejects inconsistent readiness in an agent team checkpoint", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -1066,17 +1074,24 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [
-            { id: "dependency", title: "Dependency", assignee: "builder", status: "todo", dependsOn: [] },
-            { id: "dependent", title: "Dependent", assignee: "builder", status: "done", dependsOn: ["dependency"] },
-          ],
-          messages: [],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [
+              { id: "dependency", title: "Dependency", assignee: "builder", status: "todo", dependsOn: [] },
+              { id: "waiting", title: "Waiting", assignee: "builder", status: "todo", dependsOn: ["dependency"] },
+              { id: "ready", title: "Ready", assignee: "builder", status: "blocked", dependsOn: [] },
+            ],
+            messages: [],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1085,21 +1100,16 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
     await expect(panels.snapshot()).resolves.toMatchObject([
-      {
-        data: {
-          tasks: [
-            { id: "dependency", status: "todo" },
-            { id: "dependent", status: "blocked" },
-          ],
-        },
-      },
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
     ]);
+    expect(entries).toEqual(originalEntries);
   });
 
-  test("bounds agent team text loaded from persisted session state", async () => {
+  test("rejects a completed task with an incomplete dependency in an agent team checkpoint", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -1107,14 +1117,23 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: ` ${"n".repeat(201)} `, role: ` ${"r".repeat(201)} `, status: "idle" }],
-          tasks: [{ id: "task-1", title: ` ${"t".repeat(201)} `, assignee: "builder", status: "todo", dependsOn: [] }],
-          messages: [{ id: "message-1", from: "builder", to: "builder", body: ` ${"b".repeat(4_001)} `, timestamp: "2026-09-05T00:00:00.000Z", read: false }],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [
+              { id: "dependency", title: "Dependency", assignee: "builder", status: "todo", dependsOn: [] },
+              { id: "dependent", title: "Dependent", assignee: "builder", status: "done", dependsOn: ["dependency"] },
+            ],
+            messages: [],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1123,63 +1142,103 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
-    await context.plugin(agentTeamsPlugin);
-
-    const panel = (await panels.snapshot())[0];
-    if (panel === undefined) throw new Error("agent-teams-panel was not registered");
-    const state = panel.data as { members: Array<{ name: string; role: string }>; tasks: Array<{ title: string }>; messages: Array<{ body: string }> };
-    expect(state.members[0]).toMatchObject({ name: "n".repeat(200), role: "r".repeat(200) });
-    expect(state.tasks[0]?.title).toBe("t".repeat(200));
-    expect(state.messages[0]?.body).toBe("b".repeat(4_000));
-  });
-
-  test("discards invalid agent team ids loaded from persisted session state", async () => {
-    const context = new Context();
-    contexts.push(context);
-    const entries: unknown[] = [
-      {
-        type: "custom",
-        customType: "pi-harness/agent-teams",
-        data: {
-          members: [
-            { id: "builder", name: "Builder", role: "Build", status: "idle" },
-            { id: "bad member", name: "Invalid", role: "Invalid", status: "idle" },
-          ],
-          tasks: [
-            { id: "task-1", title: "Keep", assignee: "builder", status: "todo", dependsOn: [] },
-            { id: "t".repeat(65), title: "Invalid", assignee: "builder", status: "todo", dependsOn: [] },
-          ],
-          messages: [
-            { id: "message-1", from: "builder", to: "builder", body: "Keep", timestamp: "2026-09-05T00:00:00.000Z", read: false },
-            { id: "bad message", from: "builder", to: "builder", body: "Invalid", timestamp: "2026-09-05T00:00:01.000Z", read: false },
-          ],
-        },
-      },
-    ];
-    context.provide("piSession", {
-      manager: {
-        getEntries: () => entries,
-        getBranch: () => entries,
-        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
-      },
-    } as never);
-    const panels = new PiPluginUiRegistry();
-    context.provide("piTools", new PiToolRegistry());
-    context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
     await expect(panels.snapshot()).resolves.toMatchObject([
-      {
-        data: {
-          members: [{ id: "builder" }],
-          tasks: [{ id: "task-1" }],
-          messages: [{ id: "message-1" }],
-        },
-      },
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
     ]);
+    expect(entries).toEqual(originalEntries);
   });
 
-  test("bounds and sanitizes agent team dependencies loaded from persisted session state", async () => {
+  test("rejects oversized text in an agent team checkpoint without clipping it", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: ` ${"n".repeat(201)} `, role: ` ${"r".repeat(201)} `, status: "idle" }],
+            tasks: [{ id: "task-1", title: ` ${"t".repeat(201)} `, assignee: "builder", status: "todo", dependsOn: [] }],
+            messages: [{ id: "message-1", from: "builder", to: "builder", body: ` ${"b".repeat(4_001)} `, timestamp: "2026-09-05T00:00:00.000Z", read: false }],
+          },
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getHeader: () => null,
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
+    ]);
+    expect(entries).toEqual(originalEntries);
+  });
+
+  test("rejects invalid identities in an agent team checkpoint without discarding individual entries", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: {
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [
+              { id: "builder", name: "Builder", role: "Build", status: "idle" },
+              { id: "bad member", name: "Invalid", role: "Invalid", status: "idle" },
+            ],
+            tasks: [
+              { id: "task-1", title: "Keep", assignee: "builder", status: "todo", dependsOn: [] },
+              { id: "t".repeat(65), title: "Invalid", assignee: "builder", status: "todo", dependsOn: [] },
+            ],
+            messages: [
+              { id: "message-1", from: "builder", to: "builder", body: "Keep", timestamp: "2026-09-05T00:00:00.000Z", read: false },
+              { id: "bad message", from: "builder", to: "builder", body: "Invalid", timestamp: "2026-09-05T00:00:01.000Z", read: false },
+            ],
+          },
+        },
+      },
+    ];
+    context.provide("piSession", {
+      manager: {
+        getHeader: () => null,
+        getEntries: () => entries,
+        getBranch: () => entries,
+        appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
+      },
+    } as never);
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
+    await context.plugin(agentTeamsPlugin);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
+    ]);
+    expect(entries).toEqual(originalEntries);
+  });
+
+  test("rejects invalid dependencies in an agent team checkpoint without sanitizing them", async () => {
     const context = new Context();
     contexts.push(context);
     const dependencies = [" bad reference ", ...Array.from({ length: 257 }, (_, index) => `dependency-${index}`), "dependency-0"];
@@ -1188,14 +1247,20 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [{ id: "task-1", title: "Recovered", assignee: "builder", status: "todo", dependsOn: dependencies }],
-          messages: [],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [{ id: "task-1", title: "Recovered", assignee: "builder", status: "todo", dependsOn: dependencies }],
+            messages: [],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1204,14 +1269,13 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
-    const panel = (await panels.snapshot())[0];
-    if (panel === undefined) throw new Error("agent-teams-panel was not registered");
-    const [task] = (panel.data as { tasks: Array<{ dependsOn: string[] }> }).tasks;
-    expect(task?.dependsOn).toHaveLength(255);
-    expect(task?.dependsOn[0]).toBe("dependency-0");
-    expect(task?.dependsOn.at(-1)).toBe("dependency-254");
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
+    ]);
+    expect(entries).toEqual(originalEntries);
   });
 
   test("allocates a unique agent team task id after loading sparse persisted ids", async () => {
@@ -1222,14 +1286,20 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [{ id: "task-2", title: "Existing", assignee: "builder", status: "todo", dependsOn: [] }],
-          messages: [],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [{ id: "task-2", title: "Existing", assignee: "builder", status: "todo", dependsOn: [] }],
+            messages: [],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1255,14 +1325,20 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [],
-          messages: [{ id: "message-2", from: "builder", to: "builder", body: "Existing", timestamp: "2026-09-05T00:00:00.000Z", read: false }],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [],
+            messages: [{ id: "message-2", from: "builder", to: "builder", body: "Existing", timestamp: "2026-09-05T00:00:00.000Z", read: false }],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1284,7 +1360,7 @@ describe("Pi domain plugins", () => {
     ).resolves.toMatchObject({ details: { item: { id: "message-1" } } });
   });
 
-  test("normalizes invalid agent team message timestamps loaded from persisted state", async () => {
+  test("rejects invalid timestamps in an agent team checkpoint without normalization", async () => {
     const context = new Context();
     contexts.push(context);
     const entries: unknown[] = [
@@ -1292,14 +1368,20 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
-          tasks: [],
-          messages: [{ id: "message-1", from: "builder", to: "builder", body: "Recovered", timestamp: "not-a-date", read: false }],
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [{ id: "builder", name: "Builder", role: "Build", status: "idle" }],
+            tasks: [],
+            messages: [{ id: "message-1", from: "builder", to: "builder", body: "Recovered", timestamp: "not-a-date", read: false }],
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1308,9 +1390,13 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", panels);
+    const originalEntries = structuredClone(entries);
     await context.plugin(agentTeamsPlugin);
 
-    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { messages: [{ timestamp: "1970-01-01T00:00:00.000Z" }] } }]);
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { members: [{ id: "planner" }, { id: "builder" }, { id: "reviewer" }], tasks: [], messages: [] } },
+    ]);
+    expect(entries).toEqual(originalEntries);
   });
 
   test("rejects an unknown assignee when creating an agent team task", async () => {
@@ -1319,6 +1405,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1347,6 +1434,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1371,6 +1459,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1395,6 +1484,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1423,6 +1513,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1447,6 +1538,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1475,6 +1567,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1505,6 +1598,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1529,6 +1623,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1553,6 +1648,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1578,6 +1674,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1603,6 +1700,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1628,6 +1726,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1651,6 +1750,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1673,6 +1773,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1701,6 +1802,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1729,6 +1831,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1759,6 +1862,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1781,6 +1885,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1809,6 +1914,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1839,11 +1945,17 @@ describe("Pi domain plugins", () => {
       {
         type: "custom",
         customType: "pi-harness/agent-teams",
-        data: { members: [{ id: "planner", name: "Planner", role: "Plan", status: "idle" }], tasks, messages: [] },
+        data: {
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: { members: [{ id: "planner", name: "Planner", role: "Plan", status: "idle" }], tasks, messages: [] },
+        },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1876,17 +1988,23 @@ describe("Pi domain plugins", () => {
         type: "custom",
         customType: "pi-harness/agent-teams",
         data: {
-          members: [
-            { id: "builder", name: "Builder", role: "Build", status: "idle" },
-            { id: "reviewer", name: "Reviewer", role: "Review", status: "idle" },
-          ],
-          tasks: [],
-          messages,
+          journalVersion: 1,
+          kind: "checkpoint",
+          revision: 1,
+          state: {
+            members: [
+              { id: "builder", name: "Builder", role: "Build", status: "idle" },
+              { id: "reviewer", name: "Reviewer", role: "Review", status: "idle" },
+            ],
+            tasks: [],
+            messages,
+          },
         },
       },
     ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),
@@ -1913,9 +2031,16 @@ describe("Pi domain plugins", () => {
     const context = new Context();
     contexts.push(context);
     const members = Array.from({ length: 64 }, (_, index) => ({ id: `member-${index + 1}`, name: `Member ${index + 1}`, role: "Worker", status: "idle" }));
-    const entries: unknown[] = [{ type: "custom", customType: "pi-harness/agent-teams", data: { members, tasks: [], messages: [] } }];
+    const entries: unknown[] = [
+      {
+        type: "custom",
+        customType: "pi-harness/agent-teams",
+        data: { journalVersion: 1, kind: "checkpoint", revision: 1, state: { members, tasks: [], messages: [] } },
+      },
+    ];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         getBranch: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/agent-teams", data }),

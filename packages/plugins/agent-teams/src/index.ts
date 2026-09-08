@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 const customType = "pi-harness/agent-teams";
@@ -72,7 +72,6 @@ type TeamStateRead = {
   restored: boolean;
   revision: number;
   journalDepth: number;
-  requiresCheckpoint: boolean;
 };
 
 export type AgentTeamsConfig = Record<never, never>;
@@ -264,30 +263,6 @@ function taskDependencies(values: string[] | undefined): string[] {
   ];
 }
 
-function persistedTaskDependencies(value: unknown): string[] {
-  const values = arrayValues(value, maxTaskDependencies);
-  if (values === undefined) return [];
-  const dependencies: string[] = [];
-  const seen = new Set<string>();
-  for (const item of values) {
-    if (typeof item !== "string") continue;
-    const id = item.trim();
-    if (!teamIdPattern.test(id) || seen.has(id)) continue;
-    seen.add(id);
-    dependencies.push(id);
-  }
-  return dependencies;
-}
-
-function uniqueIds<T extends { id: string }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
-}
-
 function nextSequentialId(items: ReadonlyArray<{ id: string }>, prefix: string, limit: number): string {
   const ids = new Set(items.map((item) => item.id));
   for (let index = 1; index <= limit; index += 1) {
@@ -351,76 +326,6 @@ const initialState = (): TeamState => ({
   tasks: [],
   messages: [],
 });
-
-function parsePersistedState(value: unknown): TeamState | undefined {
-  const candidate = record(value);
-  if (candidate === undefined) return undefined;
-  const memberEntries = arrayValues(candidate.members, maxTeamMembers);
-  const taskEntries = arrayValues(candidate.tasks, maxTeamTasks);
-  if (memberEntries === undefined || taskEntries === undefined) return undefined;
-  const messageEntries = arrayValues(candidate.messages, maxTeamMessages);
-  const parsedMembers = memberEntries.flatMap((member: unknown) => {
-    const item = record(member);
-    if (item === undefined || typeof item.id !== "string" || typeof item.name !== "string") return [];
-    const id = item.id.trim();
-    const name = item.name.trim().slice(0, maxMemberNameLength);
-    const role = typeof item.role === "string" ? item.role.trim().slice(0, maxMemberRoleLength) || "协作成员" : "协作成员";
-    if (!teamIdPattern.test(id) || name === "") return [];
-    const status = typeof item.status === "string" && memberStatuses.has(item.status.trim()) ? item.status.trim() : "idle";
-    return [{ id, name, role, status }];
-  });
-  const members = parsedMembers.length === 0 ? initialState().members : uniqueIds(parsedMembers);
-  const memberIds = new Set(members.map((member) => member.id));
-  const parsedTasks = taskEntries.flatMap((task: unknown, index: number) => {
-    const item = record(task);
-    if (item === undefined) return [];
-    const providedId = typeof item.id === "string" ? item.id.trim() : "";
-    const id = providedId || `task-${index + 1}`;
-    if (!teamIdPattern.test(id)) return [];
-    const assignee = typeof item.assignee === "string" && memberIds.has(item.assignee.trim()) ? item.assignee.trim() : "unassigned";
-    const normalizedStatus = typeof item.status === "string" ? item.status.trim() : "";
-    const persistedStatus = taskStatuses.has(normalizedStatus as TeamTaskStatus) ? (normalizedStatus as TeamTaskStatus) : "todo";
-    const status = persistedStatus === "in_progress" && assignee === "unassigned" ? "todo" : persistedStatus;
-    return [
-      {
-        id,
-        title: typeof item.title === "string" && item.title.trim() !== "" ? item.title.trim().slice(0, maxTaskTitleLength) : "未命名任务",
-        assignee,
-        status,
-        dependsOn: persistedTaskDependencies(item.dependsOn),
-      },
-    ];
-  });
-  const tasks = uniqueIds(parsedTasks);
-  const parsedMessages = messageEntries
-    ? messageEntries.flatMap((message: unknown, index: number) => {
-        const item = record(message);
-        if (item === undefined || typeof item.from !== "string" || typeof item.to !== "string" || typeof item.body !== "string") return [];
-        const from = item.from.trim();
-        const to = item.to.trim();
-        const body = item.body.trim().slice(0, maxMessageBodyLength);
-        if (!memberIds.has(from) || !memberIds.has(to) || body === "") return [];
-        const providedId = typeof item.id === "string" ? item.id.trim() : "";
-        const id = providedId || `message-${index + 1}`;
-        if (!teamIdPattern.test(id)) return [];
-        return [
-          {
-            id,
-            from,
-            to,
-            body,
-            timestamp: persistedTimestamp(item.timestamp),
-            read: item.read === true,
-          },
-        ];
-      })
-    : [];
-  const messages = uniqueIds(parsedMessages);
-  const state = { members, tasks, messages };
-  refreshTaskReadiness(state);
-  syncMemberStatuses(state);
-  return structuredClone(state);
-}
 
 type RawCollectionDelta = { upsert: unknown[]; remove: string[] };
 type ParsedJournalDelta = {
@@ -584,8 +489,7 @@ function finalizeStrictState(members: TeamMember[], tasks: TeamTask[], messages:
     return undefined;
   const next = { members, tasks, messages };
   const beforeDerivedState = JSON.stringify(next);
-  // Validate historical journals with their original readiness rule; migrate only after every revision has been replayed.
-  refreshTaskReadiness(next, false);
+  refreshTaskReadiness(next);
   syncMemberStatuses(next);
   return JSON.stringify(next) === beforeDerivedState ? next : undefined;
 }
@@ -657,8 +561,8 @@ function applyJournalDelta(state: TeamState, delta: ParsedJournalDelta): TeamSta
   return finalizeStrictState(members, tasks, messages);
 }
 
-function readState(context: Context): TeamStateRead {
-  const entries = context.piSession.manager.getBranch();
+function readState(manager: SessionManager): TeamStateRead {
+  const entries = manager.getBranch();
   const recentStart = Math.max(0, entries.length - maxStateScanEntries);
   const pendingDeltas: ParsedJournalDelta[] = [];
   let state: TeamState | undefined;
@@ -681,10 +585,7 @@ function readState(context: Context): TeamStateRead {
       currentRevision = checkpointRevision;
       return true;
     }
-    const legacyState = parsePersistedState(candidate);
-    if (legacyState === undefined) return false;
-    state = legacyState;
-    return true;
+    return false;
   };
   let index = entries.length - 1;
   for (; index >= recentStart; index -= 1) {
@@ -703,7 +604,7 @@ function readState(context: Context): TeamStateRead {
     truncated: scannedEntries < entries.length,
     restored: state !== undefined,
   };
-  if (state === undefined) return { state: initialState(), ...metadata, revision: 0, journalDepth: 0, requiresCheckpoint: false };
+  if (state === undefined) return { state: initialState(), ...metadata, revision: 0, journalDepth: 0 };
   let journalDepth = 0;
   for (const delta of pendingDeltas.reverse()) {
     if (delta.baseRevision !== currentRevision) continue;
@@ -713,10 +614,7 @@ function readState(context: Context): TeamStateRead {
     currentRevision = delta.revision;
     journalDepth += 1;
   }
-  const normalized = structuredClone(state);
-  refreshTaskReadiness(normalized);
-  syncMemberStatuses(normalized);
-  return { state: normalized, ...metadata, revision: currentRevision, journalDepth, requiresCheckpoint: JSON.stringify(normalized) !== JSON.stringify(state) };
+  return { state: structuredClone(state), ...metadata, revision: currentRevision, journalDepth };
 }
 
 function throwIfCancelled(signal: AbortSignal): void {
@@ -745,7 +643,7 @@ function stateDelta(before: TeamState, after: TeamState): TeamStateDelta {
   };
 }
 
-function persist(context: Context, loaded: TeamStateRead, state: TeamState, signal: AbortSignal): void {
+function persist(manager: SessionManager, loaded: TeamStateRead, state: TeamState, signal: AbortSignal): void {
   throwIfCancelled(signal);
   const snapshot = structuredClone(state);
   const serializedState = JSON.stringify(snapshot);
@@ -768,13 +666,12 @@ function persist(context: Context, loaded: TeamStateRead, state: TeamState, sign
   const serializedDelta = JSON.stringify(delta);
   const useCheckpoint =
     !loaded.restored ||
-    loaded.requiresCheckpoint ||
     loaded.journalDepth >= maxJournalDeltasBeforeCheckpoint - 1 ||
     Buffer.byteLength(serializedDelta, "utf8") >= Buffer.byteLength(serializedState, "utf8");
-  context.piSession.manager.appendCustomEntry(customType, structuredClone(useCheckpoint ? checkpoint : delta));
+  manager.appendCustomEntry(customType, structuredClone(useCheckpoint ? checkpoint : delta));
 }
 
-function refreshTaskReadiness(state: TeamState, blockActiveTasks = true): void {
+function refreshTaskReadiness(state: TeamState): void {
   const completed = new Set<string>();
   let changed = true;
   while (changed) {
@@ -788,10 +685,7 @@ function refreshTaskReadiness(state: TeamState, blockActiveTasks = true): void {
   for (const task of state.tasks) {
     if (task.status === "done" && !completed.has(task.id)) task.status = "blocked";
     if (task.status === "blocked" && task.dependsOn.every((id) => completed.has(id))) task.status = "todo";
-    if (
-      (task.status === "todo" || task.status === "blocked" || (blockActiveTasks && task.status === "in_progress")) &&
-      task.dependsOn.some((id) => !completed.has(id))
-    )
+    if ((task.status === "todo" || task.status === "blocked" || task.status === "in_progress") && task.dependsOn.some((id) => !completed.has(id)))
       task.status = "blocked";
   }
 }
@@ -882,6 +776,7 @@ export default {
   apply(context: Context, config: AgentTeamsConfig) {
     assertKnownConfigKeys("pi-agent-teams", config, []);
     const lifecycle = new AbortController();
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "team_task",
@@ -941,12 +836,17 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<unknown>> {
+        async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<unknown>> {
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          throwIfCancelled(operationSignal);
+          const manager = currentManager();
+          const header = manager.getHeader();
           return Promise.resolve().then(() => {
-            const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
             throwIfCancelled(operationSignal);
             const params = parseTeamParameters(rawParams);
-            const loaded = readState(context);
+            throwIfCancelled(operationSignal);
+            if (currentManager() !== manager || manager.getHeader() !== header) throw new Error("Agent Teams session changed before execution");
+            const loaded = readState(manager);
             const state = structuredClone(loaded.state);
             const action = params.action;
             if (action === "get_state") return stateResult(state);
@@ -978,7 +878,7 @@ export default {
               }
               refreshTaskReadiness(state);
               syncMemberStatuses(state);
-              persist(context, loaded, state, operationSignal);
+              persist(manager, loaded, state, operationSignal);
               return { content: [{ type: "text" as const, text: `Task ${task.id} created.` }], details: { kind: "task", item: structuredClone(task) } };
             }
             if (action === "update_task") {
@@ -1011,7 +911,7 @@ export default {
               validateActiveTask(state.tasks, task);
               refreshTaskReadiness(state);
               syncMemberStatuses(state);
-              persist(context, loaded, state, operationSignal);
+              persist(manager, loaded, state, operationSignal);
               return { content: [{ type: "text" as const, text: `Task ${task.id} updated.` }], details: { kind: "task", item: structuredClone(task) } };
             }
             if (action === "claim_task") {
@@ -1022,7 +922,7 @@ export default {
               const member = state.members.find((item) => item.id === task.assignee);
               if (member !== undefined) member.status = "working";
               syncMemberStatuses(state);
-              persist(context, loaded, state, operationSignal);
+              persist(manager, loaded, state, operationSignal);
               return { content: [{ type: "text" as const, text: `Task ${task.id} claimed.` }], details: { kind: "task", item: structuredClone(task) } };
             }
             if (action === "remove_task") {
@@ -1035,7 +935,7 @@ export default {
               if (state.tasks.some((item) => item.dependsOn.includes(id))) throw new Error(`Task ${id} cannot be removed while another task depends on it`);
               state.tasks.splice(index, 1);
               syncMemberStatuses(state);
-              persist(context, loaded, state, operationSignal);
+              persist(manager, loaded, state, operationSignal);
               return { content: [{ type: "text" as const, text: `Task ${id} removed.` }], details: { kind: "task", removed: structuredClone(task) } };
             }
             if (action === "add_member") {
@@ -1059,7 +959,7 @@ export default {
               };
               if (state.members.some((item) => item.id === member.id)) throw new Error(`Member already exists: ${member.id}`);
               state.members.push(member);
-              persist(context, loaded, state, operationSignal);
+              persist(manager, loaded, state, operationSignal);
               return { content: [{ type: "text" as const, text: `Member ${member.name} added.` }], details: { kind: "member", item: structuredClone(member) } };
             }
             if (action === "remove_member") {
@@ -1072,7 +972,7 @@ export default {
               if (state.messages.some((message) => message.from === id || message.to === id))
                 throw new Error(`Member ${id} cannot be removed while mailbox messages reference it`);
               const [member] = state.members.splice(index, 1);
-              persist(context, loaded, state, operationSignal);
+              persist(manager, loaded, state, operationSignal);
               return { content: [{ type: "text" as const, text: `Member ${id} removed.` }], details: { kind: "member", removed: structuredClone(member) } };
             }
             if (action === "send_message") {
@@ -1096,7 +996,7 @@ export default {
                 read: false,
               };
               state.messages.push(message);
-              persist(context, loaded, state, operationSignal);
+              persist(manager, loaded, state, operationSignal);
               return {
                 content: [{ type: "text" as const, text: `Message ${message.id} sent.` }],
                 details: { kind: "message", item: structuredClone(message) },
@@ -1110,7 +1010,7 @@ export default {
               const result = mailboxResult(candidates);
               const messages = result.messages;
               for (const message of messages) message.read = true;
-              if (messages.length > 0) persist(context, loaded, state, operationSignal);
+              if (messages.length > 0) persist(manager, loaded, state, operationSignal);
               return {
                 content: [{ type: "text" as const, text: result.text }],
                 details: {
@@ -1131,7 +1031,7 @@ export default {
               const removed = state.messages.length - retained.length;
               if (removed > 0) {
                 state.messages = retained;
-                persist(context, loaded, state, operationSignal);
+                persist(manager, loaded, state, operationSignal);
               }
               return {
                 content: [{ type: "text" as const, text: `${removed} read message${removed === 1 ? "" : "s"} cleared.` }],
@@ -1151,7 +1051,7 @@ export default {
       description: "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。",
       icon: "◎",
       read: () => {
-        const loaded = readState(context);
+        const loaded = readState(currentManager());
         const state = loaded.state;
         const cycle = dependencyCycle(state.tasks);
         const members = structuredClone(state.members.slice(0, maxPanelMembers));

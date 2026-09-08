@@ -157,7 +157,11 @@ describe("git time capsule restore", () => {
     const bin = join(workspace, "bin");
     const started = join(workspace, "git-started");
     await mkdir(bin);
-    await writeFile(join(bin, "git"), '#!/bin/sh\n: > "$CAPSULE_GIT_STARTED"\nexec sleep 5\n', "utf8");
+    await writeFile(
+      join(bin, "git"),
+      '#!/bin/sh\ncase "$*" in *--numstat*) printf "1\\t1\\tnote.txt\\n"; exit 0;; esac\n: > "$CAPSULE_GIT_STARTED"\nexec sleep 30\n',
+      "utf8",
+    );
     await chmod(join(bin, "git"), 0o700);
     const originalPath = process.env.PATH;
     const originalStarted = process.env.CAPSULE_GIT_STARTED;
@@ -166,7 +170,9 @@ describe("git time capsule restore", () => {
     const controller = new AbortController();
     let pending: Promise<unknown> | undefined;
     try {
-      pending = applyCapsule(workspace, capsule, 1_000, controller.signal);
+      // Cancellation starts only after the check process signals readiness; its command deadline must outlive that wait.
+      pending = applyCapsule(workspace, capsule, 15_000, controller.signal);
+      void pending.catch(() => undefined);
       await waitForFile(started, "Git restore check to start");
 
       controller.abort(new Error("restore caller cancelled"));
@@ -179,7 +185,7 @@ describe("git time capsule restore", () => {
       if (originalStarted === undefined) delete process.env.CAPSULE_GIT_STARTED;
       else process.env.CAPSULE_GIT_STARTED = originalStarted;
     }
-  });
+  }, 10_000);
 
   test("requires explicit confirmation through the restore tool", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-tool-"));
