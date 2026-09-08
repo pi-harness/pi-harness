@@ -65,7 +65,7 @@ describe("Pi Harness design contract", () => {
 
   it("labels npm statistics without presenting them as user ratings", () => {
     expect(marketplaceStatisticItems({ downloads30d: 1_014_632, quality: 0.923, updatedAt: "2026-08-30T13:14:00.557Z" })).toEqual([
-      { label: "近 30 天下载量", value: "101.5 万" },
+      { label: "近 30 天下载量", value: "101.5万" },
       { label: "npm 质量分", value: "92" },
       { label: "npm 更新时间", value: "2026-08-30" },
     ]);

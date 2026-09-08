@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 export interface FailureView {
   readonly time: string | null;
   readonly source: string;
@@ -71,7 +73,7 @@ function failure(value: unknown): { readonly value: FailureView; readonly trunca
   const rawTime = dataProperty(value, "time");
   const time = typeof rawTime === "string" && rawTime.length <= 64 && Number.isFinite(Date.parse(rawTime)) ? new Date(rawTime).toISOString() : null;
   const normalizedSource = (rawSource.trim() || "runtime").replaceAll("\0", "�");
-  const normalizedMessage = (rawMessage.trim() || "未知错误").replaceAll("\0", "�");
+  const normalizedMessage = (rawMessage.trim() || t("未知错误")).replaceAll("\0", "�");
   return {
     value: {
       time,

@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 export type AgentTeamTaskStatus = "todo" | "blocked" | "in_progress" | "done";
 export type AgentTeamMemberStatus = "idle" | "working";
 
@@ -69,7 +71,7 @@ function member(value: unknown): AgentTeamMemberView | undefined {
   const memberId = id(value.id);
   const name = text(value.name, maxNameCharacters);
   if (memberId === undefined || name === "") return undefined;
-  const role = text(value.role, maxRoleCharacters) || "协作成员";
+  const role = text(value.role, maxRoleCharacters) || t("协作成员");
   const status =
     typeof value.status === "string" && memberStatuses.has(value.status as AgentTeamMemberStatus) ? (value.status as AgentTeamMemberStatus) : "idle";
   return { id: memberId, name, role, status };

@@ -1,4 +1,5 @@
 import type { ClientMarketplacePlugin, ClientPlugin } from "./control-room.js";
+import { t } from "./i18n.js";
 
 export interface InstalledPluginCardContent {
   readonly packageLabel: string;
@@ -21,7 +22,7 @@ export function installedPluginCardContent(
   }
   return {
     packageLabel: plugin.name,
-    description: plugin.enabled ? "由当前运行时加载并启用，能力与 hook 已注册。" : "由当前运行时加载但已停用。",
+    description: plugin.enabled ? t("由当前运行时加载并启用，能力与 hook 已注册。") : t("由当前运行时加载但已停用。"),
     tags: ["loader", plugin.state === "active" ? "active" : `state:${plugin.state}`],
   };
 }
