@@ -1,3 +1,5 @@
+import { formatLocale, t } from "./i18n.js";
+
 export type RuntimeEvent = Record<string, unknown>;
 
 function thinkingDelta(event: RuntimeEvent | undefined): { assistantMessageEvent: RuntimeEvent; delta: string } | undefined {
@@ -55,10 +57,11 @@ const EVENT_KIND_LABELS = new Map<string, string>([
   ["file_diff", "文件差异"],
 ]);
 
-/** The Chinese name of an event kind, falling back to the raw id so an event type this console has not met yet still reads as itself. */
+/** The readable name of an event kind, falling back to the raw id so an event type this console has not met yet still reads as itself. The table holds the Chinese source rather than the translation because it is built once at import, before any catalog is loaded. */
 export function eventKindLabel(type: unknown): string {
-  if (typeof type !== "string" || type === "") return "事件";
-  return EVENT_KIND_LABELS.get(type) ?? type;
+  if (typeof type !== "string" || type === "") return t("事件");
+  const label = EVENT_KIND_LABELS.get(type);
+  return label === undefined ? type : t(label);
 }
 
 function messageRecord(event: RuntimeEvent): RuntimeEvent | undefined {
@@ -76,7 +79,7 @@ export function eventClock(event: RuntimeEvent): number | undefined {
 export function formatEventClock(event: RuntimeEvent): string {
   const clock = eventClock(event);
   if (clock === undefined) return "—";
-  return new Date(clock).toLocaleTimeString("zh-CN", { hour12: false });
+  return new Date(clock).toLocaleTimeString(formatLocale(), { hour12: false });
 }
 
 /** What produced the event: the model for a message, the tool for a call, and the runtime for everything the harness itself emits. */
@@ -87,7 +90,7 @@ export function eventOrigin(event: RuntimeEvent): string {
     if (typeof message.model === "string" && message.model !== "") return message.model;
     if (typeof message.role === "string" && message.role !== "") return message.role;
   }
-  return "运行时";
+  return t("运行时");
 }
 
 export function formatEventDuration(event: RuntimeEvent): string {

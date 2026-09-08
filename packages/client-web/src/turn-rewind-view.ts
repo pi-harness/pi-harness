@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 const defaults = {
   candidates: 50,
   displayCandidates: 8,
@@ -40,7 +42,7 @@ function timestamp(value: unknown): string | null {
 function candidate(value: unknown, limits: { entryIdCharacters: number; previewCharacters: number }) {
   return {
     entryId: text(dataProperty(value, "entryId"), limits.entryIdCharacters, "unknown"),
-    text: text(dataProperty(value, "text"), limits.previewCharacters, "未命名轮次"),
+    text: text(dataProperty(value, "text"), limits.previewCharacters, t("未命名轮次")),
   };
 }
 

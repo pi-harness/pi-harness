@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import type { ClientMarketplacePlugin, ClientPiConfig } from "../src/control-room.js";
+import type { ConfigStatus } from "../src/react-room.js";
 import {
   PluginPanelCard,
   ChatTurnArticle,
@@ -13,6 +14,7 @@ import {
   pluginActionErrorText,
   readRestartPendingPackages,
   reloadRuntimeConfig,
+  restartRequiredNotice,
   restartPendingForProcess,
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
@@ -43,7 +45,7 @@ const plugin = (id: string): ClientMarketplacePlugin => ({
 
 function recordConfigApply() {
   const applied: string[] = [];
-  const states: string[] = [];
+  const states: (ConfigStatus | undefined)[] = [];
   const busy: boolean[] = [];
   const drafts: string[] = [];
   return {
@@ -54,7 +56,7 @@ function recordConfigApply() {
     handlers: {
       config: (value: ClientPiConfig) => applied.push(value.source),
       sourceDraft: (source: string) => drafts.push(source),
-      state: (message: string) => states.push(message),
+      state: (status: ConfigStatus | undefined) => states.push(status),
       busy: (value: boolean) => busy.push(value),
     },
   };
@@ -68,7 +70,10 @@ describe("runtime config reload", () => {
 
     expect(target.drafts).toEqual(['{\n  "transport": "stdio"\n}\n']);
     expect(target.applied).toEqual(['{\n  "transport": "stdio"\n}\n']);
-    expect(target.states).toEqual(["重载中…", "已从磁盘重载"]);
+    expect(target.states).toEqual([
+      { text: "重载中…", kind: "progress" },
+      { text: "已从磁盘重载", kind: "done" },
+    ]);
     expect(target.busy).toEqual([true, false]);
   });
 
@@ -79,7 +84,10 @@ describe("runtime config reload", () => {
 
     expect(target.drafts).toEqual([]);
     expect(target.applied).toEqual([]);
-    expect(target.states).toEqual(["重载中…", "settings.json 无法解析"]);
+    expect(target.states).toEqual([
+      { text: "重载中…", kind: "progress" },
+      { text: "settings.json 无法解析", kind: "error" },
+    ]);
     expect(target.busy).toEqual([true, false]);
   });
 });
@@ -299,16 +307,14 @@ describe("restart pending plugins", () => {
 });
 
 describe("restart required notice", () => {
-  test("names the profile file and the terminal action, without a start command it cannot know", async () => {
-    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
-    const notice = /const RESTART_REQUIRED_NOTICE =\s*"([^"]*)";/u.exec(source);
+  test("names the profile file and the terminal action, without a start command it cannot know", () => {
+    const notice = restartRequiredNotice();
 
-    expect(notice, 'no `const RESTART_REQUIRED_NOTICE = "..."` declaration was found').not.toBeNull();
-    expect(notice?.[1]).toContain("~/.pi-harness/profiles/");
-    expect(notice?.[1]).toContain("Ctrl-C");
+    expect(notice).toContain("~/.pi-harness/profiles/");
+    expect(notice).toContain("Ctrl-C");
     // The console is reachable through more than one launcher, so the sentence tells the user to repeat their own command instead of naming one.
-    expect(notice?.[1]).not.toContain("pih");
-    expect(notice?.[1]).not.toContain("everyapi");
+    expect(notice).not.toContain("pih");
+    expect(notice).not.toContain("everyapi");
   });
 });
 
@@ -402,7 +408,9 @@ describe("command palette with an empty registry", () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
 
     // The completion popover needs at least one item to open, so both the placeholder and the chip have to be tied to the command count.
-    expect(source).toContain('`描述要做的改动，⌘↵ 发送；@ 引用文件${data.commands.length ? "，/ 调用命令" : ""}`');
+    expect(
+      /data\.commands\.length\s*\? t\("描述要做的改动，⌘↵ 发送；@ 引用文件，\/ 调用命令"\)\s*: t\("描述要做的改动，⌘↵ 发送；@ 引用文件"\)/u.test(source),
+    ).toBe(true);
     expect(/className="tool-chip"\s*disabled=\{!data\.commands\.length\}/u.test(source)).toBe(true);
   });
 });

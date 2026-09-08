@@ -1381,6 +1381,9 @@ button:disabled {
 .general-row small.setting-error {
   @apply [color:var(--color-red)];
 }
+.setting-select {
+  @apply [flex:none] [height:30px] [padding:0_8px] [border:1px_solid_var(--color-line)] [border-radius:7px] [background:var(--color-surface)] [color:var(--color-ink)] [font-size:11.5px];
+}
 .provider-card {
   @apply [margin-bottom:12px] [padding:12px_13px] [border:1px_solid_var(--color-line)] [border-radius:10px];
 }
