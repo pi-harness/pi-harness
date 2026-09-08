@@ -38,7 +38,6 @@ const safeCommands = new Set([
   "diff",
   "dirname",
   "echo",
-  "file",
   "grep",
   "head",
   "id",
@@ -51,6 +50,33 @@ const safeCommands = new Set([
   "wc",
   "which",
   "whoami",
+]);
+const safeFileOptions = new Set([
+  "-b",
+  "--brief",
+  "-i",
+  "-I",
+  "--mime",
+  "--mime-type",
+  "--mime-encoding",
+  "--extension",
+  "-h",
+  "--no-dereference",
+  "-L",
+  "--dereference",
+  "-k",
+  "--keep-going",
+  "-n",
+  "--no-buffer",
+  "-N",
+  "--no-pad",
+  "-0",
+  "--print0",
+  "-r",
+  "--raw",
+  "-v",
+  "--version",
+  "--help",
 ]);
 const safeGitSubcommands = new Set(["blame", "cat-file", "describe", "diff", "grep", "log", "ls-files", "ls-tree", "rev-parse", "show", "status"]);
 // A read-only git subcommand runs a program by two independent routes, and screening argv only closes the first one.
@@ -325,6 +351,14 @@ async function containsSubmodule(cwd: string, timeoutMs: number, signal?: AbortS
 async function isRisky(command: string[], repositoryProbe: (subcommand: string) => Promise<boolean>): Promise<boolean> {
   if (/[\\/]/u.test(command[0] ?? "")) return true;
   const executable = commandName(command[0] ?? "");
+  if (executable === "file") {
+    // file can compile magic databases and launch external decompressors, so only known inspection options run without confirmation.
+    for (const argument of command.slice(1)) {
+      if (argument === "--") break;
+      if (argument.startsWith("-") && argument !== "-" && !safeFileOptions.has(argument)) return true;
+    }
+    return false;
+  }
   if (safeCommands.has(executable)) return false;
   if (executable !== "git") return true;
   const subcommand = command[1]?.toLowerCase() ?? "";

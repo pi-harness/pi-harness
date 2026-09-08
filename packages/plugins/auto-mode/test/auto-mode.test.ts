@@ -123,6 +123,37 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 describe("auto-mode", () => {
+  test("requires confirmation for file magic compilation while allowing ordinary inspection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
+    const context = new Context();
+    try {
+      await writeFile(join(root, "sample.magic"), "0 string SAMPLE sample format\n");
+      await writeFile(join(root, "sample.txt"), "SAMPLE payload\n");
+      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(autoModePlugin, { mode: "safe" });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec")!;
+      for (const option of ["-C", "-bC", "--compile", "--comp", "-z", "--uncompress"]) {
+        await expect(tool.execute("compile", { command: ["file", option, "-m", "sample.magic"] }, undefined, undefined, {} as never)).rejects.toThrow(
+          /confirm=true/iu,
+        );
+        await expect(access(join(root, "sample.magic.mgc"))).rejects.toThrow();
+      }
+      await expect(
+        tool.execute("inspect", { command: ["file", "--brief", "--mime-type", "--", "sample.txt"] }, undefined, undefined, {} as never),
+      ).resolves.toMatchObject({ details: { exitCode: 0, confirmed: false } });
+      await expect(
+        tool.execute("confirmed", { command: ["file", "-C", "-m", "sample.magic"], confirm: true }, undefined, undefined, {} as never),
+      ).resolves.toMatchObject({ details: { exitCode: 0, confirmed: true } });
+      await expect(access(join(root, "sample.magic.mgc"))).resolves.toBeUndefined();
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("requires confirmation for unknown workspace executables", async () => {
     if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));

@@ -72,6 +72,7 @@ type TeamStateRead = {
   restored: boolean;
   revision: number;
   journalDepth: number;
+  requiresCheckpoint: boolean;
 };
 
 export type AgentTeamsConfig = Record<never, never>;
@@ -583,7 +584,8 @@ function finalizeStrictState(members: TeamMember[], tasks: TeamTask[], messages:
     return undefined;
   const next = { members, tasks, messages };
   const beforeDerivedState = JSON.stringify(next);
-  refreshTaskReadiness(next);
+  // Validate historical journals with their original readiness rule; migrate only after every revision has been replayed.
+  refreshTaskReadiness(next, false);
   syncMemberStatuses(next);
   return JSON.stringify(next) === beforeDerivedState ? next : undefined;
 }
@@ -701,7 +703,7 @@ function readState(context: Context): TeamStateRead {
     truncated: scannedEntries < entries.length,
     restored: state !== undefined,
   };
-  if (state === undefined) return { state: initialState(), ...metadata, revision: 0, journalDepth: 0 };
+  if (state === undefined) return { state: initialState(), ...metadata, revision: 0, journalDepth: 0, requiresCheckpoint: false };
   let journalDepth = 0;
   for (const delta of pendingDeltas.reverse()) {
     if (delta.baseRevision !== currentRevision) continue;
@@ -711,7 +713,10 @@ function readState(context: Context): TeamStateRead {
     currentRevision = delta.revision;
     journalDepth += 1;
   }
-  return { state: structuredClone(state), ...metadata, revision: currentRevision, journalDepth };
+  const normalized = structuredClone(state);
+  refreshTaskReadiness(normalized);
+  syncMemberStatuses(normalized);
+  return { state: normalized, ...metadata, revision: currentRevision, journalDepth, requiresCheckpoint: JSON.stringify(normalized) !== JSON.stringify(state) };
 }
 
 function throwIfCancelled(signal: AbortSignal): void {
@@ -763,12 +768,13 @@ function persist(context: Context, loaded: TeamStateRead, state: TeamState, sign
   const serializedDelta = JSON.stringify(delta);
   const useCheckpoint =
     !loaded.restored ||
+    loaded.requiresCheckpoint ||
     loaded.journalDepth >= maxJournalDeltasBeforeCheckpoint - 1 ||
     Buffer.byteLength(serializedDelta, "utf8") >= Buffer.byteLength(serializedState, "utf8");
   context.piSession.manager.appendCustomEntry(customType, structuredClone(useCheckpoint ? checkpoint : delta));
 }
 
-function refreshTaskReadiness(state: TeamState): void {
+function refreshTaskReadiness(state: TeamState, blockActiveTasks = true): void {
   const completed = new Set<string>();
   let changed = true;
   while (changed) {
@@ -782,7 +788,11 @@ function refreshTaskReadiness(state: TeamState): void {
   for (const task of state.tasks) {
     if (task.status === "done" && !completed.has(task.id)) task.status = "blocked";
     if (task.status === "blocked" && task.dependsOn.every((id) => completed.has(id))) task.status = "todo";
-    if ((task.status === "todo" || task.status === "blocked") && task.dependsOn.some((id) => !completed.has(id))) task.status = "blocked";
+    if (
+      (task.status === "todo" || task.status === "blocked" || (blockActiveTasks && task.status === "in_progress")) &&
+      task.dependsOn.some((id) => !completed.has(id))
+    )
+      task.status = "blocked";
   }
 }
 

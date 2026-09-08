@@ -37,6 +37,13 @@ function dependencyId(name: string): string {
   return `dependency_${normalized || "package"}`;
 }
 
+function uniqueNodeId(baseId: string, usedIds: Set<string>): string {
+  let id = baseId;
+  for (let suffix = 2; usedIds.has(id); suffix += 1) id = `${baseId}_${suffix}`;
+  usedIds.add(id);
+  return id;
+}
+
 function escapeLabel(value: string): string {
   return value.replace(/[&<>"\r\n]/g, (character) => {
     if (character === "&") return "&amp;";
@@ -53,15 +60,12 @@ function normalizeMaxNodes(value: number): number {
 
 function topLevelComponents(nodes: readonly WorkspaceNode[]): { components: ArchitectureComponent[]; truncated: boolean } {
   const directories = nodes.filter((node) => node.kind === "directory" && node.depth === 1);
-  const idCounts = new Map<string, number>();
+  const usedIds = new Set<string>();
   const components = directories.slice(0, maxComponents).map((directory) => {
     const prefix = `${directory.path}/`;
     const descendants = nodes.filter((node) => node.path.startsWith(prefix));
-    const baseId = componentId(directory.path);
-    const idCount = (idCounts.get(baseId) ?? 0) + 1;
-    idCounts.set(baseId, idCount);
     return {
-      id: idCount === 1 ? baseId : `${baseId}_${idCount}`,
+      id: uniqueNodeId(componentId(directory.path), usedIds),
       label: directory.name,
       path: directory.path,
       files: descendants.filter((node) => node.kind === "file").length,
@@ -99,12 +103,9 @@ function render(workspace: string, components: readonly ArchitectureComponent[],
     lines.push(`    ${component.id}["${escapeLabel(component.label)}\\n${component.files} files · ${component.directories} dirs"]`);
     lines.push(`    project --> ${component.id}`);
   }
-  const dependencyIdCounts = new Map<string, number>();
+  const usedIds = new Set<string>();
   for (const dependency of dependencies) {
-    const baseId = dependencyId(dependency);
-    const idCount = (dependencyIdCounts.get(baseId) ?? 0) + 1;
-    dependencyIdCounts.set(baseId, idCount);
-    const id = idCount === 1 ? baseId : `${baseId}_${idCount}`;
+    const id = uniqueNodeId(dependencyId(dependency), usedIds);
     lines.push(`    ${id}["${escapeLabel(dependency)}"]`);
     lines.push(`    project --> ${id}`);
   }

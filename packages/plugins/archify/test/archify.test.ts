@@ -13,6 +13,26 @@ afterEach(async () => {
 });
 
 describe("archify", () => {
+  test("keeps component ids unique when an original name matches a generated suffix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-"));
+    temporaryDirectories.push(root);
+    for (const name of ["a-b", "a_b", "a_b_2", "a-b-2"]) await mkdir(join(root, name));
+    const report = await buildArchitectureReport(root);
+    const ids = report.components.map((component) => component.id);
+    expect(new Set(ids).size).toBe(4);
+    for (const component of report.components) expect(report.mermaid).toContain(`${component.id}["${component.label}`);
+  });
+
+  test("keeps dependency ids unique when an original name matches a generated suffix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-"));
+    temporaryDirectories.push(root);
+    await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { "a-b": "1", a_b: "1", a_b_2: "1", "a-b-2": "1" } }));
+    const report = await buildArchitectureReport(root);
+    const ids = [...report.mermaid.matchAll(/^ {4}(dependency_\w+)\[/gmu)].map((match) => match[1]);
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(4);
+  });
+
   test("maps top-level workspace components and package dependencies", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-"));
     temporaryDirectories.push(root);

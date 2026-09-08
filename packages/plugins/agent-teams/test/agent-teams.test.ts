@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
-import agentTeamsPlugin, { dependencyCycle, readyTeamTasks } from "../src/index.js";
+import agentTeamsPlugin, { dependencyCycle, readyTeamTasks, type TeamTask } from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
@@ -79,6 +79,81 @@ describe("agent teams dependency graph", () => {
 });
 
 describe("agent teams plugin", () => {
+  test.each(["checkpoint", "delta"])("migrates active tasks from an old %s without dropping later journal entries", async (kind) => {
+    const { manager, tool } = await createPlugin();
+    await tool.execute("plan", { action: "add_task", id: "plan", title: "Plan", status: "done" }, undefined, undefined, {} as never);
+    await tool.execute(
+      "review",
+      { action: "add_task", id: "review", title: "Review", status: "in_progress", assignee: "reviewer", dependsOn: ["plan"] },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    const result = await tool.execute("state", { action: "get_state" }, undefined, undefined, {} as never);
+    const { members, tasks, messages } = result.details as { members: unknown[]; tasks: TeamTask[]; messages: unknown[] };
+    tasks[0]!.status = "todo";
+    manager.appendCustomEntry(
+      "pi-harness/agent-teams",
+      kind === "checkpoint"
+        ? { journalVersion: 1, kind, revision: 3, state: { members, tasks, messages } }
+        : { journalVersion: 1, kind, baseRevision: 2, revision: 3, changes: { tasks: { upsert: [tasks[0]], remove: [] } } },
+    );
+    const message = { id: "message-1", from: "planner", to: "reviewer", body: "Keep this later note", timestamp: new Date(0).toISOString(), read: false };
+    manager.appendCustomEntry("pi-harness/agent-teams", {
+      journalVersion: 1,
+      kind: "delta",
+      baseRevision: 3,
+      revision: 4,
+      changes: { messages: { upsert: [message], remove: [] } },
+    });
+
+    const expected = {
+      tasks: [
+        { id: "plan", status: "todo" },
+        { id: "review", status: "blocked" },
+      ],
+      messages: [message],
+    };
+    await expect(tool.execute("migrated", { action: "get_state" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: expected });
+    await tool.execute("write", { action: "add_member", id: "helper", name: "Helper" }, undefined, undefined, {} as never);
+    expect(manager.getEntries().at(-1)).toMatchObject({ data: { kind: "checkpoint", revision: 5 } });
+    const reopened = await createPlugin(manager);
+    await expect(reopened.tool.execute("state", { action: "get_state" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: expected });
+  });
+
+  test("blocks active downstream tasks when a completed prerequisite is reopened", async () => {
+    const { manager, tool } = await createPlugin();
+    const execute = (params: Record<string, unknown>) => tool.execute("dependency-reopen", params, undefined, undefined, {} as never);
+    await execute({ action: "add_task", id: "plan", title: "Plan", status: "done" });
+    await execute({ action: "add_task", id: "build", title: "Build", status: "done", dependsOn: ["plan"] });
+    await execute({ action: "add_task", id: "review", title: "Review", status: "in_progress", assignee: "reviewer", dependsOn: ["build"] });
+    await execute({ action: "add_task", id: "independent", title: "Independent", status: "in_progress", assignee: "builder" });
+    await execute({ action: "update_task", id: "plan", status: "todo" });
+
+    const expected = {
+      tasks: [
+        { id: "plan", status: "todo" },
+        { id: "build", status: "blocked" },
+        { id: "review", status: "blocked", assignee: "reviewer" },
+        { id: "independent", status: "in_progress" },
+      ],
+      members: [
+        { id: "planner", status: "idle" },
+        { id: "builder", status: "working" },
+        { id: "reviewer", status: "idle" },
+      ],
+    };
+    await expect(execute({ action: "get_state" })).resolves.toMatchObject({ details: expected });
+    const reopened = await createPlugin(manager);
+    await expect(reopened.panels.snapshot()).resolves.toMatchObject([{ data: expected }]);
+
+    await execute({ action: "update_task", id: "plan", status: "done" });
+    await execute({ action: "update_task", id: "build", status: "done" });
+    await expect(execute({ action: "claim_task", assignee: "reviewer" })).resolves.toMatchObject({
+      details: { item: { id: "review", status: "in_progress" } },
+    });
+  });
+
   test("rejects unknown configuration before registering surfaces", async () => {
     const context = new Context();
     contexts.push(context);

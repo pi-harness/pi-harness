@@ -65,7 +65,7 @@ export default {
       toolCalls,
       maxToolCalls,
       allowedTools: [...allowedTools],
-      violations: [...violations],
+      violations: violations.map((violation) => ({ ...violation })),
     });
     const unsubscribe = context.on("pi/session-event", inspect);
     const unregisterTool = context.piTools.register(
