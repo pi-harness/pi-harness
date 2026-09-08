@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { EmptyConfig } from "@pi-harness/plugin-api";
 
 const customType = "pi-harness/colleague-handoff";
@@ -69,8 +69,8 @@ export function createColleagueHandoff(input: unknown, id: string, createdAt: st
   };
 }
 
-function readLatest(context: Context): ColleagueHandoff | undefined {
-  const entries = context.piSession.manager.getEntries();
+function readLatest(manager: SessionManager): ColleagueHandoff | undefined {
+  const entries = manager.getEntries();
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry?.type !== "custom" || entry.customType !== customType || entry.data === null || typeof entry.data !== "object") continue;
@@ -96,7 +96,21 @@ export default {
   Config: EmptyConfig,
   apply(context: Context) {
     const lifecycle = new AbortController();
-    let latest = readLatest(context);
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+    const readScope = () => {
+      const manager = currentManager();
+      return { manager, header: manager.getHeader() };
+    };
+    let scope = readScope();
+    let latest = readLatest(scope.manager);
+    const refreshScope = () => {
+      const current = readScope();
+      if (current.manager !== scope.manager || current.header !== scope.header) {
+        scope = current;
+        latest = readLatest(scope.manager);
+      }
+      return scope;
+    };
     const unregister = context.piTools.register(
       defineTool({
         name: "colleague_handoff",
@@ -115,12 +129,17 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, params, signal): Promise<AgentToolResult<ColleagueHandoff>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<ColleagueHandoff>> {
+          const actionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          throwIfAborted(actionSignal);
+          const operationScope = refreshScope();
           return Promise.resolve().then(() => {
-            const actionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
             throwIfAborted(actionSignal);
+            if (refreshScope() !== operationScope) throw new Error("Colleague handoff session changed before execution");
             const handoff = createColleagueHandoff(params, `handoff-${Date.now()}-${randomUUID().slice(0, 8)}`, new Date().toISOString());
-            context.piSession.manager.appendCustomEntry(customType, structuredClone(handoff));
+            throwIfAborted(actionSignal);
+            if (refreshScope() !== operationScope) throw new Error("Colleague handoff session changed before persistence");
+            operationScope.manager.appendCustomEntry(customType, structuredClone(handoff));
             latest = handoff;
             return {
               content: [{ type: "text" as const, text: `Handoff ${handoff.id} prepared for ${handoff.toRole}.` }],
@@ -136,7 +155,10 @@ export default {
       title: "Colleague Skill",
       description: "把任务、上下文、约束和验收条件整理成可追踪的角色交接包。",
       icon: "⇄",
-      read: () => ({ latest: latest === undefined ? null : structuredClone(latest) }),
+      read: () => {
+        refreshScope();
+        return { latest: latest === undefined ? null : structuredClone(latest) };
+      },
     });
     context.effect(() => () => {
       lifecycle.abort(new Error("Colleague Skill plugin disposed"));

@@ -1,3 +1,4 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
@@ -16,6 +17,7 @@ async function createHarness(entries: unknown[] = []): Promise<{
   const panels = new PiPluginUiRegistry();
   context.provide("piSession", {
     manager: {
+      getHeader: () => null,
       getEntries: () => entries,
       appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/colleague-handoff", data }),
     },
@@ -216,6 +218,7 @@ describe("colleague skill", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/colleague-handoff", data }),
       },
@@ -238,4 +241,69 @@ describe("colleague skill", () => {
       await context.fiber.dispose();
     }
   });
+});
+
+test("refreshes native handoffs and rejects queued replacement or in-place session changes", async () => {
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  const launch = SessionManager.inMemory("/launch"),
+    active = SessionManager.inMemory("/active");
+  const runtime = { session: { sessionManager: launch } };
+  context.provide("piSession", { manager: launch });
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(colleagueSkillPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    const call = (objective: string) => tool.execute("native", { toRole: "reviewer", objective }, undefined, undefined, {} as never);
+    await call("launch handoff");
+    const originalEntries = structuredClone(launch.getEntries());
+    runtime.session.sessionManager = active;
+    expect((await panels.snapshot())[0]!.data).toEqual({ latest: null });
+    await call("active handoff");
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: { objective: "active handoff" } });
+    expect(launch.getEntries()).toEqual(originalEntries);
+    const activeEntries = structuredClone(active.getEntries());
+    const pending = call("must not reach either journal");
+    runtime.session.sessionManager = launch;
+    await expect(pending).rejects.toThrow(/session changed/);
+    expect(active.getEntries()).toEqual(activeEntries);
+    expect(launch.getEntries()).toEqual(originalEntries);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: { objective: "launch handoff" } });
+    const beforeNewSession = call("must not reach new journal");
+    launch.newSession();
+    await expect(beforeNewSession).rejects.toThrow(/session changed/);
+    expect(launch.getEntries()).toEqual([]);
+    expect((await panels.snapshot())[0]!.data).toEqual({ latest: null });
+  } finally {
+    await context.fiber.dispose();
+  }
+});
+
+test("rechecks cancellation after synchronous parameter evaluation before appending", async () => {
+  const fixture = await createHarness();
+  const controller = new AbortController();
+  try {
+    await expect(
+      fixture.tool.execute(
+        "cancel-during-params",
+        {
+          toRole: "reviewer",
+          get objective() {
+            controller.abort(new Error("cancelled during parameters"));
+            return "must not persist";
+          },
+        },
+        controller.signal,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/cancelled during parameters/);
+    expect(fixture.entries).toEqual([]);
+    expect((await fixture.panels.snapshot())[0]!.data).toEqual({ latest: null });
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
 });
