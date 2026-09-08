@@ -1854,6 +1854,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           } as const;
           return (
             <div className="mt-3 grid min-w-0 gap-3">
+              <p className="text-[10px] text-[#687381]">消息与用量累计整份日志（含历史分支及压缩），不等于当前上下文；成本为 SDK 报告值，不是账单。</p>
               <div className="min-w-0 rounded-lg border border-[#e3e7ee] bg-white px-3 py-2">
                 <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-[#7a8490]">Session</span>
                 <p className="mt-1 min-w-0 break-all font-mono text-[10px] leading-4 text-[#3d4650]">{report.sessionId}</p>
@@ -1862,7 +1863,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 {[
                   ["消息", report.totalMessages.toLocaleString("en-US")],
                   ["工具调用 / 结果", `${report.toolCalls.toLocaleString("en-US")} / ${report.toolResults.toLocaleString("en-US")}`],
-                  ["成本", `$${report.cost.toFixed(4)}`],
+                  ["SDK 成本", `$${report.cost.toFixed(4)}`],
                 ].map(([label, item]) => (
                   <div className="min-w-0 rounded-lg bg-[#f6f8fa] px-3 py-2" key={label}>
                     <span className="block text-[10px] text-[#687381]">{label}</span>

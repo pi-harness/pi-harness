@@ -26,6 +26,8 @@ function stats(overrides: Record<string, unknown> = {}): Record<string, unknown>
 }
 
 async function fixture(session: unknown = { isIdle: true, getSessionStats: () => stats(), compact: () => Promise.resolve() }) {
+  if (session !== null && typeof session === "object" && !("subscribe" in session))
+    Object.defineProperty(session, "subscribe", { value: () => () => undefined });
   const context = new Context();
   contexts.push(context);
   const panels = new PiPluginUiRegistry();
@@ -483,4 +485,84 @@ describe("session-insights", () => {
     context.provide("piRuntime", { session: { isIdle: true, getSessionStats: () => stats(), compact: () => Promise.resolve() } } as never);
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-1" } }]);
   });
+});
+
+test("refreshes statistics and cancels queued compaction when the same runtime changes session IDs", async () => {
+  let id = "old-session";
+  let compactions = 0;
+  const session = {
+    get sessionId() {
+      return id;
+    },
+    isIdle: false,
+    getSessionStats: () => stats({ sessionId: id }),
+    compact: () => {
+      compactions += 1;
+      return Promise.resolve();
+    },
+    abortCompaction() {},
+  };
+  const { tool, context, panels } = await fixture(session);
+  await tool.execute("queue", { compact: true, confirm: true }, undefined, undefined, {} as never);
+  id = "new-session";
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: id, compaction: { status: "cancelled" } } }]);
+  context.emit("pi/session-event", { type: "agent_settled" } as never);
+  await Promise.resolve();
+  expect(compactions).toBe(0);
+});
+
+test("keeps the native compaction lock and re-aborts when its controller initializes late", async () => {
+  let listener: ((event: { type: string }) => void) | undefined;
+  let finish: (() => void) | undefined;
+  let starts = 0;
+  let aborts = 0;
+  const { tool } = await fixture({
+    sessionId: "late",
+    isIdle: true,
+    getSessionStats: () => stats(),
+    subscribe: (callback: typeof listener) => {
+      listener = callback;
+      return () => {
+        listener = undefined;
+      };
+    },
+    compact: () => {
+      starts += 1;
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+    abortCompaction: () => {
+      aborts += 1;
+    },
+  });
+  const controller = new AbortController();
+  const pending = tool.execute("late", { compact: true, confirm: true }, controller.signal, undefined, {} as never);
+  await vi.waitFor(() => expect(starts).toBe(1));
+  controller.abort(new Error("cancel late initialization"));
+  await expect(pending).rejects.toThrow(/cancel late/);
+  await expect(tool.execute("second", { compact: true, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/already/);
+  listener?.({ type: "compaction_start" });
+  expect(aborts).toBe(2);
+  finish?.();
+  await vi.waitFor(() => expect(listener).toBeUndefined());
+});
+
+test("immediate cancellation reaches cancelled state without starting native compaction", async () => {
+  let starts = 0;
+  const { tool, panels } = await fixture({
+    isIdle: true,
+    getSessionStats: () => stats(),
+    compact: () => {
+      starts += 1;
+      return Promise.resolve();
+    },
+    abortCompaction() {},
+  });
+  const controller = new AbortController();
+  const pending = tool.execute("immediate", { compact: true, confirm: true }, controller.signal, undefined, {} as never);
+  controller.abort(new Error("immediately cancelled"));
+  await expect(pending).rejects.toThrow(/immediately cancelled/);
+  expect(starts).toBe(0);
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { compaction: { status: "cancelled" } } }]);
 });

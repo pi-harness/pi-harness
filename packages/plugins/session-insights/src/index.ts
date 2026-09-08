@@ -203,7 +203,6 @@ function throwIfCancelled(signal: AbortSignal): void {
 }
 
 function waitForOperation<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
-  throwIfCancelled(signal);
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => reject(cancellationError(signal, "Session report operation was cancelled"));
     signal.addEventListener("abort", onAbort, { once: true });
@@ -217,6 +216,7 @@ function waitForOperation<T>(operation: Promise<T>, signal: AbortSignal): Promis
         reject(error instanceof Error ? error : new Error("Session compaction failed with a non-error rejection", { cause: error }));
       },
     );
+    if (signal.aborted) onAbort();
   });
 }
 
@@ -255,14 +255,16 @@ export default {
     const lifecycle = new AbortController();
     const uninitializedSession = Symbol("uninitialized session");
     let cachedSession: unknown = uninitializedSession;
+    let cachedSessionId: string | undefined;
     let cachedStats: SessionInsightsStats | undefined;
     let cachedError: string | undefined;
     let compaction: SessionInsightsCompactionState = { status: "idle" };
     let active: Promise<void> | undefined;
-    let activeRequest: { session: unknown; controller: AbortController } | undefined;
+    let activeRequest: { session: NonNullable<ReturnType<typeof runtime>>["session"]; sessionId: string; controller: AbortController } | undefined;
     let queued:
       | {
           session: NonNullable<ReturnType<typeof runtime>>["session"];
+          sessionId: string;
           signal: AbortSignal;
           requestedAt: string;
           removeAbortListener: () => void;
@@ -271,6 +273,7 @@ export default {
     const refreshStats = (): void => {
       const service = runtime();
       cachedSession = service?.session;
+      cachedSessionId = service?.session.sessionId;
       cachedStats = undefined;
       cachedError = undefined;
       if (service === undefined) {
@@ -284,7 +287,7 @@ export default {
       }
     };
     const cancelForSessionChange = (session: unknown): void => {
-      if (queued !== undefined && queued.session !== session) {
+      if (queued !== undefined && (queued.session !== session || queued.session.sessionId !== queued.sessionId)) {
         const request = queued;
         queued = undefined;
         request.removeAbortListener();
@@ -295,25 +298,29 @@ export default {
           error: "Session changed before the queued session compaction could start",
         };
       }
-      if (activeRequest !== undefined && activeRequest.session !== session && !activeRequest.controller.signal.aborted) {
+      if (
+        activeRequest !== undefined &&
+        (activeRequest.session !== session || activeRequest.session.sessionId !== activeRequest.sessionId) &&
+        !activeRequest.controller.signal.aborted
+      ) {
         activeRequest.controller.abort(new Error("Session changed while session compaction was running"));
       }
     };
     const readDetails = (): SessionInsightsDetails => {
       const session = runtime()?.session;
       cancelForSessionChange(session);
-      if (session !== cachedSession) refreshStats();
+      if (session !== cachedSession || session?.sessionId !== cachedSessionId) refreshStats();
       if (cachedError !== undefined) throw new Error(cachedError);
       if (cachedStats === undefined) throw new Error("Session statistics are unavailable");
       return cloneDetails(cachedStats, compaction);
     };
     const startCompaction = (session: NonNullable<ReturnType<typeof runtime>>["session"], callerSignal: AbortSignal, requestedAt: string): Promise<void> => {
+      const sessionId = session.sessionId;
       const controller = new AbortController();
       const signal = AbortSignal.any([callerSignal, controller.signal]);
       const startedAt = new Date().toISOString();
       compaction = { status: "running", requestedAt, startedAt };
       const operation = Promise.resolve().then(async () => {
-        throwIfCancelled(signal);
         const abort = (): void => {
           try {
             session.abortCompaction();
@@ -322,12 +329,32 @@ export default {
           }
         };
         signal.addEventListener("abort", abort, { once: true });
+        const unsubscribeCompaction = session.subscribe((event) => {
+          if (event.type === "compaction_start" && signal.aborted) abort();
+        });
+        const nativeOperation = Promise.resolve()
+          .then(async () => {
+            throwIfCancelled(signal);
+            if (runtime()?.session !== session || session.sessionId !== sessionId) {
+              controller.abort(new Error("Session changed before session compaction started"));
+              throwIfCancelled(signal);
+            }
+            await session.compact();
+          })
+          .finally(() => {
+            signal.removeEventListener("abort", abort);
+            unsubscribeCompaction();
+            if (active === nativeOperation) active = undefined;
+            if (activeRequest?.controller === controller) activeRequest = undefined;
+          });
+        active = nativeOperation;
         try {
-          await waitForOperation(
-            Promise.resolve().then(async () => session.compact()),
-            signal,
-          );
+          await waitForOperation(nativeOperation, signal);
           throwIfCancelled(signal);
+          if (runtime()?.session !== session || session.sessionId !== sessionId) {
+            controller.abort(new Error("Session changed while session compaction was running"));
+            throwIfCancelled(signal);
+          }
           compaction = { status: "completed", requestedAt, startedAt, finishedAt: new Date().toISOString() };
           if (runtime()?.session === session) refreshStats();
         } catch (error) {
@@ -340,20 +367,22 @@ export default {
           };
           if (runtime()?.session === session) refreshStats();
           throw error;
-        } finally {
-          signal.removeEventListener("abort", abort);
         }
       });
       active = operation;
-      activeRequest = { session, controller };
+      activeRequest = { session, sessionId, controller };
       void operation.then(
         () => {
-          if (active === operation) active = undefined;
-          if (activeRequest?.controller === controller) activeRequest = undefined;
+          if (active === operation) {
+            active = undefined;
+            if (activeRequest?.controller === controller) activeRequest = undefined;
+          }
         },
         () => {
-          if (active === operation) active = undefined;
-          if (activeRequest?.controller === controller) activeRequest = undefined;
+          if (active === operation) {
+            active = undefined;
+            if (activeRequest?.controller === controller) activeRequest = undefined;
+          }
         },
       );
       return operation;
@@ -418,6 +447,7 @@ export default {
             actionSignal.addEventListener("abort", onAbort, { once: true });
             queued = {
               session: service.session,
+              sessionId: service.session.sessionId,
               signal: actionSignal,
               requestedAt,
               removeAbortListener: () => actionSignal.removeEventListener("abort", onAbort),
@@ -433,7 +463,16 @@ export default {
         }
         const report = readDetails();
         return {
-          content: [{ type: "text", text: `Session has ${report.totalMessages} messages and ${report.tokens.total} tracked tokens.` }],
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                ...report,
+                scope:
+                  "Cumulative native journal statistics, including historical branches and recorded compaction usage; contextUsage describes the current branch. Cost is SDK-reported, not a provider invoice.",
+              }),
+            },
+          ],
           details: report,
         };
       },
