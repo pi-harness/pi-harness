@@ -4605,7 +4605,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                           </span>
                         </div>
                         <div className="mt-1 flex items-center gap-2 text-[10px] text-[#687381]">
-                          <span>{value(server.toolCount, "0")} 个桥接工具</span>
+                          <span>{typeof server.toolCount === "number" ? `${server.toolCount} 个 MCP 工具` : "工具尚未查询"}</span>
                           <span>·</span>
                           <span>{value(server.statusSource, "runtime")}</span>
                         </div>
@@ -4617,7 +4617,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">当前没有 MCP 服务器快照。</div>
               )}
               <div className="text-[10px] text-[#687381]">
-                只读读取官方 MCP bridge 状态；健康建议通过 mcp_panel 的 health 操作查看。
+                读取 MCP 运行状态；工具列表通过 mcp_panel 的 tools 操作查询，健康建议通过 health 操作查看。
                 {data?.writesEnabled === true ? ` 已启用 profile patch 写入：${value(data.patchPath)}` : " profile patch 写入未配置，apply 会被拒绝。"}
               </div>
             </div>

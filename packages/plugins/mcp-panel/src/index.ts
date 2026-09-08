@@ -1,14 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { lstat, mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type AgentToolResult, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { atomicWriteFile, readBoundedTextFile, type PiMcpServerSnapshot } from "@pi-harness/plugin-api";
 import { validateCommand as validateServerCommand } from "@pi-harness/plugin-mcp-client";
 
-type McpPanelServer = Omit<PiMcpServerSnapshot, "command"> & { executable: string; toolCount: number; statusSource: "runtime" };
+type McpPanelServer = Omit<PiMcpServerSnapshot, "command"> & { executable: string; toolCount: number | null; statusSource: "runtime" };
 type McpPanelHealth = { serverId: string; status: string; severity: "ok" | "warning"; suggestions: string[] };
 const maxPatchBytes = 2 * 1024 * 1024;
 
@@ -17,15 +16,6 @@ export interface McpPanelPluginConfig {
 }
 
 export const Config: z<McpPanelPluginConfig> = z.object({ patchPath: z.string().default("") });
-
-function mcpToolPrefix(serverId: string): string {
-  return `mcp__${serverId}__`;
-}
-
-function serverTools(serverId: string, tools: readonly ToolDefinition[]): ToolDefinition[] {
-  const prefix = mcpToolPrefix(serverId);
-  return tools.filter((tool) => tool.name.startsWith(prefix));
-}
 
 function healthFor(server: McpPanelServer | undefined): McpPanelHealth {
   if (server === undefined) throw new Error("MCP server was not found");
@@ -75,22 +65,24 @@ export default {
         : isAbsolute(configuredPatchPath)
           ? resolve(configuredPatchPath)
           : resolve(context.piHarnessLaunch.agentDir, configuredPatchPath);
+    const lifecycle = new AbortController();
+    const inventories = new Map<string, { startedAt: number; count: number }>();
     const snapshot = (): McpPanelServer[] => {
-      const customTools = context.piTools.snapshot().customTools;
       return context.piMcp.snapshot().servers.map((server) => ({
         id: server.id,
         status: server.status,
         startedAt: server.startedAt,
         executable: basename(server.command[0] ?? ""),
-        toolCount: serverTools(server.id, customTools).length,
+        toolCount: server.status === "running" && inventories.get(server.id)?.startedAt === server.startedAt ? inventories.get(server.id)!.count : null,
         statusSource: "runtime",
       }));
     };
     const buildPatch = (serverId: string, command: readonly string[], autoStart: boolean): string =>
       patchFragment(validateServerId(serverId), validateCommand(command), autoStart);
     let patchWriteQueue = Promise.resolve();
-    const applyPatch = async (fragment: string, serverId: string): Promise<string> => {
+    const applyPatch = async (fragment: string, serverId: string, signal: AbortSignal): Promise<string> => {
       const write = patchWriteQueue.then(async () => {
+        signal.throwIfAborted();
         if (patchTarget === undefined) throw new Error("MCP profile writes are disabled; configure patchPath first");
         await mkdir(dirname(patchTarget), { recursive: true });
         const metadata = await lstat(patchTarget).catch((error: unknown) => {
@@ -108,16 +100,9 @@ export default {
         const next = `${existing.trimEnd()}${existing.trimEnd() === "" ? "" : "\n"}${fragment}`;
         if (Buffer.byteLength(next, "utf8") > maxPatchBytes) throw new Error("MCP profile patch exceeds the 2 MiB output limit");
         const backup = `${patchTarget}.bak`;
-        await atomicWriteFile(backup, existing, { encoding: "utf8", mode: 0o600 });
-        const temporary = `${patchTarget}.${randomUUID()}.tmp`;
-        let renamed = false;
-        try {
-          await writeFile(temporary, next, { encoding: "utf8", mode: 0o600, flag: "wx" });
-          await rename(temporary, patchTarget);
-          renamed = true;
-        } finally {
-          if (!renamed) await unlink(temporary).catch(() => {});
-        }
+        signal.throwIfAborted();
+        await atomicWriteFile(backup, existing, { encoding: "utf8", mode: 0o600, signal });
+        await atomicWriteFile(patchTarget, next, { encoding: "utf8", mode: 0o600, signal });
         return patchTarget;
       });
       patchWriteQueue = write.then(
@@ -143,15 +128,20 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
+        async execute(toolCallId, params, signal, onUpdate, toolContext): Promise<AgentToolResult<unknown>> {
           await Promise.resolve();
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          operationSignal.throwIfAborted();
           const servers = snapshot();
           if (params.action === "status") {
             return {
               content: [
                 {
                   type: "text",
-                  text: servers.map((server) => `${server.id}: ${server.status} · ${server.toolCount} tools`).join("\n") || "No MCP servers configured.",
+                  text:
+                    servers
+                      .map((server) => `${server.id}: ${server.status} · ${server.toolCount === null ? "tools not queried" : `${server.toolCount} tools`}`)
+                      .join("\n") || "No MCP servers configured.",
                 },
               ],
               details: { action: "status", servers },
@@ -165,7 +155,7 @@ export default {
             if (params.action === "preview")
               return { content: [{ type: "text", text: fragment }], details: { action: "preview", serverId, path: patchTarget ?? null, fragment } };
             if (params.confirm !== true) throw new Error("Applying an MCP profile patch requires confirm=true");
-            const path = await applyPatch(fragment, serverId);
+            const path = await applyPatch(fragment, serverId, operationSignal);
             return {
               content: [{ type: "text", text: `MCP server patch appended to ${path}.` }],
               details: { action: "apply", serverId, path, backup: `${path}.bak` },
@@ -177,9 +167,16 @@ export default {
             return { content: [{ type: "text", text: `${health.serverId}: ${health.status} (${health.severity})` }], details: { action: "health", ...health } };
           }
           if (server === undefined) throw new Error(`MCP server was not found: ${params.serverId}`);
-          const tools = serverTools(server.id, context.piTools.snapshot().customTools).map((tool) => ({ name: tool.name, description: tool.description }));
+          const listTool = context.piTools.snapshot().customTools.find((tool) => tool.name === "mcp_list_tools");
+          if (listTool === undefined) throw new Error("MCP tool discovery is unavailable; enable the MCP client first");
+          const result = await listTool.execute(toolCallId, { serverId: server.id }, operationSignal, onUpdate, toolContext);
+          operationSignal.throwIfAborted();
+          const tools = structuredClone((result.details as { tools: Array<{ name: string; description?: string }> }).tools);
+          const current = context.piMcp.snapshot().servers.find((item) => item.id === server.id);
+          if (current?.status === "running" && current.startedAt === server.startedAt)
+            inventories.set(server.id, { startedAt: server.startedAt, count: tools.length });
           return {
-            content: [{ type: "text", text: tools.map((tool) => `${tool.name}: ${tool.description ?? ""}`).join("\n") || "No bridged tools." }],
+            content: [{ type: "text", text: tools.map((tool) => `${tool.name}: ${tool.description ?? ""}`).join("\n") || "No MCP tools." }],
             details: { action: "tools", serverId: server.id, tools },
           };
         },
@@ -191,7 +188,7 @@ export default {
         id: "mcp-panel",
         pluginId: "@pi-harness/plugin-mcp-panel",
         title: "MCP Console",
-        description: "查看 MCP 服务器状态、桥接工具和健康建议。",
+        description: "查看 MCP 服务器状态、工具和健康建议。",
         icon: "⌘",
         read: () => ({ servers: snapshot(), statusSource: "runtime", writesEnabled: patchTarget !== undefined, patchPath: patchTarget ?? null }),
       });
@@ -200,6 +197,8 @@ export default {
       throw error;
     }
     context.effect(() => () => {
+      lifecycle.abort(new Error("MCP panel plugin is disposed"));
+      inventories.clear();
       unregister();
       disposePanel();
     });

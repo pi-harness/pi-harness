@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -7,9 +7,11 @@ import mcpPanelPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
+const roots: string[] = [];
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-mcp-panel-"));
+  roots.push(root);
   const context = new Context();
   const tools = new PiToolRegistry();
   const panels = new PiPluginUiRegistry();
@@ -26,9 +28,46 @@ async function fixture() {
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("MCP panel", () => {
+  test("rejects cancelled and disposed operations without writing files", async () => {
+    const { root, context, tool } = await fixture();
+    const params = { action: "apply", serverId: "cancelled", command: ["node", "server.mjs"], confirm: true };
+    const controller = new AbortController();
+    controller.abort(new Error("Panel request cancelled"));
+    await expect(tool.execute("cancel", params, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", params, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  test("distinguishes undiscovered tools and delegates discovery to the MCP client", async () => {
+    const { tools, panels, tool } = await fixture();
+    const { defineTool } = await import("@earendil-works/pi-coding-agent");
+    const { Type } = await import("@earendil-works/pi-ai");
+    tools.register(
+      defineTool({
+        name: "mcp_list_tools",
+        label: "List",
+        description: "List real server tools",
+        parameters: Type.Object({ serverId: Type.String() }),
+        async execute(_id, params) {
+          await Promise.resolve();
+          expect(params.serverId).toBe("docs");
+          return { content: [], details: { server: "node", tools: [{ name: "search", description: "Search documents" }] } };
+        },
+      }),
+    );
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { servers: [{ toolCount: null }] } }]);
+    const result = await tool.execute("discover", { action: "tools", serverId: "docs" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ tools: [{ name: "search" }] });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { servers: [{ toolCount: 1 }] } }]);
+    (result.details as { tools: { name: string }[] }).tools[0]!.name = "mutated";
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { servers: [{ toolCount: 1 }] } }]);
+  });
+
   test("reports status and previews a validated profile patch", async () => {
     const { tool, panels } = await fixture();
     expect(tool.executionMode).toBe("sequential");
