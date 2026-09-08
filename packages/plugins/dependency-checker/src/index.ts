@@ -76,6 +76,49 @@ function cloneDependencyReport(report: DependencyReport): DependencyReport {
   };
 }
 
+function modelReport(report: DependencyReport): string {
+  const categories = ["missing", "optionalMissing", "invalid", "conflicts", "unresolved"] as const;
+  const summary = {
+    manifest: report.manifest,
+    ecosystem: report.ecosystem,
+    declared: report.declared,
+    installed: report.installed,
+    counts: Object.fromEntries(categories.map((key) => [key, report[key].length])),
+    missing: [] as string[],
+    optionalMissing: [] as string[],
+    invalid: [] as string[],
+    conflicts: [] as DependencyConflict[],
+    unresolved: [] as DependencyConflict[],
+    truncated: false,
+  };
+  const text = (value: string) => {
+    if (value.length <= 512) return value;
+    summary.truncated = true;
+    return value.slice(0, 511) + "…";
+  };
+  const append = <T>(target: T[], source: readonly T[], normalize: (value: T) => T) => {
+    if (source.length > 20) summary.truncated = true;
+    for (const value of source.slice(0, 20)) {
+      target.push(normalize(value));
+      if (Buffer.byteLength(JSON.stringify(summary), "utf8") > 32 * 1024) {
+        target.pop();
+        summary.truncated = true;
+        break;
+      }
+    }
+  };
+  const conflict = (value: DependencyConflict): DependencyConflict => {
+    if (value.constraints.length > 4) summary.truncated = true;
+    return { name: text(value.name), constraints: value.constraints.slice(0, 4).map(text) };
+  };
+  append(summary.missing, report.missing, text);
+  append(summary.invalid, report.invalid, text);
+  append(summary.conflicts, report.conflicts, conflict);
+  append(summary.unresolved, report.unresolved, conflict);
+  append(summary.optionalMissing, report.optionalMissing, text);
+  return JSON.stringify(summary);
+}
+
 function normalizePythonDistributionName(name: string): string {
   return name.toLowerCase().replace(/[-_.]+/gu, "-");
 }
@@ -533,9 +576,27 @@ export default {
     let latest: DependencyReport | undefined;
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort(new Error("Dependency checker plugin was disposed")));
-    const inspect = async (manifest: string | undefined, signal: AbortSignal): Promise<DependencyReport> => {
-      const report = await inspectManifest(context.piHarnessLaunch.cwd, manifest, signal);
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
+    const assertCurrent = (operationScope: ReturnType<typeof readScope>, signal: AbortSignal) => {
       throwIfCancelled(signal);
+      if (refreshScope() !== operationScope) throw new Error("Dependency workspace changed during scan");
+    };
+    const inspect = async (manifest: string | undefined, signal: AbortSignal, operationScope: ReturnType<typeof readScope>): Promise<DependencyReport> => {
+      assertCurrent(operationScope, signal);
+      const report = await inspectManifest(operationScope.cwd, manifest, signal);
+      assertCurrent(operationScope, signal);
       latest = cloneDependencyReport(report);
       return cloneDependencyReport(report);
     };
@@ -555,15 +616,18 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<DependencyReport>> {
+          throwIfCancelled(lifecycle.signal);
+          const operationScope = refreshScope();
           const params = validateParameters(rawParams);
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([lifecycle.signal, signal]);
           throwIfCancelled(operationSignal);
-          const report = await inspect(params.manifest, operationSignal);
+          const report = await inspect(params.manifest, operationSignal, operationScope);
+          assertCurrent(operationScope, operationSignal);
           return {
             content: [
               {
                 type: "text",
-                text: `${report.manifest}: ${report.missing.length} required missing, ${report.optionalMissing.length} optional missing, ${report.invalid.length} invalid, ${report.conflicts.length} conflicts, ${report.unresolved.length} unresolved constraint groups.`,
+                text: modelReport(report),
               },
             ],
             details: report,
@@ -578,7 +642,13 @@ export default {
       title: "Dependency Checker",
       description: "离线检查有界 package.json 或 requirements*.txt 的本地依赖状态和声明冲突。",
       icon: "⊙",
-      read: async () => ({ report: latest === undefined ? await inspect(undefined, lifecycle.signal) : cloneDependencyReport(latest) }),
+      read: async () => {
+        throwIfCancelled(lifecycle.signal);
+        const operationScope = refreshScope();
+        const report = latest === undefined ? await inspect(undefined, lifecycle.signal, operationScope) : cloneDependencyReport(latest);
+        assertCurrent(operationScope, lifecycle.signal);
+        return { report };
+      },
     });
     context.effect(() => disposePanel);
   },

@@ -285,7 +285,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the bounded dependency report through its dedicated panel", async () => {
-    const dependencyCheckerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-dependency-checker"))) as {
+    const dependencyCheckerModule = (await import("@pi-harness/plugin-dependency-checker")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -297,7 +297,14 @@ describe("API gateway plugin", () => {
       JSON.stringify({ dependencies: { missing: "^1.0.0" }, devDependencies: { missing: ">=2.0.0" }, optionalDependencies: { optional: "1.0.0" } }),
     );
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "dependency-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "dependency-panel-session",
+      sessionManager: SessionManager.create(workspace, join(workspace, "sessions")),
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
@@ -338,7 +345,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the enforced Docker sandbox defaults through its real plugin panel", async () => {
-    const dockerSandboxModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-docker-sandbox"))) as {
+    const dockerSandboxModule = (await import("@pi-harness/plugin-docker-sandbox")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -346,7 +353,14 @@ describe("API gateway plugin", () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-docker-sandbox-"));
     temporaryDirectories.push(workspace);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "docker-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "docker-panel-session",
+      sessionManager: SessionManager.create(workspace, join(workspace, "sessions")),
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
