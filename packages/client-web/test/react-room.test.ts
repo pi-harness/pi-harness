@@ -516,3 +516,34 @@ test("reports the actual sidebar preview count without calling Git truncation a 
   expect(html).not.toContain("目录摘要已截断");
   expect(html).not.toContain("file-8.txt");
 });
+
+test("shows review locations and prioritizes errors in the visible findings", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "reviewer-bot-panel",
+        pluginId: "@pi-harness/plugin-reviewer-bot",
+        title: "Reviewer Bot",
+        data: {
+          latest: {
+            cwd: "/workspace/active",
+            status: "error",
+            changedFiles: 1,
+            findingCount: 6,
+            addedLines: 6,
+            removedLines: 0,
+            findings: [
+              ...Array.from({ length: 5 }, (_, index) => ({ severity: "warning", message: `warning-${index}`, path: "notes.txt" })),
+              { severity: "error", message: "credential pattern", path: "current.ts" },
+            ],
+          },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("/workspace/active");
+  expect(html).toContain("current.ts");
+  expect(html).toContain("credential pattern");
+  expect(html).toContain("4/6");
+  expect(html).not.toContain("warning-3");
+});

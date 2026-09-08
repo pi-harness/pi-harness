@@ -2720,9 +2720,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             (() => {
               const report = data.latest as Record<string, unknown>;
               const status = value(report.status);
-              const findings = Array.isArray(report.findings) ? report.findings : [];
+              const isError = (finding: unknown) =>
+                typeof finding === "object" && finding !== null && (finding as Record<string, unknown>).severity === "error";
+              const findings = Array.isArray(report.findings)
+                ? [...(report.findings as unknown[])].sort((a, b) => Number(isError(b)) - Number(isError(a)))
+                : [];
               return (
                 <>
+                  <code className="break-all text-[10px] text-[var(--color-faint)]">{value(report.cwd)}</code>
                   <div
                     className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : status === "warning" ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
                   >
@@ -2749,11 +2754,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ) : null}
                   {findings.length > 0 ? (
                     <ul className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[10px] text-[var(--color-muted)]">
-                      {findings.slice(0, 4).map((finding, index) => (
-                        <li key={index}>
-                          {value(typeof finding === "object" && finding !== null ? ((finding as Record<string, unknown>).message ?? "finding") : finding)}
-                        </li>
-                      ))}
+                      {findings.slice(0, 4).map((finding, index) => {
+                        const item = typeof finding === "object" && finding !== null ? (finding as Record<string, unknown>) : undefined;
+                        return (
+                          <li className="grid gap-1" key={index}>
+                            {typeof item?.path === "string" ? <code className="break-all">{item.path}</code> : null}
+                            {value(item?.message ?? finding)}
+                          </li>
+                        );
+                      })}
                     </ul>
                   ) : null}
                 </>

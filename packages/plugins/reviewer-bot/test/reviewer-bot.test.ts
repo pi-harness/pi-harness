@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile, chmod, access, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, chmod, access, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -159,15 +159,19 @@ describe("reviewer bot", () => {
   });
 });
 
-test("does not execute configured text conversion commands", async () => {
+test("does not execute configured text conversion or filesystem monitor commands", async () => {
   const { root, tool } = await fixture();
   await writeFile(join(root, "convert.sh"), '#!/bin/sh\nprintf called > converter-ran\ncat "$1"\n');
   await chmod(join(root, "convert.sh"), 0o755);
   await writeFile(join(root, ".gitattributes"), "file.txt diff=probe\n");
   await execFileAsync("git", ["config", "diff.probe.textconv", "./convert.sh"], { cwd: root });
+  await writeFile(join(root, "monitor.sh"), "#!/bin/sh\nprintf called > monitor-ran\n");
+  await chmod(join(root, "monitor.sh"), 0o755);
+  await execFileAsync("git", ["config", "core.fsmonitor", "./monitor.sh"], { cwd: root });
   await writeFile(join(root, "file.txt"), "changed\n");
   await tool.execute("review", {}, undefined, undefined, {} as never);
   await expect(access(join(root, "converter-ran"))).rejects.toThrow();
+  await expect(access(join(root, "monitor-ran"))).rejects.toThrow();
 });
 
 test("withholds source lines from whitespace findings and detaches snapshots", async () => {
@@ -215,4 +219,73 @@ test("pins diff prefixes and color despite repository configuration", async () =
   await expect(tool.execute("paths", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
     details: { files: [{ path: "file.txt", added: 1, removed: 1 }] },
   });
+});
+
+test("returns actionable bounded findings to the model without source secrets", async () => {
+  const { root, tool } = await fixture(1024 * 1024);
+  await writeFile(join(root, "file.txt"), "TODO check\n".repeat(120) + 'secret = "LOCAL_MODEL_SENTINEL_VALUE"\n');
+  const result = await tool.execute("model", {}, undefined, undefined, {} as never);
+  const text = result.content
+    .filter((item) => item.type === "text")
+    .map((item) => item.text)
+    .join("\n");
+  expect(text).toContain('"kind":"secret"');
+  expect(text).toContain('"path":"file.txt"');
+  expect(text).toContain('"findingCount":121');
+  expect(text).toContain('"findingsTruncated":true');
+  expect(text).not.toContain("LOCAL_MODEL_SENTINEL_VALUE");
+  expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(32 * 1024);
+  expect((result.details as { findings: { kind: string }[] }).findings).toContainEqual(expect.objectContaining({ kind: "secret" }));
+});
+
+test("uses the current native workspace and rejects stale review results", async () => {
+  const launch = await fixture();
+  const active = await fixture();
+  await writeFile(join(launch.root, "file.txt"), "TODO launch only\n");
+  await writeFile(join(active.root, "file.txt"), "active clean change\n");
+  const runtime = { session: { sessionId: "active", sessionManager: { getCwd: () => active.root } } };
+  launch.context.provide("piRuntime", runtime as never);
+  const result = await launch.tool.execute("active", {}, undefined, undefined, {} as never);
+  expect(result.details).toMatchObject({ cwd: active.root, status: "pass", findingCount: 0 });
+  const pending = launch.tool.execute("old", {}, undefined, undefined, {} as never);
+  runtime.session = { sessionId: "replacement", sessionManager: { getCwd: () => launch.root } };
+  await expect(pending).rejects.toThrow(/workspace changed/iu);
+  expect((await launch.panels.snapshot())[0]?.data).toMatchObject({ latest: null });
+});
+
+test("keeps UTF-8 model previews within the byte limit", async () => {
+  const { root, tool } = await fixture();
+  const folder = join(root, "文".repeat(60), "件".repeat(60), "夹".repeat(60));
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "审".repeat(60) + ".txt"), "TODO check\n".repeat(100));
+  await execFileAsync("git", ["add", "."], { cwd: root });
+  const result = await tool.execute("utf8", {}, undefined, undefined, {} as never);
+  const text = result.content
+    .filter((item) => item.type === "text")
+    .map((item) => item.text)
+    .join("\n");
+  expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(32 * 1024);
+  const preview = JSON.parse(text.slice(text.indexOf("\n") + 1)) as { findings: unknown[]; findingCount: number; findingsTruncated: boolean };
+  expect(preview.findingCount).toBe(100);
+  expect(preview.findings.length).toBeGreaterThan(0);
+  expect(preview.findings.length).toBeLessThan(50);
+  expect(preview.findingsTruncated).toBe(true);
+});
+
+test("does not let inherited Git paths redirect the current workspace", async () => {
+  const launch = await fixture();
+  const active = await fixture();
+  await writeFile(join(launch.root, "file.txt"), "TODO foreign workspace\n");
+  await writeFile(join(active.root, "file.txt"), "active clean change\n");
+  const environment = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+  process.env.GIT_DIR = join(launch.root, ".git");
+  process.env.GIT_WORK_TREE = launch.root;
+  try {
+    expect((await active.tool.execute("isolated", {}, undefined, undefined, {} as never)).details).toMatchObject({ status: "pass", findingCount: 0 });
+  } finally {
+    for (const [key, value] of Object.entries(environment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
