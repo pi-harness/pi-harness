@@ -1727,11 +1727,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : panel.id === "token-guard-panel" ? (
         (() => {
           const view = tokenGuardPanelView(data);
+          const contextExceeded = view.percent !== null && view.percent >= view.maxPercent;
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div
-                  className={`rounded-lg border px-3 py-3 ${view.exceeded ? "border-[#f4caca] bg-[var(--color-red-soft)]" : "border-[#e3eaf8] bg-[var(--color-blue-soft)]"}`}
+                  className={`rounded-lg border px-3 py-3 ${contextExceeded ? "border-[#f4caca] bg-[var(--color-red-soft)]" : "border-[#e3eaf8] bg-[var(--color-blue-soft)]"}`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-[11px] font-semibold text-[var(--color-ink)]">上下文预算</span>
@@ -1741,7 +1742,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                     <div
-                      className={`h-full rounded-full ${view.exceeded ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
+                      className={`h-full rounded-full ${contextExceeded ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
                       style={{ width: `${Math.min(100, view.percent ?? 0)}%` }}
                     />
                   </div>
@@ -1754,13 +1755,13 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   className={`rounded-lg border px-3 py-3 ${view.runExceeded ? "border-[#f4caca] bg-[var(--color-red-soft)]" : "border-[#e3eaf8] bg-[var(--color-blue-soft)]"}`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-semibold text-[var(--color-ink)]">单次任务</span>
+                    <span className="text-[11px] font-semibold text-[var(--color-ink)]">本次运行已报告用量</span>
                     <strong className="font-mono text-[12px] text-[var(--color-blue)]">
                       {view.runTokens === null ? "—" : view.runTokens.toLocaleString()} / {view.maxRunTokens === 0 ? "—" : view.maxRunTokens.toLocaleString()}
                     </strong>
                   </div>
                   <p className="mt-2 text-[11px] text-[var(--color-muted)]">
-                    {view.maxRunTokens > 0 ? "按 agent_start 后新增的已结算 token 熔断。" : "未启用绝对 Token 上限。"}
+                    {view.maxRunTokens > 0 ? "按 SDK 已报告用量请求停止；单次请求仍可能超额，不代表账单上限。" : "未启用绝对 Token 上限。"}
                   </p>
                 </div>
               </div>

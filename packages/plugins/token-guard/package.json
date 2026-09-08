@@ -1,7 +1,7 @@
 {
   "name": "@pi-harness/plugin-token-guard",
   "version": "0.1.29",
-  "description": "Use descriptor-safe monitoring to issue at most one abort request per run when a context percentage or billed run-token budget is reached, with bounded errors and a cached normalized panel.",
+  "description": "Use descriptor-safe monitoring to issue at most one abort request per run when a context percentage or SDK-reported run-token budget is reached, with bounded errors and a cached normalized panel.",
   "keywords": [
     "cordis",
     "pi-harness",
