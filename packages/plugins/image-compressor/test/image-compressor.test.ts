@@ -3,9 +3,31 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { win32 } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import imageCompressorPlugin, { isImageCompressorPathInside } from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
+
+import type * as FsPromises from "node:fs/promises";
+
+// Pause after a real staging fsync so a session change can be observed before atomic publication.
+const writeHooks = vi.hoisted(() => ({ afterSync: undefined as (() => Promise<void>) | undefined }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  const open: typeof actual.open = async (...args) => {
+    const handle = await actual.open(...args);
+    if (typeof args[0] === "string" && args[0].endsWith(".tmp")) {
+      const sync = handle.sync.bind(handle);
+      Object.defineProperty(handle, "sync", {
+        value: async () => {
+          await sync();
+          await writeHooks.afterSync?.();
+        },
+      });
+    }
+    return handle;
+  };
+  return { ...actual, open };
+});
 
 const contexts: Context[] = [];
 const roots: string[] = [];
@@ -115,4 +137,95 @@ describe("image compressor", () => {
       tool.execute("explicit", { path: "assets/icons/logo.png", outputPath: "assets/icons/logo.min.png", confirm: true }, undefined, undefined, {} as never),
     ).resolves.toMatchObject({ details: { outputPath: join("assets", "icons", "logo.min.png") } });
   });
+});
+
+test("compresses in the current native workspace and invalidates old operations", async () => {
+  const { root, context, panels, tool } = await fixture();
+  const active = join(root, "active");
+  await mkdir(active);
+  await writeFile(join(root, "input.png"), onePixelPng);
+  await writeFile(join(active, "input.png"), onePixelPng);
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  await tool.execute("first", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+  session = {
+    get sessionId() {
+      return id;
+    },
+    sessionManager: { getCwd: () => active },
+  };
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  await tool.execute("active", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+  expect((await readFile(join(active, "input.min.png"))).subarray(0, 8)).toEqual(onePixelPng.subarray(0, 8));
+  const pending = tool.execute("pending", { path: "input.png", outputPath: "old.png", confirm: true }, undefined, undefined, {} as never);
+  id = "second";
+  await expect(pending).rejects.toThrow(/workspace changed/iu);
+  await expect(readFile(join(active, "old.png"))).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  await expect(
+    tool.execute(
+      "getter",
+      {
+        get path() {
+          id = "third";
+          return "input.png";
+        },
+        confirm: true,
+      },
+      undefined,
+      undefined,
+      {} as never,
+    ),
+  ).rejects.toThrow(/workspace changed/iu);
+});
+
+test.each([false, true])("rejects session changes after staging without publishing, overwrite=%s", async (overwrite) => {
+  const { root, context, tool, panels } = await fixture();
+  await writeFile(join(root, "input.png"), onePixelPng);
+  const target = overwrite ? "explicit.png" : "input.min.png";
+  if (overwrite) await writeFile(join(root, target), "original target");
+  let id = "first";
+  context.provide("piRuntime", {
+    session: {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => root },
+    },
+  } as never);
+  let reached!: () => void, release!: () => void;
+  const staged = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  writeHooks.afterSync = async () => {
+    reached();
+    await held;
+  };
+  try {
+    const result = tool
+      .execute("staged", { path: "input.png", ...(overwrite ? { outputPath: target } : {}), confirm: true }, undefined, undefined, {} as never)
+      .then(
+        () => "unexpected success",
+        (error: unknown) => String(error),
+      );
+    await staged;
+    id = "replacement";
+    release();
+    expect(await result).toMatch(/workspace changed/iu);
+    if (overwrite) expect(await readFile(join(root, target), "utf8")).toBe("original target");
+    else await expect(readFile(join(root, target))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await readdir(root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  } finally {
+    writeHooks.afterSync = undefined;
+    release();
+  }
 });
