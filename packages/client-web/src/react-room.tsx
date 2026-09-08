@@ -2228,7 +2228,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             </div>
             <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
               <span className="block text-[10px] text-[var(--color-faint)]">当前占用</span>
-              <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(data?.lastUsagePercent ?? "—")}%</strong>
+              <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">
+                {typeof data?.lastUsagePercent === "number" ? `${value(data.lastUsagePercent)}%` : "—"}
+              </strong>
             </div>
           </div>
           {data?.lastError ? <p className="text-[11px] text-[var(--color-red)]">最近错误：{value(data.lastError)}</p> : null}
