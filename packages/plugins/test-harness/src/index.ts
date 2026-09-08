@@ -19,6 +19,7 @@ type TestScript = (typeof allowedScripts)[number];
 type TestRunStatus = "passed" | "failed" | "timed-out" | "cancelled";
 
 type TestRun = {
+  cwd: string;
   script: TestScript;
   command: string;
   status: TestRunStatus;
@@ -153,7 +154,7 @@ function cloneRun(run: TestRun): TestRun {
 
 function runNpmScript(cwd: string, script: TestScript, timeoutMs: number, signal: AbortSignal): Promise<TestRun> {
   throwIfCancelled(signal);
-  const started = Date.now();
+  const started = performance.now();
   const command = `npm run ${script}`;
   const invocation = npmInvocation(script);
   return new Promise((resolve) => {
@@ -169,12 +170,13 @@ function runNpmScript(cwd: string, script: TestScript, timeoutMs: number, signal
     } catch (error) {
       const output = safeSpawnFailure(error);
       resolve({
+        cwd,
         script,
         command,
         status: "failed",
         exitCode: null,
         signal: null,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance.now() - started),
         output,
         outputBytes: Buffer.byteLength(output, "utf8"),
         outputTruncated: false,
@@ -196,9 +198,13 @@ function runNpmScript(cwd: string, script: TestScript, timeoutMs: number, signal
     };
     const stop = (reason: "timed-out" | "cancelled") => {
       stopReason ??= reason;
-      if (child.exitCode !== null || child.signalCode !== null) return;
       terminateProcessTree(child, "SIGTERM");
-      killTimer ??= setTimeout(() => terminateProcessTree(child, "SIGKILL"), terminationGraceMs);
+      killTimer ??= setTimeout(() => {
+        terminateProcessTree(child, "SIGKILL");
+        // Descendants can keep inherited pipes open after their parent exits or escape the process group.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+      }, terminationGraceMs);
       killTimer.unref();
     };
     const onAbort = () => stop("cancelled");
@@ -222,12 +228,13 @@ function runNpmScript(cwd: string, script: TestScript, timeoutMs: number, signal
       }
       const status: TestRunStatus = stopReason ?? (code === 0 ? "passed" : "failed");
       resolve({
+        cwd,
         script,
         command,
         status,
         exitCode: stopReason === undefined ? code : null,
         signal: childSignal,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance.now() - started),
         output: safe.output,
         outputBytes,
         outputTruncated: outputTruncated || safe.boundedAgain,
@@ -239,7 +246,7 @@ function runNpmScript(cwd: string, script: TestScript, timeoutMs: number, signal
 
 function agentText(run: TestRun): string {
   const output = run.output.replace(/<\/test-output(?=\s*>)/giu, "<\\/test-output");
-  return `<test-output command="${run.command}" untrusted="true" status="${run.status}" exit-code="${run.exitCode ?? "unknown"}" output-truncated="${run.outputTruncated}">\n${output}\n</test-output>`;
+  return `${JSON.stringify({ ...run, output: undefined })}\n<test-output command="${run.command}" untrusted="true" status="${run.status}" exit-code="${run.exitCode ?? "unknown"}" output-truncated="${run.outputTruncated}">\n${output}\n</test-output>`;
 }
 
 export default {
@@ -252,6 +259,7 @@ export default {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < minimumTimeoutMs || timeoutMs > maximumTimeoutMs)
       throw new Error(`Test-harness timeoutMs must be an integer from ${minimumTimeoutMs} through ${maximumTimeoutMs}`);
     let latest: TestRun | undefined;
+    let running = false;
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort(new Error("Test-harness plugin was disposed")));
     const unregisterTool = context.piTools.register(
@@ -275,10 +283,29 @@ export default {
           const { script } = testHarnessParameters(rawParams);
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           throwIfCancelled(operationSignal);
-          const run = await runNpmScript(context.piHarnessLaunch.cwd, script, timeoutMs, operationSignal);
-          latest = cloneRun(run);
-          if (run.status === "cancelled") throw new Error("Project verification was cancelled");
-          return { content: [{ type: "text", text: agentText(run) }], details: cloneRun(run) };
+          if (running) throw new Error("Project verification is already running");
+          const session = context.get("piRuntime")?.session;
+          const manager = session?.sessionManager;
+          const sessionId = manager?.getSessionId();
+          const cwd = manager?.getCwd() ?? context.piHarnessLaunch.cwd;
+          running = true;
+          try {
+            const run = await runNpmScript(cwd, script, timeoutMs, operationSignal);
+            throwIfCancelled(lifecycle.signal);
+            const current = context.get("piRuntime")?.session;
+            if (
+              current !== session ||
+              current?.sessionManager !== manager ||
+              manager?.getSessionId() !== sessionId ||
+              (manager?.getCwd() ?? context.piHarnessLaunch.cwd) !== cwd
+            )
+              throw new Error("Session or workspace changed during project verification; script side effects are not rolled back");
+            latest = cloneRun(run);
+            if (run.status === "cancelled") throw new Error("Project verification was cancelled");
+            return { content: [{ type: "text", text: agentText(run) }], details: cloneRun(run) };
+          } finally {
+            running = false;
+          }
         },
       }),
     );

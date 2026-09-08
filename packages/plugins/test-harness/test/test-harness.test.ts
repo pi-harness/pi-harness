@@ -1,6 +1,7 @@
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
 import testHarnessPlugin from "../src/index.js";
@@ -146,7 +147,7 @@ describe("test-harness", () => {
     const passed = await tool.execute("pass", {}, undefined, undefined, {} as never);
     const passedText = passed.content[0]?.type === "text" ? passed.content[0].text : "";
     const passedDetails = passed.details as RunDetails;
-    expect(passedText).toMatch(/^<test-output .*untrusted="true".*status="passed"/u);
+    expect(passedText).toMatch(/<test-output .*untrusted="true".*status="passed"/u);
     expect(passedDetails).toMatchObject({
       script: "test",
       command: "npm run test",
@@ -183,6 +184,81 @@ describe("test-harness", () => {
     expect(panelData.latest.output).toContain("failed");
     expect(panelData.limits).toEqual({ timeoutMs: 120_000, outputBytes: 12 * 1024 });
   });
+
+  test("runs in the active native session workspace and reports its directory", async () => {
+    const { context, root, tools, panels } = await fixture();
+    const active = await mkdtemp(join(tmpdir(), "pi-harness-active-tests-"));
+    temporaryDirectories.push(active);
+    await writeFile(join(active, "package.json"), JSON.stringify({ private: true, scripts: { test: "node -e \"console.log('ACTIVE_WORKSPACE')\"" } }));
+    const manager = SessionManager.inMemory(active);
+    context.provide("piRuntime", { session: { sessionManager: manager, sessionId: manager.getSessionId() } } as never);
+    await context.plugin(testHarnessPlugin);
+    const result = await registeredTool(tools).execute("active", {}, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ cwd: active, status: "passed" });
+    expect((result.details as RunDetails).output).toContain("ACTIVE_WORKSPACE");
+    expect(JSON.stringify(result.content)).toContain(active);
+    expect(active).not.toBe(root);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: { cwd: active } } }]);
+  });
+
+  test("rejects concurrent calls and stale results after a native session change", async () => {
+    const { context, root, tools, panels } = await fixture();
+    const ready = join(root, "scope-ready");
+    const release = join(root, "scope-release");
+    await writeFile(
+      join(root, "scope.mjs"),
+      `import { existsSync, writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(ready)}, "ready"); const timer = setInterval(() => { if (existsSync(${JSON.stringify(release)})) { clearInterval(timer); console.log("finished"); } }, 10);`,
+    );
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, scripts: { test: "node scope.mjs" } }));
+    const manager = SessionManager.inMemory(root);
+    context.provide("piRuntime", { session: { sessionManager: manager, sessionId: manager.getSessionId() } } as never);
+    await context.plugin(testHarnessPlugin);
+    const tool = registeredTool(tools);
+    const execution = tool.execute("first", {}, undefined, undefined, {} as never);
+    const rejected = expect(execution).rejects.toThrow(/session or workspace changed/iu);
+    await waitForFile(ready, "active verification");
+    await expect(tool.execute("second", {}, undefined, undefined, {} as never)).rejects.toThrow(/already running/iu);
+    manager.newSession();
+    await writeFile(release, "release");
+    await rejected;
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    await expect(tool.execute("third", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { status: "passed", cwd: root } });
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "times out inherited output pipes even after npm has exited",
+    async () => {
+      const { context, root, tools } = await fixture();
+      const pidPath = join(root, "orphan.pid");
+      await writeFile(
+        join(root, "orphan.mjs"),
+        `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`,
+      );
+      await writeFile(
+        join(root, "parent.mjs"),
+        'import { spawn } from "node:child_process"; const child = spawn(process.execPath, ["orphan.mjs"], { stdio: "inherit" }); child.unref(); process.exit(0);',
+      );
+      await writeFile(join(root, "package.json"), JSON.stringify({ private: true, scripts: { test: "node parent.mjs" } }));
+      await context.plugin(testHarnessPlugin, { timeoutMs: 1500 });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const execution = registeredTool(tools).execute("orphan", {}, undefined, undefined, {} as never);
+      try {
+        await waitForFile(pidPath, "inherited-pipe descendant");
+        const result = await Promise.race([
+          execution,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("Tool remained stuck after timeout")), 3500);
+          }),
+        ]);
+        expect(result.details).toMatchObject({ status: "timed-out", exitCode: null });
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        stopFixtureProcess(Number(await readFile(pidPath, "utf8").catch(() => "")));
+        await execution;
+      }
+    },
+    10_000,
+  );
 
   test("bounds and neutralizes untrusted process output on UTF-8 boundaries", async () => {
     const { context, root, tools } = await fixture();

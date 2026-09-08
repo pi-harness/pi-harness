@@ -22,6 +22,7 @@ function report(overrides: Record<string, unknown> = {}): Record<string, unknown
   return {
     allowedScripts,
     latest: {
+      cwd: "/workspace/验证项目",
       script: "test",
       command: "npm run test",
       status: "passed",
@@ -56,6 +57,7 @@ describe("test-harness panel", () => {
     const failed = renderPanel(
       report({
         latest: {
+          cwd: "/workspace/验证项目",
           script: "build",
           command: "npm run build",
           status: "failed",
@@ -72,6 +74,7 @@ describe("test-harness panel", () => {
     const timedOut = renderPanel(
       report({
         latest: {
+          cwd: "/workspace/验证项目",
           script: "lint",
           command: "npm run lint",
           status: "timed-out",
@@ -88,6 +91,7 @@ describe("test-harness panel", () => {
     const cancelled = renderPanel(
       report({
         latest: {
+          cwd: "/workspace/验证项目",
           script: "typecheck",
           command: "npm run typecheck",
           status: "cancelled",
@@ -146,6 +150,7 @@ describe("test-harness panel", () => {
     const contradiction = renderPanel(
       report({
         latest: {
+          cwd: "/workspace/验证项目",
           script: "test",
           command: "npm run test",
           status: "passed",
@@ -163,6 +168,7 @@ describe("test-harness panel", () => {
       report({
         unexpected: true,
         latest: {
+          cwd: "/workspace/验证项目",
           script: "test",
           command: "npm run test",
           status: "passed",
@@ -179,6 +185,7 @@ describe("test-harness panel", () => {
     const impossibleSignal = renderPanel(
       report({
         latest: {
+          cwd: "/workspace/验证项目",
           script: "build",
           command: "npm run build",
           status: "failed",
@@ -208,6 +215,7 @@ describe("test-harness panel", () => {
     const html = renderPanel(
       report({
         latest: {
+          cwd: "/workspace/验证项目",
           script: "test",
           command: "npm run test",
           status: "passed",

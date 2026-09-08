@@ -1781,6 +1781,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <p className="mt-2 text-[11px] leading-4 text-[#687381]">还没有执行验证脚本。可让 Agent 调用 run_project_tests。</p>
                 ) : (
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#65707b]">
+                    <span className="w-full break-all">执行目录：{run.cwd}</span>
                     <span>exit {run.exitCode ?? "—"}</span>
                     {run.signal === null ? null : <span>{run.signal}</span>}
                     <span>{run.durationMs} ms</span>
