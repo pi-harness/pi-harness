@@ -3105,7 +3105,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </div>
               <div className="flex flex-wrap gap-2 text-[10px] text-[#687381]">
                 <span className="rounded bg-[#f6f8fa] px-2 py-1">{meterView.dayBasis} 日账本</span>
-                <span className="rounded bg-[#f6f8fa] px-2 py-1">账本上限 {meterView.entryLimit ?? "—"} 条</span>
+                <span className="rounded bg-[#f6f8fa] px-2 py-1">展示上限 {meterView.entryLimit ?? "—"} 条</span>
               </div>
               {meterView.lastError !== null ? (
                 <div className="rounded-lg border border-[#f0c8c4] bg-[#fff5f4] px-3 py-2 text-[10px] text-[#b42318]">最近写入错误：{meterView.lastError}</div>

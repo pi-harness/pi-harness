@@ -111,7 +111,7 @@ function reportFor(entries: readonly CostEntry[], current: CostSnapshot, budget:
     dayBasis: "UTC",
     entryLimit,
     lastError,
-    entries: entries.map((entry) => ({ ...entry })),
+    entries: entries.slice(0, entryLimit).map((entry) => ({ ...entry })),
   };
 }
 
@@ -153,7 +153,7 @@ function parseCostEntry(value: unknown, legacy: boolean): CostEntry | undefined 
   };
 }
 
-async function readCostEntries(filePath: string, entryLimit: number): Promise<CostEntry[]> {
+async function readCostEntries(filePath: string): Promise<CostEntry[]> {
   let source: string;
   try {
     source = await readBoundedTextFile(filePath, maxCostFileBytes, "Cost meter file");
@@ -177,7 +177,7 @@ async function readCostEntries(filePath: string, entryLimit: number): Promise<Co
   const valid = entries as CostEntry[];
   const keys = valid.map((entry) => (legacy ? entry.sessionId : `${entry.sessionId}\0${todayKey(new Date(entry.recordedAt))}`));
   if (new Set(keys).size !== keys.length) throw new Error("Cost meter file contains duplicate entries");
-  return valid.slice(0, entryLimit);
+  return valid;
 }
 
 function snapshotSessionStats(value: unknown): CostSnapshot {
@@ -366,20 +366,23 @@ export default {
             await lock.writeFile(lockOwner, { encoding: "utf8" });
             ownerWritten = true;
             throwIfCancelled(signal);
-            const diskEntries = await readCostEntries(filePath, entryLimit);
+            const diskEntries = await readCostEntries(filePath);
             throwIfCancelled(signal);
             const candidate = costEntryFor(diskEntries, snapshot, recordedAt);
             const key = `${candidate.sessionId}\0${todayKey(new Date(candidate.recordedAt))}`;
             const merged = new Map(diskEntries.map((entry) => [`${entry.sessionId}\0${todayKey(new Date(entry.recordedAt))}`, entry]));
             const existing = merged.get(key);
+            if (existing === undefined && merged.size >= maxFileEntries)
+              throw new Error(`Cost meter ledger reached its ${maxFileEntries}-entry limit; existing entries can still be updated`);
             if (
               existing === undefined ||
               candidate.recordedAt > existing.recordedAt ||
               (candidate.recordedAt === existing.recordedAt && candidate.sessionCost >= existing.sessionCost)
             )
               merged.set(key, candidate);
-            const nextEntries = [...merged.values()].sort((left, right) => right.recordedAt.localeCompare(left.recordedAt)).slice(0, entryLimit);
+            const nextEntries = [...merged.values()].sort((left, right) => right.recordedAt.localeCompare(left.recordedAt));
             const payload = JSON.stringify({ version: 2, entries: nextEntries } satisfies CostFile, null, 2);
+            if (Buffer.byteLength(payload, "utf8") > maxCostFileBytes) throw new Error(`Cost meter file exceeds its ${maxCostFileBytes}-byte limit`);
             const temporary = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
             let renamed = false;
             try {
@@ -423,7 +426,7 @@ export default {
       const pending = pendingRecord;
       if (pending !== undefined) await waitForPromise(pending, signal);
       throwIfCancelled(signal);
-      entries = await readCostEntries(filePath, entryLimit);
+      entries = await readCostEntries(filePath);
       throwIfCancelled(signal);
       return reportFor(entries, currentStats(), budgetValue, entryLimit, lastError);
     };
