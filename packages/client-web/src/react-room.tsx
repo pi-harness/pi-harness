@@ -2239,7 +2239,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : panel.id === "session-bookmarks-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-            <span className="text-[11px] text-[#65707b]">当前会话的持久化书签</span>
+            <span className="text-[11px] text-[#65707b]">当前会话书签</span>
             <strong className="font-mono text-[11px] text-[#3565c5]">{value(data?.total ?? 0)} 个书签</strong>
           </div>
           {Array.isArray(data?.bookmarks) && data.bookmarks.length > 0 ? (
@@ -2257,7 +2257,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有标记重要节点。</div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">书签独立保存在 agent 目录，不会改写 Pi 原生会话记录。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">书签以标签追加到 Pi 原生会话记录，不修改已有消息；内存会话不会落盘。</p>
         </div>
       ) : panel.id === "llm-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
