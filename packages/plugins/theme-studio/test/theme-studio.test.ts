@@ -171,6 +171,43 @@ test("uses the replacement native runtime manager instead of the launch service"
   }
 });
 
+test.each(["theme_set", "theme_status"])("rejects %s when parameter inspection replaces the native session", async (name) => {
+  const { context, service, call, panels } = await fixture();
+  const manager = SessionManager.inMemory();
+  const runtime = { session: { sessionManager: manager } };
+  context.provide("piRuntime", runtime as never);
+  try {
+    await call("theme_set", { theme: "midnight" });
+    const params = new Proxy(name === "theme_set" ? { theme: "paper" } : {}, {
+      ownKeys(target) {
+        manager.newSession();
+        return Reflect.ownKeys(target);
+      },
+    });
+    await expect(call(name, params)).rejects.toThrow(/session changed/iu);
+    expect(manager.getEntries()).toHaveLength(0);
+    expect(service.manager.getEntries()).toHaveLength(0);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { theme: "light", changed: false } }]);
+  } finally {
+    await context.fiber.dispose();
+  }
+});
+
+test("rejects a pending selection when the AgentSession changes around the same manager", async () => {
+  const { context, call } = await fixture();
+  const manager = SessionManager.inMemory();
+  const runtime = { session: { sessionManager: manager } };
+  context.provide("piRuntime", runtime as never);
+  try {
+    const pending = call("theme_set", { theme: "paper" });
+    runtime.session = { sessionManager: manager };
+    await expect(pending).rejects.toThrow(/session changed/iu);
+    expect(manager.getEntries()).toHaveLength(0);
+  } finally {
+    await context.fiber.dispose();
+  }
+});
+
 test("keeps primary and status text readable against matching preset surfaces", () => {
   const luminance = (hex: string) => {
     const rgb = hex

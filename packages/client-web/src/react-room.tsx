@@ -1,5 +1,5 @@
 import { themeStudioView } from "./theme-studio-view.js";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   createClientApi,
@@ -800,6 +800,7 @@ function ConfirmDialog({
 function SessionActionMenu({
   busy,
   position,
+  themeStyle,
   onRename,
   onFork,
   onArchive,
@@ -807,13 +808,20 @@ function SessionActionMenu({
 }: {
   busy: boolean;
   position: { left: number; top: number };
+  themeStyle?: CSSProperties;
   onRename: () => void;
   onFork: () => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
   return createPortal(
-    <div className="session-row-menu-popover" data-session-popover onClick={(event) => event.stopPropagation()} role="menu" style={position}>
+    <div
+      className="session-row-menu-popover"
+      data-session-popover
+      onClick={(event) => event.stopPropagation()}
+      role="menu"
+      style={{ ...themeStyle, ...position }}
+    >
       <button autoFocus disabled={busy} onClick={onRename} role="menuitem" type="button">
         重命名
       </button>
@@ -8711,7 +8719,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       : undefined;
   const themeStudioPanel = data.pluginPanels.find((panel) => panel.id === "theme-studio-panel");
   const themeStudioData = useMemo(() => themeStudioView(themeStudioPanel?.data), [themeStudioPanel?.data]);
-  const themeStyle = themeStudioData ? { ...themeStudioData.tokens, colorScheme: themeStudioData.theme === "midnight" ? "dark" : "light" } : undefined;
+  const themeStyle = themeStudioData
+    ? { ...themeStudioData.tokens, color: themeStudioData.tokens["--color-ink"], colorScheme: themeStudioData.theme === "midnight" ? "dark" : "light" }
+    : undefined;
   const activeTheme = themeStudioData?.theme;
   const insertCommand = useCallback(
     (value: string) => {
@@ -8852,7 +8862,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               {sessionToolsOpen &&
                 sessionToolsPosition &&
                 createPortal(
-                  <div className="session-tools-popover" data-session-popover role="menu" style={sessionToolsPosition}>
+                  <div className="session-tools-popover" data-session-popover role="menu" style={{ ...themeStyle, ...sessionToolsPosition }}>
                     <button autoFocus onClick={() => window.location.reload()} role="menuitem" type="button">
                       刷新列表
                     </button>
@@ -8976,6 +8986,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <SessionActionMenu
                     busy={sessionActionBusy}
                     position={sessionMenuPosition}
+                    themeStyle={themeStyle}
                     onArchive={() => {
                       closeSessionMenu();
                       setSessionDialog("archive");
@@ -9056,6 +9067,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                         <SessionActionMenu
                           busy={sessionActionBusy}
                           position={sessionMenuPosition}
+                          themeStyle={themeStyle}
                           onArchive={() => {
                             closeSessionMenu();
                             setSessionDialog("archive");

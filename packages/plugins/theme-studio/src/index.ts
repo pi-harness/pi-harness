@@ -202,14 +202,21 @@ export default {
     };
     const execute = async (set: boolean, rawParams: unknown, signal?: AbortSignal): Promise<AgentToolResult<ThemeState>> => {
       checkCancelled(signal);
+      const session = context.get("piRuntime")?.session;
       const manager = currentManager(),
         header = manager.getHeader();
+      const check = () => {
+        checkCancelled(signal);
+        if (context.get("piRuntime")?.session !== session || currentManager() !== manager || manager.getHeader() !== header)
+          throw new Error("Theme session changed before execution");
+      };
       await Promise.resolve();
-      checkCancelled(signal);
-      if (currentManager() !== manager || manager.getHeader() !== header) throw new Error("Theme session changed before execution");
+      check();
       const params = dataRecord(rawParams);
       if (set ? Object.keys(params).length !== 1 || !isThemeId(params.theme) : Object.keys(params).length !== 0) throw new Error("Invalid theme parameters");
+      check();
       state();
+      check();
       if (set) {
         try {
           manager.appendCustomEntry(customType, { theme: params.theme, changedAt: new Date().toISOString() });
@@ -219,6 +226,7 @@ export default {
         }
       }
       const details = state();
+      check();
       return { content: [{ type: "text", text: JSON.stringify(details) }], details };
     };
     const unregisterSet = context.piTools.register(
