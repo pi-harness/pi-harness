@@ -14,7 +14,6 @@ const maxSourceFileBytes = 1024 * 1024;
 const maxSourceBytes = 8 * 1024 * 1024;
 const maxMetadataBytes = 1024 * 1024;
 const packageNamePattern = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/u;
-const coreRowIds = new Set(["tools", "session", "llm", "web", "permission", "agent"]);
 const ignoredScanDirectories = new Set([".git", "node_modules", ".pi", "dist", "build"]);
 
 export interface PluginCheckConfig {
@@ -24,22 +23,14 @@ export interface PluginCheckConfig {
 export const Config: z<PluginCheckConfig> = z.object({ scanLimit: z.number().default(maxScanEntries) });
 
 export function isPluginRepositoryName(name: string): boolean {
-  return (
-    name.length > 0 &&
-    !ignoredScanDirectories.has(name) &&
-    !name.startsWith(".") &&
-    (name.startsWith("dsh-") || name.startsWith("pi-") || name.endsWith("-plugin"))
-  );
+  return name.length > 0 && !ignoredScanDirectories.has(name) && !name.startsWith(".") && (name.startsWith("pi-") || name.endsWith("-plugin"));
 }
 const schemaChecks = [
   { code: "no-manifest", label: "package.json exists and is valid JSON" },
   { code: "invalid-name-format", label: "package name follows npm naming rules" },
   { code: "missing-main-or-types", label: "main or types entry is declared" },
   { code: "no-source-entry", label: "a source entry or src directory exists" },
-  { code: "no-patch", label: "Runtime patch or independent Cordis npm package is declared" },
-  { code: "malformed-patch", label: "patch root is a sequence of entries" },
-  { code: "duplicate-row-id", label: "patch row ids are unique" },
-  { code: "core-row-id", label: "patch does not replace core rows" },
+  { code: "missing-plugin-metadata", label: "Cordis npm plugin keywords and peer dependency are declared" },
   { code: "missing-profile-install-example", label: "README contains a profile install example" },
   { code: "core-modification-required", label: "installation does not require changing host source" },
   { code: "no-build-script", label: "package declares a build script" },
@@ -91,7 +82,13 @@ function isNpmPlugin(manifest: Record<string, unknown> | undefined): boolean {
 }
 
 function hasNpmProfileExample(readme: string, packageName: string): boolean {
-  if (!readme.includes("npm install") || !readme.includes(packageName)) return false;
+  const installsPackage = [...readme.matchAll(/(?:^|\n)[ \t]*(?:\$[ \t]+)?npm[ \t]+install[ \t]+([^\r\n;|&#`]+)/gu)].some((command) =>
+    (command[1] ?? "").split(/\s+/u).some((argument) => {
+      const specifier = argument.replace(/^["']|["']$/gu, "");
+      return specifier === packageName || (specifier.startsWith(`${packageName}@`) && specifier.length > packageName.length + 1);
+    }),
+  );
+  if (!installsPackage) return false;
   for (const block of readme.matchAll(/```(?:yaml|yml)\s*\n([\s\S]*?)```/gu)) {
     try {
       const rows: unknown = parse(block[1] ?? "");
@@ -208,49 +205,16 @@ async function checkRepository(path: string, strict: boolean, signal: AbortSigna
     readme = "";
     readmeIssue = metadataFailure("README.md", error);
   }
-  let patchSource: string | undefined;
-  let patchIssue: string | undefined;
-  for (const filename of ["cordis.patch.yml", "dsh.bundle.patch"]) {
-    try {
-      patchSource = await readBoundedText(join(root, filename));
-      break;
-    } catch (error) {
-      // Try the next supported patch filename.
-      patchIssue ??= metadataFailure(filename, error);
-    }
-  }
   const npmPlugin = isNpmPlugin(manifest);
-  if (patchSource === undefined && npmPlugin && patchIssue === undefined)
-    checks.push({ code: "no-patch", status: "passed", message: "independent Cordis npm plugin does not require a patch file" });
-  else if (patchSource === undefined) addIssue(checks, "no-patch", "failed", patchIssue ?? "no runtime patch or bundle declaration found");
-  else {
-    try {
-      const parsed = parse(patchSource) as unknown;
-      if (
-        !Array.isArray(parsed) ||
-        parsed.length === 0 ||
-        parsed.some((entry) => {
-          const row = asObject(entry);
-          return typeof row?.id !== "string" || row.id.trim() === "" || typeof row.name !== "string" || row.name.trim() === "";
-        })
-      )
-        addIssue(checks, "malformed-patch", "failed", "patch must be a non-empty sequence of entries with id and name");
-      else {
-        checks.push({ code: "malformed-patch", status: "passed", message: "patch root is a sequence" });
-        const ids = parsed.flatMap((entry) => {
-          const row = asObject(entry);
-          return typeof row?.id === "string" ? [row.id] : [];
-        });
-        if (new Set(ids).size !== ids.length) addIssue(checks, "duplicate-row-id", "failed", "patch contains duplicate row ids");
-        else checks.push({ code: "duplicate-row-id", status: "passed", message: "patch row ids are unique" });
-        if (ids.some((id) => coreRowIds.has(id))) addIssue(checks, "core-row-id", "failed", "patch attempts to replace a core row");
-        else checks.push({ code: "core-row-id", status: "passed", message: "patch does not replace core rows" });
-      }
-    } catch (error) {
-      addIssue(checks, "malformed-patch", "failed", "patch could not be parsed: " + (error instanceof Error ? error.message : String(error)));
-    }
-  }
-  if (/(?:dsh|pi)\s+plugin\s+--profile\s+\S+\s+add/iu.test(readme) || (npmPlugin && hasNpmProfileExample(readme, packageName)))
+  if (npmPlugin) checks.push({ code: "missing-plugin-metadata", status: "passed", message: "Cordis npm plugin metadata is declared" });
+  else
+    addIssue(
+      checks,
+      "missing-plugin-metadata",
+      "failed",
+      "package must declare a pi-harness-plugin or cordis keyword and the @deepseek-ai/cordis peer dependency",
+    );
+  if (npmPlugin && hasNpmProfileExample(readme, packageName))
     checks.push({ code: "missing-profile-install-example", status: "passed", message: "README has a profile install example" });
   else addIssue(checks, "missing-profile-install-example", "warning", readmeIssue ?? "README has no standard profile install example");
   if (/(?:git\s+apply|cp\s+.*(?:monorepo|src\/)|modify\s+.*core)/iu.test(readme))
@@ -278,8 +242,8 @@ async function checkRepository(path: string, strict: boolean, signal: AbortSigna
   const warnings = checks.filter((check) => check.status === "warning").map(({ code, message }) => ({ code, message }));
   if (errors.some((entry) => entry.code === "no-manifest" || entry.code === "missing-main-or-types"))
     suggestions.push("Add a valid package.json with main/types and a buildable entry point.");
-  if (errors.some((entry) => entry.code === "no-patch" || entry.code === "malformed-patch"))
-    suggestions.push("Add a valid runtime patch sequence with a unique plugin row id.");
+  if (errors.some((entry) => entry.code === "missing-plugin-metadata"))
+    suggestions.push("Declare plugin keywords and the @deepseek-ai/cordis peer dependency in package.json.");
   if (warnings.some((entry) => entry.code === "missing-profile-install-example"))
     suggestions.push("Document npm installation and a Cordis profile entry matching the package name.");
   const verdict = errors.length > 0 || (strict && warnings.length > 0) ? "fail" : warnings.length > 0 ? "warn" : "pass";
@@ -313,20 +277,37 @@ export default {
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort(new Error("Plugin Check disposed")));
     let latest: PluginCheckReport | PluginCheckScanReport | ReturnType<typeof schemaReport> | undefined;
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (scope.session !== next.session || scope.manager !== next.manager || scope.id !== next.id || scope.cwd !== next.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
     const run = async (action: "check" | "scan" | "schema", requestedPath: string | undefined, strict: boolean, signal: AbortSignal): Promise<unknown> => {
       signal.throwIfAborted();
+      const operationScope = refreshScope();
       if (action === "schema") {
         latest = schemaReport();
         return structuredClone(latest);
       }
+      const assertCurrent = () => {
+        signal.throwIfAborted();
+        if (refreshScope() !== operationScope) throw new Error("Plugin Check workspace changed during inspection");
+      };
       const requested = requestedPath ?? ".";
-      const workspaceRequest = isAbsolute(requested) ? relative(resolve(context.piHarnessLaunch.cwd), resolve(requested)) || "." : requested;
-      const target = (
-        await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, workspaceRequest, "Plugin repository path must stay inside the current workspace")
-      ).target;
+      const workspaceRequest = isAbsolute(requested) ? relative(resolve(operationScope.cwd), resolve(requested)) || "." : requested;
+      const target = (await resolveExistingWorkspacePath(operationScope.cwd, workspaceRequest, "Plugin repository path must stay inside the current workspace"))
+        .target;
       if (action === "check") {
         const report = await checkRepository(target, strict, signal);
-        signal.throwIfAborted();
+        assertCurrent();
         latest = report;
         return structuredClone(latest);
       }
@@ -352,7 +333,7 @@ export default {
         }
         if (recognized) reports.push(await checkRepository(candidate, strict, signal));
       }
-      signal.throwIfAborted();
+      assertCurrent();
       latest = { root: target, scanned: reports.length, reports, truncated };
       return structuredClone(latest);
     };
@@ -395,9 +376,12 @@ export default {
       id: "plugin-check-panel",
       pluginId: "@pi-harness/plugin-plugin-check",
       title: "Plugin Check",
-      description: "只读检查插件清单、patch 和构建陷阱，不修改或构建被检仓库。",
+      description: "只读检查 npm 插件清单、安装示例和构建陷阱，不修改或构建被检仓库。",
       icon: "✓",
-      read: () => ({ scanLimit, latest: latest === undefined ? null : structuredClone(latest) }),
+      read: () => {
+        refreshScope();
+        return { scanLimit, latest: latest === undefined ? null : structuredClone(latest) };
+      },
     });
     context.effect(() => () => {
       unregisterTool();

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -31,9 +31,9 @@ afterEach(async () => {
 });
 
 describe("plugin repository discovery", () => {
-  test("accepts Pi Harness and legacy DSH plugin directory names", () => {
+  test("accepts current plugin directory hints without DSH aliases", () => {
     expect(isPluginRepositoryName("pi-colleague-skill")).toBe(true);
-    expect(isPluginRepositoryName("dsh-vision-toolkit")).toBe(true);
+    expect(isPluginRepositoryName("dsh-vision-toolkit")).toBe(false);
     expect(isPluginRepositoryName("example-plugin")).toBe(true);
   });
 
@@ -85,7 +85,7 @@ describe("plugin metadata read failures", () => {
 
     const details = result.details as PluginCheckReport;
     expect(details.errors.find((error) => error.code === "no-manifest")?.message).toMatch(/package\.json is not a readable regular file/u);
-    expect(details.errors.find((error) => error.code === "no-patch")?.message).toMatch(/cordis\.patch\.yml is not a readable regular file/u);
+    expect(details.errors).toContainEqual(expect.objectContaining({ code: "missing-plugin-metadata" }));
     expect(details.warnings.find((warning) => warning.code === "missing-profile-install-example")?.message).toMatch(
       /README\.md is not a readable regular file/u,
     );
@@ -142,13 +142,49 @@ describe("independent npm plugins", () => {
   });
 });
 
-test("rejects empty or malformed legacy patch rows", async () => {
+test("ignores old patch files and does not accept old install commands", async () => {
   const { root, tool } = await fixture();
-  const repo = join(root, "pi-malformed");
-  await mkdir(repo);
-  for (const patch of ["[]", "- null", "- id: example", "- id: ''\n  name: example"]) {
-    await writeFile(join(repo, "cordis.patch.yml"), patch);
-    const result = await tool.execute("bad-patch", { action: "check", path: "pi-malformed" }, undefined, undefined, {} as never);
-    expect((result.details as PluginCheckReport).errors).toContainEqual(expect.objectContaining({ code: "malformed-patch" }));
+  const repo = join(root, "pi-current");
+  await mkdir(join(repo, "src"), { recursive: true });
+  await writeFile(
+    join(repo, "package.json"),
+    JSON.stringify({
+      name: "pi-current",
+      main: "dist/index.js",
+      keywords: ["cordis"],
+      peerDependencies: { "@deepseek-ai/cordis": "4.0.1" },
+      scripts: { build: "tsc" },
+    }),
+  );
+  await writeFile(join(repo, "cordis.patch.yml"), "- null");
+  await writeFile(join(repo, "dsh.bundle.patch"), "not: a sequence");
+  for (const command of ["dsh plugin --profile web add pi-current", "pi plugin --profile web add pi-current"]) {
+    await writeFile(join(repo, "README.md"), command);
+    const result = await tool.execute("old", { action: "check", path: "pi-current" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ verdict: "warn", errors: [], warnings: [{ code: "missing-profile-install-example" }] });
   }
+  await writeFile(join(repo, "README.md"), "npm install --save-exact pi-current\n```yaml\n- name: pi-current\n```");
+  await writeFile(join(repo, "README.md"), "npm install --save-exact another-package\n```yaml\n- name: pi-current\n```");
+  const unrelated = await tool.execute("unrelated", { action: "check", path: "pi-current" }, undefined, undefined, {} as never);
+  expect((unrelated.details as PluginCheckReport).warnings).toContainEqual(expect.objectContaining({ code: "missing-profile-install-example" }));
+  await writeFile(join(repo, "README.md"), "npm install --save-exact pi-current@1.0.0\n```yaml\n- name: pi-current\n```");
+  const current = await tool.execute("current", { action: "check", path: "pi-current" }, undefined, undefined, {} as never);
+  expect(current.details).toMatchObject({ verdict: "pass", errors: [], warnings: [] });
+  const schema = await tool.execute("schema", { action: "schema" }, undefined, undefined, {} as never);
+  expect(JSON.stringify(schema.details)).not.toMatch(/patch|row-id/u);
+});
+
+test("uses the active native workspace and rejects a result after replacement", async () => {
+  const { root, tool, context, panels } = await fixture();
+  const active = await mkdtemp(join(tmpdir(), "pi-check-active-"));
+  directories.push(active);
+  const native = { sessionId: "active", sessionManager: { getCwd: () => active } };
+  const runtime = { session: native };
+  context.provide("piRuntime", runtime as never);
+  const result = await tool.execute("active", { action: "check" }, undefined, undefined, {} as never);
+  expect(result.details).toMatchObject({ path: await realpath(active) });
+  const pending = tool.execute("pending", { action: "check" }, undefined, undefined, {} as never);
+  runtime.session = { sessionId: "replacement", sessionManager: { getCwd: () => root } };
+  await expect(pending).rejects.toThrow(/workspace changed/iu);
+  expect((await panels.snapshot())[0]?.data).toMatchObject({ latest: null });
 });
