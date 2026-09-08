@@ -1,4 +1,4 @@
-import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Context } from "@deepseek-ai/cordis";
@@ -177,4 +177,95 @@ else console.log(JSON.stringify(process.argv.slice(2)));
       await context.fiber.dispose();
     }
   });
+});
+
+test("uses the active native cwd for both tools and resets session state without changing the virtual workspace", async () => {
+  const fixture = await longRunningFixture();
+  await mkdir(join(fixture.directory, "active"));
+  const active = await realpath(join(fixture.directory, "active"));
+  await writeFile(join(fixture.directory, "mirage-stub.mjs"), "#!/usr/bin/env node\nconsole.log(process.cwd());\n");
+  let session = { sessionId: "first", sessionManager: { getCwd: () => fixture.directory } };
+  fixture.context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  const doctor = fixture.tools.snapshot().customTools.find((tool) => tool.name === "mirage_doctor")!;
+  try {
+    await fixture.execute.execute("first", { command: "pwd" }, undefined, undefined, {} as never);
+    session = { sessionId: "second", sessionManager: { getCwd: () => active } };
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([
+      { data: { available: null, version: null, lastError: null, lastRun: null, workspaceId: "review-sandbox" } },
+    ]);
+    await expect(doctor.execute("doctor", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { available: true, version: active } });
+    await expect(fixture.execute.execute("active", { command: "pwd" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { output: active + "\n", workspaceId: "review-sandbox" },
+    });
+    session.sessionId = "third";
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { available: null, lastRun: null } }]);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test.each(["mirage_doctor", "mirage_execute"])("discards pending %s success and failure after a native session change", async (toolName) => {
+  for (const exitCode of [0, 7]) {
+    const fixture = await longRunningFixture();
+    await writeFile(
+      join(fixture.directory, "mirage-stub.mjs"),
+      `#!/usr/bin/env node
+import { existsSync, writeFileSync } from "node:fs";
+writeFileSync("ready", "");
+const timer = setInterval(() => { if (existsSync("release")) { clearInterval(timer); console.log("old result"); process.exit(${exitCode}); } }, 10);
+setTimeout(() => process.exit(9), 5000).unref();
+`,
+    );
+    const session = { sessionId: "first", sessionManager: { getCwd: () => fixture.directory } };
+    fixture.context.provide("piRuntime", { session } as never);
+    const tool = fixture.tools.snapshot().customTools.find((entry) => entry.name === toolName)!;
+    try {
+      const pending = tool.execute("pending", { command: "pwd" }, undefined, undefined, {} as never);
+      const assertion = expect(pending).rejects.toThrow(/workspace changed/iu);
+      await waitForFile(join(fixture.directory, "ready"));
+      session.sessionId = "second";
+      await writeFile(join(fixture.directory, "release"), "");
+      await assertion;
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { available: null, lastError: null, lastRun: null } }]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  }
+});
+
+test("rejects a scope change during parameter access before spawning and guards retained tools after disposal", async () => {
+  const fixture = await longRunningFixture();
+  await writeFile(
+    join(fixture.directory, "mirage-stub.mjs"),
+    '#!/usr/bin/env node\nimport {writeFileSync} from "node:fs"; writeFileSync("ready", ""); console.log("launched");\n',
+  );
+  const retained = fixture.tools.snapshot().customTools;
+  const session = { sessionId: "first", sessionManager: { getCwd: () => fixture.directory } };
+  fixture.context.provide("piRuntime", { session } as never);
+  try {
+    await expect(
+      fixture.execute.execute(
+        "getter",
+        {
+          get command() {
+            session.sessionId = "second";
+            return "pwd";
+          },
+        },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/workspace changed/iu);
+    await expect(access(join(fixture.directory, "ready"))).rejects.toMatchObject({ code: "ENOENT" });
+    await fixture.context.fiber.dispose();
+    expect(fixture.tools.snapshot().customTools).toHaveLength(0);
+    for (const tool of retained) await expect(tool.execute("disposed", { command: "pwd" }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
 });
