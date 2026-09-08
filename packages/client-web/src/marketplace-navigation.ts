@@ -1,3 +1,5 @@
+import { formatLocale, t } from "./i18n.js";
+
 export function marketplaceDetailPath(id: string): string {
   return `?page=marketplace&plugin=${encodeURIComponent(id)}`;
 }
@@ -16,7 +18,7 @@ export interface MarketplaceCategoryTab {
 
 export function marketplaceCategoryTabs(categories: readonly MarketplaceCategoryTab[]): readonly MarketplaceCategoryTab[] {
   const total = categories.reduce((sum, category) => sum + category.count, 0);
-  return [{ id: "", label: "全部", count: total }, ...categories];
+  return [{ id: "", label: t("全部"), count: total }, ...categories];
 }
 
 export interface MarketplaceCapabilityLabel {
@@ -41,17 +43,19 @@ export interface MarketplaceStatisticItem {
   readonly value: string;
 }
 
+// Ten thousand is where Chinese and Japanese switch to their own myriad grouping and English switches to K, and Intl already knows which of those the active language wants, so the shortening is left to it rather than hard-coded to 万.
 function compactDownloadCount(value: number): string {
-  if (value >= 10_000) return `${(value / 10_000).toFixed(1).replace(/\.0$/, "")} 万`;
-  return new Intl.NumberFormat("zh-CN").format(value);
+  const locale = formatLocale();
+  if (value >= 10_000) return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat(locale).format(value);
 }
 
 export function marketplaceStatisticItems(statistics: MarketplaceStatisticsInput | undefined): readonly MarketplaceStatisticItem[] {
   if (statistics === undefined) return [];
   const items: MarketplaceStatisticItem[] = [];
-  if (statistics.downloads30d !== undefined) items.push({ label: "近 30 天下载量", value: compactDownloadCount(statistics.downloads30d) });
-  if (statistics.quality !== undefined) items.push({ label: "npm 质量分", value: String(Math.round(statistics.quality * 100)) });
+  if (statistics.downloads30d !== undefined) items.push({ label: t("近 30 天下载量"), value: compactDownloadCount(statistics.downloads30d) });
+  if (statistics.quality !== undefined) items.push({ label: t("npm 质量分"), value: String(Math.round(statistics.quality * 100)) });
   if (statistics.updatedAt !== undefined && Number.isFinite(Date.parse(statistics.updatedAt)))
-    items.push({ label: "npm 更新时间", value: statistics.updatedAt.slice(0, 10) });
+    items.push({ label: t("npm 更新时间"), value: statistics.updatedAt.slice(0, 10) });
   return items;
 }
