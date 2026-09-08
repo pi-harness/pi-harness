@@ -2557,8 +2557,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : panel.id === "reverse-skill-panel" ? (
         <div className="mt-3 grid gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[#f6f8ff] px-3 py-3">
-            <span className="text-[11px] text-[#65707b]">复核风险内容</span>
-            <strong className="font-mono text-[11px] text-[#3565c5]">{data?.allowReviewByDefault === true ? "已允许" : "默认阻断"}</strong>
+            <span className="text-[11px] text-[#65707b]">复核风险内容的默认策略</span>
+            <strong className="font-mono text-[11px] text-[#3565c5]">{data?.allowReviewByDefault === true ? "允许返回" : "拒绝返回"}</strong>
           </div>
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
@@ -2580,7 +2580,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <p className="mt-1 text-[10px] opacity-80">
                       {findings
                         .slice(0, 2)
-                        .map((item) => value(item))
+                        .map((item) => value((item as Record<string, unknown>).message))
                         .join("；")}
                     </p>
                   ) : null}
