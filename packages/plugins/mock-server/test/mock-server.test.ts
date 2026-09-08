@@ -51,6 +51,72 @@ afterEach(async () => {
 });
 
 describe("mock server", () => {
+  test("rejects cancelled starts and retained tools after disposal", async () => {
+    const { context, start, status } = await fixture();
+    const controller = new AbortController();
+    controller.abort(new Error("Start cancelled"));
+    await expect(start.execute("cancel", {}, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    await context.fiber.dispose();
+    await expect(start.execute("late", {}, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    await expect(status.execute("late", {}, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+  });
+
+  test("serializes stop and restart so the new listener remains authoritative", async () => {
+    const { start, stop, status } = await fixture();
+    await start.execute("first", {}, undefined, undefined, {} as never);
+    const stopping = stop.execute("stop", {}, undefined, undefined, {} as never);
+    const restarting = start.execute("restart", {}, undefined, undefined, {} as never);
+    await stopping;
+    const restarted = await restarting;
+    const url = (restarted.details as { url: string }).url;
+    expect(await get(`${url}/hello`)).toEqual({ status: 200, body: "world" });
+    await expect(status.execute("status", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { running: true, url } });
+  });
+
+  test("rejects startup interrupted by disposal", async () => {
+    const { context, start } = await fixture();
+    const pending = start.execute("pending", {}, undefined, undefined, {} as never);
+    const rejected = expect(pending).rejects.toThrow(/disposed/iu);
+    await context.fiber.dispose();
+    await rejected;
+  });
+
+  test("detaches tool results from live state", async () => {
+    const { start, status, panels } = await fixture();
+    const result = await start.execute("start", {}, undefined, undefined, {} as never);
+    (result.details as { running: boolean }).running = false;
+    await expect(status.execute("status", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { running: true } });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { running: true } }]);
+  });
+
+  test("closes active unfinished HTTP connections before disposal resolves", async () => {
+    const { context, start } = await fixture();
+    const result = await start.execute("start", {}, undefined, undefined, {} as never);
+    const url = (result.details as { url: string }).url;
+    const socket = connect(Number(new URL(url).port), "127.0.0.1");
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    socket.write("POST /hello HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n");
+    try {
+      await context.fiber.dispose();
+      await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error("Connection remained open after disposal")), 500))]);
+      await expect(get(`${url}/hello`)).rejects.toThrow();
+    } finally {
+      socket.destroy();
+    }
+  });
+
+  test("rejects informational status codes that cannot terminate a response", async () => {
+    const context = new Context();
+    contexts.push(context);
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await expect(context.plugin(mockServerPlugin, { routes: [{ path: "/hello", status: 100 }] })).rejects.toThrow(/200.*599/iu);
+  });
+
   test("serves configured loopback routes and exposes strict sequential tools", async () => {
     const { start, stop, status } = await fixture();
     for (const tool of [start, stop, status]) {

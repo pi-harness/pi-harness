@@ -38,7 +38,7 @@ function normalizeRoutes(routes: MockRoute[]): MockRoute[] {
     const method = (route.method ?? "GET").trim().toUpperCase();
     if (!allowedMethods.has(method)) throw new Error(`Mock route method is not allowed: ${method}`);
     const status = route.status ?? 200;
-    if (!Number.isInteger(status) || status < 100 || status > 599) throw new Error("Mock route status must be an integer between 100 and 599");
+    if (!Number.isInteger(status) || status < 200 || status > 599) throw new Error("Mock route status must be an integer between 200 and 599");
     const body = route.body ?? "";
     if (Buffer.byteLength(body, "utf8") > maxBodyBytes) throw new Error(`Mock route body cannot exceed ${maxBodyBytes} bytes`);
     const headers = Object.fromEntries(
@@ -69,14 +69,29 @@ export default {
   Config,
   apply(context: Context, config: MockServerPluginConfig) {
     const routes = normalizeRoutes(config.routes ?? []);
+    const lifecycle = new AbortController();
+    let operations = Promise.resolve();
+    const enqueue = <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
+      const result = operations.then(() => {
+        signal.throwIfAborted();
+        return operation();
+      });
+      operations = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    };
+    const executionSignal = (signal?: AbortSignal) => (signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]));
     let server: Server | undefined;
     let state: MockServerState = { running: false, url: null, routes: routes.length, lastRequest: null, lastError: null };
-    const start = async (requestedPort?: number): Promise<MockServerState> => {
+    const start = async (requestedPort: number | undefined, signal: AbortSignal): Promise<MockServerState> => {
+      signal.throwIfAborted();
       if (server !== undefined) throw new Error("Mock server is already running");
       const port = requestedPort ?? config.port ?? 0;
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Mock server port must be an integer between 0 and 65535");
       const routeMap = new Map(routes.map((route) => [routeKey(route.method ?? "GET", route.path), route]));
-      server = createServer((request: IncomingMessage, response: ServerResponse) => {
+      const current = createServer((request: IncomingMessage, response: ServerResponse) => {
         // A throw inside the request listener would surface as an uncaught exception and take the whole host down, so every response failure is answered with a 500 instead.
         try {
           const method = (request.method ?? "GET").toUpperCase();
@@ -105,36 +120,44 @@ export default {
           response.end("Mock route failed");
         }
       });
+      server = current;
       try {
         await new Promise<void>((resolve, reject) => {
           const onError = (error: Error): void => {
-            server?.off("listening", onListening);
+            current.off("listening", onListening);
             reject(error);
           };
           const onListening = (): void => {
-            server?.off("error", onError);
+            current.off("error", onError);
             resolve();
           };
-          server!.once("error", onError);
-          server!.once("listening", onListening);
-          server!.listen(port, "127.0.0.1");
+          current.once("error", onError);
+          current.once("listening", onListening);
+          current.listen(port, "127.0.0.1");
         });
+        signal.throwIfAborted();
       } catch (error) {
         const failed = server;
         server = undefined;
-        failed?.close();
+        if (failed?.listening) {
+          const closed = new Promise<void>((resolve) => failed.close(() => resolve()));
+          failed.closeAllConnections();
+          await closed;
+        }
         throw error;
       }
-      const address = server.address();
+      const address = current.address();
       if (address === null || typeof address === "string") throw new Error("Mock server did not expose a TCP address");
       state = { ...state, running: true, url: `http://127.0.0.1:${address.port}` };
-      return state;
+      return { ...state };
     };
     const stop = async (): Promise<boolean> => {
       if (server === undefined) return false;
       const current = server;
+      const closed = new Promise<void>((resolve, reject) => current.close((error) => (error ? reject(error) : resolve())));
+      current.closeAllConnections();
+      await closed;
       server = undefined;
-      await new Promise<void>((resolve, reject) => current.close((error) => (error ? reject(error) : resolve())));
       state = { ...state, running: false, url: null };
       return true;
     };
@@ -153,8 +176,9 @@ export default {
             { additionalProperties: false },
           ),
           executionMode: "sequential",
-          async execute(_toolCallId, params): Promise<AgentToolResult<MockServerState>> {
-            const result = await start(params.port);
+          async execute(_toolCallId, params, signal): Promise<AgentToolResult<MockServerState>> {
+            const currentSignal = executionSignal(signal);
+            const result = await enqueue(() => start(params.port, currentSignal), currentSignal);
             return { content: [{ type: "text", text: `Mock server listening at ${result.url}` }], details: result };
           },
         }),
@@ -167,8 +191,8 @@ export default {
           promptSnippet: "stop the local mock HTTP server",
           parameters: Type.Object({}, { additionalProperties: false }),
           executionMode: "sequential",
-          async execute(): Promise<AgentToolResult<{ stopped: boolean }>> {
-            const stopped = await stop();
+          async execute(_toolCallId, _params, signal): Promise<AgentToolResult<{ stopped: boolean }>> {
+            const stopped = await enqueue(stop, executionSignal(signal));
             return { content: [{ type: "text", text: stopped ? "Mock server stopped." : "Mock server was not running." }], details: { stopped } };
           },
         }),
@@ -181,8 +205,10 @@ export default {
           promptSnippet: "check the local mock server status",
           parameters: Type.Object({}, { additionalProperties: false }),
           executionMode: "sequential",
-          execute(): Promise<AgentToolResult<MockServerState>> {
-            return Promise.resolve({ content: [{ type: "text", text: `${state.running ? "running" : "stopped"} ${state.url ?? ""}`.trim() }], details: state });
+          async execute(_toolCallId, _params, signal): Promise<AgentToolResult<MockServerState>> {
+            await Promise.resolve();
+            executionSignal(signal).throwIfAborted();
+            return { content: [{ type: "text", text: `${state.running ? "running" : "stopped"} ${state.url ?? ""}`.trim() }], details: { ...state } };
           },
         }),
       );
@@ -200,7 +226,7 @@ export default {
         title: "Mock Server",
         description: "在本机回环地址提供可控的 HTTP mock 路由。",
         icon: "⇄",
-        read: () => state,
+        read: () => ({ ...state }),
       });
     } catch (error) {
       unregisterStart();
@@ -208,12 +234,14 @@ export default {
       unregisterStatus();
       throw error;
     }
-    context.effect(() => () => {
+    context.effect(() => async () => {
+      lifecycle.abort(new Error("Mock server plugin disposed"));
       unregisterStart();
       unregisterStop();
       unregisterStatus();
       disposePanel();
-      void stop().catch(() => undefined);
+      await operations;
+      await stop();
     });
   },
 };
