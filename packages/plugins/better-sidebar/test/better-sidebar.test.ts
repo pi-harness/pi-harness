@@ -1,3 +1,4 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -243,7 +244,7 @@ describe("better sidebar", () => {
     try {
       await writeFile(join(root, "README.md"), "# workspace\n", "utf8");
       provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
-      context.provide("piSession", { manager: { getSessionId: () => "session-sidebar" } } as never);
+      context.provide("piSession", { manager: { getHeader: () => null, getCwd: () => root, getSessionId: () => "session-sidebar" } } as never);
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(betterSidebarPlugin);
@@ -276,7 +277,7 @@ describe("better sidebar", () => {
     try {
       await writeFile(join(root, "README.md"), "# workspace\n", "utf8");
       provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
-      context.provide("piSession", { manager: { getSessionId: () => "session-sidebar" } } as never);
+      context.provide("piSession", { manager: { getHeader: () => null, getCwd: () => root, getSessionId: () => "session-sidebar" } } as never);
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(betterSidebarPlugin);
@@ -292,4 +293,44 @@ describe("better sidebar", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+test("follows native cwd and rejects obsolete, cancelled and disposed overview requests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sidebar-native-"));
+  const activeCwd = join(root, "active");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  const launch = SessionManager.inMemory(root),
+    active = SessionManager.inMemory(activeCwd);
+  const runtime = { session: { sessionManager: launch } };
+  try {
+    await mkdir(activeCwd);
+    await writeFile(join(activeCwd, "current.txt"), "current");
+    await writeFile(join(root, "launch.txt"), "launch");
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piSession", { manager: launch });
+    context.provide("piRuntime", runtime as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(betterSidebarPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    const call = (signal?: AbortSignal) => tool.execute("native", {}, signal, undefined, {} as never);
+    expect((await call()).details).toMatchObject({ cwd: root, fileCount: 2 });
+    runtime.session.sessionManager = active;
+    expect((await call()).details).toMatchObject({ cwd: activeCwd, fileCount: 1, sessionId: active.getSessionId() });
+    const pending = call();
+    active.newSession();
+    await expect(pending).rejects.toThrow(/session changed/);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ cwd: activeCwd, sessionId: active.getSessionId() });
+    const caller = new AbortController();
+    const cancelled = call(caller.signal);
+    caller.abort(new Error("caller cancelled"));
+    await expect(cancelled).rejects.toThrow(/cancelled/);
+    await context.fiber.dispose();
+    await expect(call()).rejects.toThrow(/disposed/);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -100,10 +100,52 @@ export default {
   inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
   Config: EmptyConfig,
   apply(context: Context) {
-    const inspect = createSidebarInspector({
-      cwd: context.piHarnessLaunch.cwd,
-      getSessionId: () => context.piSession.manager.getSessionId(),
-    });
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort(new Error("Better Sidebar plugin disposed")));
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      const manager = session?.sessionManager ?? context.piSession.manager;
+      return { session, manager, header: manager.getHeader(), cwd: manager.getCwd(), sessionId: manager.getSessionId() };
+    };
+    const createScan = (scope: ReturnType<typeof readScope>) => {
+      const controller = new AbortController();
+      const signal = AbortSignal.any([controller.signal, lifecycle.signal]);
+      return {
+        scope,
+        controller,
+        inspect: createSidebarInspector({
+          cwd: scope.cwd,
+          getSessionId: () => scope.sessionId,
+          listNodes: (root, options) => listWorkspaceNodes(root, options, signal),
+          readGitStatus: (root) => readWorkspaceGitStatus(root, undefined, signal),
+        }),
+      };
+    };
+    let scan = createScan(readScope());
+    const refreshScan = () => {
+      lifecycle.signal.throwIfAborted();
+      const current = readScope();
+      const previous = scan.scope;
+      if (
+        current.session !== previous.session ||
+        current.manager !== previous.manager ||
+        current.header !== previous.header ||
+        current.cwd !== previous.cwd ||
+        current.sessionId !== previous.sessionId
+      ) {
+        scan.controller.abort(new Error("Sidebar session changed during inspection"));
+        scan = createScan(current);
+      }
+      return scan;
+    };
+    const inspect = async (signal?: AbortSignal) => {
+      signal?.throwIfAborted();
+      const current = refreshScan();
+      const report = await current.inspect();
+      signal?.throwIfAborted();
+      if (refreshScan() !== current) throw new Error("Sidebar session changed during inspection");
+      return report;
+    };
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "sidebar_overview",
@@ -112,12 +154,13 @@ export default {
         promptSnippet: "inspect the workspace overview shown in the sidebar",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(): Promise<AgentToolResult<SidebarOverview>> {
-          const report = await inspect();
+        async execute(_toolCallId, _params, signal): Promise<AgentToolResult<SidebarOverview>> {
+          const report = await inspect(signal);
           return { content: [{ type: "text", text: textSummary(report) }], details: structuredClone(report) };
         },
       }),
     );
+    context.effect(() => unregisterTool);
     const disposePanel = context.piPluginUi.register({
       id: "better-sidebar-panel",
       pluginId: "@pi-harness/plugin-better-sidebar",
@@ -126,9 +169,6 @@ export default {
       icon: "▤",
       read: async () => structuredClone(await inspect()),
     });
-    context.effect(() => () => {
-      unregisterTool();
-      disposePanel();
-    });
+    context.effect(() => disposePanel);
   },
 };
