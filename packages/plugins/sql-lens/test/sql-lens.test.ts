@@ -3,6 +3,7 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import sqlLensPlugin, { Config } from "../src/index.js";
@@ -310,4 +311,42 @@ describe("SQL Lens production boundaries", () => {
       await fixture.context.fiber.dispose();
     }
   });
+});
+
+test("queries the active workspace, returns model-visible rows and rejects a session switch", async () => {
+  const fixture = await createFixture();
+  const activeCwd = await mkdtemp(join(tmpdir(), "pi-sql-active-"));
+  temporaryDirectories.push(activeCwd);
+  const database = new DatabaseSync(join(activeCwd, "data.db"));
+  database.exec("CREATE TABLE active(value TEXT); INSERT INTO active VALUES ('当前工作区');");
+  database.close();
+  const manager = SessionManager.inMemory(activeCwd);
+  const session = {
+    sessionManager: manager,
+    get sessionId() {
+      return manager.getSessionId();
+    },
+  };
+  fixture.context.provide("piRuntime", { session } as never);
+  try {
+    const result = await fixture.tool.execute("active", { query: "SELECT value FROM active" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ cwd: activeCwd, rows: [{ value: "当前工作区" }] });
+    expect(JSON.stringify(result.content)).toContain("当前工作区");
+    const pending = fixture.tool.execute("switch", { query: "SELECT value FROM active" }, undefined, undefined, {} as never);
+    manager.newSession();
+    await expect(pending).rejects.toThrow(/context changed/);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test("preserves Unicode scalar boundaries when truncating real SQLite text", async () => {
+  const fixture = await createFixture();
+  try {
+    const text = "x".repeat(16383) + "😀".repeat(10);
+    const result = await fixture.tool.execute("unicode", { query: `SELECT '${text}' AS note` }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ rows: [{ note: "x".repeat(16383) + "…" }], truncated: true });
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
 });

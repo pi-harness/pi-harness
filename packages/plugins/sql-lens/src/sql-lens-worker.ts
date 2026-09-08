@@ -133,7 +133,9 @@ function normalizeCell(value: SQLOutputValue): { value: SqlCell; truncated: bool
   }
   if (typeof value === "string") {
     if (value.length <= input.limits.stringLength) return { value, truncated: false };
-    return { value: value.slice(0, input.limits.stringLength) + "…", truncated: true };
+    let preview = value.slice(0, input.limits.stringLength);
+    if (/[\uD800-\uDBFF]$/u.test(preview)) preview = preview.slice(0, -1);
+    return { value: preview + "…", truncated: true };
   }
   if (value instanceof Uint8Array) {
     const preview = value.subarray(0, input.limits.blobPreviewBytes);

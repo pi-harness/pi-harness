@@ -4255,6 +4255,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ) : null}
               {report !== null ? (
                 <>
+                  <p className="break-all text-[10px] text-[#687381]">查询工作区：{report.cwd}</p>
                   <div className="rounded-lg bg-[#f6f8fa] px-3 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate font-mono text-[11px] text-[#30343b]" title={report.database}>
@@ -4266,13 +4267,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       {report.query}
                     </code>
                   </div>
+                  <p className="break-words text-[10px] text-[#687381]">列：{report.columns.join(", ")}</p>
                   <pre className="max-h-56 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
                     {JSON.stringify(report.rows, null, 2)}
                   </pre>
                   {report.rowInventory.truncated ? (
                     <p className="text-[10px] text-[#9a6700]">
-                      面板显示 {report.rowInventory.shown} / {report.rowInventory.returned} 行；查询共扫描 {report.rowInventory.scanned}{" "}
-                      行，结果已按安全边界截断。
+                      面板显示 {report.rowInventory.shown} / {report.rowInventory.returned} 行；已迭代 {report.rowInventory.scanned}{" "}
+                      行，行、列或单元格展示已截断。这不是匹配总行数。
                     </p>
                   ) : null}
                 </>
