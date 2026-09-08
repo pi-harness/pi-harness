@@ -3222,7 +3222,7 @@ describe("Pi domain plugins", () => {
     await expect(readFile(join(agentDir, "session-tabs.json"), "utf8")).resolves.toContain("API 回归");
     expect((await stat(join(agentDir, "session-tabs.json"))).mode & 0o777).toBe(0o600);
     await expect(panels.snapshot()).resolves.toMatchObject([
-      { id: "tab-manager-panel", data: { activeId: "session-a", tabs: [{ label: "API 回归" }], writes: 2 } },
+      { id: "tab-manager-panel", data: { selectedId: "session-a", tabs: [{ label: "API 回归" }], writes: 2 } },
     ]);
   });
 
@@ -3245,7 +3245,7 @@ describe("Pi domain plugins", () => {
   test("does not load session tabs through a symbolic link", async () => {
     const { context, cwd, agentDir } = await createContext();
     const outside = join(cwd, "outside-tabs.json");
-    await writeFile(outside, JSON.stringify({ tabs: [], activeId: null }), "utf8");
+    await writeFile(outside, JSON.stringify({ tabs: [], selectedId: null }), "utf8");
     await symlink(outside, join(agentDir, "session-tabs.json"));
     context.provide("piSession", { manager: { getSessionId: () => "session-a", getSessionFile: () => join(agentDir, "session-a.jsonl") } } as never);
     context.provide("piPluginUi", new PiPluginUiRegistry());

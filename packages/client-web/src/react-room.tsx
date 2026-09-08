@@ -3504,6 +3504,48 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             </div>
           );
         })()
+      ) : panel.id === "tab-manager-panel" ? (
+        (() => {
+          const tabs = Array.isArray(data?.tabs) ? data.tabs : [];
+          const activation = data?.activation !== null && typeof data?.activation === "object" ? (data.activation as Record<string, unknown>) : undefined;
+          const states: Record<string, string> = {
+            waiting: "等待当前轮结束",
+            switching: "正在切换会话",
+            completed: "会话切换完成",
+            cancelled: "会话切换已取消",
+            failed: "会话切换失败",
+          };
+          return (
+            <div className="mt-3 grid gap-3 text-[11px]">
+              <p>
+                当前会话：<code>{value(data?.currentSessionPath ?? "未持久化")}</code>
+              </p>
+              {activation ? (
+                <div className="rounded-lg border border-[#dde3ec] p-3">
+                  <strong>{states[value(activation.state)] ?? "未知切换状态"}</strong>
+                  <p className="break-all">{value(activation.sessionPath)}</p>
+                  {activation.error ? <p className="text-[#b42318]">{value(activation.error)}</p> : null}
+                </div>
+              ) : null}
+              <p>
+                {tabs.length} / 24 个标签 · {value(data?.writes ?? 0)} 次存储写入
+              </p>
+              <ul className="grid gap-2">
+                {tabs.map((entry, index) => {
+                  const tab = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                  return (
+                    <li className="rounded-lg border border-[#dde3ec] p-3" key={index}>
+                      <strong>{value(tab.label)}</strong> {tab.pinned === true ? "已固定" : "未固定"}
+                      {tab.sessionPath === data?.currentSessionPath ? " · 当前会话" : ""}
+                      <p className="break-all font-mono text-[10px]">{value(tab.sessionPath)}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="text-[#687381]">通过 session_tab_manage 管理标签。activate 在当前轮结束后切换真实会话；移除标签不会删除会话文件。</p>
+            </div>
+          );
+        })()
       ) : panel.id === "synapse-panel" ? (
         (() => {
           const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
