@@ -577,7 +577,11 @@ describe("git time capsule restore", () => {
     const bin = join(workspace, "bin");
     const started = join(workspace, "git-started");
     await mkdir(bin);
-    await writeFile(join(bin, "git"), '#!/bin/sh\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 5\n', "utf8");
+    await writeFile(
+      join(bin, "git"),
+      '#!/bin/sh\ncase "$*" in *rev-parse*) echo true; exit 0;; esac\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 30\n',
+      "utf8",
+    );
     await chmod(join(bin, "git"), 0o700);
     const originalPath = process.env.PATH;
     const originalStarted = process.env.CAPSULE_GIT_STARTED;
@@ -589,10 +593,11 @@ describe("git time capsule restore", () => {
     context.provide("piTools", tools);
     context.provide("piPluginUi", new PiPluginUiRegistry());
     try {
-      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 1_000 });
+      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 15_000 });
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "git_snapshot")!;
       const controller = new AbortController();
       const pending = tool.execute("call-cancel", {}, controller.signal, undefined, {} as never);
+      void pending.catch(() => undefined);
       await waitForFile(started, "Git snapshot process to start");
 
       controller.abort(new Error("snapshot caller cancelled"));
@@ -604,7 +609,7 @@ describe("git time capsule restore", () => {
       else process.env.CAPSULE_GIT_STARTED = originalStarted;
       await context.fiber.dispose();
     }
-  });
+  }, 10_000);
 
   test("records a caller cancellation that arrives before execution starts", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-pre-cancel-workspace-"));
@@ -639,7 +644,11 @@ describe("git time capsule restore", () => {
     const bin = join(workspace, "bin");
     const started = join(workspace, "git-started");
     await mkdir(bin);
-    await writeFile(join(bin, "git"), '#!/bin/sh\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 5\n', "utf8");
+    await writeFile(
+      join(bin, "git"),
+      '#!/bin/sh\ncase "$*" in *rev-parse*) echo true; exit 0;; esac\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 30\n',
+      "utf8",
+    );
     await chmod(join(bin, "git"), 0o700);
     const originalPath = process.env.PATH;
     const originalStarted = process.env.CAPSULE_GIT_STARTED;
@@ -652,9 +661,10 @@ describe("git time capsule restore", () => {
     context.provide("piPluginUi", new PiPluginUiRegistry());
     let disposed = false;
     try {
-      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 1_000 });
+      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 15_000 });
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "git_snapshot")!;
       const pending = tool.execute("call-dispose", {}, undefined, undefined, {} as never);
+      void pending.catch(() => undefined);
       await waitForFile(started, "Git snapshot process to start");
 
       await context.fiber.dispose();
@@ -667,7 +677,7 @@ describe("git time capsule restore", () => {
       else process.env.CAPSULE_GIT_STARTED = originalStarted;
       if (!disposed) await context.fiber.dispose();
     }
-  });
+  }, 10_000);
 
   test("serializes concurrent capsule operations", async () => {
     if (process.platform === "win32") return;
