@@ -161,4 +161,62 @@ describe("module search", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+  test("isolates report snapshots and uses the default limit for non-finite inputs", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-module-search-snapshot-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await writeFile(join(cwd, "module.ts"), "export const readOne = 1; export const readTwo = 2;");
+      await context.plugin(moduleSearchPlugin);
+      const tool = tools.snapshot().customTools[0]!;
+      const result = await tool.execute("snapshot", { query: "read", maxResults: Number.NaN }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ matches: [{ name: "readOne" }, { name: "readTwo" }] });
+      (result.details as { matches: { name: string }[] }).matches[0]!.name = "changed";
+      const first = (await panels.snapshot())[0]!.data as { latest: { matches: { name: string }[] } };
+      expect(first.latest.matches[0]!.name).toBe("readOne");
+      first.latest.matches[0]!.name = "changed again";
+      expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: { matches: [{ name: "readOne" }, { name: "readTwo" }] } });
+    } finally {
+      await context.fiber.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects cancelled and disposed searches without replacing the last successful report", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-module-search-cancel-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await writeFile(join(cwd, "module.ts"), "export const readOne = 1;");
+      await context.plugin(moduleSearchPlugin);
+      const tool = tools.snapshot().customTools[0]!;
+      await tool.execute("initial", { query: "read" }, undefined, undefined, {} as never);
+      const cancelled = new AbortController();
+      cancelled.abort(new Error("caller cancelled"));
+      await expect(tool.execute("cancelled", { query: "missing" }, cancelled.signal, undefined, {} as never)).rejects.toThrow("caller cancelled");
+      const active = new AbortController();
+      const pending = tool.execute("active", { query: "missing" }, active.signal, undefined, {} as never);
+      active.abort(new Error("active cancelled"));
+      await expect(pending).rejects.toThrow("active cancelled");
+      expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: { query: "read" } });
+      const disposing = tool.execute("disposing", { query: "missing" }, undefined, undefined, {} as never);
+      const rejected = expect(disposing).rejects.toThrow("Module search plugin disposed");
+      await context.fiber.dispose();
+      await rejected;
+      await expect(tool.execute("retained", { query: "read" }, undefined, undefined, {} as never)).rejects.toThrow("Module search plugin disposed");
+      expect(tools.snapshot().customTools).toHaveLength(0);
+      expect(await panels.snapshot()).toHaveLength(0);
+    } finally {
+      await context.fiber.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
