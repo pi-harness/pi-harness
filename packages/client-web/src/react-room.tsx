@@ -3048,6 +3048,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <strong className="mt-1 block font-mono text-[17px] text-[#315fb8]">{value(data?.mcpCount ?? 0)}</strong>
                 </div>
               </div>
+              {data?.truncated ? <p className="text-[10px] text-[#8a5a00]">目录结果或字段已截断，计数包含未展示条目。</p> : null}
               {skills.length > 0 ? (
                 <ul className="grid gap-1.5">
                   {skills.slice(0, 8).map((entry, index) => {
@@ -3059,6 +3060,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                           <span className="rounded bg-[#f2f3f5] px-1.5 py-0.5 text-[9px] text-[#65707b]">{value(item.scope, "unknown")}</span>
                         </div>
                         <p className="mt-1 line-clamp-2 text-[10px] text-[#687381]">{value(item.description, "无描述")}</p>
+                        {item.modelInvocationDisabled ? <p className="mt-1 text-[10px] text-[#8a5a00]">已加载，仅允许显式调用</p> : null}
                       </li>
                     );
                   })}
@@ -3090,10 +3092,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               ) : null}
               {diagnostics.length > 0 ? (
                 <div className="rounded-lg border border-[#fff0c2] bg-[#fffaf0] px-3 py-2 text-[10px] text-[#8a5a00]">
-                  资源诊断：{diagnostics.length} 条警告
+                  资源诊断：{value(data?.diagnosticCount)} 条
                 </div>
               ) : null}
-              <div className="text-[10px] text-[#687381]">只读查看 runtime 已加载的 Skill 与 MCP 状态；配置写入仍由各自插件负责。</div>
+              <div className="text-[10px] text-[#687381]">
+                只读展示当前已加载资源，最多显示 8 个技能和 6 个 MCP 状态；不激活技能或启动服务器。读取技能采用启发式检查，不保证内容安全。
+              </div>
             </div>
           );
         })()

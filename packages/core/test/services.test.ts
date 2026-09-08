@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, DefaultResourceLoader, SettingsManager, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { isPiToolRegistryLeasedError, PiPluginUiRegistry, PiToolRegistry, PiToolRegistryLeasedError, provideLaunchContext } from "@pi-harness/plugin-api";
 import modelPlugin from "../src/plugins/model.js";
@@ -4699,16 +4699,19 @@ describe("Pi domain plugins", () => {
     const tools = new PiToolRegistry();
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
-    context.provide("piResources", {
-      resourceLoader: {
-        getSkills: () => ({
-          skills: [
-            { name: "review", description: "Review code", filePath: skillPath, baseDir: dirname(skillPath), sourceInfo: {}, disableModelInvocation: false },
-          ],
-          diagnostics: [],
-        }),
-      },
-    } as never);
+    const resourceLoader = new DefaultResourceLoader({
+      cwd,
+      agentDir: join(cwd, "catalog-agent"),
+      settingsManager: SettingsManager.inMemory(),
+      noSkills: true,
+      additionalSkillPaths: [dirname(skillPath)],
+      noExtensions: true,
+      noPromptTemplates: true,
+      noThemes: true,
+      noContextFiles: true,
+    });
+    await resourceLoader.reload();
+    context.provide("piResources", { resourceLoader } as never);
     context.provide("piMcp", { snapshot: () => ({ servers: [{ id: "docs", command: ["node", "server.js"], status: "running", startedAt: 1 }] }) });
     await context.plugin(skillCatalogPlugin);
     const tool = tools.snapshot().customTools.find((entry) => entry.name === "skill_catalog");
