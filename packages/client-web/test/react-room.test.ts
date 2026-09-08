@@ -433,3 +433,32 @@ test("shows navigator Git status without requiring a tree first", () => {
   expect(html).toContain("current.txt");
   expect(html).toContain("/workspace/current");
 });
+
+test("shows incomplete workspace searches even when no matches were collected", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "workspace-search-panel",
+        pluginId: "@pi-harness/plugin-workspace-search",
+        title: "Workspace Search",
+        data: {
+          cwd: "/workspace/current",
+          latest: {
+            query: "needle",
+            path: ".",
+            matches: [],
+            matchCount: 0,
+            scannedFiles: 2,
+            skippedFiles: 1,
+            truncated: true,
+            scannedEntries: 4,
+            readBytes: 1024,
+          },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("/workspace/current");
+  expect(html).toContain("结果不完整");
+  expect(html).toContain("needle");
+});

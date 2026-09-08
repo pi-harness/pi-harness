@@ -3909,6 +3909,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         </div>
       ) : panel.id === "workspace-search-panel" ? (
         <div className="mt-3 grid gap-3">
+          <p className="break-all text-[10px] text-[var(--color-faint)]">工作区：{value(data?.cwd, "")}</p>
           <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
             <span className="font-medium text-[var(--color-ink)]">工作区文本检索</span>
             <span className="font-mono text-[var(--color-blue)]">{value(data?.matchCount ?? 0)} 个匹配</span>
@@ -3917,27 +3918,41 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             (() => {
               const report = data.latest as Record<string, unknown>;
               const matches = Array.isArray(report.matches) ? report.matches : [];
-              return matches.length > 0 ? (
-                <ul className="grid gap-1.5">
-                  {matches.slice(0, 5).map((match, index) => {
-                    const item = match && typeof match === "object" ? (match as Record<string, unknown>) : {};
-                    return (
-                      <li
-                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
-                        key={`${value(item.path ?? "match")}-${index}`}
-                      >
-                        <strong className="block truncate font-mono text-[10px] text-[var(--color-blue)]">
-                          {value(item.path ?? "未知文件")}:{value(item.line ?? "?")}
-                        </strong>
-                        <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">{value(item.text, "")}</p>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-                  没有找到匹配内容。
-                </div>
+              return (
+                <>
+                  <p className="break-all text-[10px] text-[var(--color-muted)]">
+                    查询：{value(report.query)} · 路径：{value(report.path)}
+                  </p>
+                  <p className="text-[10px] text-[var(--color-faint)]">
+                    已搜索 {value(report.scannedFiles)} 个文件，跳过 {value(report.skippedFiles)} 个；显示 {Math.min(5, matches.length)} / {matches.length}{" "}
+                    条已收集匹配。
+                  </p>
+                  {report.truncated === true ? (
+                    <p className="text-[10px] text-[var(--color-amber)]">结果不完整：已达到扫描、读取或结果上限，存在跳过文件，或匹配片段已裁剪。</p>
+                  ) : null}
+                  {matches.length > 0 ? (
+                    <ul className="grid gap-1.5">
+                      {matches.slice(0, 5).map((match, index) => {
+                        const item = match && typeof match === "object" ? (match as Record<string, unknown>) : {};
+                        return (
+                          <li
+                            className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                            key={`${value(item.path ?? "match")}-${index}`}
+                          >
+                            <strong className="block truncate font-mono text-[10px] text-[var(--color-blue)]">
+                              {value(item.path ?? "未知文件")}:{value(item.line ?? "?")}
+                            </strong>
+                            <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">{value(item.text, "")}</p>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                      没有找到匹配内容。
+                    </div>
+                  )}
+                </>
               );
             })()
           ) : (
