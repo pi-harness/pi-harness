@@ -326,6 +326,53 @@ process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline 
     }
   });
 
+  test("preserves prototype-named JSON argument properties over stdio", async () => {
+    const fixture = await createFixture();
+    const server = await writeServer(
+      fixture.cwd,
+      `import { createInterface } from "node:readline"; const lines = createInterface({ input: process.stdin }); lines.on("line", (line) => { const message = JSON.parse(line); const result = message.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "echo", version: "1" } } : message.method === "tools/call" ? { content: [{ type: "text", text: JSON.stringify(message.params.arguments) }] } : undefined; if (result) process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); });`,
+    );
+    const args = JSON.parse('{"__proto__":{"fixture":"preserved"},"nested":{"__proto__":"literal","constructor":"value"}}') as Record<string, unknown>;
+    try {
+      const result = await tool(fixture.tools, "mcp_call").execute(
+        "echo",
+        { command: [process.execPath, server], name: "echo", arguments: args },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(args);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("propagates MCP tool errors without publishing a successful call", async () => {
+    const fixture = await createFixture();
+    const server = await writeServer(
+      fixture.cwd,
+      `import { createInterface } from "node:readline"; const lines = createInterface({ input: process.stdin }); lines.on("line", (line) => { const message = JSON.parse(line); const result = message.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "error", version: "1" } } : message.method === "tools/call" ? { isError: true, content: [{ type: "text", text: "Fixture operation failed" }] } : undefined; if (result) process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); });`,
+    );
+    try {
+      await expect(
+        tool(fixture.tools, "mcp_call").execute("error", { command: [process.execPath, server], name: "fail" }, undefined, undefined, {} as never),
+      ).rejects.toThrow(/Fixture operation failed/);
+      await tool(fixture.tools, "mcp_server_start").execute(
+        "start",
+        { command: [process.execPath, server], serverId: "error" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      await expect(tool(fixture.tools, "mcp_call").execute("error", { serverId: "error", name: "fail" }, undefined, undefined, {} as never)).rejects.toThrow(
+        /Fixture operation failed/,
+      );
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { lastCall: null } }]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("rejects oversized tool arguments before starting a server", async () => {
     const fixture = await createFixture();
     try {

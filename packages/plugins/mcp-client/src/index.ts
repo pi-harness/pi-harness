@@ -189,7 +189,12 @@ function cloneJsonValue(value: unknown, ancestors: Set<object>, depth: number): 
     const result: JsonObject = {};
     for (const [key, descriptor] of Object.entries(descriptors)) {
       if (descriptor.enumerable !== true) continue;
-      result[key] = cloneJsonValue(descriptor.value, ancestors, depth + 1);
+      Object.defineProperty(result, key, {
+        value: cloneJsonValue(descriptor.value, ancestors, depth + 1),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return result;
   } finally {
@@ -335,7 +340,7 @@ function base64RemoteString(value: unknown, message: string): string {
 function toolResultContent(result: McpCallResult): AgentContent[] {
   if (!Array.isArray(result.content) || result.content.length > maxInventoryItems) throw new Error("MCP server returned invalid MCP tool result content");
   if (result.isError !== undefined && typeof result.isError !== "boolean") throw new Error("MCP server returned invalid MCP tool result content");
-  return result.content.map((item): AgentContent => {
+  const content = result.content.map((item): AgentContent => {
     if (item === null || typeof item !== "object" || Array.isArray(item)) throw new Error("MCP server returned invalid MCP tool result content");
     const raw = item as JsonObject;
     if (raw.type === "text") {
@@ -375,6 +380,14 @@ function toolResultContent(result: McpCallResult): AgentContent[] {
     }
     throw new Error("MCP server returned invalid MCP tool result content");
   });
+  if (result.isError === true) {
+    const message = content
+      .flatMap((item) => (item.type === "text" ? [item.text] : []))
+      .join("\n")
+      .slice(0, 2_000);
+    throw new Error(`MCP tool execution failed${message === "" ? "" : `: ${message}`}`);
+  }
+  return content;
 }
 
 function validateInitializeResult(result: JsonObject): void {

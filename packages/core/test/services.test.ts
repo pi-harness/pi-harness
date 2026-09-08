@@ -2511,9 +2511,13 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     let compacted = 0;
+    let unsubscribed = 0;
     context.provide("piRuntime", {
       session: {
         messages: [{ role: "user", content: [{ type: "text", text: "long context" }] }],
+        subscribe: () => () => {
+          unsubscribed += 1;
+        },
         getContextUsage: () => ({ tokens: 9_000, contextWindow: 10_000, percent: 90 }),
         compact: () => {
           compacted += 1;
@@ -2532,6 +2536,7 @@ describe("Pi domain plugins", () => {
     await expect(tool.execute("call-2", { confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { compacted: true, automatic: false },
     });
+    expect(unsubscribed).toBe(2);
     await expect(panels.snapshot()).resolves.toMatchObject([
       { id: "history-compressor-panel", data: { enabled: true, thresholdPercent: 85, compactions: 2, lastError: null } },
     ]);
