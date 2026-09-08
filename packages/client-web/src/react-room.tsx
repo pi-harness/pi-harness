@@ -2196,7 +2196,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687381]">最近导出</span>
                   <code className="mt-2 block truncate text-[11px] text-[#315fb8]">{value(latest.path ?? "pi-session.md")}</code>
                   <p className="mt-1 text-[10px] text-[#65707b]">
-                    {value(latest.messages ?? 0)} 条消息 · {value(latest.bytes ?? 0)} bytes
+                    {value(latest.messages ?? 0)} 个文本段 · {value(latest.bytes ?? 0)} bytes
                   </p>
                 </div>
               );
@@ -2204,7 +2204,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           ) : (
             <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">还没有导出当前会话。</div>
           )}
-          <p className="text-[10px] leading-4 text-[#687381]">导出文件只允许写入当前工作区内的 .md 路径，覆盖已有文件需要显式确认。</p>
+          <p className="text-[10px] leading-4 text-[#687381]">
+            导出调用开始时的会话文本快照，不包含图片、思考块和工具调用参数。文件写入该会话工作区内的 .md 路径，覆盖需要显式确认，权限为 0600。
+          </p>
         </div>
       ) : panel.id === "session-search-panel" ? (
         <div className="mt-3 grid gap-3">

@@ -6,7 +6,7 @@ import { EmptyConfig, atomicWriteFile, prepareWorkspaceFile } from "@pi-harness/
 const maxOutputBytes = 1024 * 1024;
 const defaultFileName = "pi-session.md";
 
-type ExportState = { path: string; bytes: number; messages: number };
+type ExportState = { path: string; bytes: number; messages: number; sourceMessages: number; omittedMessages: number; sessionId: string; workspace: string };
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -29,14 +29,28 @@ function heading(role: string, toolName: string | undefined): string {
   return `## ${role.slice(0, 1).toUpperCase()}${role.slice(1)}`;
 }
 
-export function renderSessionMarkdown(messages: readonly unknown[]): string {
-  const sections = messages.flatMap((message) => {
+function renderSession(messages: readonly unknown[]): { markdown: string; messages: number; omittedMessages: number } {
+  const sections: string[] = [];
+  let bytes = Buffer.byteLength("# Pi Harness Session\n\n");
+  for (const message of messages) {
     const item = record(message);
-    if (item === undefined || typeof item.role !== "string") return [];
+    if (item === undefined || typeof item.role !== "string") continue;
     const text = contentText(item.content);
-    return text === "" ? [] : [`${heading(item.role, typeof item.toolName === "string" ? item.toolName : undefined)}\n\n${text}`];
-  });
-  return `# Pi Harness Session\n\n${sections.length > 0 ? `${sections.join("\n\n")}\n` : ""}`;
+    if (text === "") continue;
+    const section = `${heading(item.role, typeof item.toolName === "string" ? item.toolName : undefined)}\n\n${text}`;
+    bytes += Buffer.byteLength(section, "utf8") + (sections.length === 0 ? 1 : 2);
+    if (bytes > maxOutputBytes) throw new Error("Session export exceeds the 1 MiB output limit");
+    sections.push(section);
+  }
+  return {
+    markdown: `# Pi Harness Session\n\n${sections.length > 0 ? `${sections.join("\n\n")}\n` : ""}`,
+    messages: sections.length,
+    omittedMessages: messages.length - sections.length,
+  };
+}
+
+export function renderSessionMarkdown(messages: readonly unknown[]): string {
+  return renderSession(messages).markdown;
 }
 
 function normalizedOutputPath(requested: string): string {
@@ -52,6 +66,8 @@ export default {
   Config: EmptyConfig,
   apply(context: Context) {
     let latest: ExportState | undefined;
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort(new Error("Session export was cancelled")));
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "session_export",
@@ -66,35 +82,73 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<ExportState>> {
+        async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<ExportState>> {
+          const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const check = (): void => {
+            if (combined.aborted) throw new Error("Session export was cancelled");
+          };
+          check();
+          if (rawParams === null || typeof rawParams !== "object" || Array.isArray(rawParams)) throw new Error("Session export parameters must be an object");
+          const descriptors = Object.getOwnPropertyDescriptors(rawParams);
+          if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !["path", "confirm"].includes(key) || !("value" in descriptors[key]!)))
+            throw new Error("Invalid session export property");
+          const path: unknown = descriptors.path?.value;
+          const confirm: unknown = descriptors.confirm?.value;
+          if (path !== undefined && (typeof path !== "string" || path.includes("\0"))) throw new Error("Session export path must be a string without NUL");
+          if (confirm !== undefined && typeof confirm !== "boolean") throw new Error("Session export confirm must be a boolean");
           const runtime = context.get("piRuntime");
           if (runtime === undefined) throw new Error("Pi runtime is not ready");
+          const session = runtime.session;
+          const workspace = session.sessionManager.getCwd();
+          const sessionId = session.sessionManager.getSessionId();
+          const sourceMessages = session.messages.length;
+          const rendered = renderSession(session.messages);
+          const bytes = Buffer.byteLength(rendered.markdown, "utf8");
           const prepared = await prepareWorkspaceFile(
-            context.piHarnessLaunch.cwd,
-            normalizedOutputPath(params.path ?? defaultFileName),
+            workspace,
+            normalizedOutputPath(path ?? defaultFileName),
             "Session export path must stay inside the current workspace and target a regular file",
           );
-          if (prepared.exists && params.confirm !== true) throw new Error("Session export would overwrite an existing file; retry with confirm=true");
-          const markdown = renderSessionMarkdown(runtime.session.messages);
-          const bytes = Buffer.byteLength(markdown, "utf8");
-          if (bytes > maxOutputBytes) throw new Error("Session export exceeds the 1 MiB output limit");
-          await atomicWriteFile(prepared.target, markdown, { encoding: "utf8", mode: 0o600 });
-          latest = { path: prepared.relativePath, bytes, messages: runtime.session.messages.length };
-          return { content: [{ type: "text", text: `Session exported to ${latest.path}.` }], details: latest };
+          check();
+          if (prepared.exists && confirm !== true) throw new Error("Session export would overwrite an existing file; retry with confirm=true");
+          try {
+            await atomicWriteFile(prepared.target, rendered.markdown, { encoding: "utf8", mode: 0o600, overwrite: confirm === true, signal: combined });
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "EEXIST")
+              throw new Error("Session export would overwrite an existing file; retry with confirm=true", { cause: error });
+            throw error;
+          }
+          const result = {
+            path: prepared.relativePath,
+            bytes,
+            messages: rendered.messages,
+            sourceMessages,
+            omittedMessages: rendered.omittedMessages,
+            sessionId,
+            workspace,
+          };
+          latest = { ...result };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Session ${sessionId} exported to ${workspace}/${result.path}: ${result.messages} text sections; ${result.omittedMessages} messages without text omitted. Images, thinking and tool-call payloads are not exported.`,
+              },
+            ],
+            details: result,
+          };
         },
       }),
     );
+    context.effect(() => unregisterTool);
     const disposePanel = context.piPluginUi.register({
       id: "session-export-panel",
       pluginId: "@pi-harness/plugin-session-export",
       title: "Session Export",
       description: "将当前会话导出为工作区内的 Markdown 文件，不改变原会话历史。",
       icon: "⇩",
-      read: () => ({ latest: latest ?? null, maxOutputBytes }),
+      read: () => ({ latest: latest === undefined ? null : { ...latest }, maxOutputBytes }),
     });
-    context.effect(() => () => {
-      unregisterTool();
-      disposePanel();
-    });
+    context.effect(() => disposePanel);
   },
 };

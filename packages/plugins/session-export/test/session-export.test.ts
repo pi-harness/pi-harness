@@ -36,7 +36,9 @@ describe("session export", () => {
     const panels = new PiPluginUiRegistry();
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
-    context.provide("piRuntime", { session: { messages: [{ role: "user", content: "hello" }] } } as never);
+    context.provide("piRuntime", {
+      session: { sessionManager: { getCwd: () => cwd, getSessionId: () => "active" }, messages: [{ role: "user", content: "hello" }] },
+    } as never);
     try {
       await context.plugin(sessionExportPlugin);
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_export");
@@ -46,9 +48,27 @@ describe("session export", () => {
       });
       await expect(readFile(join(cwd, "exports/session.md"), "utf8")).resolves.toContain("## User");
       await expect(tool!.execute("call-2", { path: "exports/session.md" }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/iu);
+      const results = await Promise.allSettled([
+        tool!.execute("race-1", { path: "race.md" }, undefined, undefined, {} as never),
+        tool!.execute("race-2", { path: "race.md" }, undefined, undefined, {} as never),
+      ]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const abort = new AbortController();
+      abort.abort();
+      await expect(tool!.execute("cancel", { path: "cancel.md" }, abort.signal, undefined, {} as never)).rejects.toThrow();
+      await expect(readFile(join(cwd, "cancel.md"))).rejects.toThrow();
+      const result = await tool!.execute("snapshot", { path: "snapshot.md" }, undefined, undefined, {} as never);
+      (result.details as { path: string }).path = "MUTATED";
+      expect(JSON.stringify(await panels.snapshot())).not.toContain("MUTATED");
+      await context.fiber.dispose();
+      await expect(tool!.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/);
     } finally {
       await context.fiber.dispose();
       await rm(cwd, { recursive: true, force: true });
     }
   });
+});
+
+test("rejects oversized rendered output", () => {
+  expect(() => renderSessionMarkdown([{ role: "user", content: "x".repeat(1024 * 1024) }])).toThrow(/1 MiB/);
 });
