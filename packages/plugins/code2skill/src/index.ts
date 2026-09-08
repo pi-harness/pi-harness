@@ -119,15 +119,14 @@ async function resolveWorkspaceFile(cwd: string, input: string): Promise<{ absol
   return { absolute: resolved.target, display: resolved.relativePath.split(sep).join("/") };
 }
 
-async function createSkill(context: Context, params: { name: string; description: string; files: string[] }, signal: AbortSignal): Promise<SkillReport> {
-  throwIfAborted(signal);
-  const cwd = context.piHarnessLaunch.cwd;
+async function createSkill(cwd: string, params: { name: string; description: string; files: string[] }, assertCurrent: () => void): Promise<SkillReport> {
+  assertCurrent();
   const displayName = params.name.trim().replace(/\s+/gu, " ");
   const slug = slugify(displayName);
   const description = params.description.trim();
   const sources = [];
   for (const file of params.files) {
-    throwIfAborted(signal);
+    assertCurrent();
     sources.push(await resolveWorkspaceFile(cwd, file));
   }
   const unique = new Set(sources.map((source) => source.display));
@@ -135,14 +134,16 @@ async function createSkill(context: Context, params: { name: string; description
   let bytes = 0;
   const loaded: Array<SkillFile & { content: Buffer }> = [];
   for (const source of sources) {
-    throwIfAborted(signal);
+    assertCurrent();
     const content = await readBoundedFile(source.absolute, maxFileBytes, `Skill file ${source.display}`);
     bytes += content.byteLength;
     if (bytes > maxTotalBytes) throw new Error(`Skill sources exceed ${maxTotalBytes} bytes`);
     loaded.push({ path: source.display, bytes: content.byteLength, content });
   }
   const boundaryError = "Skill output path must stay inside the workspace and must not overwrite an existing skill";
+  assertCurrent();
   const boundary = await prepareWorkspaceFile(cwd, join(".pi", "skills", ".code2skill-boundary"), boundaryError);
+  assertCurrent();
   const skillsDirectory = dirname(boundary.target);
   const finalDirectory = join(skillsDirectory, slug);
   await assertSkillTargetAvailable(finalDirectory, slug, boundaryError);
@@ -150,18 +151,21 @@ async function createSkill(context: Context, params: { name: string; description
   const references = files.map((file) => `- [${markdownLabel(file.path)}](references/${markdownTarget(file.path)})`).join("\n");
   const frontmatterDescription = description.replace(/\s+/gu, " ");
   const markdown = `---\nname: ${slug}\ndescription: ${JSON.stringify(frontmatterDescription)}\n---\n\n# ${displayName}\n\n${description}\n\n## Reference files\n\n${references}\n`;
+  assertCurrent();
   const stagingDirectory = await mkdtemp(join(skillsDirectory, ".code2skill-"));
   try {
     for (const [index, file] of loaded.entries()) {
-      throwIfAborted(signal);
+      assertCurrent();
       const target = join(stagingDirectory, "references", ...file.path.split("/"));
       await mkdir(dirname(target), { recursive: true });
+      assertCurrent();
       await writeFile(target, loaded[index]!.content, { flag: "wx", mode: 0o600 });
     }
-    throwIfAborted(signal);
+    assertCurrent();
     await writeFile(join(stagingDirectory, "SKILL.md"), markdown, { encoding: "utf8", flag: "wx", mode: 0o600 });
-    throwIfAborted(signal);
+    assertCurrent();
     await assertSkillTargetAvailable(finalDirectory, slug, boundaryError);
+    assertCurrent();
     await rename(stagingDirectory, finalDirectory);
   } catch (error) {
     await rm(stagingDirectory, { recursive: true, force: true });
@@ -179,6 +183,20 @@ export default {
     let creationQueue: Promise<void> = Promise.resolve();
     let generated = 0;
     let latest: SkillReport | undefined;
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+        generated = 0;
+      }
+      return scope;
+    };
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "skill_pack_create",
@@ -198,11 +216,18 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<SkillReport>> {
+          throwIfAborted(lifecycle.signal);
+          const operationScope = refreshScope();
           const validated = parseParams(params);
           const actionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
-          throwIfAborted(actionSignal);
+          const assertCurrent = () => {
+            throwIfAborted(actionSignal);
+            if (refreshScope() !== operationScope) throw new Error("Skill workspace changed during creation");
+          };
+          assertCurrent();
           const operation = creationQueue.then(async () => {
-            const report = await createSkill(context, validated, actionSignal);
+            const report = await createSkill(operationScope.cwd, validated, assertCurrent);
+            assertCurrent();
             latest = report;
             generated += 1;
             return {
@@ -224,7 +249,10 @@ export default {
       title: "Code2Skill",
       description: "把工作区代码打包为可复用的 Pi Skill，保留来源文件并生成 SKILL.md。",
       icon: "✦",
-      read: () => ({ generated, latest: latest === undefined ? null : structuredClone(latest) }),
+      read: () => {
+        refreshScope();
+        return { generated, latest: latest === undefined ? null : structuredClone(latest) };
+      },
     });
     context.effect(() => () => {
       lifecycle.abort(new Error("Code2Skill plugin disposed"));
