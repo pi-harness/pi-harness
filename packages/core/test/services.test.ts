@@ -1972,6 +1972,7 @@ describe("Pi domain plugins", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => null,
         getEntries: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/openpets", data }),
       },

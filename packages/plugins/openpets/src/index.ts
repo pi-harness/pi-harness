@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 const customType = "pi-harness/openpets";
@@ -136,8 +136,8 @@ function entryData(entry: unknown): unknown {
   return descriptors.data?.value;
 }
 
-function readState(context: Context, name: string): { state: PetState; recovery: RecoveryState } {
-  const entries = context.piSession.manager.getEntries();
+function readState(manager: SessionManager, name: string): { state: PetState; recovery: RecoveryState } {
+  const entries = manager.getEntries();
   const scanned = Math.min(entries.length, maxRecoveryEntries);
   const recovery: RecoveryState = { sessionEntries: entries.length, scanned, truncated: entries.length > scanned, restored: false };
   for (let index = entries.length - 1; index >= entries.length - scanned; index -= 1) {
@@ -157,13 +157,30 @@ export default {
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort(new Error("OpenPets plugin disposed")));
     const name = companionName(config);
-    const recovered = readState(context, name);
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+    const readScope = () => {
+      const manager = currentManager();
+      return { manager, header: manager.getHeader() };
+    };
+    let scope = readScope();
+    let recovered = readState(scope.manager, name);
     let state = recovered.state;
-    const persistence: PersistenceState = { attempts: 0, failures: 0, lastError: null };
+    let persistence: PersistenceState = { attempts: 0, failures: 0, lastError: null };
+    const refreshScope = () => {
+      const current = readScope();
+      if (current.manager !== scope.manager || current.header !== scope.header) {
+        const next = readState(current.manager, name);
+        scope = current;
+        recovered = next;
+        state = next.state;
+        persistence = { attempts: 0, failures: 0, lastError: null };
+      }
+      return scope;
+    };
     const persist = (next: PetState): void => {
       persistence.attempts = incrementCount(persistence.attempts);
       try {
-        context.piSession.manager.appendCustomEntry(customType, { ...next });
+        scope.manager.appendCustomEntry(customType, { ...next });
         persistence.lastError = null;
       } catch (error) {
         persistence.failures = incrementCount(persistence.failures);
@@ -179,6 +196,9 @@ export default {
     const unsubscribe = context.on("pi/session-event", (event) => {
       const type = petSessionEvent(event);
       try {
+        if (type === undefined) return;
+        lifecycle.signal.throwIfAborted();
+        refreshScope();
         if (type === "agent_start") update({ mood: "focused", energy: clampEnergy(state.energy - 5), lastEvent: type });
         else if (type === "agent_end") update({ mood: "happy", energy: clampEnergy(state.energy + 5), lastEvent: type });
         else if (type === "tool_error" && (state.mood !== "concerned" || state.lastEvent !== "tool_execution_end"))
@@ -201,11 +221,16 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<PetState>> {
+        async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<PetState>> {
+          lifecycle.signal.throwIfAborted();
+          throwIfCancelled(signal);
+          const operationScope = refreshScope();
           return Promise.resolve().then(() => {
             lifecycle.signal.throwIfAborted();
             const params = petParameters(rawParams);
             throwIfCancelled(signal);
+            lifecycle.signal.throwIfAborted();
+            if (refreshScope() !== operationScope) throw new Error("OpenPets session changed before execution");
             if (params.action === "status")
               return {
                 content: [{ type: "text" as const, text: `${state.name}: ${state.mood}, energy ${state.energy}` }],
@@ -242,12 +267,15 @@ export default {
         title: "OpenPets",
         description: "根据 Pi 会话事件反应的本地桌面伙伴状态。",
         icon: "◉",
-        read: () => ({
-          ...state,
-          recovery: { ...recovered.recovery },
-          persistence: { ...persistence },
-          limits: { nameCharacters: maxNameLength, recoveryEntries: maxRecoveryEntries, persistenceErrorCharacters: maxPersistenceErrorLength },
-        }),
+        read: () => {
+          refreshScope();
+          return {
+            ...state,
+            recovery: { ...recovered.recovery },
+            persistence: { ...persistence },
+            limits: { nameCharacters: maxNameLength, recoveryEntries: maxRecoveryEntries, persistenceErrorCharacters: maxPersistenceErrorLength },
+          };
+        },
       });
     } catch (error) {
       unsubscribe();

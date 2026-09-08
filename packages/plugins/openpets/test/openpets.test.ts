@@ -1,3 +1,4 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
@@ -19,6 +20,7 @@ async function createOpenPets(
   const entries = options.entries ?? [];
   context.provide("piSession", {
     manager: {
+      getHeader: () => null,
       getEntries: () => entries,
       appendCustomEntry:
         options.append ??
@@ -283,4 +285,47 @@ describe("OpenPets boundaries", () => {
     expect(fixture.entries).toHaveLength(0);
     expect(await fixture.panels.snapshot()).toHaveLength(0);
   });
+});
+
+test("isolates native pet state, event writes and queued actions across session changes", async () => {
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  const launch = SessionManager.inMemory("/launch"),
+    active = SessionManager.inMemory("/active");
+  const runtime = { session: { sessionManager: launch } };
+  context.provide("piSession", { manager: launch });
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(openPetsPlugin, {});
+    const tool = tools.snapshot().customTools[0]!;
+    const call = (action: string) => tool.execute("native", { action }, undefined, undefined, {} as never);
+    await call("feed");
+    const original = structuredClone(launch.getEntries());
+    runtime.session.sessionManager = active;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({
+      energy: 80,
+      interactions: 0,
+      persistence: { attempts: 0, failures: 0 },
+      recovery: { restored: false },
+    });
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    expect((await call("status")).details).toMatchObject({ energy: 75, mood: "focused", interactions: 0 });
+    expect(active.getEntries()).toHaveLength(1);
+    expect(launch.getEntries()).toEqual(original);
+    const pending = call("play");
+    runtime.session.sessionManager = launch;
+    await expect(pending).rejects.toThrow(/session changed/);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ energy: 100, interactions: 1, recovery: { restored: true } });
+    expect(launch.getEntries()).toEqual(original);
+    const stale = call("feed");
+    launch.newSession();
+    await expect(stale).rejects.toThrow(/session changed/);
+    expect((await call("status")).details).toMatchObject({ energy: 80, interactions: 0 });
+    expect(launch.getEntries()).toEqual([]);
+  } finally {
+    await context.fiber.dispose();
+  }
 });
