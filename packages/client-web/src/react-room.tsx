@@ -3842,17 +3842,17 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         })()
       ) : panel.id === "prompt-guard-panel" ? (
         (() => {
-          // The headline follows the highest risk seen in this session so a flagged tool result is not hidden by a later benign user message; data.risk (the latest report) is the fallback for older backends.
+          // Keep the highest risk in the current session visible after later benign messages.
           const highest = data?.highest && typeof data.highest === "object" ? (data.highest as Record<string, unknown>) : undefined;
-          const highlighted = highest ?? (data?.latest && typeof data.latest === "object" ? (data.latest as Record<string, unknown>) : undefined);
-          const risk = highest?.risk ?? data?.risk;
+          const highlighted = highest;
+          const risk = highest?.risk;
           return (
             <div className="mt-3 grid gap-3">
               <div
                 className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${risk === "blocked" ? "border-[#f4caca] bg-[#fff5f5] text-[#b42318]" : risk === "review" ? "border-[#f3dfab] bg-[#fffaf0] text-[#9a6700]" : "border-[#b9e6c9] bg-[#f0fbf4] text-[#14733f]"}`}
               >
                 <span>
-                  {risk === "blocked" ? "高风险，需阻断" : risk === "review" ? "需要人工复核" : "未发现风险"}
+                  {risk === "blocked" ? "高风险，需处理" : risk === "review" ? "需要人工复核" : highest ? "未命中检测规则" : "尚未扫描"}
                   {highlighted && risk !== "safe" && risk !== undefined ? (
                     <span className="ml-2 font-mono text-[10px]">{value(highlighted.source, "unknown")}</span>
                   ) : null}
@@ -3876,7 +3876,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     </ul>
                   ) : (
                     <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] text-[#687381]">
-                      已扫描的用户消息和工具输出均未发现风险。
+                      已扫描内容未命中当前检测规则，不代表没有风险。
                     </div>
                   );
                 })()
@@ -3885,6 +3885,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   尚未扫描任何内容。用户消息和工具输出会自动扫描，Agent 也可调用 prompt_guard_scan 检查不可信文本。
                 </div>
               )}
+              <p className="text-[10px] text-[#687381]">被动审计：不会阻断模型或工具执行。超出扫描上限的内容需要另行检查。</p>
             </div>
           );
         })()

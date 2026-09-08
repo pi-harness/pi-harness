@@ -6,7 +6,7 @@ import { EmptyConfig } from "@pi-harness/plugin-api";
 const maxPromptBytes = 128 * 1024;
 type Risk = "safe" | "review" | "blocked";
 type Finding = { code: string; severity: "medium" | "high"; message: string };
-type PromptGuardReport = { source: string; risk: Risk; score: number; scannedChars: number; findings: Finding[] };
+type PromptGuardReport = { source: string; risk: Risk; score: number; scannedChars: number; scannedBytes: number; truncated: boolean; findings: Finding[] };
 type Pattern = { code: string; severity: Finding["severity"]; score: number; message: string; pattern: RegExp };
 const scanParameterNames = new Set(["text", "source"]);
 
@@ -23,7 +23,8 @@ const patterns: readonly Pattern[] = [
     severity: "high",
     score: 5,
     message: "检测到可能要求外传 API key、token 或密码的文本。",
-    pattern: /\b(?:api[\s_-]?key|token|password|secret)\b.{0,120}\b(?:send|upload|post|share|curl|wget)\b/iu,
+    pattern:
+      /(?:\b(?:api[\s_-]?key|token|password|secret)\b[\s\S]{0,120}\b(?:send|upload|post|share|curl|wget)\b|\b(?:send|upload|post|share|curl|wget)\b[\s\S]{0,120}\b(?:api[\s_-]?key|token|password|secret)\b)/iu,
   },
   { code: "remote_payload", severity: "medium", score: 2, message: "检测到从远程地址加载或执行内容的文本。", pattern: /\b(?:curl|wget)\s+https?:\/\//iu },
   {
@@ -53,13 +54,22 @@ function truncateToBytes(text: string, maxBytes: number): string {
   return encoded.subarray(0, end).toString("utf8");
 }
 
-function inspect(text: string, source: string): PromptGuardReport {
+function inspect(text: string, source: string, truncated = false): PromptGuardReport {
   if (Buffer.byteLength(text, "utf8") > maxPromptBytes) throw new Error(`Prompt guard input must be at most ${maxPromptBytes} bytes`);
-  const findings = patterns.filter((item) => item.pattern.test(text)).map(({ code, severity, message }) => ({ code, severity, message }));
+  const findings: Finding[] = patterns.filter((item) => item.pattern.test(text)).map(({ code, severity, message }) => ({ code, severity, message }));
+  if (truncated) findings.push({ code: "input_truncated", severity: "medium", message: "仅扫描工具输出的前 128 KiB，剩余内容未扫描。" });
   const score = findings.reduce((total, finding) => total + (patterns.find((item) => item.code === finding.code)?.score ?? 0), 0);
   const highFindings = findings.filter((finding) => finding.severity === "high").length;
   const risk: Risk = highFindings >= 2 || score >= 8 ? "blocked" : findings.length > 0 ? "review" : "safe";
-  return { source: source.trim().slice(0, 64) || "unknown", risk, score, scannedChars: text.length, findings };
+  return {
+    source: source.trim().slice(0, 64) || "unknown",
+    risk,
+    score,
+    scannedChars: text.length,
+    scannedBytes: Buffer.byteLength(text, "utf8"),
+    truncated,
+    findings,
+  };
 }
 
 function dataProperty(value: unknown, key: PropertyKey): unknown {
@@ -113,6 +123,8 @@ export default {
   inject: ["piPluginUi", "piTools"],
   Config: EmptyConfig,
   apply(context: Context) {
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
     let scans = 0;
     let latest: PromptGuardReport | undefined;
     let highest: PromptGuardReport | undefined;
@@ -145,6 +157,8 @@ export default {
             risk: "review",
             score: 0,
             scannedChars: 0,
+            scannedBytes: 0,
+            truncated: true,
             findings: [{ code: "input_limit", severity: "medium", message: "输入超过 Prompt Guard 扫描上限。" }],
           });
         }
@@ -157,38 +171,45 @@ export default {
       const source = `tool:${typeof toolName === "string" ? toolName : "unknown"}`;
       // cordis dispatches synchronously, so a throw here would abort the emit for every listener registered after this one.
       try {
-        record(inspect(truncateToBytes(messageText(message), maxPromptBytes), source));
+        const text = messageText(message);
+        record(inspect(truncateToBytes(text, maxPromptBytes), source, Buffer.byteLength(text, "utf8") > maxPromptBytes));
       } catch {
         record({
           source,
           risk: "review",
           score: 0,
           scannedChars: 0,
+          scannedBytes: 0,
+          truncated: true,
           findings: [{ code: "scan_failed", severity: "medium", message: "工具输出未能完成 Prompt Guard 扫描。" }],
         });
       }
     });
+    context.effect(() => onSessionEvent);
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "prompt_guard_scan",
         label: "Prompt guard scan",
-        description: "Scan text for prompt injection, secret exfiltration, and remote payload indicators without retaining the source text.",
+        description:
+          "Scan text for prompt injection, secret exfiltration, and remote payload indicators without retaining the source text. Reports only; does not block execution or guarantee detection.",
         promptSnippet: "scan untrusted text for prompt injection risks",
         parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }, { additionalProperties: false }),
         executionMode: "sequential",
-        execute(_toolCallId, params): Promise<AgentToolResult<PromptGuardReport>> {
+        execute(_toolCallId, params, signal): Promise<AgentToolResult<PromptGuardReport>> {
           return Promise.resolve().then(() => {
+            if (signal?.aborted === true || lifecycle.signal.aborted) throw new Error("Prompt guard scan was cancelled");
             const parsed = scanParameters(params);
             const report = inspect(parsed.text, parsed.source);
             record(report);
             return {
               content: [{ type: "text" as const, text: `${report.risk}: ${report.findings.length} finding(s), score ${report.score}.` }],
-              details: report,
+              details: structuredClone(report),
             };
           });
         },
       }),
     );
+    context.effect(() => unregisterTool);
     const disposePanel = context.piPluginUi.register({
       id: "prompt-guard-panel",
       pluginId: "@pi-harness/plugin-prompt-guard",
@@ -197,13 +218,9 @@ export default {
       icon: "⊘",
       read: () => {
         syncSession();
-        return { scans, risk: latest?.risk ?? "safe", latest: latest ?? null, highest: highest ?? null };
+        return structuredClone({ scans, risk: latest?.risk ?? "safe", latest: latest ?? null, highest: highest ?? null });
       },
     });
-    context.effect(() => () => {
-      onSessionEvent();
-      unregisterTool();
-      disposePanel();
-    });
+    context.effect(() => disposePanel);
   },
 };
