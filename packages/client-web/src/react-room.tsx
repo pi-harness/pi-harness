@@ -1708,7 +1708,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <ul className="mt-1 grid gap-1 pl-4">
                       {report.conflicts.map((conflict, index) => (
                         <li className="min-w-0 break-words [overflow-wrap:anywhere]" key={`${conflict.name}-${index}`}>
-                          <code>{conflict.name}</code>：{conflict.constraints.join(" · ") || "—"}
+                          <code>{conflict.name}</code>: {conflict.constraints.join(" · ") || "—"}
                         </li>
                       ))}
                     </ul>
@@ -1720,7 +1720,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <ul className="mt-1 grid gap-1 pl-4">
                       {report.unresolved.map((constraint, index) => (
                         <li className="min-w-0 break-words [overflow-wrap:anywhere]" key={`${constraint.name}-${index}`}>
-                          <code>{constraint.name}</code>：{constraint.constraints.join(" · ") || "—"}
+                          <code>{constraint.name}</code>: {constraint.constraints.join(" · ") || "—"}
                         </li>
                       ))}
                     </ul>
@@ -1832,12 +1832,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   </pre>
                 </div>
               ) : null}
-              {run?.outputTruncated || run?.outputSanitized ? (
-                <p className="text-[10px] leading-4 text-[#8a6200]">
-                  {run.outputTruncated ? t("输出只保留最后 12 KiB。") : ""}
-                  {run.outputSanitized ? t("终端控制字符已清理。") : ""}
-                </p>
-              ) : null}
+              {run?.outputTruncated ? <p className="text-[10px] leading-4 text-[#8a6200]">{t("输出只保留最后 12 KiB。")}</p> : null}
+              {run?.outputSanitized ? <p className="text-[10px] leading-4 text-[#8a6200]">{t("终端控制字符已清理。")}</p> : null}
               <div className="flex flex-wrap gap-2">
                 {view.allowedScripts.map((script) => (
                   <span className="rounded-md border border-[#dce5f5] bg-white px-2 py-1 font-mono text-[10px] text-[#3565c5]" key={script}>
@@ -1973,9 +1969,18 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
                     }`}
                   >
-                    {view.status.operation === "import" ? t("导入") : view.status.operation === "export" ? t("导出") : t("预览")}
-                    {view.status.state === "failed" ? t("失败") : t("已取消")}
-                    {view.status.error === null ? "" : `：${view.status.error}`}
+                    {view.status.operation === "import"
+                      ? view.status.state === "failed"
+                        ? t("导入失败")
+                        : t("导入已取消")
+                      : view.status.operation === "export"
+                        ? view.status.state === "failed"
+                          ? t("导出失败")
+                          : t("导出已取消")
+                        : view.status.state === "failed"
+                          ? t("预览失败")
+                          : t("预览已取消")}
+                    {view.status.error === null ? null : <p className="mt-1">{t("原因：{v0}", { v0: view.status.error })}</p>}
                   </div>
                 ) : null}
                 {sections.map(([label, item]) => (
@@ -2624,7 +2629,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       {findings
                         .slice(0, 2)
                         .map((item) => value(item))
-                        .join("；")}
+                        .join(" · ")}
                     </p>
                   ) : null}
                 </div>
@@ -3542,7 +3547,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 ))}
               </div>
               {data?.activeSessionId ? (
-                <div className="rounded-lg border border-[#b9d0ff] bg-[#f1f6ff] px-3 py-2 text-[10px] text-[#315fb8]">
+                <div className="flex flex-wrap items-baseline gap-1 rounded-lg border border-[#b9d0ff] bg-[#f1f6ff] px-3 py-2 text-[10px] text-[#315fb8]">
                   {t("当前会话：")}
                   <code className="font-mono">{value(data.activeSessionId)}</code>
                 </div>
@@ -3749,10 +3754,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
                   }`}
                 >
-                  {t("扫描{v0} {v1}", {
-                    v0: view.status.state === "failed" ? t("失败") : t("已取消"),
-                    v1: view.status.error === null ? "" : `：${view.status.error}`,
-                  })}
+                  {view.status.state === "failed" ? t("扫描失败") : t("扫描已取消")}
+                  {view.status.error === null ? null : <p className="mt-1">{t("原因：{v0}", { v0: view.status.error })}</p>}
                 </div>
               ) : null}
               <div className="grid grid-cols-3 gap-2">
@@ -3865,10 +3868,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     view.status.state === "failed" ? "border-[#f3c4c4] bg-[#fff4f4] text-[#a23b3b]" : "border-[#f4d8a8] bg-[#fff9ed] text-[#9a6700]"
                   }`}
                 >
-                  {t("扫描{v0} {v1}", {
-                    v0: view.status.state === "failed" ? t("失败") : t("已取消"),
-                    v1: view.status.error === null ? "" : `：${view.status.error}`,
-                  })}
+                  {view.status.state === "failed" ? t("扫描失败") : t("扫描已取消")}
+                  {view.status.error === null ? null : <p className="mt-1">{t("原因：{v0}", { v0: view.status.error })}</p>}
                 </div>
               ) : null}
               <div className="grid grid-cols-3 gap-2">
@@ -3893,7 +3894,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         ></span>
                         <strong className="min-w-0 flex-1 truncate text-[11px] text-[#30343b]">{report.name}</strong>
                         <span className="text-[10px] text-[#687381]">
-                          {report.risk === "blocked" ? t("高风险") : report.risk === "review" ? t("复核") : t("安全")}
+                          {report.risk === "blocked" ? t("高风险") : report.risk === "review" ? t("需复核") : t("安全")}
                         </span>
                       </div>
                       {report.findings.length > 0 ? (
@@ -3946,7 +3947,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         const item = finding && typeof finding === "object" ? (finding as Record<string, unknown>) : {};
                         return (
                           <li key={`${value(item.code ?? "finding")}-${index}`}>
-                            <strong className="font-mono text-[#30343b]">{value(item.code ?? "finding")}</strong>：{value(item.message, "")}
+                            <strong className="font-mono text-[#30343b]">{value(item.code ?? "finding")}</strong>: {value(item.message, "")}
                           </li>
                         );
                       })}
@@ -3985,7 +3986,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               <p className="mt-2 text-[11px] text-[#687381]">{t("还没有生成技能。可让 Agent 调用 skill_pack_create。")}</p>
             )}
           </div>
-          <p className="text-[10px] text-[#687381]">{t("输出目录：项目 .pi/skills/&lt;name&gt;，包含 SKILL.md 和原始参考文件。")}</p>
+          <p className="text-[10px] text-[#687381]">{t("输出目录：项目 .pi/skills/<name>，包含 SKILL.md 和原始参考文件。")}</p>
         </div>
       ) : panel.id === "genui-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -4234,7 +4235,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </div>
               {view.generated === null ? (
                 <div className="rounded-lg border border-[#e3e7ee] bg-[#f6f8fa] px-3 py-3 text-[11px] leading-5 text-[#687381]">
-                  {t("还没有生成 README 草稿。让 Agent 调用")} <code className="font-mono text-[#3565c5]">readme_report</code> {t("先检查内容。")}
+                  {t("还没有生成 README 草稿。让 Agent 调用 readme_report 先检查内容。")}
                 </div>
               ) : (
                 <div className="min-w-0 border-l-2 border-[#7aa2e8] bg-[#f8faff] px-3 py-3">
@@ -4255,10 +4256,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               {view.status.error !== null ? (
                 <p className="break-words rounded-lg bg-[#fff5f5] px-3 py-2 text-[10px] leading-4 text-[#b42318]">{view.status.error}</p>
               ) : null}
-              <p className="text-[10px] leading-4 text-[#687381]">
-                {t("写入需要")} <code className="font-mono">confirm=true</code>
-                {t("；覆盖已有 README 还需要")} <code className="font-mono">overwrite=true</code>。
-              </p>
+              {/* One sentence rather than fragments around <code>: the trailing full stop used to be a JSX literal, so every non-CJK locale ended the line with a Chinese period. */}
+              <p className="text-[10px] leading-4 text-[#687381]">{t("写入需要 confirm=true，覆盖已有 README 还需要 overwrite=true。")}</p>
             </div>
           );
         })()
@@ -4848,12 +4847,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <pre className="max-h-48 overflow-auto rounded-lg border border-[#edf0f3] bg-[#fbfcfd] p-3 text-[10px] leading-4 text-[#65707b]">
                     {value(result.text, "")}
                   </pre>
-                  {result.previewTruncated || result.truncated ? (
-                    <p className="text-[10px] text-[#9a6700]">
-                      {result.truncated ? t("响应正文已达到抓取上限；") : ""}
-                      {result.previewTruncated ? t("面板仅显示有界预览。") : ""}
-                    </p>
-                  ) : null}
+                  {/* One notice per line. They used to sit next to each other inside a single paragraph, which reads fine in Chinese and runs two sentences together in every language that separates them with a space. */}
+                  {result.truncated ? <p className="text-[10px] text-[#9a6700]">{t("响应正文已达到抓取上限。")}</p> : null}
+                  {result.previewTruncated ? <p className="text-[10px] text-[#9a6700]">{t("面板仅显示有界预览。")}</p> : null}
                 </>
               )}
               <div className="flex flex-wrap gap-2">
@@ -5866,7 +5862,7 @@ export function Marketplace({
             <option value="">{t("全部影响")}</option>
             {capabilities.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.label}（{item.count}）
+                {item.label} ({item.count})
               </option>
             ))}
           </select>
@@ -9119,9 +9115,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         {refreshIssues.length > 0 && (
           <div aria-live="polite" className="refresh-warning" role="status">
             <span>
-              <strong>{t("部分数据刷新失败")}</strong>
-              {refreshIssues.join("、")}
-              {t("可能为空或显示上次结果。")}
+              {/* The colon belongs to the heading key so each locale punctuates it its own way; `.refresh-warning strong` supplies the gap after it, and the failed sources are a placeholder rather than a third adjacent expression that would render with no separator at all. */}
+              <strong>{t("部分数据刷新失败：")}</strong>
+              {t("{v0} 可能为空或显示上次结果。", { v0: refreshIssues.join(" · ") })}
             </span>
             <button onClick={() => void refresh()} type="button">
               {t("重试")}
