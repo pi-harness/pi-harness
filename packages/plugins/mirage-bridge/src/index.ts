@@ -73,7 +73,7 @@ export default {
   apply(context: Context, config: MirageBridgeConfig) {
     const executable = normalizeExecutable(config.executable);
     const workspaceId = normalizeWorkspaceId(config.workspaceId);
-    const timeoutMs = Math.max(1_000, Math.min(120_000, Math.trunc(config.timeoutMs ?? defaultTimeoutMs)));
+    const timeoutMs = Math.max(1_000, Math.min(120_000, Math.trunc(Number.isFinite(config.timeoutMs) ? config.timeoutMs! : defaultTimeoutMs)));
     const lifecycle = new AbortController();
     let state: MirageBridgeState = { executable, workspaceId, available: null, version: null, lastError: null, lastRun: null };
     const executionSignal = (signal: AbortSignal | undefined): AbortSignal =>
@@ -82,12 +82,15 @@ export default {
     const doctor = async (signal: AbortSignal): Promise<MirageBridgeState> => {
       signal.throwIfAborted();
       try {
-        const result = await execFileAsync(executable, ["--version"], {
+        const execution = execFileAsync(executable, ["--version"], {
           cwd: context.piHarnessLaunch.cwd,
           timeout: Math.min(timeoutMs, 10_000),
           maxBuffer: maxOutputBytes,
           signal,
         });
+        execution.child.stdin?.end();
+        const result = await execution;
+        signal.throwIfAborted();
         const version = `${result.stdout}${result.stderr}`.trim().split(/\r?\n/u)[0]?.slice(0, 256) || "Mirage CLI detected";
         state = { ...state, available: true, version, lastError: null };
       } catch (error) {
@@ -95,7 +98,7 @@ export default {
         signal.throwIfAborted();
         state = { ...state, available: false, version: null, lastError: errorMessage(error).slice(0, 1_000) };
       }
-      return state;
+      return structuredClone(state);
     };
 
     const run = async (commandInput: string, signal: AbortSignal): Promise<MirageRun> => {
@@ -104,12 +107,16 @@ export default {
       signal.throwIfAborted();
       const startedAt = Date.now();
       try {
-        const result = await execFileAsync(executable, ["execute", "--workspace_id", workspaceId, "--command", command], {
+        const execution = execFileAsync(executable, ["execute", "--workspace_id", workspaceId, "--command", command], {
           cwd: context.piHarnessLaunch.cwd,
           timeout: timeoutMs,
           maxBuffer: maxOutputBytes,
           signal,
         });
+        // The official CLI consumes stdin before issuing non-interactive execute requests. Close the unused pipe so it reaches EOF.
+        execution.child.stdin?.end();
+        const result = await execution;
+        signal.throwIfAborted();
         state = {
           ...state,
           available: true,
@@ -135,7 +142,7 @@ export default {
           },
         };
       }
-      return state.lastRun!;
+      return structuredClone(state.lastRun!);
     };
 
     const unregisterDoctor = context.piTools.register(
@@ -187,7 +194,7 @@ export default {
         title: "Mirage Bridge",
         description: "连接官方 Mirage 虚拟终端，在配置的虚拟工作区中执行命令。",
         icon: "◇",
-        read: () => ({ ...state, timeoutMs }),
+        read: () => structuredClone({ ...state, timeoutMs }),
       });
     } catch (error) {
       unregisterDoctor();
