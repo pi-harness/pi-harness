@@ -2462,6 +2462,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </div>
               {changedFiles.length > 0 ? (
                 <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
+                  <p className="text-[10px] text-[var(--color-faint)]">
+                    显示 {Math.min(changedFiles.length, 8)} / {value(data?.changedCount ?? changedFiles.length)} 个变更
+                  </p>
                   {changedFiles.slice(0, 8).map((item, index) => {
                     const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                     return (
@@ -2472,7 +2475,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   })}
                 </div>
               ) : null}
-              {data?.truncated === true ? <p className="text-[10px] text-[var(--color-faint)]">目录摘要已截断，执行 sidebar_overview 获取最新概览。</p> : null}
+              {data?.truncated === true ? <p className="text-[10px] text-[var(--color-faint)]">概览包含截断的结果，显示数量与总数见上方。</p> : null}
             </div>
           );
         })()

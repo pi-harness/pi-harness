@@ -492,3 +492,27 @@ test("shows YAML warning text and the inspected workspace path", () => {
   expect(html).toContain("warning.yml");
   expect(html).toContain("Unresolved tag: !unknown");
 });
+
+test("reports the actual sidebar preview count without calling Git truncation a directory error", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "better-sidebar-panel",
+        pluginId: "@pi-harness/plugin-better-sidebar",
+        title: "Better Sidebar",
+        description: "",
+        icon: "",
+        data: {
+          cwd: "/active",
+          changedCount: 15,
+          changedFiles: Array.from({ length: 12 }, (_, i) => ({ path: `file-${i}.txt`, status: "??" })),
+          truncated: true,
+        },
+      },
+    }),
+  );
+  expect(html).toContain("显示 8 / 15 个变更");
+  expect(html).toContain("概览包含截断的结果");
+  expect(html).not.toContain("目录摘要已截断");
+  expect(html).not.toContain("file-8.txt");
+});
