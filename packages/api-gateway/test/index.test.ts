@@ -1201,18 +1201,11 @@ describe("API gateway plugin", () => {
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const manager = {
-      buildSessionContext: () => ({
-        model: { provider: "fixture", modelId: "model" },
-        messages: [{ role: "user", content: [{ type: "text", text: "Keep src/index.ts stable." }] }],
-      }),
-      getSessionId: () => "session-bridge-source",
-      getCwd: () => "/workspace",
-      getEntries: () => [],
-      appendCustomMessageEntry: () => "entry",
-    };
+    const manager = SessionManager.inMemory("/workspace");
+    manager.appendModelChange("fixture", "model");
+    manager.appendMessage({ role: "user", content: [{ type: "text", text: "Keep src/index.ts stable." }], timestamp: Date.now() });
     const session = {
-      sessionId: "session-bridge-panel-session",
+      sessionId: manager.getSessionId(),
       sessionFile: undefined,
       messages: [],
       isStreaming: false,
@@ -1244,7 +1237,7 @@ describe("API gateway plugin", () => {
           data: {
             latest: null,
             latestPreview: {
-              source: { sessionId: "session-bridge-source", cwd: "/workspace", model: { provider: "fixture", modelId: "model" } },
+              source: { sessionId: manager.getSessionId(), cwd: "/workspace", model: { provider: "fixture", modelId: "model" } },
               preview: { goal: "Keep src/index.ts stable.", decisions: ["Keep src/index.ts stable."], keyFiles: ["src/index.ts"] },
             },
             currentPreview: { goal: "Keep src/index.ts stable." },
