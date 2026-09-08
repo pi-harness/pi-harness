@@ -992,7 +992,7 @@ describe("API gateway plugin", () => {
       const tools = new PiToolRegistry();
       context.reflect.provide("piPluginUi", registry);
       context.reflect.provide("piTools", tools);
-      await context.plugin(pluginStarsModule.default, { limit: 50 });
+      await context.plugin(pluginStarsModule.default, { limit: 50, sourceUrl: "https://raw.githubusercontent.com/pi-harness/fixture/main/plugins.json" });
       const plugins = Array.from({ length: 25 }, (_, index) => ({
         id: String(index + 1),
         name: `fixture-${index}`,
@@ -1001,7 +1001,7 @@ describe("API gateway plugin", () => {
         htmlUrl: `https://github.com/owner/fixture-${index}`,
         stars: 25 - index,
         updatedAt: "2026-09-05T00:00:00Z",
-        topics: ["dsh-plugin"],
+        topics: ["pi-harness-plugin"],
       }));
       globalThis.fetch = () => Promise.resolve(Response.json({ source: "fixture", generatedAt: "2026-09-05T00:00:00Z", plugins }));
       const search = tools.snapshot().customTools.find((tool) => tool.name === "plugin_stars_search");
