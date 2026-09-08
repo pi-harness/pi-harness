@@ -725,7 +725,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded isolated SQLite query through the real plugin panel", async () => {
-    const sqlLensModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-sql-lens"))) as {
+    const sqlLensModule = (await import(/* @vite-ignore */ import.meta.resolve("../../plugins/sql-lens/dist/index.js"))) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -737,7 +737,15 @@ describe("API gateway plugin", () => {
     database.exec("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'Ada')");
     database.close();
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "sql-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const manager = SessionManager.inMemory(workspace);
+    const session = {
+      sessionId: manager.getSessionId(),
+      sessionManager: manager,
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -763,6 +771,7 @@ describe("API gateway plugin", () => {
             status: { state: "completed" },
             timeoutMs: 1_500,
             latest: {
+              cwd: workspace,
               database: "data.db",
               columns: ["id", "name"],
               rows: [{ id: 1, name: "Ada" }],
