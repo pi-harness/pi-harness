@@ -102,4 +102,72 @@ describe("plugin finder network boundaries", () => {
     await expect(tool.execute("search-unknown", { query: "logger", extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/unknown/iu);
     expect(accessed).toBe(false);
   });
+  test("rejects malformed successful response shapes instead of reporting no results", async () => {
+    const tool = await searchTool();
+    for (const payload of [null, [], {}, { objects: {}, total: 0 }, { objects: [], total: -1 }]) {
+      globalThis.fetch = () => Promise.resolve(Response.json(payload));
+      await expect(tool.execute("malformed", { query: "logger" }, undefined, undefined, {} as never)).rejects.toThrow(/response.*structure/iu);
+    }
+  });
+
+  test("detaches search snapshots and prevents networking after disposal", async () => {
+    let requests = 0;
+    globalThis.fetch = () => {
+      requests += 1;
+      return Promise.resolve(Response.json({ objects: [{ package: { name: "pi-example", version: "1.0.0" } }], total: 1 }));
+    };
+    const tool = await searchTool();
+    const context = contexts.at(-1)!;
+    const result = await tool.execute("search", { query: "example" }, undefined, undefined, {} as never);
+    (result.details as { results: { name: string }[] }).results[0]!.name = "changed";
+    expect(JSON.stringify(await context.piPluginUi.snapshot())).not.toContain("changed");
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", { query: "example" }, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    expect(requests).toBe(1);
+  });
+
+  test("aborts an active fetch on disposal", async () => {
+    let received: AbortSignal | null | undefined;
+    globalThis.fetch = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        received = init?.signal;
+        received?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    const tool = await searchTool();
+    const pending = tool.execute("active", { query: "example" }, undefined, undefined, {} as never);
+    const rejection = expect(pending).rejects.toThrow(/cancelled/iu);
+    await contexts.at(-1)!.fiber.dispose();
+    expect(received?.aborted).toBe(true);
+    await rejection;
+  });
+  test("filters registry candidates before limiting results and prioritizes name matches", async () => {
+    globalThis.fetch = () =>
+      Promise.resolve(
+        Response.json({
+          total: 22,
+          objects: [
+            ...Array.from({ length: 20 }, (_, id) => ({ package: { name: `pi-other-${id}`, version: "1" } })),
+            { package: { name: "pi-context", version: "1", description: "Persistent memory" } },
+            { package: { name: "pi-memory", version: "1" } },
+          ],
+        }),
+      );
+    const tool = await searchTool();
+    await expect(tool.execute("search", { query: "memory" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 2, registryTotal: 22, truncated: false, results: [{ name: "pi-memory" }, { name: "pi-context" }] },
+    });
+  });
+  test("prioritizes multiword name matches over descriptions", async () => {
+    globalThis.fetch = () =>
+      Promise.resolve(
+        Response.json({
+          total: 2,
+          objects: [{ package: { name: "pi-tools", version: "1", description: "An mcp client" } }, { package: { name: "pi-mcp-client", version: "1" } }],
+        }),
+      );
+    const tool = await searchTool();
+    await expect(tool.execute("multiword", { query: "mcp client" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { results: [{ name: "pi-mcp-client" }, { name: "pi-tools" }] },
+    });
+  });
 });

@@ -2770,6 +2770,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 <span>查询：{value(data.query)}</span>
                 <strong className="font-mono text-[#3565c5]">{value(data.total ?? 0)} 个结果</strong>
               </div>
+              {data?.truncated === true && <p className="text-[10px] text-[#687381]">仅显示部分匹配结果，请缩小查询范围。</p>}
               {Array.isArray(data?.results) && data.results.length > 0 ? (
                 <ul className="grid gap-1.5">
                   {data.results.slice(0, 5).map((result, index) => {

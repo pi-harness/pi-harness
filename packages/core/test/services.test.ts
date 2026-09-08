@@ -2637,7 +2637,7 @@ describe("Pi domain plugins", () => {
 
   test("searches a configured npm registry through the plugin-finder plugin", async () => {
     const server = createServer((request, response) => {
-      expect(request.url).toContain("/-/v1/search?text=keywords%3Api-harness+logger&size=5");
+      expect(request.url).toContain("/-/v1/search?text=keywords%3Api-harness+logger&size=250");
       response.setHeader("content-type", "application/json");
       response.end(
         JSON.stringify({
