@@ -191,7 +191,7 @@ export async function imageInfo(root: string, requested: string, signal?: AbortS
   try {
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+      handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const metadata = await handle.stat();
       if (!metadata.isFile()) throw new Error("Image must be a regular file");
       if (metadata.size > maxImageBytes) throw new Error(`Image exceeds the ${maxImageBytes}-byte limit`);
@@ -354,8 +354,9 @@ async function walkImages(
     }
     report.inspectedCandidates += 1;
     try {
-      report.assets.push(await imageInfo(root, relativePath));
+      report.assets.push(await imageInfo(root, relativePath, signal));
     } catch (error) {
+      throwIfAborted(signal);
       addIssue(report, relativePath, error);
     }
   }
@@ -391,6 +392,22 @@ export default {
     const lifecycle = new AbortController();
     let latest: VisionCatalogReport | undefined;
     let status: VisionToolkitStatus = { state: "idle" };
+    let running = false;
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, sessionId: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      throwIfAborted(lifecycle.signal);
+      const current = readScope();
+      if (current.session !== scope.session || current.manager !== scope.manager || current.sessionId !== scope.sessionId || current.cwd !== scope.cwd) {
+        scope = current;
+        latest = undefined;
+        status = { state: "idle" };
+      }
+      return scope;
+    };
     const unregisterCatalog = context.piTools.register(
       defineTool({
         name: "vision_catalog",
@@ -401,10 +418,16 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<VisionCatalogReport>> {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          if (running) throw new Error("A vision inspection is already running");
+          const operationScope = refreshScope();
+          running = true;
           try {
             emptyParameters(rawParams);
             status = { state: "running", operation: "catalog", at: new Date().toISOString() };
-            latest = await catalogImageReport(context.piHarnessLaunch.cwd, operationSignal);
+            const report = await catalogImageReport(operationScope.cwd, operationSignal);
+            throwIfAborted(operationSignal);
+            if (refreshScope() !== operationScope) throw new Error("Vision workspace changed during inspection");
+            latest = report;
             status = { state: "completed", operation: "catalog", count: latest.assets.length, truncated: latest.truncated, at: new Date().toISOString() };
             return {
               content: [
@@ -417,13 +440,16 @@ export default {
             };
           } catch (error) {
             const message = issueReason(error);
-            status = {
-              state: operationSignal.aborted ? "cancelled" : "failed",
-              operation: "catalog",
-              error: message,
-              at: new Date().toISOString(),
-            };
+            if (!lifecycle.signal.aborted && refreshScope() === operationScope)
+              status = {
+                state: operationSignal.aborted ? "cancelled" : "failed",
+                operation: "catalog",
+                error: message,
+                at: new Date().toISOString(),
+              };
             throw new Error(message, { cause: error });
+          } finally {
+            running = false;
           }
         },
       }),
@@ -442,13 +468,18 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<VisionAsset>> {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          if (running) throw new Error("A vision inspection is already running");
+          const operationScope = refreshScope();
+          running = true;
           let statusPath = "invalid tool input";
           try {
             const params = imageInfoParameters(rawParams);
             statusPath = params.path;
             status = { state: "running", operation: "info", path: statusPath, at: new Date().toISOString() };
             throwIfAborted(operationSignal);
-            const asset = await imageInfo(context.piHarnessLaunch.cwd, params.path, operationSignal);
+            const asset = await imageInfo(operationScope.cwd, params.path, operationSignal);
+            throwIfAborted(operationSignal);
+            if (refreshScope() !== operationScope) throw new Error("Vision workspace changed during inspection");
             latest = {
               assets: [asset],
               issues: [],
@@ -465,14 +496,17 @@ export default {
             };
           } catch (error) {
             const message = issueReason(error);
-            status = {
-              state: operationSignal.aborted ? "cancelled" : "failed",
-              operation: "info",
-              path: statusPath,
-              error: message,
-              at: new Date().toISOString(),
-            };
+            if (!lifecycle.signal.aborted && refreshScope() === operationScope)
+              status = {
+                state: operationSignal.aborted ? "cancelled" : "failed",
+                operation: "info",
+                path: statusPath,
+                error: message,
+                at: new Date().toISOString(),
+              };
             throw new Error(message, { cause: error });
+          } finally {
+            running = false;
           }
         },
       }),
@@ -482,26 +516,29 @@ export default {
       id: "vision-toolkit-panel",
       pluginId: "@pi-harness/plugin-vision-toolkit",
       title: "视觉素材",
-      description: "盘点工作区图片的类型、尺寸和大小，再交由视觉模型分析内容。",
+      description: "只读盘点当前工作区图片的类型、头部尺寸和大小，不上传图片或调用模型。",
       icon: "◉",
-      read: () => ({
-        status: structuredClone(status),
-        report: latest === undefined ? null : structuredClone(latest),
-        supportedTypes: Object.keys(mimeByExtension).map((extension) => extension.slice(1)),
-        limits: {
-          imageBytes: maxImageBytes,
-          headerBytes: maxHeaderBytes,
-          pathCharacters: maxPathLength,
-          assets: maxImages,
-          imageCandidates: maxImageCandidates,
-          scannedEntries: maxScannedEntries,
-          scannedDirectories: maxScannedDirectories,
-          depth: maxDepth,
-          issues: maxIssues,
-          issueCharacters: maxIssueLength,
-          agentTextBytes: maxAgentTextBytes,
-        },
-      }),
+      read: () => {
+        refreshScope();
+        return {
+          status: structuredClone(status),
+          report: latest === undefined ? null : structuredClone(latest),
+          supportedTypes: Object.keys(mimeByExtension).map((extension) => extension.slice(1)),
+          limits: {
+            imageBytes: maxImageBytes,
+            headerBytes: maxHeaderBytes,
+            pathCharacters: maxPathLength,
+            assets: maxImages,
+            imageCandidates: maxImageCandidates,
+            scannedEntries: maxScannedEntries,
+            scannedDirectories: maxScannedDirectories,
+            depth: maxDepth,
+            issues: maxIssues,
+            issueCharacters: maxIssueLength,
+            agentTextBytes: maxAgentTextBytes,
+          },
+        };
+      },
     });
     context.effect(() => disposePanel);
     context.effect(() => () => lifecycle.abort(new Error("Vision toolkit plugin disposed")));
