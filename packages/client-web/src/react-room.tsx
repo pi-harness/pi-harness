@@ -8832,7 +8832,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     >
                       <span className="session-dot ok"></span>
                       <span className="session-copy">
-                        <strong>{value(session.name ?? (session.firstMessage ? truncateSessionTitle(String(session.firstMessage)) : ""), "未命名会话")}</strong>
+                        <strong>{value(session.name ?? (typeof session.firstMessage === "string" ? truncateSessionTitle(session.firstMessage) : ""), "未命名会话")}</strong>
                         <small>
                           {t("{v0} 条消息{v1} {v2}", {
                             v0: value(session.messageCount, "0"),
