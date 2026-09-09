@@ -628,6 +628,13 @@ function WorkspaceChooser({
   error?: string;
 }) {
   const dialogRef = useModalFocus(true, onClose);
+  const [customPath, setCustomPath] = useState("");
+  const handleCustomPathSubmit = () => {
+    const trimmed = customPath.trim();
+    if (trimmed) {
+      onSelect({ path: trimmed, name: trimmed.split("/").pop() || trimmed, branch: "directory", current: false });
+    }
+  };
   return (
     <div className="workspace-chooser" onClick={onClose}>
       <div
@@ -651,6 +658,21 @@ function WorkspaceChooser({
             {error}
           </div>
         ) : null}
+        <div className="workspace-path-input-row">
+          <input
+            className="workspace-path-input"
+            onChange={(e) => setCustomPath(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleCustomPathSubmit();
+            }}
+            placeholder={t("输入绝对路径，如 /tmp/my-project")}
+            type="text"
+            value={customPath}
+          />
+          <button className="workspace-path-go" disabled={!customPath.trim()} onClick={handleCustomPathSubmit} type="button">
+            {t("打开")}
+          </button>
+        </div>
         <button className="workspace-pick-directory" data-dialog-initial-focus onClick={() => void onPickDirectory()} type="button">
           <span>{t("打开目录")}</span>
           <small>{t("从 Finder 选择一个新的工作目录")}</small>
@@ -7657,6 +7679,11 @@ function previewText(value: string, limit: number, singleLine = true): string {
   return collapsed.length <= limit ? collapsed : `${collapsed.slice(0, limit - 1)}…`;
 }
 
+const SESSION_TITLE_LIMIT = 80;
+function truncateSessionTitle(text: string): string {
+  return previewText(text, SESSION_TITLE_LIMIT);
+}
+
 const TOOL_ARGUMENT_PREVIEW_LIMIT = 140;
 // A tool result is untrusted text of any length, and the row it belongs to is collapsed, so the transcript keeps a readable head of it rather than pushing megabytes of file contents into the document.
 const TOOL_RESULT_PREVIEW_LIMIT = 4_000;
@@ -7703,7 +7730,7 @@ export const ChatTurnArticle = memo(
           <>
             {/* A model that emits only whitespace as its reasoning would otherwise open an empty disclosure titled 思考. */}
             {thinking.trim() && (
-              <details className="reasoning message-reasoning">
+              <details className="reasoning message-reasoning" open={false}>
                 <summary className="reasoning-head">{t("思考")}</summary>
                 <div className="reasoning-body">
                   <MarkdownMessage text={thinking} />
@@ -7811,6 +7838,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const importInputRef = useRef<HTMLInputElement>(null);
   const sessionPopoverTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [streamingAssistant, setStreamingAssistant] = useState<{ thinking: string; text: string }>();
+  const [streamingStartedAt, setStreamingStartedAt] = useState<number | undefined>();
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -8147,6 +8176,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       const runtimeEvent = event as Record<string, unknown>;
       if (runtimeEvent.type === "turn_start") {
         setStreamingAssistant({ thinking: "", text: "" });
+        setStreamingStartedAt(Date.now());
         return;
       }
       if (runtimeEvent.type !== "message_update" || typeof runtimeEvent.assistantMessageEvent !== "object" || runtimeEvent.assistantMessageEvent === null)
@@ -8228,8 +8258,17 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     };
   }, []);
   useEffect(() => {
-    if (data.status?.status !== "running") setStreamingAssistant(undefined);
+    if (data.status?.status !== "running") {
+      setStreamingAssistant(undefined);
+      setStreamingStartedAt(undefined);
+      setElapsedSeconds(0);
+    }
   }, [data.status?.status]);
+  useEffect(() => {
+    if (!streamingStartedAt || data.status?.status !== "running") return;
+    const timer = setInterval(() => setElapsedSeconds(Math.floor((Date.now() - streamingStartedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [streamingStartedAt, data.status?.status]);
   useEffect(() => {
     const path = initialSessionPathRef.current;
     if (!path || sessionRestoreAttemptedRef.current || data.sessions.length === 0) return;
@@ -8682,14 +8721,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         {streamingAssistant && data.status?.status === "running" && (
           <article className="turn text streaming-turn" aria-live="polite">
             {streamingAssistant.thinking && (
-              <details className="reasoning message-reasoning">
-                <summary className="reasoning-head">{t("思考中…")}</summary>
+              <details className="reasoning message-reasoning" open={false}>
+                <summary className="reasoning-head">
+                  {t("思考中…")}
+                  {elapsedSeconds > 0 && <span className="streaming-elapsed">{elapsedSeconds}s</span>}
+                </summary>
                 <div className="reasoning-body">
                   <MarkdownMessage text={streamingAssistant.thinking} />
                 </div>
               </details>
             )}
-            {!streamingAssistant.thinking && !streamingAssistant.text && <div className="streaming-placeholder">{t("正在生成…")}</div>}
+            {!streamingAssistant.thinking && !streamingAssistant.text && (
+              <div className="streaming-placeholder">
+                <span className="streaming-spinner" />
+                {t("正在生成…")}
+                {elapsedSeconds > 0 && <span className="streaming-elapsed">{elapsedSeconds}s</span>}
+              </div>
+            )}
             {streamingAssistant.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={streamingAssistant.text} />}
           </article>
         )}
@@ -9258,7 +9306,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     >
                       <span className="session-dot ok"></span>
                       <span className="session-copy">
-                        <strong>{value(session.name ?? session.firstMessage, t("未命名会话"))}</strong>
+                        <strong>
+                          {value(session.name ?? (typeof session.firstMessage === "string" ? truncateSessionTitle(session.firstMessage) : ""), "未命名会话")}
+                        </strong>
                         <small>
                           {t("{v0} 条消息{v1} {v2}", {
                             v0: value(session.messageCount, "0"),

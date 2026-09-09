@@ -8,3 +8,4 @@ coverage/
 .env
 .pi-harness/
 published-manifest.backup.json
+.playwright-cli/
