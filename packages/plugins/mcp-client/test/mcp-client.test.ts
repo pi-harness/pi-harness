@@ -1,6 +1,6 @@
 import type * as ChildProcess from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -321,6 +321,53 @@ process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline 
         ),
       ).rejects.toThrow(/arguments.*data properties/iu);
       expect(accessed).toBe(false);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("preserves prototype-named JSON argument properties over stdio", async () => {
+    const fixture = await createFixture();
+    const server = await writeServer(
+      fixture.cwd,
+      `import { createInterface } from "node:readline"; const lines = createInterface({ input: process.stdin }); lines.on("line", (line) => { const message = JSON.parse(line); const result = message.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "echo", version: "1" } } : message.method === "tools/call" ? { content: [{ type: "text", text: JSON.stringify(message.params.arguments) }] } : undefined; if (result) process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); });`,
+    );
+    const args = JSON.parse('{"__proto__":{"fixture":"preserved"},"nested":{"__proto__":"literal","constructor":"value"}}') as Record<string, unknown>;
+    try {
+      const result = await tool(fixture.tools, "mcp_call").execute(
+        "echo",
+        { command: [process.execPath, server], name: "echo", arguments: args },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(args);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("propagates MCP tool errors without publishing a successful call", async () => {
+    const fixture = await createFixture();
+    const server = await writeServer(
+      fixture.cwd,
+      `import { createInterface } from "node:readline"; const lines = createInterface({ input: process.stdin }); lines.on("line", (line) => { const message = JSON.parse(line); const result = message.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "error", version: "1" } } : message.method === "tools/call" ? { isError: true, content: [{ type: "text", text: "Fixture operation failed" }] } : undefined; if (result) process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n"); });`,
+    );
+    try {
+      await expect(
+        tool(fixture.tools, "mcp_call").execute("error", { command: [process.execPath, server], name: "fail" }, undefined, undefined, {} as never),
+      ).rejects.toThrow(/Fixture operation failed/);
+      await tool(fixture.tools, "mcp_server_start").execute(
+        "start",
+        { command: [process.execPath, server], serverId: "error" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      await expect(tool(fixture.tools, "mcp_call").execute("error", { serverId: "error", name: "fail" }, undefined, undefined, {} as never)).rejects.toThrow(
+        /Fixture operation failed/,
+      );
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { lastCall: null } }]);
     } finally {
       await fixture.context.fiber.dispose();
     }
@@ -1121,4 +1168,195 @@ process.stdin.on("data", (chunk) => { buffer += chunk; for (;;) { const newline 
       await pending?.catch(() => undefined);
     }
   });
+});
+
+test("keeps a stopping server owned until its process closes and then permits restart", async () => {
+  const fixture = await createFixture();
+  const stopped = join(fixture.cwd, "term-received");
+  const server = await writeServer(
+    fixture.cwd,
+    `
+    import { writeFileSync } from "node:fs";
+    import { createInterface } from "node:readline";
+    process.on("SIGTERM", () => writeFileSync(${JSON.stringify(stopped)}, "yes"));
+    setInterval(() => {}, 1000);
+    createInterface({ input: process.stdin }).on("line", line => {
+      const message = JSON.parse(line);
+      if (message.id === undefined) return;
+      const result = message.method === "initialize"
+        ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "restart", version: "1" } }
+        : { tools: [{ name: "alive", inputSchema: { type: "object" } }] };
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n");
+    });
+  `,
+  );
+  const firstChildIndex = spawnedChildren.length;
+  const start = () =>
+    tool(fixture.tools, "mcp_server_start").execute("start", { serverId: "restart", command: [process.execPath, server] }, undefined, undefined, {} as never);
+  let stopping: Promise<unknown> | undefined;
+  let firstChild: ChildProcess.ChildProcessWithoutNullStreams | undefined;
+  let originalKill: ChildProcess.ChildProcessWithoutNullStreams["kill"] | undefined;
+  try {
+    await start();
+    firstChild = spawnedChildren[firstChildIndex]!;
+    originalKill = firstChild.kill.bind(firstChild);
+    // Hold the real child's SIGKILL fallback so slow CI cannot close the restart-exclusion window before assertions finish.
+    firstChild.kill = (signal) => (signal === "SIGKILL" ? true : originalKill!(signal));
+    stopping = tool(fixture.tools, "mcp_server_stop").execute("stop", { serverId: "restart" }, undefined, undefined, {} as never);
+    void stopping.catch(() => undefined);
+    await vi.waitFor(() => expect(existsSync(stopped)).toBe(true));
+    await expect(tool(fixture.tools, "mcp_server_status").execute("status", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { servers: [{ id: "restart", status: "stopping" }] },
+    });
+    await expect(start()).rejects.toThrow(/already.*(?:running|stopping)/iu);
+    const closed = new Promise<void>((resolve) => firstChild!.once("close", () => resolve()));
+    firstChild.kill = originalKill;
+    firstChild.kill("SIGKILL");
+    await closed;
+    await stopping;
+    await start();
+    await expect(tool(fixture.tools, "mcp_list_tools").execute("list", { serverId: "restart" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { tools: [{ name: "alive" }] },
+    });
+    await fixture.context.fiber.dispose();
+    for (const child of spawnedChildren.slice(firstChildIndex)) expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+  } finally {
+    if (firstChild !== undefined && originalKill !== undefined) firstChild.kill = originalKill;
+    for (const child of spawnedChildren.slice(firstChildIndex)) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await stopping?.catch(() => undefined);
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test.each([
+  ["mcp_list_tools", {}],
+  ["mcp_call", { name: "cwd" }],
+  ["mcp_list_resources", {}],
+  ["mcp_read_resource", { uri: "cwd://current" }],
+  ["mcp_list_prompts", {}],
+  ["mcp_get_prompt", { name: "cwd" }],
+] as const)("uses the current native workspace and rejects stale results for %s", async (name, params) => {
+  const fixture = await createFixture();
+  const active = await mkdtemp(join(tmpdir(), "pi-mcp-native-active-"));
+  temporaryDirectories.push(active);
+  const server = await writeServer(
+    fixture.cwd,
+    `
+    import { createInterface } from "node:readline";
+    createInterface({ input: process.stdin }).on("line", line => {
+      const message = JSON.parse(line);
+      if (message.id === undefined) return;
+      const results = {
+        initialize: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "cwd", version: "1" } },
+        "tools/list": { tools: [{ name: "cwd", description: process.cwd(), inputSchema: { type: "object" } }] },
+        "tools/call": { content: [{ type: "text", text: process.cwd() }] },
+        "resources/list": { resources: [{ uri: "cwd://current", name: process.cwd() }] },
+        "resources/read": { contents: [{ uri: "cwd://current", text: process.cwd() }] },
+        "prompts/list": { prompts: [{ name: "cwd", description: process.cwd() }] },
+        "prompts/get": { messages: [{ role: "user", content: { type: "text", text: process.cwd() } }] },
+      };
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: results[message.method] }) + "\\n");
+    });
+  `,
+  );
+  let id = "first";
+  const session = {
+    get sessionId() {
+      return id;
+    },
+    sessionManager: { getCwd: () => active },
+  };
+  fixture.context.provide("piRuntime", { session } as never);
+  const selected = tool(fixture.tools, name);
+  const parameters = { ...params, command: [process.execPath, server] };
+  try {
+    const result = await selected.execute("active", parameters, undefined, undefined, {} as never);
+    expect(JSON.stringify(result.content)).toContain(await realpath(active));
+    const pending = selected.execute("pending", parameters, undefined, undefined, {} as never);
+    id = "second";
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { server: null, tools: [], resources: [], prompts: [], lastCall: null } }]);
+    const hostile = new Proxy(parameters, {
+      ownKeys(target) {
+        id = "third";
+        return Reflect.ownKeys(target);
+      },
+    });
+    await expect(selected.execute("reentrant", hostile, undefined, undefined, {} as never)).rejects.toThrow(/workspace changed/iu);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test("keeps persistent servers in their starting workspace but discards old-session queued requests", async () => {
+  const fixture = await createFixture();
+  const active = await realpath(await mkdtemp(join(tmpdir(), "pi-mcp-managed-active-")));
+  temporaryDirectories.push(active);
+  const requested = join(active, "requested");
+  const calls = join(active, "calls");
+  const server = await writeServer(
+    fixture.cwd,
+    `
+    import { writeFileSync, appendFileSync } from "node:fs";
+    import { createInterface } from "node:readline";
+    createInterface({ input: process.stdin }).on("line", line => {
+      const m = JSON.parse(line);
+      if (m.id === undefined) return;
+      if (m.method === "tools/call" && m.params.name === "wait") { writeFileSync(${JSON.stringify(requested)}, "yes"); return; }
+      if (m.method !== "initialize") appendFileSync(${JSON.stringify(calls)}, m.method + "\\n");
+      const result = m.method === "initialize"
+        ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "managed", version: "1" } }
+        : { content: [{ type: "text", text: process.cwd() }] };
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id, result }) + "\\n");
+    });
+  `,
+  );
+  let id = "first";
+  let session = {
+    get sessionId() {
+      return id;
+    },
+    sessionManager: { getCwd: () => active },
+  };
+  fixture.context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  const controller = new AbortController();
+  let first: Promise<unknown> | undefined, queued: Promise<unknown> | undefined;
+  try {
+    await tool(fixture.tools, "mcp_server_start").execute(
+      "start",
+      { serverId: "managed", command: [process.execPath, server] },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    first = tool(fixture.tools, "mcp_call").execute("wait", { serverId: "managed", name: "wait" }, controller.signal, undefined, {} as never);
+    void first.catch(() => undefined);
+    await vi.waitFor(() => expect(existsSync(requested)).toBe(true));
+    queued = tool(fixture.tools, "mcp_call").execute("queued", { serverId: "managed", name: "stale" }, undefined, undefined, {} as never);
+    void queued.catch(() => undefined);
+    id = "second";
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => fixture.cwd },
+    };
+    controller.abort(new Error("release old request"));
+    await expect(first).rejects.toThrow(/cancelled/iu);
+    await expect(queued).rejects.toThrow(/workspace changed/iu);
+    expect(existsSync(calls)).toBe(false);
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { lastCall: null, servers: [{ id: "managed", status: "running" }] } }]);
+    await expect(
+      tool(fixture.tools, "mcp_call").execute("current", { serverId: "managed", name: "cwd" }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ content: [{ text: active }] });
+  } finally {
+    controller.abort();
+    await first?.catch(() => undefined);
+    await queued?.catch(() => undefined);
+    await fixture.context.fiber.dispose();
+  }
 });

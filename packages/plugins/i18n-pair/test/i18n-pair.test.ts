@@ -365,3 +365,68 @@ describe("i18n pair production boundaries", () => {
     }
   });
 });
+
+test("uses current native locale files without publishing old reports or errors", async () => {
+  const fixture = await createFixture();
+  const active = join(fixture.cwd, "active");
+  await mkdir(join(active, "locales"), { recursive: true });
+  await writeLocales(fixture.cwd, { "launch-only": "Launch" }, {});
+  await writeLocales(active, { actions: { save: "Save", cancel: "Cancel" } }, { actions: { save: "保存" }, extra: "额外" });
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => fixture.cwd } };
+  fixture.context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await fixture.tool.execute("first", {}, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { report: null, status: { state: "idle" } } }]);
+    const result = await fixture.tool.execute("active", {}, undefined, undefined, {} as never);
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({
+      missing: ["actions.cancel"],
+      extra: ["extra"],
+      missingTotal: 1,
+      extraTotal: 1,
+      truncated: false,
+    });
+    const pending = fixture.tool.execute("pending", {}, undefined, undefined, {} as never);
+    id = "second";
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { report: null, status: { state: "idle" } } }]);
+    const failing = fixture.tool.execute("failing", { target: "locales/missing.json" }, undefined, undefined, {} as never);
+    id = "third";
+    await expect(failing).rejects.toThrow();
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { report: null, status: { state: "idle" } } }]);
+    await fixture.context.fiber.dispose();
+    await expect(fixture.tool.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test("bounds model key inventories in UTF-8 bytes without shortening reported keys", async () => {
+  const fixture = await createFixture();
+  const base = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`base${index}${"界".repeat(600)}`, "value"]));
+  const target = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`target${index}${"界".repeat(600)}`, "value"]));
+  await writeLocales(fixture.cwd, base, target);
+  try {
+    const result = await fixture.tool.execute("bounded-model", {}, undefined, undefined, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    const summary = JSON.parse(text) as { missing: string[]; extra: string[]; missingTotal: number; extraTotal: number; truncated: boolean };
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(32 * 1024);
+    expect(summary).toMatchObject({ missingTotal: 30, extraTotal: 30, truncated: true });
+    expect(summary.missing.length).toBeGreaterThan(0);
+    for (const key of summary.missing) expect((result.details as { missing: string[] }).missing).toContain(key);
+    for (const key of summary.extra) expect((result.details as { extra: string[] }).extra).toContain(key);
+    expect((result.details as { missing: string[] }).missing).toHaveLength(30);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});

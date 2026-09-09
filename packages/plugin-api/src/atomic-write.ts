@@ -8,6 +8,8 @@ export interface AtomicWriteOptions {
   mode?: number;
   overwrite?: boolean;
   signal?: AbortSignal;
+  /** Synchronous validation after staging is durable, immediately before publishing the target. Throw to discard staging. */
+  beforeCommit?: () => void;
 }
 
 const writeQueues = new Map<string, Promise<void>>();
@@ -64,6 +66,8 @@ async function writeAtomic(target: string, data: string | NodeJS.ArrayBufferView
     } finally {
       await handle.close();
     }
+    throwIfAborted(options.signal);
+    options.beforeCommit?.();
     throwIfAborted(options.signal);
     if (options.overwrite === false) {
       await link(temporary, target);

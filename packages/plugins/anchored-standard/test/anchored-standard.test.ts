@@ -21,6 +21,34 @@ afterEach(async () => {
 });
 
 describe("anchored standard", () => {
+  test("keeps recorded violations immutable across tool and panel consumers", async () => {
+    const { context, tool, panels } = await fixture();
+    context.emit("pi/session-event", { type: "tool_execution_start", toolName: "read" } as never);
+    const result = await tool.execute("check", {}, undefined, undefined, {} as never);
+    const violations = (result.details as { violations: Array<{ code: string; message: string }> }).violations;
+    const original = { ...violations[0]! };
+    violations[0]!.code = "tampered";
+    violations[0]!.message = "Changed by consumer";
+    await expect(tool.execute("check-again", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { violations: [original] } });
+    const [panel] = await panels!.snapshot();
+    const panelViolations = (panel!.data as { violations: Array<{ message: string }> }).violations;
+    panelViolations[0]!.message = "Changed by panel consumer";
+    await expect(panels!.snapshot()).resolves.toMatchObject([{ data: { violations: [original] } }]);
+  });
+
+  test("records orphan and nested lifecycle events while resetting each run's tool budget", async () => {
+    const { context, tool } = await fixture();
+    context.emit("pi/session-event", { type: "agent_end" } as never);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    context.emit("pi/session-event", { type: "tool_execution_start", toolName: "read" } as never);
+    context.emit("pi/session-event", { type: "agent_end" } as never);
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    await expect(tool.execute("check", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { status: "violated", toolCalls: 0, violations: [{ code: "orphan_end" }, { code: "nested_run" }] },
+    });
+  });
+
   test("registers a strict sequential audit tool and reports a valid run", async () => {
     const { context, tool } = await fixture();
     expect(tool.executionMode).toBe("sequential");

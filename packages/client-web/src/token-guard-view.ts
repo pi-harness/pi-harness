@@ -21,7 +21,7 @@ const defaults = {
   maxRunTokens: 10_000_000,
   errorCharacters: 2_000,
   streamingUpdateInterval: 32,
-  maxCount: 4_294_967_295,
+  maxCount: Number.MAX_SAFE_INTEGER,
 } as const;
 
 function dataProperty(value: unknown, key: PropertyKey): unknown {

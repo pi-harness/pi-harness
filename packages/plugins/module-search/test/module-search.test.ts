@@ -161,4 +161,114 @@ describe("module search", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+  test("isolates report snapshots and uses the default limit for non-finite inputs", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-module-search-snapshot-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await writeFile(join(cwd, "module.ts"), "export const readOne = 1; export const readTwo = 2;");
+      await context.plugin(moduleSearchPlugin);
+      const tool = tools.snapshot().customTools[0]!;
+      const result = await tool.execute("snapshot", { query: "read", maxResults: Number.NaN }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ matches: [{ name: "readOne" }, { name: "readTwo" }] });
+      (result.details as { matches: { name: string }[] }).matches[0]!.name = "changed";
+      const first = (await panels.snapshot())[0]!.data as { latest: { matches: { name: string }[] } };
+      expect(first.latest.matches[0]!.name).toBe("readOne");
+      first.latest.matches[0]!.name = "changed again";
+      expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: { matches: [{ name: "readOne" }, { name: "readTwo" }] } });
+    } finally {
+      await context.fiber.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects cancelled and disposed searches without replacing the last successful report", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-module-search-cancel-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await writeFile(join(cwd, "module.ts"), "export const readOne = 1;");
+      await context.plugin(moduleSearchPlugin);
+      const tool = tools.snapshot().customTools[0]!;
+      await tool.execute("initial", { query: "read" }, undefined, undefined, {} as never);
+      const cancelled = new AbortController();
+      cancelled.abort(new Error("caller cancelled"));
+      await expect(tool.execute("cancelled", { query: "missing" }, cancelled.signal, undefined, {} as never)).rejects.toThrow("caller cancelled");
+      const active = new AbortController();
+      const pending = tool.execute("active", { query: "missing" }, active.signal, undefined, {} as never);
+      active.abort(new Error("active cancelled"));
+      await expect(pending).rejects.toThrow("active cancelled");
+      expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: { query: "read" } });
+      const disposing = tool.execute("disposing", { query: "missing" }, undefined, undefined, {} as never);
+      const rejected = expect(disposing).rejects.toThrow("Module search plugin disposed");
+      await context.fiber.dispose();
+      await rejected;
+      await expect(tool.execute("retained", { query: "read" }, undefined, undefined, {} as never)).rejects.toThrow("Module search plugin disposed");
+      expect(tools.snapshot().customTools).toHaveLength(0);
+      expect(await panels.snapshot()).toHaveLength(0);
+    } finally {
+      await context.fiber.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+test("searches the active native workspace and discards reports across session changes", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-module-native-"));
+  const active = join(cwd, "active");
+  await mkdir(active);
+  await writeFile(join(cwd, "source.ts"), "export const launchOnly = 1;");
+  await writeFile(join(active, "source.ts"), "export const activeOnly = 1;");
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  let session = { sessionId: "first", sessionManager: { getCwd: () => cwd } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await context.plugin(moduleSearchPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    await tool.execute("first", { query: "Only", path: "source.ts" }, undefined, undefined, {} as never);
+    session = { sessionId: "second", sessionManager: { getCwd: () => active } };
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: null, matchCount: 0 });
+    await expect(tool.execute("active", { query: "Only", path: "source.ts" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { matches: [{ name: "activeOnly" }] },
+    });
+    const pending = tool.execute("pending", { query: "Only" }, undefined, undefined, {} as never);
+    const rejected = expect(pending).rejects.toThrow(/workspace changed/iu);
+    session.sessionId = "third";
+    await rejected;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ latest: null, matchCount: 0 });
+    await expect(
+      tool.execute(
+        "getter",
+        {
+          get query() {
+            session.sessionId = "fourth";
+            return "Only";
+          },
+        },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/workspace changed/iu);
+  } finally {
+    await context.fiber.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

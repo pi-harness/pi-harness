@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -612,4 +612,80 @@ describe("modlens plugin", () => {
       }
     }
   });
+});
+
+test.each(["native", "evidence"])("uses the active native workspace and clears %s state and cache", async (mode) => {
+  const { context, cwd, tools, panels } = await fixture();
+  const active = join(cwd, "active");
+  await mkdir(active);
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", "base64");
+  await writeFile(join(cwd, "image.png"), bytes);
+  await writeFile(join(active, "image.png"), Buffer.concat([bytes, Buffer.from("active")]));
+  const cliPath = join(cwd, "engine.mjs");
+  await writeFile(
+    cliPath,
+    `import {readFileSync} from "node:fs"; const result=${JSON.stringify(completeVisionEvidence("fixture"))};result.summary=readFileSync(process.argv[process.argv.indexOf("-i")+1]).toString("base64"); console.log(JSON.stringify({result}));`,
+  );
+  await context.plugin(modlensPlugin, { cliPath });
+  let session = { sessionId: "first", sessionManager: { getCwd: () => cwd } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  const tool = tools.snapshot().customTools[0]!;
+  const execution = { model: { input: mode === "native" ? ["image"] : ["text"] } } as never;
+  await tool.execute("first", { path: "image.png" }, undefined, undefined, execution);
+  session = { sessionId: "second", sessionManager: { getCwd: () => active } };
+  expect(await modlensPanelData(panels)).toMatchObject({ attached: false, image: null, status: { state: "idle" } });
+  const result = await tool.execute("active", { path: "image.png" }, undefined, undefined, execution);
+  expect(result.details).toMatchObject({ bytes: bytes.length + 6, cached: false });
+  if (mode === "native") expect(result.content[0]).toMatchObject({ type: "image", data: Buffer.concat([bytes, Buffer.from("active")]).toString("base64") });
+  else {
+    expect((await tool.execute("cached", { path: "image.png" }, undefined, undefined, execution)).details).toMatchObject({ cached: true });
+    session.sessionId = "third";
+    expect((await tool.execute("uncached", { path: "image.png" }, undefined, undefined, execution)).details).toMatchObject({ cached: false });
+  }
+  const pending = tool.execute("pending", { path: "image.png" }, undefined, undefined, execution);
+  const rejected = expect(pending).rejects.toThrow(/workspace changed/iu);
+  session.sessionId += "-new";
+  await rejected;
+  expect(await modlensPanelData(panels)).toMatchObject({ attached: false, image: null, status: { state: "idle" } });
+  const params = new Proxy(
+    { path: "image.png" },
+    {
+      ownKeys(target) {
+        session.sessionId += "-params";
+        void panels.snapshot();
+        return Reflect.ownKeys(target);
+      },
+    },
+  );
+  await expect(tool.execute("params", params, undefined, undefined, execution)).rejects.toThrow(/workspace changed/iu);
+  expect(await modlensPanelData(panels)).toMatchObject({ attached: false, image: null, status: { state: "idle" } });
+  await context.fiber.dispose();
+  await expect(tool.execute("disposed", { path: "image.png" }, undefined, undefined, execution)).rejects.toThrow(/cancelled/iu);
+});
+
+test.each([0, 7])("discards an already-started evidence engine after session replacement, exit %i", async (exitCode) => {
+  const { context, cwd, tools, panels } = await fixture();
+  const cliPath = join(cwd, "held-engine.mjs"),
+    ready = join(cwd, "ready"),
+    release = join(cwd, "release");
+  await writeFile(join(cwd, "image.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", "base64"));
+  await writeFile(
+    cliPath,
+    `import {existsSync,writeFileSync} from "node:fs";writeFileSync(${JSON.stringify(ready)}, "");const timer=setInterval(()=>{if(existsSync(${JSON.stringify(release)})){clearInterval(timer);console.log(${JSON.stringify(JSON.stringify({ result: completeVisionEvidence("old evidence") }))});process.exit(${exitCode});}},10);setTimeout(()=>process.exit(9),5000).unref();`,
+  );
+  await context.plugin(modlensPlugin, { cliPath });
+  const session = { sessionId: "first", sessionManager: { getCwd: () => cwd } };
+  context.provide("piRuntime", { session } as never);
+  const tool = tools.snapshot().customTools[0]!;
+  const pending = tool.execute("held", { path: "image.png" }, undefined, undefined, {} as never);
+  const rejected = expect(pending).rejects.toThrow(/workspace changed/iu);
+  await vi.waitFor(() => expect(existsSync(ready)).toBe(true));
+  session.sessionId = "second";
+  await writeFile(release, "");
+  await rejected;
+  expect(await modlensPanelData(panels)).toMatchObject({ attached: false, image: null, status: { state: "idle" } });
 });

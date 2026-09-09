@@ -3,18 +3,27 @@ import { lstat, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import tabManagerPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 // Lets one test seize the store lock while a mutation is mid-write, which is the only moment a reclaimed owner can be observed.
-const fs = vi.hoisted(() => ({ beforeRename: undefined as (() => Promise<void>) | undefined }));
+const fs = vi.hoisted(() => ({ beforeRename: undefined as (() => Promise<void>) | undefined, lockAttempt: undefined as (() => void) | undefined }));
 
 vi.mock("node:fs/promises", async () => {
   const actual = await vi.importActual<typeof FsPromises>("node:fs/promises");
   return {
     ...actual,
     default: actual,
+    async mkdir(...args: Parameters<typeof actual.mkdir>) {
+      try {
+        return await actual.mkdir(...args);
+      } catch (error) {
+        if (String(args[0]).endsWith("session-tabs.json.lock") && (error as NodeJS.ErrnoException).code === "EEXIST") fs.lockAttempt?.();
+        throw error;
+      }
+    },
     async rename(...args: Parameters<typeof actual.rename>) {
       const hook = fs.beforeRename;
       fs.beforeRename = undefined;
@@ -25,9 +34,11 @@ vi.mock("node:fs/promises", async () => {
 });
 
 const contexts: Context[] = [];
+const roots: string[] = [];
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-tabs-"));
+  roots.push(root);
   const context = new Context();
   const tools = new PiToolRegistry();
   const panels = new PiPluginUiRegistry();
@@ -44,7 +55,9 @@ async function fixture() {
 
 afterEach(async () => {
   fs.beforeRename = undefined;
+  fs.lockAttempt = undefined;
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("tab manager", () => {
@@ -56,15 +69,15 @@ describe("tab manager", () => {
       details: { id: "session-1", label: "Current", pinned: true },
     });
     await expect(tool.execute("rename", { action: "rename", label: "Renamed" }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      details: { activeId: "session-1", tabs: [{ label: "Renamed", pinned: true }] },
+      details: { selectedId: "session-1", tabs: [{ label: "Renamed", pinned: true }] },
     });
     await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { tabs: [{ label: "Renamed" }] },
     });
     await expect(tool.execute("remove", { action: "remove" }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      details: { tabs: [], activeId: null },
+      details: { tabs: [], selectedId: null },
     });
-    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { tabs: [], activeId: null } }]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { tabs: [], selectedId: null } }]);
   });
 
   test("pins another session by its requested path without touching the active session's tab", async () => {
@@ -80,19 +93,18 @@ describe("tab manager", () => {
     });
     await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: {
-        activeId: "session-1",
+        selectedId: "session-1",
         tabs: [
           { id: "session-1", label: "Mine" },
           { id: "session-2", label: "Other" },
         ],
       },
     });
-    await expect(tool.execute("activate", { action: "activate", sessionPath: otherPath }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      content: [{ type: "text", text: "Active session tab: Other" }],
-      details: { activeId: "session-2" },
-    });
+    await expect(tool.execute("activate", { action: "activate", sessionPath: otherPath }, undefined, undefined, {} as never)).rejects.toThrow(
+      /requires the Pi runtime/i,
+    );
     await expect(tool.execute("remove", { action: "remove", sessionPath: otherPath }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      details: { activeId: "session-1", tabs: [{ id: "session-1", label: "Mine" }] },
+      details: { selectedId: "session-1", tabs: [{ id: "session-1", label: "Mine" }] },
     });
   });
 
@@ -201,13 +213,14 @@ describe("tab manager", () => {
     await expect(tool.execute("pin-root", { action: "pin", sessionPath: "/" }, undefined, undefined, {} as never)).rejects.toThrow(/session file/iu);
     await expect(readFile(join(root, "session-tabs.json"), "utf8")).resolves.toBe(before);
     await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      details: { activeId: "session-1", tabs: [{ id: "session-1", label: "Mine" }] },
+      details: { selectedId: "session-1", tabs: [{ id: "session-1", label: "Mine" }] },
     });
   });
 
   test("recovers from a corrupt store at activation instead of failing the plugin fiber", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-tabs-"));
-    await writeFile(join(root, "session-tabs.json"), '{"tabs":[{"id":"","label":"","sessionPath":"/","pinned":true,"updatedAt":"nope"}],"activeId"', "utf8");
+    roots.push(root);
+    await writeFile(join(root, "session-tabs.json"), '{"tabs":[{"id":"","label":"","sessionPath":"/","pinned":true,"updatedAt":"nope"}],"selectedId"', "utf8");
     const context = new Context();
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
@@ -229,4 +242,110 @@ describe("tab manager", () => {
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
   });
+});
+
+test("does not write after cancellation or plugin disposal", async () => {
+  const { root, context, tool } = await fixture();
+  const abort = new AbortController();
+  abort.abort();
+  await expect(tool.execute("cancel", { action: "pin" }, abort.signal, undefined, {} as never)).rejects.toThrow(/cancel/i);
+  await expect(lstat(join(root, "session-tabs.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  await context.fiber.dispose();
+  await expect(tool.execute("disposed", { action: "pin" }, undefined, undefined, {} as never)).rejects.toThrow(/cancel/i);
+});
+
+test("preserves the active tab when removing a different tab", async () => {
+  const { root, tool } = await fixture();
+  for (const name of ["one", "two", "three"])
+    await tool.execute(name, { action: "pin", sessionPath: join(root, name + ".jsonl") }, undefined, undefined, {} as never);
+  await tool.execute("rename", { action: "rename", sessionPath: join(root, "one.jsonl"), label: "Selected" }, undefined, undefined, {} as never);
+  const result = await tool.execute("remove", { action: "remove", sessionPath: join(root, "two.jsonl") }, undefined, undefined, {} as never);
+  expect(result.details).toMatchObject({ selectedId: "one" });
+  expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(result.details);
+});
+
+test("rejects unknown parameters and oversized raw labels before writing", async () => {
+  const { tool } = await fixture();
+  await expect(tool.execute("relative", { action: "pin", sessionPath: "relative.jsonl" }, undefined, undefined, {} as never)).rejects.toThrow(/absolute path/i);
+  await expect(tool.execute("invalid", { action: "pin", extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/parameter/i);
+  await expect(tool.execute("invalid", { action: "pin", label: " ".repeat(121) }, undefined, undefined, {} as never)).rejects.toThrow(/label/i);
+});
+
+test("pins the native runtime manager and rejects ephemeral sessions", async () => {
+  const { root, context, tool } = await fixture();
+  const manager = SessionManager.create(root, join(root, "native-sessions"));
+  const runtime = { session: { sessionManager: manager } };
+  context.provide("piRuntime", runtime as never);
+  const result = await tool.execute("active", { action: "pin" }, undefined, undefined, {} as never);
+  expect(result.details).toMatchObject({ id: manager.getSessionId(), sessionPath: manager.getSessionFile() });
+  runtime.session.sessionManager = SessionManager.inMemory(root);
+  await expect(tool.execute("ephemeral", { action: "pin" }, undefined, undefined, {} as never)).rejects.toThrow(/persistent session path/i);
+});
+
+test("cancels while waiting for another process lock without changing its files", async () => {
+  const { root, tool } = await fixture();
+  const lock = join(root, "session-tabs.json.lock");
+  await mkdir(lock);
+  const owner = JSON.stringify({ pid: process.pid, token: "live" });
+  await writeFile(join(lock, "live.owner"), owner);
+  const abort = new AbortController();
+  const attempted = new Promise<void>((resolve) => {
+    fs.lockAttempt = resolve;
+  });
+  const pending = tool.execute("waiting", { action: "pin" }, abort.signal, undefined, {} as never);
+  const assertion = expect(pending).rejects.toThrow(/cancel/i);
+  await attempted;
+  abort.abort();
+  await assertion;
+  expect(await readFile(join(lock, "live.owner"), "utf8")).toBe(owner);
+  await expect(lstat(join(root, "session-tabs.json"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("returns queued activation before idle and only switches once the source settles", async () => {
+  const { root, context, tool, panels } = await fixture();
+  const target = join(root, "target.jsonl");
+  await writeFile(target, JSON.stringify({ type: "session", version: 3, id: "target", cwd: root, timestamp: new Date().toISOString() }) + "\n");
+  await tool.execute("pin", { action: "pin", sessionPath: target }, undefined, undefined, {} as never);
+  let idle!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    idle = resolve;
+  });
+  const source = {
+    sessionId: "source",
+    sessionFile: join(root, "source.jsonl"),
+    sessionManager: SessionManager.create(root, join(root, "sessions")),
+    isIdle: false,
+    waitForIdle: () => wait,
+  };
+  const runtime = {
+    session: source,
+    sessionRuntime: {
+      switchSession: vi.fn((path: string) => {
+        runtime.session = { ...source, sessionFile: path, sessionManager: SessionManager.open(path) };
+        return Promise.resolve({ cancelled: false });
+      }),
+    },
+  };
+  context.provide("piRuntime", runtime as never);
+  const accepted = await tool.execute("activate", { action: "activate", sessionPath: target }, undefined, undefined, {} as never);
+  expect(accepted.details).toMatchObject({ state: "waiting", sessionPath: target });
+  expect(runtime.sessionRuntime.switchSession).not.toHaveBeenCalled();
+  await expect(tool.execute("duplicate", { action: "activate", sessionPath: target }, undefined, undefined, {} as never)).rejects.toThrow(/already pending/);
+  source.isIdle = true;
+  idle();
+  await vi.waitFor(async () => expect((await panels.snapshot())[0]?.data).toMatchObject({ activation: { state: "completed" }, currentSessionPath: target }));
+  expect(runtime.sessionRuntime.switchSession).toHaveBeenCalledTimes(1);
+  runtime.session.waitForIdle = () => new Promise<void>(() => {});
+  runtime.session.isIdle = false;
+  const abort = new AbortController();
+  await tool.execute("cancel", { action: "activate", sessionPath: target }, abort.signal, undefined, {} as never);
+  abort.abort();
+  await vi.waitFor(async () => expect((await panels.snapshot())[0]?.data).toMatchObject({ activation: { state: "cancelled" } }));
+  expect(runtime.sessionRuntime.switchSession).toHaveBeenCalledTimes(1);
+  runtime.session.waitForIdle = () => Promise.resolve();
+  runtime.session.isIdle = true;
+  await rm(target);
+  await tool.execute("missing", { action: "activate", sessionPath: target }, undefined, undefined, {} as never);
+  await vi.waitFor(async () => expect((await panels.snapshot())[0]?.data).toMatchObject({ activation: { state: "failed" } }));
+  expect(runtime.sessionRuntime.switchSession).toHaveBeenCalledTimes(1);
 });

@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { ClientMarketplacePlugin, ClientPiConfig } from "../src/control-room.js";
 import type { ConfigStatus } from "../src/react-room.js";
 import {
+  PluginPanelCard,
   ChatTurnArticle,
   CommandPalette,
   Marketplace,
@@ -412,4 +413,145 @@ describe("command palette with an empty registry", () => {
     ).toBe(true);
     expect(/className="tool-chip"\s*disabled=\{!data\.commands\.length\}/u.test(source)).toBe(true);
   });
+});
+
+test("shows navigator Git status without requiring a tree first", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "workspace-navigator-panel",
+        pluginId: "@pi-harness/plugin-workspace-navigator",
+        title: "Workspace Navigator",
+        data: {
+          cwd: "/workspace/current",
+          latest: null,
+          git: {
+            available: true,
+            branch: "feature-current",
+            clean: false,
+            changedCount: 1,
+            truncated: false,
+            entries: [{ status: "??", path: "current.txt" }],
+          },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("feature-current");
+  expect(html).toContain("current.txt");
+  expect(html).toContain("/workspace/current");
+});
+
+test("shows incomplete workspace searches even when no matches were collected", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "workspace-search-panel",
+        pluginId: "@pi-harness/plugin-workspace-search",
+        title: "Workspace Search",
+        data: {
+          cwd: "/workspace/current",
+          latest: {
+            query: "needle",
+            path: ".",
+            matches: [],
+            matchCount: 0,
+            scannedFiles: 2,
+            skippedFiles: 1,
+            truncated: true,
+            scannedEntries: 4,
+            readBytes: 1024,
+          },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("/workspace/current");
+  expect(html).toContain("结果不完整");
+  expect(html).toContain("needle");
+});
+
+test("shows YAML warning text and the inspected workspace path", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "yaml-validator-panel",
+        pluginId: "@pi-harness/plugin-yaml-validator",
+        title: "YAML Validator",
+        data: {
+          cwd: "/workspace/current",
+          latest: {
+            path: "warning.yml",
+            valid: true,
+            documents: 1,
+            bytes: 20,
+            rootType: "map",
+            errorCount: 0,
+            warningCount: 1,
+            errors: [],
+            warnings: [{ message: "Unresolved tag: !unknown", code: "TAG_RESOLVE_FAILED", line: 1, column: 7 }],
+          },
+          status: { state: "completed" },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("/workspace/current");
+  expect(html).toContain("warning.yml");
+  expect(html).toContain("Unresolved tag: !unknown");
+});
+
+test("reports the actual sidebar preview count without calling Git truncation a directory error", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "better-sidebar-panel",
+        pluginId: "@pi-harness/plugin-better-sidebar",
+        title: "Better Sidebar",
+        description: "",
+        icon: "",
+        data: {
+          cwd: "/active",
+          changedCount: 15,
+          changedFiles: Array.from({ length: 12 }, (_, i) => ({ path: `file-${i}.txt`, status: "??" })),
+          truncated: true,
+        },
+      },
+    }),
+  );
+  expect(html).toContain("显示 8 / 15 个变更");
+  expect(html).toContain("概览包含截断的结果");
+  expect(html).not.toContain("目录摘要已截断");
+  expect(html).not.toContain("file-8.txt");
+});
+
+test("shows review locations and prioritizes errors in the visible findings", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "reviewer-bot-panel",
+        pluginId: "@pi-harness/plugin-reviewer-bot",
+        title: "Reviewer Bot",
+        data: {
+          latest: {
+            cwd: "/workspace/active",
+            status: "error",
+            changedFiles: 1,
+            findingCount: 6,
+            addedLines: 6,
+            removedLines: 0,
+            findings: [
+              ...Array.from({ length: 5 }, (_, index) => ({ severity: "warning", message: `warning-${index}`, path: "notes.txt" })),
+              { severity: "error", message: "credential pattern", path: "current.ts" },
+            ],
+          },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("/workspace/active");
+  expect(html).toContain("current.ts");
+  expect(html).toContain("credential pattern");
+  expect(html).toContain("4/6");
+  expect(html).not.toContain("warning-3");
 });

@@ -36,6 +36,72 @@ async function createFixture(config?: { fileName?: string; maxNodes?: number; ma
 }
 
 describe("graph memory production boundaries", () => {
+  test("cancels a search queued behind a blocked mutation promptly", async () => {
+    const fixture = await createFixture();
+    const writer = new AbortController();
+    const reader = new AbortController();
+    let pending: Promise<unknown> | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await fixture.panels.snapshot();
+      await mkdir(join(fixture.agentDir, "graph-memory.json.lock"));
+      const record = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_record")!;
+      const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search")!;
+      pending = record.execute("blocked", { kind: "task", label: "Blocked", summary: "Waiting" }, writer.signal, undefined, {} as never).catch(() => undefined);
+      const result = search.execute("cancelled", { query: "blocked" }, reader.signal, undefined, {} as never).then(
+        () => "completed",
+        (error: Error) => error.message,
+      );
+      reader.abort(new Error("Search cancelled while queued"));
+      const deadline = new Promise<string>((resolve) => {
+        timeout = setTimeout(() => resolve("still waiting"), 1_000);
+      });
+      expect(await Promise.race([result, deadline])).toBe("Search cancelled while queued");
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+      writer.abort();
+      await pending;
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("refreshes searches and panel state after external graph writes", async () => {
+    const fixture = await createFixture();
+    const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search")!;
+    const path = join(fixture.agentDir, "graph-memory.json");
+    const now = new Date().toISOString();
+    const node = { id: "external", kind: "event", label: "External update", summary: "Another instance wrote this", createdAt: now, updatedAt: now };
+    try {
+      await fixture.panels.snapshot();
+      await writeFile(path, JSON.stringify({ version: 1, nodes: [node], relations: [] }));
+      await expect(search.execute("refresh", { query: "external" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 1 } });
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { nodes: 1, lastSearch: { total: 1 } } }]);
+      await writeFile(path, JSON.stringify({ version: 1, nodes: [], relations: [] }));
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { nodes: 0, lastSearch: null } }]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects duplicate persisted relation ids before mutation", async () => {
+    const fixture = await createFixture();
+    const now = new Date().toISOString();
+    const nodes = ["a", "b", "c"].map((id) => ({ id, kind: "task", label: id, summary: id, createdAt: now, updatedAt: now }));
+    const relations = ["b", "c"].map((to) => ({ id: "duplicate", from: "a", to, relation: "RELATED_TO", createdAt: now }));
+    const path = join(fixture.agentDir, "graph-memory.json");
+    const source = JSON.stringify({ version: 1, nodes, relations });
+    await writeFile(path, source);
+    try {
+      const record = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_record")!;
+      await expect(record.execute("invalid", { kind: "task", label: "new", summary: "new" }, undefined, undefined, {} as never)).rejects.toThrow(
+        /duplicate relation ids/,
+      );
+      expect(await readFile(path, "utf8")).toBe(source);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("falls back to finite default limits for non-finite configuration", async () => {
     const fixture = await createFixture({ maxNodes: Number.NaN, maxRelations: Number.POSITIVE_INFINITY });
     try {

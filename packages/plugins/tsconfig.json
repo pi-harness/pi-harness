@@ -1,7 +1,12 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "rootDir": "../.."
+    "rootDir": "../..",
+    "paths": {
+      "@pi-harness/core": ["packages/core/src/index.ts"],
+      "@pi-harness/plugin-api": ["packages/plugin-api/src/index.ts"],
+      "@pi-harness/plugin-*": ["packages/plugins/*/src/index.ts"]
+    }
   },
   "include": ["*/src/**/*.ts", "*/test/**/*.ts"]
 }

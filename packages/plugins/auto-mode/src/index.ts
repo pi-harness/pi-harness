@@ -38,7 +38,6 @@ const safeCommands = new Set([
   "diff",
   "dirname",
   "echo",
-  "file",
   "grep",
   "head",
   "id",
@@ -51,6 +50,33 @@ const safeCommands = new Set([
   "wc",
   "which",
   "whoami",
+]);
+const safeFileOptions = new Set([
+  "-b",
+  "--brief",
+  "-i",
+  "-I",
+  "--mime",
+  "--mime-type",
+  "--mime-encoding",
+  "--extension",
+  "-h",
+  "--no-dereference",
+  "-L",
+  "--dereference",
+  "-k",
+  "--keep-going",
+  "-n",
+  "--no-buffer",
+  "-N",
+  "--no-pad",
+  "-0",
+  "--print0",
+  "-r",
+  "--raw",
+  "-v",
+  "--version",
+  "--help",
 ]);
 const safeGitSubcommands = new Set(["blame", "cat-file", "describe", "diff", "grep", "log", "ls-files", "ls-tree", "rev-parse", "show", "status"]);
 // A read-only git subcommand runs a program by two independent routes, and screening argv only closes the first one.
@@ -325,6 +351,14 @@ async function containsSubmodule(cwd: string, timeoutMs: number, signal?: AbortS
 async function isRisky(command: string[], repositoryProbe: (subcommand: string) => Promise<boolean>): Promise<boolean> {
   if (/[\\/]/u.test(command[0] ?? "")) return true;
   const executable = commandName(command[0] ?? "");
+  if (executable === "file") {
+    // file can compile magic databases and launch external decompressors, so only known inspection options run without confirmation.
+    for (const argument of command.slice(1)) {
+      if (argument === "--") break;
+      if (argument.startsWith("-") && argument !== "-" && !safeFileOptions.has(argument)) return true;
+    }
+    return false;
+  }
   if (safeCommands.has(executable)) return false;
   if (executable !== "git") return true;
   const subcommand = command[1]?.toLowerCase() ?? "";
@@ -356,8 +390,31 @@ export default {
     const lifecycle = new AbortController();
     let blocked = 0;
     let last: AutoModeResult | undefined;
-    const execute = async (command: string[], confirm: boolean, signal?: AbortSignal): Promise<AutoModeResult> => {
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        last = undefined;
+        blocked = 0;
+      }
+      return scope;
+    };
+    const execute = async (
+      command: string[],
+      confirm: boolean,
+      operationScope: ReturnType<typeof readScope>,
+      signal?: AbortSignal,
+    ): Promise<AutoModeResult> => {
       signal?.throwIfAborted();
+      const assertCurrent = () => {
+        if (refreshScope() !== operationScope) throw new Error("Auto mode workspace changed during command execution");
+      };
+      assertCurrent();
       try {
         validateCommand(command);
       } catch (error) {
@@ -369,11 +426,12 @@ export default {
         const risky = await isRisky(
           requested,
           async (subcommand) =>
-            (await configuresProgramExecution(subcommand, context.piHarnessLaunch.cwd, timeoutMs, signal)) ||
-            (worktreeReadingGitSubcommands.has(subcommand) && (await runsIndexChangeHook(context.piHarnessLaunch.cwd, timeoutMs, signal))) ||
-            (await containsSubmodule(context.piHarnessLaunch.cwd, timeoutMs, signal)),
+            (await configuresProgramExecution(subcommand, operationScope.cwd, timeoutMs, signal)) ||
+            (worktreeReadingGitSubcommands.has(subcommand) && (await runsIndexChangeHook(operationScope.cwd, timeoutMs, signal))) ||
+            (await containsSubmodule(operationScope.cwd, timeoutMs, signal)),
         );
         signal?.throwIfAborted();
+        assertCurrent();
         if (risky) {
           blocked += 1;
           throw new Error("Auto mode blocked a risky command; retry with confirm=true");
@@ -385,15 +443,18 @@ export default {
       }
       // An unconfirmed git command is additionally run with the repository's textconv and external diff drivers switched off, which narrows the window between the probe and this call. It does not close it: a content filter added in that window still runs, because git has to apply filter.<driver>.clean to compare the worktree with the index and no option turns that off. The probe is what closes the class; these flags only remove the diff-driver route.
       const argv = confirm ? requested : withDiffDriverFreeGitFlags(requested);
+      signal?.throwIfAborted();
+      assertCurrent();
       const started = Date.now();
+      let completed: AutoModeResult;
       try {
         const result = await execFileAsync(argv[0]!, argv.slice(1), {
-          cwd: context.piHarnessLaunch.cwd,
+          cwd: operationScope.cwd,
           timeout: timeoutMs,
           maxBuffer: maxOutputBytes,
           signal,
         });
-        last = {
+        completed = {
           command: argv,
           allowed: true,
           confirmed: confirm,
@@ -405,7 +466,7 @@ export default {
       } catch (error) {
         signal?.throwIfAborted();
         const failure = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
-        last = {
+        completed = {
           command: argv,
           allowed: true,
           confirmed: confirm,
@@ -415,7 +476,10 @@ export default {
           durationMs: Date.now() - started,
         };
       }
-      return last;
+      signal?.throwIfAborted();
+      assertCurrent();
+      last = completed;
+      return completed;
     };
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -433,7 +497,9 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<AutoModeResult>> {
           const executionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
-          const result = await execute(params.command, params.confirm === true, executionSignal);
+          executionSignal.throwIfAborted();
+          const operationScope = refreshScope();
+          const result = await execute(params.command, params.confirm === true, operationScope, executionSignal);
           return {
             content: [{ type: "text", text: `${result.command.join(" ")} exited with ${result.exitCode ?? "unknown"}.\n${result.stdout}${result.stderr}` }],
             details: structuredClone(result),
@@ -447,7 +513,10 @@ export default {
       title: "Auto Mode",
       description: "按安全策略执行 argv 命令，风险操作需要确认。",
       icon: "◈",
-      read: () => ({ mode, timeoutMs, blocked, last: last === undefined ? null : structuredClone(last) }),
+      read: () => {
+        refreshScope();
+        return { mode, timeoutMs, blocked, last: last === undefined ? null : structuredClone(last) };
+      },
     });
     context.effect(() => () => {
       lifecycle.abort(new Error("Auto mode plugin disposed"));

@@ -7,8 +7,9 @@ describe("SQL Lens panel view", () => {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
       timeoutMs: 1_500,
       latest: {
+        cwd: "/workspace",
         database: "data.db",
-        query: "SELECT id, name FROM users",
+        query: "-- multiline query\nSELECT id, name FROM users",
         columns: ["id", "name"],
         rows: [{ id: 1, name: "Ada" }],
         truncated: false,
@@ -31,8 +32,9 @@ describe("SQL Lens panel view", () => {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z", error: null },
       timeoutMs: 1_500,
       latest: {
+        cwd: "/workspace",
         database: "data.db",
-        query: "SELECT id, name FROM users",
+        query: "-- multiline query\nSELECT id, name FROM users",
         columns: ["id", "name"],
         rows: [{ id: 1, name: "Ada" }],
         rowInventory: { scanned: 1, returned: 1, shown: 1, truncated: false, displayLimit: 20 },
@@ -55,6 +57,7 @@ describe("SQL Lens panel view", () => {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
       timeoutMs: 5_000,
       latest: {
+        cwd: "/workspace",
         database: "data.db",
         query: "SELECT id, name FROM users LIMIT 50",
         columns: ["id", "name"],
@@ -86,6 +89,7 @@ describe("SQL Lens panel view", () => {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
       timeoutMs: 5_000,
       latest: {
+        cwd: "/workspace",
         database: "data.db",
         query: "SELECT id FROM users",
         columns: ["id"],
@@ -141,6 +145,7 @@ describe("SQL Lens panel view", () => {
       status: { state: "failed", at: "2026-09-05T01:00:00.000Z", error: "e".repeat(5_000) },
       timeoutMs: Number.NaN,
       latest: {
+        cwd: "/workspace",
         database: "d".repeat(8_000),
         query: "q".repeat(80_000),
         columns,
@@ -169,6 +174,7 @@ describe("SQL Lens panel view", () => {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
       timeoutMs: 5_000,
       latest: {
+        cwd: "/workspace",
         database: "data.db",
         query: "SELECT id, note FROM notes",
         columns: ["id", "note"],
@@ -190,6 +196,10 @@ describe("SQL Lens panel view", () => {
     };
 
     expect(sqlLensPanelView(payload)).toMatchObject({ malformed: false, latest: { rows: [{ id: 1, note }] } });
+    const chinese = "汉".repeat(16000);
+    expect(
+      sqlLensPanelView({ ...payload, latest: { ...payload.latest, query: `SELECT '${chinese}' AS note`, rows: [{ id: 1, note: chinese }] } }).malformed,
+    ).toBe(false);
     expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rows: [{ id: 1, note: "bad\u0000cell" }] } }).malformed).toBe(true);
     expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rows: [{ id: 1, note: "bad\u2028cell" }] } }).malformed).toBe(true);
     expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, columns: ["id", "no\nte"], rows: [{ id: 1, "no\nte": note }] } }).malformed).toBe(true);
@@ -202,8 +212,9 @@ describe("SQL Lens panel view", () => {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
       timeoutMs: 5_000,
       latest: {
+        cwd: "/workspace",
         database: "data.db",
-        query: "SELECT id, name FROM users",
+        query: "-- multiline query\nSELECT id, name FROM users",
         columns: ["id", "name"],
         rows,
         truncated: false,

@@ -1,8 +1,50 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import { createPromptTemplate } from "../src/index.js";
 import promptLibraryPlugin from "../src/index.js";
+
+async function fixture() {
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let entries: unknown[] = [];
+  let failWrite = false;
+  let header = {};
+  const session = {
+    manager: {
+      getHeader: () => header,
+      getEntries: () => entries,
+      appendCustomEntry: (customType: string, data: unknown) => {
+        if (failWrite) {
+          entries.push({ type: "custom", customType, data });
+          throw new Error("disk full");
+        }
+        entries.push({ type: "custom", customType, data });
+      },
+    },
+  };
+  context.provide("piSession", session as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(promptLibraryPlugin);
+  const tool = tools.snapshot().customTools[0]!;
+  return {
+    context,
+    panels,
+    tools,
+    entries: () => entries,
+    switchSession: () => {
+      entries = [];
+      header = {};
+    },
+    fail: () => {
+      failWrite = true;
+    },
+    call: (params: unknown, signal?: AbortSignal) => tool.execute("test", params, signal, undefined, {} as never),
+  };
+}
 
 describe("prompt library", () => {
   test("normalizes a bounded prompt template", () => {
@@ -30,6 +72,7 @@ describe("prompt library", () => {
     const entries: unknown[] = [];
     context.provide("piSession", {
       manager: {
+        getHeader: () => entries,
         getEntries: () => entries,
         appendCustomEntry: (_type: string, data: unknown) => entries.push({ type: "custom", customType: "pi-harness/prompt-library", data }),
       },
@@ -53,4 +96,122 @@ describe("prompt library", () => {
       await context.fiber.dispose();
     }
   });
+  test("isolates returned state and refreshes the panel when the session changes", async () => {
+    const f = await fixture();
+    try {
+      const saved = await f.call({ action: "save", title: "first", prompt: "body" });
+      (saved.details as { templates: { title: string }[] }).templates[0]!.title = "changed";
+      expect(JSON.stringify(await f.panels.snapshot())).not.toContain("changed");
+      f.switchSession();
+      expect((await f.panels.snapshot())[0]?.data).toMatchObject({ total: 0 });
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+
+  test("rejects invalid parameters, unknown update IDs and cancelled or disposed calls", async () => {
+    const f = await fixture();
+    try {
+      for (const params of [
+        { action: "bogus" },
+        { action: "list", extra: true },
+        { action: "save", title: 1, prompt: "x" },
+        { action: "save", id: "missing", title: "x", prompt: "x" },
+      ])
+        await expect(f.call(params)).rejects.toThrow();
+      const controller = new AbortController();
+      const pending = f.call({ action: "save", title: "x", prompt: "x" }, controller.signal);
+      controller.abort();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      expect(f.entries()).toHaveLength(0);
+      await f.context.fiber.dispose();
+      await expect(f.call({ action: "list" })).rejects.toThrow(/cancelled/iu);
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+
+  test("quarantines a failed append and does not silently evict templates", async () => {
+    const f = await fixture();
+    try {
+      for (let i = 0; i < 100; i++) await f.call({ action: "save", title: String(i), prompt: "body" });
+      await expect(f.call({ action: "save", title: "overflow", prompt: "body" })).rejects.toThrow(/100/iu);
+      expect(f.entries()).toHaveLength(100);
+      const id = ((await f.call({ action: "list" })).details as { templates: { id: string }[] }).templates[0]!.id;
+      f.fail();
+      await expect(f.call({ action: "delete", id })).rejects.toThrow(/write failed/iu);
+      expect((await f.panels.snapshot())[0]?.error).toMatch(/reopen the session/iu);
+      await expect(f.call({ action: "list" })).rejects.toThrow(/reopen the session/iu);
+      f.switchSession();
+      await expect(f.call({ action: "list" })).resolves.toMatchObject({ details: { templates: [] } });
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+  test("rejects corrupt journals without overwriting them and never invokes parameter getters", async () => {
+    const f = await fixture();
+    try {
+      let accessed = false;
+      const params = { action: "save" };
+      Object.defineProperty(params, "title", {
+        get() {
+          accessed = true;
+          return "bad";
+        },
+        enumerable: true,
+      });
+      await expect(f.call(params)).rejects.toThrow(/data properties/iu);
+      expect(accessed).toBe(false);
+      f.entries().push({ type: "custom", customType: "pi-harness/prompt-library", data: { templates: [{ id: "broken" }] } });
+      await expect(f.call({ action: "save", title: "x", prompt: "x" })).rejects.toThrow();
+      expect(f.entries()).toHaveLength(1);
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+  test("does not write into a session switched after scheduling the call", async () => {
+    const f = await fixture();
+    try {
+      const pending = f.call({ action: "save", title: "old session", prompt: "body" });
+      f.switchSession();
+      await expect(pending).rejects.toThrow(/session changed/iu);
+      expect(f.entries()).toHaveLength(0);
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+});
+
+test("follows the native manager while the launch service stays unchanged and rejects pending session switches", async () => {
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  const launch = SessionManager.inMemory("/launch"),
+    active = SessionManager.inMemory("/active");
+  const runtime = { session: { sessionManager: launch } };
+  context.provide("piSession", { manager: launch });
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(promptLibraryPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    const call = (params: unknown) => tool.execute("native", params, undefined, undefined, {} as never);
+    await call({ action: "save", title: "launch", prompt: "launch body" });
+    const launchEntries = structuredClone(launch.getEntries());
+    runtime.session.sessionManager = active;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ total: 0, templates: [] });
+    await call({ action: "save", title: "active", prompt: "active body" });
+    expect((await call({ action: "list" })).details).toMatchObject({ templates: [{ title: "active" }] });
+    expect(launch.getEntries()).toEqual(launchEntries);
+    const activeEntries = structuredClone(active.getEntries());
+    const pending = call({ action: "save", title: "obsolete", prompt: "must not persist" });
+    runtime.session.sessionManager = launch;
+    await expect(pending).rejects.toThrow(/session changed/);
+    expect(active.getEntries()).toEqual(activeEntries);
+    expect(launch.getEntries()).toEqual(launchEntries);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ templates: [{ title: "launch" }] });
+  } finally {
+    await context.fiber.dispose();
+  }
 });

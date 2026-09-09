@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { constants, openSync, closeSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -76,6 +78,73 @@ async function fixture() {
 }
 
 describe("vision toolkit", () => {
+  test.skipIf(process.platform === "win32")("rejects a FIFO without waiting for a writer", async () => {
+    const { cwd } = await fixture();
+    const fifo = join(cwd, "pipe.png");
+    execFileSync("mkfifo", [fifo]);
+    let writerNeeded = false;
+    const rescue = setTimeout(() => {
+      writerNeeded = true;
+      const descriptor = openSync(fifo, constants.O_RDWR | constants.O_NONBLOCK);
+      closeSync(descriptor);
+    }, 1_000);
+    try {
+      await expect(imageInfo(cwd, "pipe.png")).rejects.toThrow(/regular file/iu);
+      expect(writerNeeded).toBe(false);
+    } finally {
+      clearTimeout(rescue);
+    }
+  });
+
+  test("reads the native workspace and clears old results on in-place session changes", async () => {
+    const { context, cwd, tools, panels } = await fixture();
+    const active = join(cwd, "active");
+    await mkdir(active);
+    await writeFile(join(cwd, "launch.png"), png(10, 10));
+    await writeFile(join(active, "current.png"), png(32, 18));
+    const session = { sessionId: "first", sessionManager: { getCwd: () => active } };
+    context.provide("piRuntime", { session } as never);
+    await context.plugin(visionToolkitPlugin, {});
+    const catalog = tools.snapshot().customTools.find((t) => t.name === "vision_catalog")!;
+    const info = tools.snapshot().customTools.find((t) => t.name === "vision_image_info")!;
+    const result = await catalog.execute("catalog", {}, undefined, undefined, {} as never);
+    expect((result.details as { assets: { path: string }[] }).assets.map((asset) => asset.path)).toEqual(["current.png"]);
+    await expect(info.execute("info", { path: "current.png" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { width: 32, height: 18 },
+    });
+    session.sessionId = "next";
+    expect((await panels.snapshot())[0]?.data).toMatchObject({ status: { state: "idle" }, report: null });
+  });
+
+  test("rejects stale completion without publishing it in the replacement session", async () => {
+    const { context, cwd, tools, panels } = await fixture();
+    await writeFile(join(cwd, "image.png"), png(32, 18));
+    const session = { sessionId: "first", sessionManager: { getCwd: () => cwd } };
+    context.provide("piRuntime", { session } as never);
+    await context.plugin(visionToolkitPlugin, {});
+    const catalog = tools.snapshot().customTools.find((t) => t.name === "vision_catalog")!;
+    const run = catalog.execute("catalog", {}, undefined, undefined, {} as never);
+    const rejected = expect(run).rejects.toThrow(/workspace changed/iu);
+    session.sessionId = "next";
+    const during = (await panels.snapshot())[0]?.data;
+    await rejected;
+    expect(during).toMatchObject({ status: { state: "idle" }, report: null });
+    expect((await panels.snapshot())[0]?.data).toMatchObject({ status: { state: "idle" }, report: null });
+  });
+
+  test("rejects overlapping tool requests without replacing the active operation status", async () => {
+    const { context, cwd, tools, panels } = await fixture();
+    await writeFile(join(cwd, "image.png"), png(32, 18));
+    await context.plugin(visionToolkitPlugin, {});
+    const catalog = tools.snapshot().customTools.find((t) => t.name === "vision_catalog")!;
+    const info = tools.snapshot().customTools.find((t) => t.name === "vision_image_info")!;
+    const run = catalog.execute("catalog", {}, undefined, undefined, {} as never);
+    await expect(info.execute("overlap", { path: "image.png" }, undefined, undefined, {} as never)).rejects.toThrow(/already running/iu);
+    await run;
+    expect((await panels.snapshot())[0]?.data).toMatchObject({ status: { state: "completed", operation: "catalog" } });
+    await expect(info.execute("after", { path: "image.png" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { width: 32 } });
+  });
+
   test("catalogs supported workspace images with dimensions", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-vision-toolkit-"));
     temporaryDirectories.push(root);

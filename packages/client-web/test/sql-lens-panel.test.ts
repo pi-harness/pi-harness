@@ -15,6 +15,7 @@ const valid = {
   status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
   timeoutMs: 5_000,
   latest: {
+    cwd: "/workspace",
     database: "data.db",
     query: "SELECT id, name FROM users",
     columns: ["id", "name"],
@@ -38,7 +39,8 @@ const valid = {
 describe("SQL Lens panel", () => {
   test("renders a validated result and limits", () => {
     const html = renderPanel(valid);
-    for (const expected of ["已完成", "data.db", "1 rows", "Ada", "timeout:5000ms", "rows:100", "result:1024KiB"]) expect(html).toContain(expected);
+    for (const expected of ["已完成", "/workspace", "data.db", "1 rows", "Ada", "timeout:5000ms", "rows:100", "result:1024KiB"])
+      expect(html).toContain(expected);
     expect(html).not.toContain("SQL Lens 面板数据异常");
   });
 
@@ -54,6 +56,7 @@ describe("SQL Lens panel", () => {
     const html = renderPanel({
       ...valid,
       latest: {
+        cwd: "/workspace",
         database: "data.db",
         query: "SELECT id, note FROM notes",
         columns: ["id", "note"],

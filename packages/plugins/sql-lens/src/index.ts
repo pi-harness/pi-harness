@@ -10,6 +10,7 @@ import { assertKnownConfigKeys, resolveExistingWorkspacePath } from "@pi-harness
 type BlobCell = { type: "blob"; bytes: number; previewBase64: string; truncated: boolean };
 type SqlCell = null | string | number | BlobCell;
 type SqlReport = {
+  cwd: string;
   database: string;
   query: string;
   columns: string[];
@@ -149,7 +150,7 @@ function sqlParameters(value: unknown): SqlParameters {
   if (query.includes("\0")) throw new Error("SQL Lens query must not contain NUL characters");
   if (database.length === 0 || database.length > maxDatabasePathLength) throw new Error(`SQL Lens database must contain 1-${maxDatabasePathLength} characters`);
   const normalizedQuery = query.trim();
-  if (normalizedQuery.length === 0 || normalizedQuery.length > maxQueryLength) throw new Error(`SQL Lens query must contain 1-${maxQueryLength} characters`);
+  if (normalizedQuery.length === 0 || query.length > maxQueryLength) throw new Error(`SQL Lens query must contain 1-${maxQueryLength} characters`);
   return { database, query: normalizedQuery };
 }
 
@@ -305,13 +306,19 @@ export default {
             try {
               throwIfAborted(operationSignal);
               const params = sqlParameters(rawParams);
-              const resolved = await resolveExistingWorkspacePath(
-                context.piHarnessLaunch.cwd,
-                params.database,
-                "Database path must stay inside the current workspace",
-              );
-              throwIfAborted(operationSignal);
+              const session = context.get("piRuntime")?.session;
+              const cwd = session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd;
+              const sessionId = session?.sessionId;
+              const checkContext = (): void => {
+                throwIfAborted(operationSignal);
+                const current = context.get("piRuntime")?.session;
+                if (current !== session || current?.sessionId !== sessionId || (current?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd) !== cwd)
+                  throw new Error("SQL Lens context changed during execution");
+              };
+              const resolved = await resolveExistingWorkspacePath(cwd, params.database, "Database path must stay inside the current workspace");
+              checkContext();
               const metadata = await inspectDatabaseFiles(resolved.target);
+              checkContext();
               const workerReport = await runSqlWorker(
                 {
                   database: resolved.target,
@@ -330,12 +337,12 @@ export default {
                 timeoutMs,
                 operationSignal,
               );
-              throwIfAborted(operationSignal);
-              const report: SqlReport = { database: resolved.relativePath, query: params.query, ...workerReport };
+              checkContext();
+              const report: SqlReport = { cwd, database: resolved.relativePath, query: params.query, ...workerReport };
               latest = cloneReport(report);
               status = { state: "completed", at: new Date().toISOString() };
               return {
-                content: [{ type: "text", text: `${report.database}: ${report.rows.length} row(s) returned${report.truncated ? " (truncated)" : ""}.` }],
+                content: [{ type: "text", text: JSON.stringify(report) }],
                 details: cloneReport(report),
               };
             } catch (error) {

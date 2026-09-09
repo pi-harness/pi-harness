@@ -88,6 +88,23 @@ function readSessionTokens(session: { getSessionStats?: () => unknown }): TokenS
     : { total: null, error: "Session statistics response is invalid" };
 }
 
+function finalizedMessageTokens(event: unknown): TokenSnapshot {
+  if (dataProperty(event, "type") !== "message_end") return { total: 0, error: null };
+  const message = dataProperty(event, "message");
+  const role = dataProperty(message, "role");
+  if (role !== "assistant" && role !== "toolResult") return { total: 0, error: null };
+  const usage = dataProperty(message, "usage");
+  if (role === "toolResult" && usage === undefined) return { total: 0, error: null };
+  let total = 0;
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
+    const value = dataProperty(usage, key);
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(total + value))
+      return { total: null, error: "Finalized message usage is invalid" };
+    total += value;
+  }
+  return { total, error: null };
+}
+
 function boundedCount(value: number): number {
   return value >= Number.MAX_SAFE_INTEGER ? Number.MAX_SAFE_INTEGER : value + 1;
 }
@@ -101,6 +118,13 @@ export default {
     const maxPercent = config.maxPercent ?? 90;
     const maxRunTokens = config.maxRunTokens ?? 0;
     let activeSession: unknown;
+    let activeSessionId: string | undefined;
+    let generation: object = {};
+    let disposed = false;
+    context.effect(() => () => {
+      disposed = true;
+      generation = {};
+    });
     let abortCount = 0;
     let lastPercent: number | null = null;
     let lastTokens: number | null = null;
@@ -115,7 +139,9 @@ export default {
     let messageUpdatesSinceInspection = 0;
     let sampledCurrentStream = false;
 
-    const resetForSession = (session: unknown): void => {
+    const resetForSession = (session: typeof context.piRuntime.session): void => {
+      generation = {};
+      activeSessionId = session.sessionId;
       activeSession = session;
       abortCount = 0;
       lastPercent = null;
@@ -132,42 +158,49 @@ export default {
       sampledCurrentStream = false;
     };
     const requestAbort = (): void => {
+      const requestGeneration = generation;
       abortIssued = true;
       abortCount = boundedCount(abortCount);
       abortError = null;
       try {
         void context.piRuntime.abort().catch((error: unknown) => {
-          abortError = boundedError("Token Guard could not abort the active run", error);
+          if (!disposed && generation === requestGeneration) abortError = boundedError("Token Guard could not abort the active run", error);
         });
       } catch (error) {
         abortError = boundedError("Token Guard could not abort the active run", error);
       }
     };
-    const inspect = (eventType?: string): void => {
+    const inspect = (eventType?: string, event?: unknown, allowAbort = true): void => {
+      if (disposed) return;
       const session = context.piRuntime.session;
-      if (session !== activeSession) resetForSession(session);
+      if (session !== activeSession || session.sessionId !== activeSessionId) resetForSession(session);
       const usage = readUsage(session);
       const sessionTokens = maxRunTokens > 0 ? readSessionTokens(session) : { total: null, error: null };
-      inspectionError = usage.error ?? sessionTokens.error;
+      // Native message_end listeners run before this message is appended to session statistics.
+      const finalized = maxRunTokens > 0 ? finalizedMessageTokens(event) : { total: 0, error: null };
+      inspectionError = usage.error ?? sessionTokens.error ?? finalized.error;
       lastPercent = usage.percent;
       lastTokens = usage.tokens;
       lastContextWindow = usage.contextWindow;
       if (eventType === "agent_start") {
+        generation = {};
         runStartTokens = sessionTokens.total;
         runTokens = runStartTokens === null ? null : 0;
         runExceeded = false;
         abortIssued = false;
         abortError = null;
       } else {
-        runTokens = runStartTokens === null || sessionTokens.total === null ? null : Math.max(0, sessionTokens.total - runStartTokens);
+        runTokens =
+          runStartTokens === null || sessionTokens.total === null || finalized.total === null
+            ? null
+            : Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, sessionTokens.total - runStartTokens) + finalized.total);
         runExceeded = maxRunTokens > 0 && runTokens !== null && runTokens >= maxRunTokens;
       }
       lastExceeded = (lastPercent !== null && lastPercent >= maxPercent) || runExceeded;
-      if (lastExceeded && session.isStreaming && !abortIssued) requestAbort();
+      if (allowAbort && lastExceeded && session.isStreaming && !abortIssued) requestAbort();
     };
 
     resetForSession(context.piRuntime.session);
-    inspect();
     const unsubscribe = context.on("pi/session-event", (event) => {
       const type = dataProperty(event, "type");
       if (type === "agent_start") {
@@ -192,7 +225,7 @@ export default {
       if (typeof type === "string" && inspectionEventTypes.has(type)) {
         messageUpdatesSinceInspection = 0;
         sampledCurrentStream = false;
-        inspect();
+        inspect(type, event);
       }
     });
     context.effect(() => unsubscribe);
@@ -203,7 +236,7 @@ export default {
       description: "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。",
       icon: "◌",
       read: () => {
-        if (context.piRuntime.session !== activeSession) inspect();
+        if (context.piRuntime.session !== activeSession || context.piRuntime.session.sessionId !== activeSessionId) inspect(undefined, undefined, false);
         return {
           maxPercent,
           maxRunTokens,
@@ -220,5 +253,6 @@ export default {
       },
     });
     context.effect(() => disposePanel);
+    inspect();
   },
 };

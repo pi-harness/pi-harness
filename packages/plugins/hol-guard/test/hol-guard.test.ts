@@ -52,6 +52,47 @@ describe("HOL guard", () => {
     expect(inspectGuardInput({ command: "grep max_tokens config.json" }, "tool:bash")).toMatchObject({ risk: "safe", findings: [] });
   });
 
+  test("detects credentials in structured tool arguments", async () => {
+    const { context, panels } = await fixture();
+    for (const input of [{ token: "fixture-value" }, { password: "fixture-value" }, { headers: { "api-key": "fixture-value" } }]) {
+      const report = inspectGuardInput(input, "structured");
+      expect(report.findings.map((finding) => finding.code)).toContain("credential_assignment");
+    }
+    context.emit("pi/session-event", { type: "tool_execution_start", toolName: "send", args: { token: "fixture-value" } } as never);
+    const snapshot = await panels.snapshot();
+    expect(snapshot).toMatchObject([{ data: { blocked: 1, latest: { risk: "blocked" } } }]);
+    expect(JSON.stringify(snapshot)).not.toContain("fixture-value");
+  });
+
+  test("detects recursive deletion with reordered, separate, and long flags", () => {
+    for (const command of [
+      "rm -rf ./build",
+      "rm -fr ./build",
+      "rm -f -r ./build",
+      "rm --force --recursive ./build",
+      "rm --recursive ./build",
+      "rm -rf>/dev/null ./build",
+      "rm -fr<fixture ./build",
+      "rm -rf; echo done",
+    ]) {
+      expect(
+        inspectGuardInput({ command }, "shell").findings.map((finding) => finding.code),
+        command,
+      ).toContain("destructive_command");
+    }
+    expect(inspectGuardInput("echo reformatted", "shell").risk).toBe("safe");
+  });
+
+  test("keeps audit receipts independent from returned tool details", async () => {
+    const { tool, panels } = await fixture();
+    const result = await tool.execute("scan", { text: "rm -rf ./build" }, undefined, undefined, {} as never);
+    const original = await panels.snapshot();
+    const report = result.details as { risk: string; findings: unknown[] };
+    report.risk = "safe";
+    report.findings.length = 0;
+    expect(await panels.snapshot()).toEqual(original);
+  });
+
   test("does not execute event accessors and keeps oversized input reviewable", async () => {
     let accessed = false;
     const event = {};

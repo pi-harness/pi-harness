@@ -1,4 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { Context } from "@deepseek-ai/cordis";
+import { PiToolRegistry, PiPluginUiRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
+import plugin from "../src/index.js";
+import { mkdir, mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
@@ -238,4 +241,126 @@ describe("secure audit", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+test.each(["RSA PRIVATE KEY", "EC PRIVATE KEY", "OPENSSH PRIVATE KEY", "DSA PRIVATE KEY", "ENCRYPTED PRIVATE KEY", "PGP PRIVATE KEY BLOCK"])(
+  "detects standard %s headers",
+  (header) => {
+    expect(auditText("key.pem", `-----BEGIN ${header}-----`)).toMatchObject([{ kind: "private-key" }]);
+  },
+);
+
+test("discloses file and findings caps and partial credential-line coverage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-audit-bounds-"));
+  try {
+    await Promise.all(Array.from({ length: 501 }, (_, index) => writeFile(join(root, `${index}.txt`), "rm -rf /test-only\n")));
+    const report = await auditWorkspace(root);
+    expect(report).toMatchObject({ scanned: 500, truncated: true, total: 500 });
+    expect(report.findings.length).toBeLessThanOrEqual(200);
+    await writeFile(join(root, "long.txt"), "x".repeat(4097));
+    await expect(auditWorkspace(root, "long.txt")).resolves.toMatchObject({ credentialLinesSkipped: 1, incomplete: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15_000);
+
+test("distinguishes unscanned state, isolates snapshots and rejects cancellation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-audit-runtime-"));
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(plugin);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { hasRun: false } }]);
+    await writeFile(join(root, "key.txt"), "password=LOCAL_TEST_VALUE_12345");
+    const tool = tools.snapshot().customTools[0]!;
+    const result = await tool.execute("scan", {}, undefined, undefined, {} as never);
+    (result.details as { findings: Array<{ message: string }> }).findings[0]!.message = "MUTATED_FINDING";
+    expect(JSON.stringify(await panels.snapshot())).not.toContain("MUTATED_FINDING");
+    await writeFile(join(root, "oversized.txt"), "x".repeat(512 * 1024 + 1));
+    const partial = await tool.execute("partial", { path: "oversized.txt" }, undefined, undefined, {} as never);
+    expect(partial.content).toEqual([
+      {
+        type: "text",
+        text: "0 findings across 1 candidate files (0 critical, 0 high).\nCoverage: incomplete; 1 skipped files/directories; 0 lines skipped by the general credential-assignment check.\nDetails: 0/0; discovery or output truncated: false. Heuristic checks do not prove safety.",
+      },
+    ]);
+    const caller = new AbortController();
+    caller.abort();
+    await expect(tool.execute("cancel", {}, caller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects workspace escapes, skips symlink entries and honors in-flight cancellation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-audit-links-")),
+    outside = await mkdtemp(join(tmpdir(), "pi-audit-outside-"));
+  try {
+    await writeFile(join(outside, "secret.txt"), "password=LOCAL_OUTSIDE_VALUE_12345");
+    await symlink(outside, join(root, "escape"));
+    await expect(auditWorkspace(root)).resolves.toMatchObject({ total: 0, scanned: 0 });
+    await expect(auditWorkspace(root, "escape/secret.txt")).rejects.toThrow(/inside/iu);
+    const caller = new AbortController();
+    const pending = auditWorkspace(root, ".", caller.signal);
+    caller.abort();
+    await expect(pending).rejects.toThrow(/cancelled/iu);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("audits the active native cwd and rejects stale scans before caching or returning them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-audit-native-"));
+  const active = join(root, "active");
+  await mkdir(active);
+  await writeFile(join(root, "check.txt"), "normal launch text");
+  await writeFile(join(active, "check.txt"), "rm -rf /fixture-only");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  let session = { sessionId: "first", sessionManager: { getCwd: () => root } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await context.plugin(plugin);
+    const tool = tools.snapshot().customTools[0]!;
+    await expect(tool.execute("first", { path: "check.txt" }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 0 } });
+    session = { sessionId: "second", sessionManager: { getCwd: () => active } };
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ hasRun: false, total: 0 });
+    await expect(tool.execute("active", { path: "check.txt" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { total: 1, findings: [{ kind: "destructive-command" }] },
+    });
+    const pending = tool.execute("pending", {}, undefined, undefined, {} as never);
+    const rejected = expect(pending).rejects.toThrow(/workspace changed/iu);
+    session.sessionId = "third";
+    await rejected;
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ hasRun: false, total: 0 });
+    const params = new Proxy(
+      { path: "check.txt" },
+      {
+        ownKeys(target) {
+          session.sessionId = "fourth";
+          return Reflect.ownKeys(target);
+        },
+      },
+    );
+    await expect(tool.execute("params", params, undefined, undefined, {} as never)).rejects.toThrow(/workspace changed/iu);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 });

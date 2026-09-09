@@ -13,6 +13,26 @@ afterEach(async () => {
 });
 
 describe("archify", () => {
+  test("keeps component ids unique when an original name matches a generated suffix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-"));
+    temporaryDirectories.push(root);
+    for (const name of ["a-b", "a_b", "a_b_2", "a-b-2"]) await mkdir(join(root, name));
+    const report = await buildArchitectureReport(root);
+    const ids = report.components.map((component) => component.id);
+    expect(new Set(ids).size).toBe(4);
+    for (const component of report.components) expect(report.mermaid).toContain(`${component.id}["${component.label}`);
+  });
+
+  test("keeps dependency ids unique when an original name matches a generated suffix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-"));
+    temporaryDirectories.push(root);
+    await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { "a-b": "1", a_b: "1", a_b_2: "1", "a-b-2": "1" } }));
+    const report = await buildArchitectureReport(root);
+    const ids = [...report.mermaid.matchAll(/^ {4}(dependency_\w+)\[/gmu)].map((match) => match[1]);
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(4);
+  });
+
   test("maps top-level workspace components and package dependencies", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-"));
     temporaryDirectories.push(root);
@@ -241,4 +261,70 @@ describe("archify", () => {
     ]);
     await context.fiber.dispose();
   });
+});
+
+test("maps the current native workspace and discards switched, cancelled, and disposed scans", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-archify-native-"));
+  temporaryDirectories.push(root);
+  const active = join(root, "active");
+  await mkdir(join(root, "launch-only"));
+  await mkdir(join(active, "current-only"), { recursive: true });
+  await writeFile(join(active, "package.json"), JSON.stringify({ dependencies: { current: "1" } }));
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  try {
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piRuntime", {
+      get session() {
+        return session;
+      },
+    } as never);
+    await context.plugin(archifyPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    await tool.execute("first", {}, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null, componentCount: 0, dependencyCount: 0 } }]);
+    await expect(tool.execute("active", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { workspace: active, components: [{ path: "current-only" }], dependencies: ["current"] },
+    });
+    const pending = tool.execute("pending", {}, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    await expect(
+      tool.execute(
+        "getter",
+        {
+          get maxNodes() {
+            id = "getter-replacement";
+            return 100;
+          },
+        },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/workspace changed/iu);
+    const cancelled = new AbortController();
+    const cancelling = tool.execute("cancel", {}, cancelled.signal, undefined, {} as never);
+    cancelled.abort(new Error("scan cancelled"));
+    await expect(cancelling).rejects.toThrow("scan cancelled");
+    const disposing = tool.execute("dispose", {}, undefined, undefined, {} as never);
+    const disposedResult = expect(disposing).rejects.toThrow(/disposed/iu);
+    await context.fiber.dispose();
+    await disposedResult;
+    await expect(tool.execute("retained", {}, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+  } finally {
+    await context.fiber.dispose();
+  }
 });

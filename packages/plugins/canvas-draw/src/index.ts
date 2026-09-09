@@ -34,16 +34,18 @@ function direction(value: unknown): Direction {
 
 function render(direction: Direction, nodes: CanvasNode[], edges: CanvasEdge[]): string {
   const escape = (value: string): string =>
-    value.replace(/[&<>"\r\n]/g, (character) => {
+    value.replace(/[&#<>"\r\n]/g, (character) => {
+      if (character === "#") return "#35;";
       if (character === "&") return "&amp;";
       if (character === "<") return "&lt;";
       if (character === ">") return "&gt;";
       return character === '"' ? "&quot;" : " ";
     });
-  const escapeEdge = (value: string): string => escape(value).replace(/\|/g, "&#124;");
+  const escapeEdge = (value: string): string => escape(value).replace(/\|/g, "#124;");
+  const ids = new Map(nodes.map((node, index) => [node.id, `canvas_node_${index}`]));
   const lines = [`flowchart ${direction}`];
-  for (const node of nodes) lines.push(`    ${node.id}["${escape(node.label)}"]`);
-  for (const edge of edges) lines.push(`    ${edge.from} -->${edge.label === undefined ? "" : `|${escapeEdge(edge.label)}|`} ${edge.to}`);
+  for (const node of nodes) lines.push(`    ${ids.get(node.id)}["${escape(node.label)}"]`);
+  for (const edge of edges) lines.push(`    ${ids.get(edge.from)} -->${edge.label === undefined ? "" : `|"${escapeEdge(edge.label)}"|`} ${ids.get(edge.to)}`);
   return lines.join("\n");
 }
 

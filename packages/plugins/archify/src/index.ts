@@ -37,6 +37,13 @@ function dependencyId(name: string): string {
   return `dependency_${normalized || "package"}`;
 }
 
+function uniqueNodeId(baseId: string, usedIds: Set<string>): string {
+  let id = baseId;
+  for (let suffix = 2; usedIds.has(id); suffix += 1) id = `${baseId}_${suffix}`;
+  usedIds.add(id);
+  return id;
+}
+
 function escapeLabel(value: string): string {
   return value.replace(/[&<>"\r\n]/g, (character) => {
     if (character === "&") return "&amp;";
@@ -53,15 +60,12 @@ function normalizeMaxNodes(value: number): number {
 
 function topLevelComponents(nodes: readonly WorkspaceNode[]): { components: ArchitectureComponent[]; truncated: boolean } {
   const directories = nodes.filter((node) => node.kind === "directory" && node.depth === 1);
-  const idCounts = new Map<string, number>();
+  const usedIds = new Set<string>();
   const components = directories.slice(0, maxComponents).map((directory) => {
     const prefix = `${directory.path}/`;
     const descendants = nodes.filter((node) => node.path.startsWith(prefix));
-    const baseId = componentId(directory.path);
-    const idCount = (idCounts.get(baseId) ?? 0) + 1;
-    idCounts.set(baseId, idCount);
     return {
-      id: idCount === 1 ? baseId : `${baseId}_${idCount}`,
+      id: uniqueNodeId(componentId(directory.path), usedIds),
       label: directory.name,
       path: directory.path,
       files: descendants.filter((node) => node.kind === "file").length,
@@ -99,23 +103,23 @@ function render(workspace: string, components: readonly ArchitectureComponent[],
     lines.push(`    ${component.id}["${escapeLabel(component.label)}\\n${component.files} files · ${component.directories} dirs"]`);
     lines.push(`    project --> ${component.id}`);
   }
-  const dependencyIdCounts = new Map<string, number>();
+  const usedIds = new Set<string>();
   for (const dependency of dependencies) {
-    const baseId = dependencyId(dependency);
-    const idCount = (dependencyIdCounts.get(baseId) ?? 0) + 1;
-    dependencyIdCounts.set(baseId, idCount);
-    const id = idCount === 1 ? baseId : `${baseId}_${idCount}`;
+    const id = uniqueNodeId(dependencyId(dependency), usedIds);
     lines.push(`    ${id}["${escapeLabel(dependency)}"]`);
     lines.push(`    project --> ${id}`);
   }
   return lines.join("\n");
 }
 
-export async function buildArchitectureReport(root: string, maxNodes = defaultMaxNodes): Promise<ArchitectureReport> {
+export async function buildArchitectureReport(root: string, maxNodes = defaultMaxNodes, signal?: AbortSignal): Promise<ArchitectureReport> {
+  signal?.throwIfAborted();
   const workspace = resolve(root);
-  const tree = await listWorkspaceNodes(workspace, { maxDepth: 4, maxNodes: normalizeMaxNodes(maxNodes) });
+  const tree = await listWorkspaceNodes(workspace, { maxDepth: 4, maxNodes: normalizeMaxNodes(maxNodes) }, signal);
   const componentScan = topLevelComponents(tree.nodes);
+  signal?.throwIfAborted();
   const dependencyScan = await packageDependencies(workspace);
+  signal?.throwIfAborted();
   return {
     workspace,
     components: componentScan.components,
@@ -131,6 +135,20 @@ export default {
   Config: EmptyConfig,
   apply(context: Context) {
     let latest: ArchitectureReport | undefined;
+    const lifecycle = new AbortController();
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
     const unregister = context.piTools.register(
       defineTool({
         name: "architecture_map",
@@ -144,9 +162,20 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<ArchitectureReport>> {
-          latest = await buildArchitectureReport(context.piHarnessLaunch.cwd, params.maxNodes);
-          return { content: [{ type: "text", text: latest.mermaid }], details: structuredClone(latest) };
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<ArchitectureReport>> {
+          lifecycle.signal.throwIfAborted();
+          const operationScope = refreshScope();
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const assertCurrent = () => {
+            operationSignal.throwIfAborted();
+            if (refreshScope() !== operationScope) throw new Error("Architecture workspace changed during scan");
+          };
+          const maxNodes = params.maxNodes;
+          assertCurrent();
+          const report = await buildArchitectureReport(operationScope.cwd, maxNodes, operationSignal);
+          assertCurrent();
+          latest = report;
+          return { content: [{ type: "text", text: report.mermaid }], details: structuredClone(report) };
         },
       }),
     );
@@ -156,13 +185,17 @@ export default {
       title: "Architecture Map",
       description: "从工作区目录和 package.json 依赖生成可审计的架构图源码。",
       icon: "⌘",
-      read: () => ({
-        latest: latest === undefined ? null : structuredClone(latest),
-        componentCount: latest?.components.length ?? 0,
-        dependencyCount: latest?.dependencies.length ?? 0,
-      }),
+      read: () => {
+        refreshScope();
+        return {
+          latest: latest === undefined ? null : structuredClone(latest),
+          componentCount: latest?.components.length ?? 0,
+          dependencyCount: latest?.dependencies.length ?? 0,
+        };
+      },
     });
     context.effect(() => () => {
+      lifecycle.abort(new Error("Archify plugin was disposed"));
       unregister();
       disposePanel();
     });

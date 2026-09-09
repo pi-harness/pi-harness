@@ -11,6 +11,7 @@ describe("test harness panel view", () => {
   test("normalizes a validated run without marking it truncated", () => {
     const view = testHarnessPanelView(
       report({
+        cwd: "/workspace/验证项目",
         script: "test",
         command: "npm run test",
         status: "passed",
@@ -26,6 +27,7 @@ describe("test harness panel view", () => {
 
     expect(view.truncated).toBe(false);
     expect(view.latest).toEqual({
+      cwd: "/workspace/验证项目",
       script: "test",
       command: "npm run test",
       status: "passed",
@@ -44,6 +46,7 @@ describe("test harness panel view", () => {
   test("keeps a sanitized run that truncation pushed past the byte cap", () => {
     const view = testHarnessPanelView(
       report({
+        cwd: "/workspace/验证项目",
         script: "test",
         command: "npm run test",
         status: "failed",
@@ -65,6 +68,7 @@ describe("test harness panel view", () => {
     // What the backend reports for 5000 raw bytes of invalid UTF-8: `raw.toString("utf8")` widens each one into a three-byte U+FFFD before the sanitiser sees it, so the bounded output fills the 12 KiB cap while `outputSanitized` stays false and the raw counter stays at 5000.
     const view = testHarnessPanelView(
       report({
+        cwd: "/workspace/验证项目",
         script: "test",
         command: "npm run test",
         status: "passed",
@@ -85,6 +89,7 @@ describe("test harness panel view", () => {
   test("drops a truncated run whose output fills neither the byte cap nor the raw counter", () => {
     const view = testHarnessPanelView(
       report({
+        cwd: "/workspace/验证项目",
         script: "test",
         command: "npm run test",
         status: "passed",

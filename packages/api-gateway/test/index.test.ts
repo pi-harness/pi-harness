@@ -227,9 +227,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the persisted UTC cost ledger through its dedicated panel", async () => {
-    const costMeterModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-cost-meter"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const costMeterModule = await import("@pi-harness/plugin-cost-meter");
     const context = new Context();
     contexts.push(context);
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-cost-meter-"));
@@ -285,7 +283,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the bounded dependency report through its dedicated panel", async () => {
-    const dependencyCheckerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-dependency-checker"))) as {
+    const dependencyCheckerModule = (await import("@pi-harness/plugin-dependency-checker")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -297,7 +295,14 @@ describe("API gateway plugin", () => {
       JSON.stringify({ dependencies: { missing: "^1.0.0" }, devDependencies: { missing: ">=2.0.0" }, optionalDependencies: { optional: "1.0.0" } }),
     );
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "dependency-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "dependency-panel-session",
+      sessionManager: SessionManager.create(workspace, join(workspace, "sessions")),
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
@@ -338,7 +343,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the enforced Docker sandbox defaults through its real plugin panel", async () => {
-    const dockerSandboxModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-docker-sandbox"))) as {
+    const dockerSandboxModule = (await import("@pi-harness/plugin-docker-sandbox")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -346,7 +351,14 @@ describe("API gateway plugin", () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-docker-sandbox-"));
     temporaryDirectories.push(workspace);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "docker-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "docker-panel-session",
+      sessionManager: SessionManager.create(workspace, join(workspace, "sessions")),
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
@@ -386,9 +398,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes aggregated failures through the real Failure Logger panel", async () => {
-    const failLoggerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-fail-logger"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const failLoggerModule = await import("@pi-harness/plugin-fail-logger");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -450,9 +460,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded structured cards through the real GenUI panel", async () => {
-    const genUiModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-genui"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const genUiModule = await import("@pi-harness/plugin-genui");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -507,7 +515,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes captured Git undo capsules through the real plugin panel", async () => {
-    const gitTimeCapsuleModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-git-time-capsule"))) as {
+    const gitTimeCapsuleModule = (await import("@pi-harness/plugin-git-time-capsule")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -522,7 +530,14 @@ describe("API gateway plugin", () => {
     await execFile("git", ["-c", "user.name=Pi", "-c", "user.email=pi@example.invalid", "commit", "-qm", "fixture"], { cwd: workspace });
     await writeFile(join(workspace, "tracked.txt"), "after\n", "utf8");
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "git-capsule-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "git-capsule-panel-session",
+      sessionManager: SessionManager.create(workspace, join(agentDir, "sessions")),
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -576,9 +591,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the persisted graph memory through the real plugin panel", async () => {
-    const graphMemoryModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-graph-memory"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const graphMemoryModule = await import("@pi-harness/plugin-graph-memory");
     const context = new Context();
     contexts.push(context);
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-graph-memory-"));
@@ -622,7 +635,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded locale parity report through the real plugin panel", async () => {
-    const i18nPairModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-i18n-pair"))) as {
+    const i18nPairModule = (await import("@pi-harness/plugin-i18n-pair")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -634,7 +647,14 @@ describe("API gateway plugin", () => {
     await writeFile(join(workspace, "locales", "en.json"), JSON.stringify({ actions: { save: "Save", cancel: "Cancel" } }), "utf8");
     await writeFile(join(workspace, "locales", "ja.json"), JSON.stringify({ actions: { save: "保存" }, onlyHere: "追加" }), "utf8");
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "i18n-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "i18n-panel-session",
+      sessionManager: SessionManager.create(workspace, join(agentDir, "sessions")),
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -677,9 +697,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Git capsule cleanup activity through the real plugin panel", async () => {
-    const cleanerModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-cleaner"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const cleanerModule = await import("@pi-harness/plugin-cleaner");
     const context = new Context();
     contexts.push(context);
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-cleaner-agent-"));
@@ -725,9 +743,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded isolated SQLite query through the real plugin panel", async () => {
-    const sqlLensModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-sql-lens"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const sqlLensModule = await import("@pi-harness/plugin-sql-lens");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-sql-lens-workspace-"));
@@ -737,7 +753,15 @@ describe("API gateway plugin", () => {
     database.exec("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'Ada')");
     database.close();
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "sql-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const manager = SessionManager.inMemory(workspace);
+    const session = {
+      sessionId: manager.getSessionId(),
+      sessionManager: manager,
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -763,6 +787,7 @@ describe("API gateway plugin", () => {
             status: { state: "completed" },
             timeoutMs: 1_500,
             latest: {
+              cwd: workspace,
               database: "data.db",
               columns: ["id", "name"],
               rows: [{ id: 1, name: "Ada" }],
@@ -777,9 +802,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded MCP inventories and limits through the real plugin panel", async () => {
-    const mcpClientModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-mcp-client"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const mcpClientModule = await import("@pi-harness/plugin-mcp-client");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-mcp-client-workspace-"));
@@ -792,7 +815,15 @@ describe("API gateway plugin", () => {
       "utf8",
     );
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "mcp-client-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const manager = SessionManager.inMemory(workspace);
+    const session = {
+      sessionId: manager.getSessionId(),
+      sessionManager: manager,
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -844,9 +875,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Browser Fetch preview through the real plugin panel", async () => {
-    const browserFetchModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-browser-fetch"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const browserFetchModule = await import("@pi-harness/plugin-browser-fetch");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-browser-fetch-workspace-"));
@@ -905,9 +934,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Browser Session inventory through the real plugin panel", async () => {
-    const browserSessionModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-browser-session"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const browserSessionModule = await import("@pi-harness/plugin-browser-session");
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-browser-session-workspace-"));
@@ -973,9 +1000,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes a bounded Plugin Stars inventory through the real plugin panel", async () => {
-    const pluginStarsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-plugin-stars"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const pluginStarsModule = await import("@pi-harness/plugin-plugin-stars");
     const originalFetch = globalThis.fetch;
     const context = new Context();
     contexts.push(context);
@@ -992,7 +1017,7 @@ describe("API gateway plugin", () => {
       const tools = new PiToolRegistry();
       context.reflect.provide("piPluginUi", registry);
       context.reflect.provide("piTools", tools);
-      await context.plugin(pluginStarsModule.default, { limit: 50 });
+      await context.plugin(pluginStarsModule.default, { limit: 50, sourceUrl: "https://raw.githubusercontent.com/pi-harness/fixture/main/plugins.json" });
       const plugins = Array.from({ length: 25 }, (_, index) => ({
         id: String(index + 1),
         name: `fixture-${index}`,
@@ -1001,7 +1026,7 @@ describe("API gateway plugin", () => {
         htmlUrl: `https://github.com/owner/fixture-${index}`,
         stars: 25 - index,
         updatedAt: "2026-09-05T00:00:00Z",
-        topics: ["dsh-plugin"],
+        topics: ["pi-harness-plugin"],
       }));
       globalThis.fetch = () => Promise.resolve(Response.json({ source: "fixture", generatedAt: "2026-09-05T00:00:00Z", plugins }));
       const search = tools.snapshot().customTools.find((tool) => tool.name === "plugin_stars_search");
@@ -1035,7 +1060,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded YAML diagnostics through the real plugin panel", async () => {
-    const yamlValidatorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-yaml-validator"))) as {
+    const yamlValidatorModule = (await import("@pi-harness/plugin-yaml-validator")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
@@ -1045,7 +1070,14 @@ describe("API gateway plugin", () => {
     temporaryDirectories.push(workspace, agentDir);
     await writeFile(join(workspace, "invalid.yml"), "duplicate: true\n".repeat(102), "utf8");
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { sessionId: "yaml-validator-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const session = {
+      sessionId: "yaml-validator-panel-session",
+      sessionManager: { getCwd: () => workspace },
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
@@ -1084,9 +1116,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Plugin Dev reload state through the real plugin panel", async () => {
-    const pluginDevModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-plugin-dev"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const pluginDevModule = await import("@pi-harness/plugin-plugin-dev");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1140,26 +1170,33 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded OpenPets state through the real plugin panel", async () => {
-    const openPetsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-openpets"))) as {
+    const openPetsModule = (await import("@pi-harness/plugin-openpets")) as {
       default: Parameters<Context["plugin"]>[0];
     };
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const entries: unknown[] = [];
-    const session = { sessionId: "openpets-panel-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const manager = {
+      getHeader: () => null,
+      getEntries: () => entries,
+      appendCustomEntry: (customType: string, data: unknown) => {
+        entries.push({ type: "custom", customType, data });
+        return String(entries.length);
+      },
+    };
+    const session = {
+      sessionId: "openpets-panel-session",
+      sessionManager: manager,
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
-    context.provide("piSession", {
-      manager: {
-        getEntries: () => entries,
-        appendCustomEntry: (customType: string, data: unknown) => {
-          entries.push({ type: "custom", customType, data });
-          return String(entries.length);
-        },
-      },
-    } as never);
+    context.provide("piSession", { manager } as never);
     const registry = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     context.reflect.provide("piPluginUi", registry);
@@ -1195,24 +1232,15 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Session Bridge previews through the real plugin panel", async () => {
-    const sessionBridgeModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-session-bridge"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const sessionBridgeModule = await import("@pi-harness/plugin-session-bridge");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const manager = {
-      buildSessionContext: () => ({
-        model: { provider: "fixture", modelId: "model" },
-        messages: [{ role: "user", content: [{ type: "text", text: "Keep src/index.ts stable." }] }],
-      }),
-      getSessionId: () => "session-bridge-source",
-      getCwd: () => "/workspace",
-      getEntries: () => [],
-      appendCustomMessageEntry: () => "entry",
-    };
+    const manager = SessionManager.inMemory("/workspace");
+    manager.appendModelChange("fixture", "model");
+    manager.appendMessage({ role: "user", content: [{ type: "text", text: "Keep src/index.ts stable." }], timestamp: Date.now() });
     const session = {
-      sessionId: "session-bridge-panel-session",
+      sessionId: manager.getSessionId(),
       sessionFile: undefined,
       messages: [],
       isStreaming: false,
@@ -1244,7 +1272,7 @@ describe("API gateway plugin", () => {
           data: {
             latest: null,
             latestPreview: {
-              source: { sessionId: "session-bridge-source", cwd: "/workspace", model: { provider: "fixture", modelId: "model" } },
+              source: { sessionId: manager.getSessionId(), cwd: "/workspace", model: { provider: "fixture", modelId: "model" } },
               preview: { goal: "Keep src/index.ts stable.", decisions: ["Keep src/index.ts stable."], keyFiles: ["src/index.ts"] },
             },
             currentPreview: { goal: "Keep src/index.ts stable." },
@@ -1267,9 +1295,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Skill Guard audits through the real plugin panel", async () => {
-    const skillGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-skill-guard"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const skillGuardModule = await import("@pi-harness/plugin-skill-guard");
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-api-skill-guard-"));
     temporaryDirectories.push(cwd);
     const skillPath = join(cwd, "SKILL.md");
@@ -1338,9 +1364,7 @@ describe("API gateway plugin", () => {
   }, 15_000);
 
   test("publishes bounded Recall Unread inventory through the real plugin panel", async () => {
-    const recallUnreadModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-recall-unread"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const recallUnreadModule = await import("@pi-harness/plugin-recall-unread");
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-recall-unread-workspace-"));
     const sessionDir = await mkdtemp(join(tmpdir(), "pi-harness-api-recall-unread-sessions-"));
     temporaryDirectories.push(workspace, sessionDir);
@@ -1422,9 +1446,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded Context Insights through the real plugin panel", async () => {
-    const contextInsightsModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-context"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const contextInsightsModule = await import("@pi-harness/plugin-context");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1473,9 +1495,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes cached Token Guard state through the real plugin panel", async () => {
-    const tokenGuardModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-token-guard"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const tokenGuardModule = await import("@pi-harness/plugin-token-guard");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1522,9 +1542,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes the bounded Context Doctor audit through the real plugin panel", async () => {
-    const contextDoctorModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-context-doctor"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const contextDoctorModule = await import("@pi-harness/plugin-context-doctor");
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -1589,9 +1607,7 @@ describe("API gateway plugin", () => {
   });
 
   test("publishes bounded current-branch Turn Rewind candidates through the real plugin panel", async () => {
-    const turnRewindModule = (await import(/* @vite-ignore */ import.meta.resolve("@pi-harness/plugin-turn-rewind"))) as {
-      default: Parameters<Context["plugin"]>[0];
-    };
+    const turnRewindModule = await import("@pi-harness/plugin-turn-rewind");
     const manager = SessionManager.inMemory("/workspace");
     const first = manager.appendMessage({ role: "user", content: [{ type: "text", text: "first turn" }], timestamp: Date.now() });
     manager.appendMessage({
@@ -2950,7 +2966,7 @@ describe("API gateway plugin", () => {
     } finally {
       process.env.PATH = originalPath;
     }
-  });
+  }, 30_000);
 
   test("reports a git process killed by the output limit as a server failure rather than a rejected commit", async () => {
     const context = new Context();

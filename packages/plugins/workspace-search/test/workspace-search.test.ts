@@ -8,9 +8,11 @@ import workspaceSearchPlugin, { isWorkspaceSearchPathInside } from "../src/index
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
+const roots: string[] = [];
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-search-"));
+  roots.push(root);
   await writeFile(join(root, "one.txt"), "Hello World\nsecond line\n");
   const context = new Context();
   const tools = new PiToolRegistry();
@@ -25,23 +27,57 @@ async function fixture() {
   return { root, context, tools, panels, tool };
 }
 
-function signalAbortingOnCheck(index: number): AbortSignal {
-  const reason = new Error("workspace search aborted");
-  let checks = 0;
-  return {
-    reason,
-    get aborted() {
-      checks += 1;
-      return checks >= index;
-    },
-  } as unknown as AbortSignal;
-}
-
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("workspace search", () => {
+  test("uses the native workspace, clears session results and rejects invalid parameters", async () => {
+    const { root, context, tool, panels } = await fixture();
+    const active = join(root, "active");
+    await mkdir(active);
+    await writeFile(join(active, "current.txt"), "Hello current");
+    const session = { sessionId: "first", sessionManager: { getCwd: () => active } };
+    context.provide("piRuntime", { session } as never);
+    const result = await tool.execute("current", { query: "hello" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ matches: [{ path: "current.txt" }] });
+    const text = result.content[0];
+    if (text?.type !== "text") throw new Error("Expected text");
+    expect(JSON.parse(text.text)).toMatchObject({ scannedFiles: 1, truncated: false });
+    session.sessionId = "second";
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    await expect(tool.execute("invalid", { query: "hello", maxResults: NaN }, undefined, undefined, {} as never)).rejects.toThrow(/maxResults/iu);
+    await expect(tool.execute("unknown", { query: "hello", legacy: true }, undefined, undefined, {} as never)).rejects.toThrow(/parameter/iu);
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", { query: "hello" }, undefined, undefined, {} as never)).rejects.toThrow(/abort|cancel/iu);
+  });
+
+  test("keeps a late match visible in a clipped line", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "late.txt"), `${"İ".repeat(1000)}TARGET${"z".repeat(1000)}`);
+    const result = await tool.execute("late", { query: "target", path: "late.txt" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ truncated: true, matches: [{ text: expect.stringContaining("TARGET") as unknown }] });
+  });
+
+  test("bounds discovery even when entries are skipped symlinks", async () => {
+    const { root, tool } = await fixture();
+    await mkdir(join(root, "links"));
+    for (let batch = 0; batch < 42; batch += 1)
+      await Promise.all(Array.from({ length: 100 }, (_, index) => symlink("missing", join(root, "links", `link-${batch}-${index}`))));
+    const result = await tool.execute("links", { query: "missing", path: "links" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ matchCount: 0, scannedEntries: 4096, truncated: true });
+  });
+
+  test("stops at the total read budget without claiming a complete no-match result", async () => {
+    const { root, tool } = await fixture();
+    const bytes = Buffer.alloc(2 * 1024 * 1024, 0x61);
+    await mkdir(join(root, "budget"));
+    for (let index = 0; index < 33; index += 1) await writeFile(join(root, "budget", `file-${String(index).padStart(2, "0")}.txt`), bytes);
+    const result = await tool.execute("budget", { query: "missing", path: "budget" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ matchCount: 0, scannedFiles: 32, readBytes: 64 * 1024 * 1024, truncated: true });
+  });
+
   test("rejects Windows paths outside the workspace using native path semantics", () => {
     expect(isWorkspaceSearchPathInside("C:\\repo", "C:\\outside", win32)).toBe(false);
     expect(isWorkspaceSearchPathInside("C:\\repo", "C:\\repo\\src", win32)).toBe(true);
@@ -128,16 +164,18 @@ describe("workspace search", () => {
     await expect(pending).rejects.toThrow(/workspace search aborted/iu);
   });
 
-  test("stops the file scan when the abort lands after the directory walk", async () => {
-    const { tool } = await fixture();
-    // throwIfAborted only reads `aborted` and `reason`, so counting those reads places the abort on a chosen check deterministically. Scanning a single file checks in this order: the pre-flight check in search(), the check in filesUnder(), then the check guarding the file in the scan loop.
-    await expect(tool.execute("scan", { query: "hello", path: "one.txt" }, signalAbortingOnCheck(3), undefined, {} as never)).rejects.toThrow(
-      /workspace search aborted/iu,
-    );
+  test("cancels a single-file operation without publishing a result", async () => {
+    const { tool, panels } = await fixture();
+    const caller = new AbortController();
+    const pending = tool.execute("single", { query: "hello", path: "one.txt" }, caller.signal, undefined, {} as never);
+    caller.abort(new Error("workspace search aborted"));
+    await expect(pending).rejects.toThrow(/workspace search aborted/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
   });
 
   test("rejects unknown plugin configuration before activation", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-search-config-"));
+    roots.push(root);
     const context = new Context();
     provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
     context.provide("piTools", new PiToolRegistry());

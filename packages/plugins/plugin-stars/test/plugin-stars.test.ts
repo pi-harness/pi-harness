@@ -13,7 +13,7 @@ const validPlugin = {
   htmlUrl: "https://github.com/owner/fixture",
   stars: 1,
   updatedAt: "2026-09-05T00:00:00Z",
-  topics: ["dsh-plugin"],
+  topics: ["pi-harness-plugin"],
 };
 
 describe("plugin stars", () => {
@@ -21,7 +21,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, {});
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
     try {
       expect(pluginStars.Config.dict?.sourceUrl?.meta).toMatchObject({ min: 1, max: 2_048 });
       expect(pluginStars.Config.dict?.limit?.meta).toMatchObject({ min: 1, max: 50 });
@@ -46,7 +46,9 @@ describe("plugin stars", () => {
     context.provide("piPluginUi", panels);
     panels.register({ id: "plugin-stars-panel", pluginId: "fixture", title: "Fixture", read: () => ({}) });
     try {
-      await expect(context.plugin(pluginStars, {})).rejects.toThrow(/already registered.*plugin-stars-panel/iu);
+      await expect(context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" })).rejects.toThrow(
+        /already registered.*plugin-stars-panel/iu,
+      );
       expect(tools.snapshot().customTools).toEqual([]);
     } finally {
       await context.fiber.dispose();
@@ -63,7 +65,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, {});
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
     const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
     let accessed = false;
     const params = {} as { query?: string };
@@ -116,7 +118,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, {});
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
     try {
       const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
       await tool!.execute("call-1", {}, undefined, undefined, {} as never);
@@ -130,7 +132,7 @@ describe("plugin stars", () => {
   test("normalizes curated ranking data and filters by query", () => {
     const report = parsePluginStarsPayload({
       generatedAt: "2026-09-02T12:00:00Z",
-      source: "dsh-plugin-stars",
+      source: "fixture-ranking",
       plugins: [
         {
           id: "1",
@@ -140,7 +142,7 @@ describe("plugin stars", () => {
           htmlUrl: "https://github.com/liustack/modlens",
           stars: 3835,
           updatedAt: "2026-09-02T12:00:00Z",
-          topics: ["dsh-plugin", "vision"],
+          topics: ["pi-harness-plugin", "vision"],
         },
         {
           id: "2",
@@ -156,9 +158,9 @@ describe("plugin stars", () => {
     });
 
     expect(searchPluginStars(report, "vision")).toEqual([
-      expect.objectContaining({ name: "ModLens", fullName: "liustack/modlens", stars: 3835, topics: ["dsh-plugin", "vision"] }),
+      expect.objectContaining({ name: "ModLens", fullName: "liustack/modlens", stars: 3835, topics: ["pi-harness-plugin", "vision"] }),
     ]);
-    expect(report).toMatchObject({ generatedAt: "2026-09-02T12:00:00Z", source: "dsh-plugin-stars" });
+    expect(report).toMatchObject({ generatedAt: "2026-09-02T12:00:00Z", source: "fixture-ranking" });
   });
 
   test("rejects malformed entries instead of silently publishing a partial ranking", () => {
@@ -228,7 +230,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json" });
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
     expect(context.piTools.snapshot().customTools.map((tool) => tool.name)).toContain("plugin_stars_search");
     await expect(context.piPluginUi.snapshot()).resolves.toEqual([expect.objectContaining({ id: "plugin-stars-panel", title: "Plugin Stars" })]);
     await context.fiber.dispose();
@@ -248,7 +250,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, { limit: 50 });
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json", limit: 50 });
     try {
       const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
       const result = await tool!.execute("call-1", {}, undefined, undefined, {} as never);
@@ -272,7 +274,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, {});
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
     try {
       const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
       const result = await tool!.execute("call-1", {}, undefined, undefined, {} as never);
@@ -302,7 +304,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, { limit: 5 });
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json", limit: 5 });
     try {
       const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
       const result = await tool!.execute("call-1", {}, undefined, undefined, {} as never);
@@ -364,7 +366,7 @@ describe("plugin stars", () => {
     try {
       provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
       await context.plugin(toolsPlugin, { names: [] });
-      await context.plugin(pluginStars, {});
+      await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
       const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
 
       await expect(tool!.execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/valid UTF-8/iu);
@@ -392,7 +394,7 @@ describe("plugin stars", () => {
     try {
       provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
       await context.plugin(toolsPlugin, { names: [] });
-      await context.plugin(pluginStars, {});
+      await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
       const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
 
       await expect(tool!.execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/HTTP 503/iu);
@@ -447,7 +449,7 @@ describe("plugin stars", () => {
     const context = new Context();
     provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
     await context.plugin(toolsPlugin, { names: [] });
-    await context.plugin(pluginStars, {});
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
     const tools = context.piTools;
     const panels = context.piPluginUi;
     const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
@@ -475,6 +477,60 @@ describe("plugin stars", () => {
       globalThis.fetch = originalFetch;
       await context.fiber.dispose();
       await pending.catch(() => undefined);
+    }
+  });
+  test("does not publish a response cancelled while its JSON body is being read", async () => {
+    const originalFetch = globalThis.fetch;
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
+    const tool = tools.snapshot().customTools[0]!;
+    try {
+      globalThis.fetch = () => Promise.resolve(Response.json({ source: "fixture", generatedAt: "2026-09-05T00:00:00Z", plugins: [validPlugin] }));
+      await tool.execute("before", { query: "before" }, undefined, undefined, {} as never);
+      const controller = new AbortController();
+      globalThis.fetch = () =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(stream) {
+                stream.enqueue(new TextEncoder().encode(JSON.stringify({ source: "fixture", generatedAt: "2026-09-05T00:00:00Z", plugins: [validPlugin] })));
+                controller.abort();
+                stream.close();
+              },
+            }),
+          ),
+        );
+      await expect(tool.execute("cancelled", { query: "after" }, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+      expect((await panels.snapshot())[0]?.data).toMatchObject({ latest: { query: "before" } });
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+  test("requires an explicit ranking source and never fetches the old DSH default", async () => {
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(pluginStars, {});
+    const originalFetch = globalThis.fetch;
+    let fetches = 0;
+    globalThis.fetch = () => {
+      fetches++;
+      throw new Error("unexpected fetch");
+    };
+    try {
+      await expect(tools.snapshot().customTools[0]!.execute("unconfigured", {}, undefined, undefined, {} as never)).rejects.toThrow(/sourceUrl/iu);
+      expect(fetches).toBe(0);
+      expect((await panels.snapshot())[0]?.data).toMatchObject({ source: "", latest: null });
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
     }
   });
 });

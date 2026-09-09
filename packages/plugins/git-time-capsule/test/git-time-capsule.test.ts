@@ -27,6 +27,40 @@ afterEach(async () => {
 });
 
 describe("git time capsule restore", () => {
+  test.each(["no-prefix", "custom-prefix"])("round-trips capsules with %s diff configuration", async (mode) => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-prefix-workspace-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-capsule-prefix-agent-"));
+    temporaryDirectories.push(workspace, agentDir);
+    const git = (args: string[]) => execFileAsync("git", args, { cwd: workspace });
+    await git(["init", "-q"]);
+    await writeFile(join(workspace, "tracked.txt"), "before\n");
+    await git(["add", "tracked.txt"]);
+    await writeFile(join(workspace, "tracked.txt"), "after\n");
+    if (mode === "no-prefix") await git(["config", "diff.noprefix", "true"]);
+    else {
+      await git(["config", "diff.srcPrefix", "custom/old/"]);
+      await git(["config", "diff.dstPrefix", "custom/new/"]);
+    }
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(gitTimeCapsulePlugin);
+      const snapshot = tools.snapshot().customTools.find((tool) => tool.name === "git_snapshot")!;
+      const result = await snapshot.execute("capture", {}, undefined, undefined, {} as never);
+      const { name } = result.details as { name: string };
+      const patch = await readFile(join(agentDir, "capsules", name), "utf8");
+      expect(patch).toContain("diff --git a/tracked.txt b/tracked.txt");
+      await applyCapsule(workspace, join(agentDir, "capsules", name));
+      expect(await readFile(join(workspace, "tracked.txt"), "utf8")).toBe("before\n");
+      expect((await git(["show", ":tracked.txt"])).stdout).toBe("before\n");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("checks and applies a capsule to a real git workspace", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-workspace-"));
     const capsules = await mkdtemp(join(tmpdir(), "pi-harness-capsules-"));
@@ -123,7 +157,11 @@ describe("git time capsule restore", () => {
     const bin = join(workspace, "bin");
     const started = join(workspace, "git-started");
     await mkdir(bin);
-    await writeFile(join(bin, "git"), '#!/bin/sh\n: > "$CAPSULE_GIT_STARTED"\nexec sleep 5\n', "utf8");
+    await writeFile(
+      join(bin, "git"),
+      '#!/bin/sh\ncase "$*" in *--numstat*) printf "1\\t1\\tnote.txt\\n"; exit 0;; esac\n: > "$CAPSULE_GIT_STARTED"\nexec sleep 30\n',
+      "utf8",
+    );
     await chmod(join(bin, "git"), 0o700);
     const originalPath = process.env.PATH;
     const originalStarted = process.env.CAPSULE_GIT_STARTED;
@@ -132,7 +170,9 @@ describe("git time capsule restore", () => {
     const controller = new AbortController();
     let pending: Promise<unknown> | undefined;
     try {
-      pending = applyCapsule(workspace, capsule, 1_000, controller.signal);
+      // Cancellation starts only after the check process signals readiness; its command deadline must outlive that wait.
+      pending = applyCapsule(workspace, capsule, 15_000, controller.signal);
+      void pending.catch(() => undefined);
       await waitForFile(started, "Git restore check to start");
 
       controller.abort(new Error("restore caller cancelled"));
@@ -145,7 +185,7 @@ describe("git time capsule restore", () => {
       if (originalStarted === undefined) delete process.env.CAPSULE_GIT_STARTED;
       else process.env.CAPSULE_GIT_STARTED = originalStarted;
     }
-  });
+  }, 10_000);
 
   test("requires explicit confirmation through the restore tool", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-tool-"));
@@ -537,7 +577,11 @@ describe("git time capsule restore", () => {
     const bin = join(workspace, "bin");
     const started = join(workspace, "git-started");
     await mkdir(bin);
-    await writeFile(join(bin, "git"), '#!/bin/sh\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 5\n', "utf8");
+    await writeFile(
+      join(bin, "git"),
+      '#!/bin/sh\ncase "$*" in *rev-parse*) echo true; exit 0;; esac\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 30\n',
+      "utf8",
+    );
     await chmod(join(bin, "git"), 0o700);
     const originalPath = process.env.PATH;
     const originalStarted = process.env.CAPSULE_GIT_STARTED;
@@ -549,10 +593,11 @@ describe("git time capsule restore", () => {
     context.provide("piTools", tools);
     context.provide("piPluginUi", new PiPluginUiRegistry());
     try {
-      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 1_000 });
+      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 15_000 });
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "git_snapshot")!;
       const controller = new AbortController();
       const pending = tool.execute("call-cancel", {}, controller.signal, undefined, {} as never);
+      void pending.catch(() => undefined);
       await waitForFile(started, "Git snapshot process to start");
 
       controller.abort(new Error("snapshot caller cancelled"));
@@ -564,7 +609,7 @@ describe("git time capsule restore", () => {
       else process.env.CAPSULE_GIT_STARTED = originalStarted;
       await context.fiber.dispose();
     }
-  });
+  }, 10_000);
 
   test("records a caller cancellation that arrives before execution starts", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-pre-cancel-workspace-"));
@@ -599,7 +644,11 @@ describe("git time capsule restore", () => {
     const bin = join(workspace, "bin");
     const started = join(workspace, "git-started");
     await mkdir(bin);
-    await writeFile(join(bin, "git"), '#!/bin/sh\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 5\n', "utf8");
+    await writeFile(
+      join(bin, "git"),
+      '#!/bin/sh\ncase "$*" in *rev-parse*) echo true; exit 0;; esac\necho "$$" > "$CAPSULE_GIT_STARTED"\nexec sleep 30\n',
+      "utf8",
+    );
     await chmod(join(bin, "git"), 0o700);
     const originalPath = process.env.PATH;
     const originalStarted = process.env.CAPSULE_GIT_STARTED;
@@ -612,9 +661,10 @@ describe("git time capsule restore", () => {
     context.provide("piPluginUi", new PiPluginUiRegistry());
     let disposed = false;
     try {
-      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 1_000 });
+      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 15_000 });
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "git_snapshot")!;
       const pending = tool.execute("call-dispose", {}, undefined, undefined, {} as never);
+      void pending.catch(() => undefined);
       await waitForFile(started, "Git snapshot process to start");
 
       await context.fiber.dispose();
@@ -627,7 +677,7 @@ describe("git time capsule restore", () => {
       else process.env.CAPSULE_GIT_STARTED = originalStarted;
       if (!disposed) await context.fiber.dispose();
     }
-  });
+  }, 10_000);
 
   test("serializes concurrent capsule operations", async () => {
     if (process.platform === "win32") return;
@@ -1473,4 +1523,61 @@ describe("git time capsule restore", () => {
       await context.fiber.dispose();
     }
   });
+});
+
+test("captures and restores the current native workspace and rejects queued old-scope writes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-capsule-native-")),
+    active = join(root, "active"),
+    agentDir = join(root, "agent");
+  temporaryDirectories.push(root);
+  await mkdir(active);
+  for (const cwd of [root, active]) {
+    await execFileAsync("git", ["init", "-q"], { cwd });
+    await writeFile(join(cwd, "note.txt"), "base\n");
+    await execFileAsync("git", ["add", "note.txt"], { cwd });
+    await execFileAsync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base"], { cwd });
+  }
+  await writeFile(join(root, "note.txt"), "launch\n");
+  await writeFile(join(active, "note.txt"), "active\n");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let id = "source";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  context.provide("piHarnessLaunch", { cwd: root, agentDir, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  try {
+    await context.plugin(gitTimeCapsulePlugin, {});
+    const capture = tools.snapshot().customTools.find((t) => t.name === "git_snapshot")!;
+    const restore = tools.snapshot().customTools.find((t) => t.name === "git_restore")!;
+    await capture.execute("source", {}, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    const result = await capture.execute("active", {}, undefined, undefined, {} as never);
+    const { name } = result.details as { name: string };
+    await restore.execute("restore", { name, confirm: true }, undefined, undefined, {} as never);
+    expect(await readFile(join(root, "note.txt"), "utf8")).toBe("launch\n");
+    expect(await readFile(join(active, "note.txt"), "utf8")).toBe("base\n");
+    await writeFile(join(active, "note.txt"), "active\n");
+    const capturing = capture.execute("queued-capture", {}, undefined, undefined, {} as never);
+    const restoring = restore.execute("queued-restore", { name, confirm: true }, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(capturing).rejects.toThrow(/workspace changed/iu);
+    await expect(restoring).rejects.toThrow(/workspace changed/iu);
+    expect(await readFile(join(active, "note.txt"), "utf8")).toBe("active\n");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+  } finally {
+    await context.fiber.dispose();
+  }
 });

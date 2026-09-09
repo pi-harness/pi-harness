@@ -1,6 +1,6 @@
 # @pi-harness/plugin-plugin-stars
 
-Plugin Stars — Search a curated raw.githubusercontent.com plugin snapshot through descriptor-safe inputs, strict bounded validation, a cancellable lifecycle, and fail-closed panel reporting.
+Plugin Stars — Search an explicitly configured Pi Harness repository snapshot and rank it by GitHub stars.
 
 ## Install
 
@@ -19,3 +19,13 @@ Add the entry to the Cordis profile the harness starts from:
 ```
 
 The Pi Harness plugin marketplace installs and enables this package for you; the steps above are the manual equivalent.
+
+## Ranking source
+
+There is no default ranking feed. Configure `sourceUrl` with your curated Pi Harness JSON at `https://raw.githubusercontent.com`. With no source configured, the panel reports the missing configuration and `plugin_stars_search` fails before networking. The old DSH ranking is no longer used.
+
+The JSON must contain `source` (nonempty name), `generatedAt` (UTC ISO timestamp), and `plugins` (at most 1000 entries). Each entry requires `id`, `name`, `fullName` (`owner/repository`), `htmlUrl` (the matching GitHub HTTPS URL), `stars` (nonnegative safe integer), `updatedAt` (UTC ISO timestamp), and `topics` (up to 24 strings). Optional fields are `description`, `homepage`, `npmName`, and `license`. Duplicate IDs or repositories invalidate the complete response.
+
+`plugin_stars_search` accepts an optional `query` (up to 120 characters), filters the snapshot locally, and sorts by stars. `total` counts all matches, while `limit` bounds returned entries (default 10, maximum 50). The panel receives at most 20 entries and renders eight. GitHub stars are snapshot metrics, not user ratings or installation compatibility guarantees.
+
+Requests reject redirects, use a 2 MiB response bound, and default to a 15-second timeout. Caller cancellation or unloading aborts requests; failed and cancelled requests preserve the latest successful ranking.

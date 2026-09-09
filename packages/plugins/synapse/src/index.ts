@@ -42,9 +42,18 @@ export interface SynapseGraph {
   orphanCount: number;
 }
 
+export interface SynapseReport extends SynapseGraph {
+  cwd: string;
+  total: number;
+  truncated: boolean;
+}
+
 function sessionLabel(session: SessionInfo): string {
   const value = session.name?.trim() || session.firstMessage.trim() || session.id;
-  return value.length > maxLabelLength ? `${value.slice(0, maxLabelLength - 1)}…` : value;
+  if (value.length <= maxLabelLength) return value;
+  let preview = value.slice(0, maxLabelLength - 1);
+  if (/[\uD800-\uDBFF]$/u.test(preview)) preview = preview.slice(0, -1);
+  return `${preview}…`;
 }
 
 export function buildSynapseGraph(sessions: readonly SessionInfo[], activePath?: string): SynapseGraph {
@@ -91,32 +100,60 @@ export default {
   Config,
   apply(context: Context, config: SynapsePluginConfig) {
     assertKnownConfigKeys("pi-synapse", config, ["maxSessions"]);
-    const maxSessions = Math.max(1, Math.min(maxAllowedSessions, Math.trunc(config.maxSessions ?? defaultMaxSessions)));
-    let graph: SynapseGraph = { nodes: [], edges: [], orphanCount: 0 };
+    const maxSessions = config.maxSessions ?? defaultMaxSessions;
+    if (!Number.isSafeInteger(maxSessions) || maxSessions < 1 || maxSessions > maxAllowedSessions)
+      throw new Error("Synapse maxSessions must be an integer from 1 to 2000");
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+    const capture = () => {
+      if (lifecycle.signal.aborted) throw new Error("Synapse scan was cancelled");
+      const manager = currentManager();
+      return { manager, cwd: manager.getCwd(), directory: manager.getSessionDir(), sessionId: manager.getSessionId(), path: manager.getSessionFile() };
+    };
+    type Scope = ReturnType<typeof capture>;
+    const sameScope = (left: Scope, right: Scope) =>
+      left.manager === right.manager &&
+      left.cwd === right.cwd &&
+      left.directory === right.directory &&
+      left.sessionId === right.sessionId &&
+      left.path === right.path;
+    let cached: { scope: Scope; graph: SynapseReport; at: number } | undefined;
     let refreshes = 0;
-    let scannedAt: number | undefined;
-    let inFlight: Promise<SynapseGraph> | undefined;
-
-    const scan = async (): Promise<SynapseGraph> => {
-      const sessions = await SessionManager.list(context.piHarnessLaunch.cwd, context.piSession.manager.getSessionDir());
-      graph = buildSynapseGraph(sessions.slice(0, maxSessions), context.piSession.manager.getSessionFile());
-      scannedAt = Date.now();
+    let generation = 0;
+    let inFlight: { scope: Scope; promise: Promise<SynapseReport> } | undefined;
+    const scan = async (scope: Scope, signal?: AbortSignal): Promise<SynapseReport> => {
+      const check = () => {
+        if (lifecycle.signal.aborted || signal?.aborted) throw new Error("Synapse scan was cancelled");
+        if (!sameScope(scope, capture())) throw new Error("Synapse context changed during execution");
+      };
+      check();
+      const ticket = ++generation;
+      const sessions = await SessionManager.list(scope.cwd, scope.directory);
+      check();
+      if (ticket !== generation) throw new Error("Synapse scan was superseded");
+      const graph: SynapseReport = {
+        ...buildSynapseGraph(sessions.slice(0, maxSessions), scope.path),
+        cwd: scope.cwd,
+        total: sessions.length,
+        truncated: sessions.length > maxSessions,
+      };
+      cached = { scope, graph: structuredClone(graph), at: Date.now() };
       return graph;
     };
-
-    const refresh = (): Promise<SynapseGraph> => {
-      if (inFlight !== undefined) return inFlight;
-      const current = scan().finally(() => {
-        if (inFlight === current) inFlight = undefined;
+    const refresh = (scope: Scope, signal?: AbortSignal): Promise<SynapseReport> => {
+      const promise = scan(scope, signal).finally(() => {
+        if (inFlight?.promise === promise) inFlight = undefined;
       });
-      inFlight = current;
-      return current;
+      inFlight = { scope, promise };
+      return promise;
     };
-
-    // Panel polls arrive on every runtime event, so they reuse a recent scan instead of re-parsing every session file of the workspace; the explicit tool always rescans.
-    const readGraph = (): Promise<SynapseGraph> => {
-      if (scannedAt !== undefined && Date.now() - scannedAt < graphCacheTtlMs) return Promise.resolve(graph);
-      return refresh();
+    const readGraph = (): Promise<SynapseReport> => {
+      const scope = capture();
+      if (inFlight !== undefined && sameScope(inFlight.scope, scope)) return inFlight.promise.then((graph) => structuredClone(graph));
+      if (cached !== undefined && sameScope(cached.scope, scope) && Date.now() - cached.at < graphCacheTtlMs)
+        return Promise.resolve(structuredClone(cached.graph));
+      return refresh(scope).then((graph) => structuredClone(graph));
     };
 
     const refreshTool = context.piTools.register(
@@ -127,11 +164,17 @@ export default {
         promptSnippet: "inspect the native Pi session map and fork lineage",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(): Promise<AgentToolResult<SynapseGraph>> {
-          const next = await refresh();
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<SynapseReport>> {
+          if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Synapse scan was cancelled");
+          if (params === null || typeof params !== "object" || Array.isArray(params) || Reflect.ownKeys(params).length !== 0)
+            throw new Error("Synapse parameters must be an empty object");
+          const scope = capture();
+          const next = await refresh(scope, signal);
+          if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Synapse scan was cancelled");
+          if (!sameScope(scope, capture())) throw new Error("Synapse context changed during execution");
           // The panel reports how many times this tool was asked for a map; background polls reuse the same scan and must not inflate it.
           refreshes = Math.min(Number.MAX_SAFE_INTEGER, refreshes + 1);
-          return { content: [{ type: "text", text: `Synapse mapped ${next.nodes.length} session(s) and ${next.edges.length} fork edge(s).` }], details: next };
+          return { content: [{ type: "text", text: JSON.stringify(next) }], details: next };
         },
       }),
     );

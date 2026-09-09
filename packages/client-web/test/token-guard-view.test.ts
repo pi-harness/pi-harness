@@ -56,7 +56,7 @@ describe("Token Guard panel view", () => {
       runTokens: null,
       runExceeded: false,
       exceeded: false,
-      aborts: 0,
+      aborts: Number.MAX_SAFE_INTEGER,
     });
     expect(view.lastError).toHaveLength(2_000);
     expect(view.lastError).not.toContain("\0");
@@ -89,5 +89,14 @@ describe("Token Guard panel view", () => {
     expect(() => tokenGuardPanelView(data)).not.toThrow();
     expect(tokenGuardPanelView(data)).toMatchObject({ percent: null, exceeded: false });
     expect(accessed).toBe(false);
+  });
+});
+
+test("keeps valid SDK counts above the former 32-bit UI limit", () => {
+  expect(tokenGuardPanelView({ maxRunTokens: 1, runTokens: 5_000_000_000, tokens: 5_000_000_000, contextWindow: 6_000_000_000 })).toMatchObject({
+    runTokens: 5_000_000_000,
+    tokens: 5_000_000_000,
+    contextWindow: 6_000_000_000,
+    runExceeded: true,
   });
 });

@@ -263,7 +263,8 @@ async function readGraphFile(filePath: string, nodeLimit: number, relationLimit:
   for (const relation of parsed.relations) {
     if (!nodeIds.has(relation.from) || !nodeIds.has(relation.to)) throw new Error("Graph memory file contains relations with missing nodes");
     if (relation.from === relation.to) throw new Error("Graph memory file contains self-relations");
-    if (!relationIds.add(relation.id)) throw new Error("Graph memory file contains duplicate relation ids");
+    if (relationIds.has(relation.id)) throw new Error("Graph memory file contains duplicate relation ids");
+    relationIds.add(relation.id);
   }
   if (nodeIds.size !== parsed.nodes.length) throw new Error("Graph memory file contains duplicate node ids");
   return { nodes: parsed.nodes, relations: parsed.relations };
@@ -390,27 +391,22 @@ export default {
     const relationLimit = boundedInteger(config.maxRelations, absoluteRelationLimit, absoluteRelationLimit);
     let nodes: GraphNode[] = [];
     let relations: GraphRelation[] = [];
-    let loaded = false;
-    let loading: Promise<void> | undefined;
     let mutationQueue = Promise.resolve();
     let lastSearch: GraphSearchReport | undefined;
     const lifecycle = new AbortController();
 
     const load = async (): Promise<void> => {
-      if (loaded) return;
-      if (loading !== undefined) return loading;
-      const pending = (async () => {
+      const pending = mutationQueue.then(async () => {
         const state = await readGraphFile(filePath, nodeLimit, relationLimit);
+        if (lastSearch !== undefined && JSON.stringify({ nodes, relations }) !== JSON.stringify(state)) lastSearch = undefined;
         nodes = state.nodes;
         relations = state.relations;
-        loaded = true;
-      })();
-      loading = pending;
-      try {
-        await pending;
-      } finally {
-        if (loading === pending) loading = undefined;
-      }
+      });
+      mutationQueue = pending.then(
+        () => undefined,
+        () => undefined,
+      );
+      await pending;
     };
 
     const mutate = async <T>(operation: (state: GraphState) => T, signal: AbortSignal): Promise<T> => {
@@ -427,7 +423,6 @@ export default {
           await writeGraphFile(filePath, state);
           nodes = state.nodes;
           relations = state.relations;
-          loaded = true;
           lastSearch = undefined;
         } finally {
           await release();
@@ -542,7 +537,7 @@ export default {
         const params = searchParameters(rawParams);
         const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
         throwIfAborted(operationSignal);
-        await load();
+        await withCancellation(load(), operationSignal);
         throwIfAborted(operationSignal);
         const query = normalizeText(params.query, "Graph memory query", maxQueryLength);
         if (query.length < 2) throw new Error(`Graph memory query must contain 2-${maxQueryLength} characters`);

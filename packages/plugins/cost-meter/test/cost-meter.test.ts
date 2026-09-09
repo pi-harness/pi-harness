@@ -276,7 +276,71 @@ describe("cost meter production boundaries", () => {
     await expect(tool.execute("over-limit", {}, undefined, undefined, {} as never)).rejects.toThrow(/2000-entry limit/iu);
   });
 
-  test("truncates a ledger holding more entries than the configured limit instead of failing", async () => {
+  test("keeps totals and session cursors when the display limit is smaller than the ledger", async () => {
+    const fixture = await setup(stats(), { maxEntries: 1, dailyBudget: 3 });
+    await fixture.tool.execute("first", { refresh: true }, undefined, undefined, {} as never);
+    fixture.setStats(stats({ sessionId: "session-2", cost: 2 }));
+    const second = await fixture.tool.execute("second", { refresh: true }, undefined, undefined, {} as never);
+    expect(second.details).toMatchObject({ todayCost: 3, lifetimeCost: 3, budgetPercent: 100 });
+    expect((second.details as { entries: unknown[] }).entries).toHaveLength(1);
+    fixture.setStats(stats({ cost: 1.5 }));
+    await expect(fixture.tool.execute("resume", { refresh: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { todayCost: 3.5, lifetimeCost: 3.5 },
+    });
+    await expect(fixture.tool.execute("repeat", { refresh: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { lifetimeCost: 3.5 },
+    });
+    const disk = JSON.parse(await readFile(fixture.costPath, "utf8")) as { entries: unknown[] };
+    expect(disk.entries).toHaveLength(2);
+    const reopened = await setup(stats({ cost: 1.5 }), { maxEntries: 1 }, fixture.agentDir);
+    await expect(reopened.tool.execute("reopen", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { lifetimeCost: 3.5 } });
+  });
+
+  test("rejects a new entry at the hard ledger limit without dropping data and still updates existing entries", async () => {
+    const fixture = await setup(stats(), { maxEntries: 1 });
+    const recordedAt = new Date().toISOString();
+    const entries = Array.from({ length: 2_000 }, (_, index) => ({
+      sessionId: `existing-${index}`,
+      cost: 1,
+      sessionCost: 1,
+      tokens: 1,
+      messages: 1,
+      recordedAt,
+    }));
+    const source = JSON.stringify({ version: 2, entries });
+    await writeFile(fixture.costPath, source);
+    await expect(fixture.tool.execute("full", { refresh: true }, undefined, undefined, {} as never)).rejects.toThrow(/2000-entry limit/iu);
+    expect(await readFile(fixture.costPath, "utf8")).toBe(source);
+    fixture.setStats(stats({ sessionId: "existing-0", cost: 2 }));
+    await expect(fixture.tool.execute("existing", { refresh: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { todayCost: 2_001, lifetimeCost: 2_001 },
+    });
+    expect((JSON.parse(await readFile(fixture.costPath, "utf8")) as { entries: unknown[] }).entries).toHaveLength(2_000);
+  });
+
+  test("preserves a readable ledger when serialization would exceed the file byte limit", async () => {
+    const fixture = await setup(stats(), { maxEntries: 1 });
+    const recordedAt = new Date().toISOString();
+    const entries = Array.from({ length: 1_305 }, (_, index) => ({
+      sessionId: `${index}${"\u0001".repeat(508)}`,
+      cost: 1,
+      sessionCost: 1,
+      tokens: 1,
+      messages: 1,
+      recordedAt,
+    }));
+    const ledger = { version: 2, entries };
+    const source = JSON.stringify(ledger);
+    expect(Buffer.byteLength(source)).toBeLessThan(4 * 1024 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(ledger, null, 2))).toBeGreaterThan(4 * 1024 * 1024);
+    await writeFile(fixture.costPath, source);
+    fixture.setStats(stats({ sessionId: entries[0]!.sessionId }));
+    await expect(fixture.tool.execute("oversized-write", { refresh: true }, undefined, undefined, {} as never)).rejects.toThrow(/4194304-byte limit/iu);
+    expect(await readFile(fixture.costPath, "utf8")).toBe(source);
+    await expect(fixture.tool.execute("still-readable", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { lifetimeCost: 1_305 } });
+  });
+
+  test("limits displayed entries without rejecting a larger valid ledger", async () => {
     const { costPath, tool } = await setup(stats(), { maxEntries: 2 });
     const entry = (index: number) => ({
       sessionId: `session-${index}`,

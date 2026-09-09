@@ -34,6 +34,7 @@ describe("YAML validator panel view", () => {
         },
       }),
     ).toEqual({
+      cwd: "",
       latest: {
         path: "config.yml",
         valid: false,

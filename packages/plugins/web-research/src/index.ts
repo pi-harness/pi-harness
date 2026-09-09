@@ -49,10 +49,11 @@ function stringValue(value: unknown, maxLength: number): string {
 }
 
 function httpUrl(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string" || value.length > 4096) return undefined;
   try {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.username !== "" || url.password !== "" || url.toString().length > 4096) return undefined;
     return url.toString();
   } catch {
     return undefined;
@@ -76,6 +77,15 @@ function normalizeSearchItems(payload: FirecrawlPayload, limit: number): WebSear
       },
     ];
   });
+}
+
+function assertParameters(value: unknown, allowed: readonly string[]): asserts value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid web research parameters");
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  if (prototype !== Object.prototype && prototype !== null) throw new Error("Web research parameters must be a plain object");
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !allowed.includes(key))) throw new Error("Unknown web research parameter");
+  if (Object.values(descriptors).some((descriptor) => !("value" in descriptor))) throw new Error("Web research parameters must use data properties");
 }
 
 // Titles and snippets are published by whoever owns the ranked page, so the rendered list carries the same untrusted-content envelope browser_fetch applies to remote page bodies. The unwrapped items stay in details for the panel.
@@ -180,6 +190,7 @@ export default {
     const maxResults = boundedInteger(config.maxResults, 8, 1, 20);
     const timeoutMs = boundedInteger(config.timeoutMs, 20_000, 1_000, 120_000);
     let latest: WebSearchReport | undefined;
+    const lifecycle = new AbortController();
     const unregisterSearch = context.piTools.register(
       defineTool({
         name: "web_search",
@@ -189,13 +200,16 @@ export default {
         parameters: Type.Object({ query: Type.String({ description: "Search query" }) }, { additionalProperties: false }),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebSearchReport>> {
+          assertParameters(params, ["query"]);
+          if (typeof params.query !== "string") throw new Error("Web search query parameter must be a string");
           const query = params.query.trim();
           if (query.length < 2 || query.length > maxQueryLength) throw new Error(`Web search query must contain 2-${maxQueryLength} characters`);
-          if (signal?.aborted === true) throw new Error("Web search was cancelled");
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          if (operationSignal.aborted) throw new Error("Web search was cancelled");
           const controller = new AbortController();
           let timedOut = false;
-          const abortFromCaller = (): void => controller.abort(signal?.reason);
-          signal?.addEventListener("abort", abortFromCaller, { once: true });
+          const abortFromCaller = (): void => controller.abort(operationSignal.reason);
+          operationSignal.addEventListener("abort", abortFromCaller, { once: true });
           const timer = setTimeout(() => {
             timedOut = true;
             controller.abort();
@@ -214,6 +228,7 @@ export default {
               throw new Error(`Web search returned HTTP ${response.status}${detail === "" ? "" : `: ${detail}`}`);
             }
             const payload = await readBoundedJson(response);
+            if (controller.signal.aborted) throw new Error("Web search was cancelled");
             const items = normalizeSearchItems(payload, maxResults);
             const status = payload.success === false || items.length === 0 ? "degraded" : "ok";
             latest = {
@@ -230,7 +245,7 @@ export default {
             };
             return {
               content: [{ type: "text", text: items.length === 0 ? latest.summary : resultsEnvelope(query, items) }],
-              details: latest,
+              details: structuredClone(latest),
             };
           } catch (error) {
             const cause = sanitizedCause(error, apiKey);
@@ -240,7 +255,7 @@ export default {
             throw searchError(`Web search request failed: ${cause.message}`, cause);
           } finally {
             clearTimeout(timer);
-            signal?.removeEventListener("abort", abortFromCaller);
+            operationSignal.removeEventListener("abort", abortFromCaller);
           }
         },
       }),
@@ -263,9 +278,17 @@ export default {
           ),
           executionMode: "sequential",
           async execute(toolCallId, params, signal, onUpdate, toolContext) {
+            assertParameters(params, ["url", "focus"]);
+            if (httpUrl(params.url) === undefined)
+              throw new Error("read_page URL parameter must be a credential-free HTTP or HTTPS URL of at most 4096 characters");
+            if (params.focus !== undefined && (typeof params.focus !== "string" || params.focus.length > 2000))
+              throw new Error("read_page focus parameter must be a string of at most 2000 characters");
+            const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+            if (operationSignal.aborted) throw new Error("Web page read was cancelled");
             const browserFetch = context.piTools.snapshot().customTools.find((tool) => tool.name === "browser_fetch");
             if (browserFetch === undefined) throw new Error("read_page requires the Browser Fetch plugin to be enabled");
-            const result = await browserFetch.execute(toolCallId, { url: params.url }, signal, onUpdate, toolContext);
+            const result = await browserFetch.execute(toolCallId, { url: params.url }, operationSignal, onUpdate, toolContext);
+            if (operationSignal.aborted) throw new Error("Web page read was cancelled");
             return {
               ...result,
               details: {
@@ -288,7 +311,7 @@ export default {
           maxResults,
           timeoutMs,
           readPageAvailable: context.piTools.snapshot().customTools.some((tool) => tool.name === "browser_fetch"),
-          latest: latest ?? null,
+          latest: latest === undefined ? null : structuredClone(latest),
         }),
       });
     } catch (error) {
@@ -298,6 +321,7 @@ export default {
       throw error;
     }
     context.effect(() => () => {
+      lifecycle.abort();
       unregisterSearch();
       unregisterRead?.();
       disposePanel?.();

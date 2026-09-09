@@ -2,13 +2,14 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 const customType = "pi-harness/theme-studio";
 
 export type ThemeId = "light" | "midnight" | "paper" | "high-contrast";
 export type ThemePreset = { label: string; description: string; tokens: Readonly<Record<string, string>> };
 export type ThemeState = {
+  sessionId: string;
   theme: ThemeId;
   label: string;
   description: string;
@@ -22,16 +23,21 @@ export const themePresets: Readonly<Record<ThemeId, ThemePreset>> = {
     label: "Light",
     description: "默认浅色界面，适合长时间编码。",
     tokens: {
+      "--color-green-soft": "#f0fbf4",
+      "--color-red-soft": "#fff5f5",
+      "--color-amber-soft": "#fff9ed",
+      "--color-surface": "#ffffff",
+      "--color-inverse": "#ffffff",
       "--color-ink": "#0f1115",
       "--color-muted": "#65707b",
-      "--color-faint": "#8a949f",
+      "--color-faint": "#687381",
       "--color-line": "rgba(15,17,21,0.12)",
       "--color-soft": "#f6f8fa",
-      "--color-blue": "#4176e6",
+      "--color-blue": "#3565c5",
       "--color-blue-soft": "#edf3fe",
-      "--color-green": "#22c55e",
-      "--color-red": "#ec1313",
-      "--color-amber": "#f59e0b",
+      "--color-green": "#14733f",
+      "--color-red": "#b42318",
+      "--color-amber": "#754c00",
       "--color-empty": "#9aa0a6",
       "--color-starter-border": "rgba(15,17,21,0.14)",
     },
@@ -40,6 +46,11 @@ export const themePresets: Readonly<Record<ThemeId, ThemePreset>> = {
     label: "Midnight",
     description: "深色工作台，降低夜间屏幕亮度。",
     tokens: {
+      "--color-green-soft": "#123524",
+      "--color-red-soft": "#3b1d25",
+      "--color-amber-soft": "#382c17",
+      "--color-surface": "#0b1220",
+      "--color-inverse": "#0b1220",
       "--color-ink": "#f8fafc",
       "--color-muted": "#b7c2d1",
       "--color-faint": "#8290a3",
@@ -58,16 +69,21 @@ export const themePresets: Readonly<Record<ThemeId, ThemePreset>> = {
     label: "Paper",
     description: "暖白纸张色调，适合阅读和文档整理。",
     tokens: {
+      "--color-green-soft": "#edf3e8",
+      "--color-red-soft": "#f9e9e3",
+      "--color-amber-soft": "#f6ecd6",
+      "--color-surface": "#fffaf2",
+      "--color-inverse": "#fffaf2",
       "--color-ink": "#332b24",
       "--color-muted": "#76695d",
-      "--color-faint": "#a09589",
+      "--color-faint": "#76695d",
       "--color-line": "rgba(82,63,45,0.16)",
       "--color-soft": "#f5f0e8",
-      "--color-blue": "#876334",
+      "--color-blue": "#78572c",
       "--color-blue-soft": "#eee2d0",
-      "--color-green": "#5f8b61",
-      "--color-red": "#b85b4f",
-      "--color-amber": "#b17b36",
+      "--color-green": "#37613a",
+      "--color-red": "#a24438",
+      "--color-amber": "#775019",
       "--color-empty": "#a59a8e",
       "--color-starter-border": "rgba(82,63,45,0.18)",
     },
@@ -76,6 +92,11 @@ export const themePresets: Readonly<Record<ThemeId, ThemePreset>> = {
     label: "High Contrast",
     description: "更清晰的文本和边界，适合低视力场景。",
     tokens: {
+      "--color-green-soft": "#e8f5eb",
+      "--color-red-soft": "#fce8e8",
+      "--color-amber-soft": "#fff3cd",
+      "--color-surface": "#ffffff",
+      "--color-inverse": "#ffffff",
       "--color-ink": "#000000",
       "--color-muted": "#262626",
       "--color-faint": "#4a4a4a",
@@ -104,12 +125,30 @@ function isThemeId(value: unknown): value is ThemeId {
   return typeof value === "string" && Object.hasOwn(themePresets, value);
 }
 
-function initialTheme(context: Context, fallback: ThemeId): ThemeId {
-  const entries = context.piSession.manager.getEntries();
-  const entry = [...entries].reverse().find((item) => item.type === "custom" && item.customType === customType);
-  if (entry?.type !== "custom" || entry.data === undefined || typeof entry.data !== "object" || entry.data === null) return fallback;
-  const selected = (entry.data as { theme?: unknown }).theme;
-  return isThemeId(selected) ? selected : fallback;
+for (const preset of Object.values(themePresets)) {
+  Object.freeze(preset.tokens);
+  Object.freeze(preset);
+}
+Object.freeze(themePresets);
+const failedManagers = new WeakMap<object, object | null>();
+const writeFailureMessage = "Theme write failed; reopen the session from disk before using Theme Studio again";
+
+function dataRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object") throw new Error("Theme parameters must be a plain object");
+  let descriptors: PropertyDescriptorMap;
+  try {
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    if (Array.isArray(value) || (prototype !== Object.prototype && prototype !== null)) throw new Error("Invalid object");
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch (error) {
+    throw new Error("Theme parameters must be an accessible plain object", { cause: error });
+  }
+  const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (typeof key !== "string" || !("value" in descriptors[key]!)) throw new Error("Theme parameters require string data properties");
+    output[key] = descriptors[key].value;
+  }
+  return output;
 }
 
 export default {
@@ -117,9 +156,79 @@ export default {
   inject: ["piSession", "piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: ThemeStudioPluginConfig) {
-    let theme = initialTheme(context, config.theme ?? "light");
-    let changedAt: string | null = null;
-    const state = (): ThemeState => ({ ...themePresets[theme], theme, changed: changedAt !== null, changedAt });
+    assertKnownConfigKeys("theme-studio", config, ["theme"]);
+    const fallback = config.theme ?? "light";
+    if (!isThemeId(fallback)) throw new Error("Invalid Theme Studio theme configuration");
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
+    const checkCancelled = (signal?: AbortSignal): void => {
+      if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Theme request was cancelled");
+    };
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+    const state = (): ThemeState => {
+      checkCancelled();
+      const manager = currentManager();
+      if (failedManagers.has(manager)) {
+        if (failedManagers.get(manager) === manager.getHeader()) throw new Error(writeFailureMessage);
+        failedManagers.delete(manager);
+      }
+      let theme = fallback;
+      let changedAt: string | null = null;
+      const entries = manager.getEntries();
+      for (let index = entries.length - 1; index >= 0; index--) {
+        const entry = entries[index]!;
+        if (entry.type !== "custom" || entry.customType !== customType) continue;
+        const data = dataRecord(entry.data);
+        if (
+          Object.keys(data).length !== 2 ||
+          !isThemeId(data.theme) ||
+          typeof data.changedAt !== "string" ||
+          !Number.isFinite(Date.parse(data.changedAt)) ||
+          new Date(data.changedAt).toISOString() !== data.changedAt
+        )
+          throw new Error("Invalid persisted Theme Studio selection");
+        theme = data.theme;
+        changedAt = data.changedAt;
+        break;
+      }
+      return {
+        ...themePresets[theme],
+        tokens: { ...themePresets[theme].tokens },
+        sessionId: manager.getSessionId(),
+        theme,
+        changed: changedAt !== null,
+        changedAt,
+      };
+    };
+    const execute = async (set: boolean, rawParams: unknown, signal?: AbortSignal): Promise<AgentToolResult<ThemeState>> => {
+      checkCancelled(signal);
+      const session = context.get("piRuntime")?.session;
+      const manager = currentManager(),
+        header = manager.getHeader();
+      const check = () => {
+        checkCancelled(signal);
+        if (context.get("piRuntime")?.session !== session || currentManager() !== manager || manager.getHeader() !== header)
+          throw new Error("Theme session changed before execution");
+      };
+      await Promise.resolve();
+      check();
+      const params = dataRecord(rawParams);
+      if (set ? Object.keys(params).length !== 1 || !isThemeId(params.theme) : Object.keys(params).length !== 0) throw new Error("Invalid theme parameters");
+      check();
+      state();
+      check();
+      if (set) {
+        try {
+          manager.appendCustomEntry(customType, { theme: params.theme, changedAt: new Date().toISOString() });
+        } catch (error) {
+          failedManagers.set(manager, header);
+          throw new Error(writeFailureMessage, { cause: error });
+        }
+      }
+      const details = state();
+      check();
+      return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+    };
     const unregisterSet = context.piTools.register(
       defineTool({
         name: "theme_set",
@@ -131,15 +240,10 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, params): Promise<AgentToolResult<ThemeState>> {
-          theme = params.theme;
-          changedAt = new Date().toISOString();
-          context.piSession.manager.appendCustomEntry(customType, { theme });
-          const details = state();
-          return Promise.resolve({ content: [{ type: "text", text: `Theme selected: ${details.label}` }], details });
-        },
+        execute: (_toolCallId, params, signal) => execute(true, params, signal),
       }),
     );
+    context.effect(() => unregisterSet);
     const unregisterStatus = context.piTools.register(
       defineTool({
         name: "theme_status",
@@ -148,12 +252,10 @@ export default {
         promptSnippet: "inspect the active Pi Harness theme",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
-        execute(): Promise<AgentToolResult<ThemeState>> {
-          const details = state();
-          return Promise.resolve({ content: [{ type: "text", text: `${details.label}: ${details.description}` }], details });
-        },
+        execute: (_toolCallId, params, signal) => execute(false, params, signal),
       }),
     );
+    context.effect(() => unregisterStatus);
     const disposePanel = context.piPluginUi.register({
       id: "theme-studio-panel",
       pluginId: "@pi-harness/plugin-theme-studio",
@@ -162,10 +264,6 @@ export default {
       icon: "◐",
       read: () => ({ ...state(), presets: Object.entries(themePresets).map(([id, preset]) => ({ id, label: preset.label, description: preset.description })) }),
     });
-    context.effect(() => () => {
-      unregisterSet();
-      unregisterStatus();
-      disposePanel();
-    });
+    context.effect(() => disposePanel);
   },
 };

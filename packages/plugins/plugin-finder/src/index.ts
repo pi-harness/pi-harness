@@ -14,7 +14,7 @@ const maxKeywordLength = 64;
 const queryParameterNames = new Set(["query"]);
 
 type PluginSearchResult = { name: string; version: string; description: string; score: number; npm: string };
-type PluginSearchReport = { query: string; total: number; results: PluginSearchResult[] };
+type PluginSearchReport = { query: string; total: number; registryTotal: number; truncated: boolean; results: PluginSearchResult[] };
 
 function normalizeRegistryUrl(url: string | undefined): string {
   const value = (url ?? defaultRegistryUrl).trim().replace(/\/+$/, "");
@@ -100,11 +100,20 @@ async function readBoundedJson(response: Response): Promise<{ total?: unknown; o
   } catch (error) {
     throw new Error("Plugin registry response must contain valid UTF-8", { cause: error });
   }
+  let payload: unknown;
   try {
-    return JSON.parse(text) as { total?: unknown; objects?: unknown };
+    payload = JSON.parse(text);
   } catch (error) {
     throw new Error(`Plugin registry returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid plugin registry response structure");
+  const result = payload as { total?: unknown; objects?: unknown };
+  if (
+    !Array.isArray(result.objects) ||
+    (result.total !== undefined && (typeof result.total !== "number" || !Number.isSafeInteger(result.total) || result.total < 0))
+  )
+    throw new Error("Invalid plugin registry response structure");
+  return result;
 }
 
 async function searchRegistry(url: string, timeoutMs: number, signal?: AbortSignal): Promise<{ total?: unknown; objects?: unknown }> {
@@ -124,7 +133,9 @@ async function searchRegistry(url: string, timeoutMs: number, signal?: AbortSign
       await cancelResponseBody(response);
       throw new Error(`Plugin registry returned HTTP ${response.status}`);
     }
-    return await readBoundedJson(response);
+    const payload = await readBoundedJson(response);
+    controller.signal.throwIfAborted();
+    return payload;
   } catch (error) {
     if (timedOut) throw new Error(`Plugin search timed out after ${timeoutMs} ms`, { cause: error });
     if (controller.signal.aborted) throw new Error("Plugin search was cancelled", { cause: error });
@@ -141,9 +152,14 @@ export default {
   Config,
   apply(context: Context, config: PluginFinderConfig) {
     const registryUrl = normalizeRegistryUrl(config.registryUrl);
-    const limit = Math.max(1, Math.min(25, Math.trunc(config.limit ?? defaultLimit)));
+    const limit = Math.max(1, Math.min(25, Math.trunc(config.limit !== undefined && Number.isFinite(config.limit) ? config.limit : defaultLimit)));
     const keyword = normalizeSearchKeyword(config.keyword);
-    const timeoutMs = Math.max(1_000, Math.min(60_000, Math.trunc(config.timeoutMs ?? defaultTimeoutMs)));
+    const timeoutMs = Math.max(
+      1_000,
+      Math.min(60_000, Math.trunc(config.timeoutMs !== undefined && Number.isFinite(config.timeoutMs) ? config.timeoutMs : defaultTimeoutMs)),
+    );
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort(new Error("Plugin Finder disposed")));
     let latest: PluginSearchReport | undefined;
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -156,10 +172,11 @@ export default {
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<PluginSearchReport>> {
           const query = queryParameter(params).trim();
           if (query.length < 2 || query.length > maxQueryLength) throw new Error(`Plugin search query must contain 2-${maxQueryLength} characters`);
-          const search = new URLSearchParams({ text: `keywords:${keyword} ${query}`, size: String(limit) });
-          const payload = await searchRegistry(`${registryUrl}/-/v1/search?${search.toString()}`, timeoutMs, signal);
+          const search = new URLSearchParams({ text: `keywords:${keyword} ${query}`, size: "250" });
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const payload = await searchRegistry(`${registryUrl}/-/v1/search?${search.toString()}`, timeoutMs, operationSignal);
           const objects = Array.isArray(payload.objects) ? payload.objects : [];
-          const results = objects.slice(0, limit).flatMap((entry): PluginSearchResult[] => {
+          const candidates = objects.slice(0, 250).flatMap((entry): PluginSearchResult[] => {
             if (entry === null || typeof entry !== "object") return [];
             const item = entry as { package?: unknown; score?: unknown };
             if (item.package === null || typeof item.package !== "object") return [];
@@ -178,7 +195,23 @@ export default {
               },
             ];
           });
-          latest = { query, total: typeof payload.total === "number" && Number.isFinite(payload.total) ? payload.total : results.length, results };
+          if (operationSignal.aborted) throw new Error("Plugin search was cancelled");
+          const terms = query.toLocaleLowerCase().split(/\s+/u);
+          const matches = candidates.filter((item) => terms.every((term) => `${item.name} ${item.description}`.toLocaleLowerCase().includes(term)));
+          matches.sort(
+            (left, right) =>
+              Number(terms.every((term) => right.name.toLocaleLowerCase().includes(term))) -
+              Number(terms.every((term) => left.name.toLocaleLowerCase().includes(term))),
+          );
+          const registryTotal = typeof payload.total === "number" ? payload.total : objects.length;
+          const results = matches.slice(0, limit);
+          latest = {
+            query,
+            total: matches.length,
+            registryTotal,
+            truncated: registryTotal > objects.length || objects.length > 250 || matches.length > limit,
+            results,
+          };
           return {
             content: [
               {
@@ -186,11 +219,12 @@ export default {
                 text: results.length === 0 ? `No plugins found for ${query}.` : results.map((result) => `${result.name}@${result.version}`).join("\n"),
               },
             ],
-            details: latest,
+            details: structuredClone(latest),
           };
         },
       }),
     );
+    context.effect(() => unregisterTool);
     const disposePanel = context.piPluginUi.register({
       id: "plugin-finder-panel",
       pluginId: "@pi-harness/plugin-plugin-finder",
@@ -205,7 +239,9 @@ export default {
         maxResponseBytes,
         query: latest?.query ?? null,
         total: latest?.total ?? 0,
-        results: latest?.results ?? [],
+        registryTotal: latest?.registryTotal ?? 0,
+        truncated: latest?.truncated ?? false,
+        results: latest === undefined ? [] : structuredClone(latest.results),
       }),
     });
     context.effect(() => () => {

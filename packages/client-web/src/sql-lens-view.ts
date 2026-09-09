@@ -4,6 +4,7 @@ export interface SqlLensPanelView {
   readonly status: { readonly state: SqlLensStatusState; readonly at: string | null; readonly error: string | null };
   readonly timeoutMs: number;
   readonly latest: {
+    readonly cwd: string;
     readonly database: string;
     readonly query: string;
     readonly columns: readonly string[];
@@ -41,7 +42,7 @@ const limitsDefaults = {
 } as const;
 const rootKeys = new Set(["status", "timeoutMs", "latest", "limits"]);
 const statusKeys = new Set(["state", "at", "error"]);
-const latestKeys = new Set(["database", "query", "columns", "rows", "truncated", "scannedRows", "rowInventory"]);
+const latestKeys = new Set(["cwd", "database", "query", "columns", "rows", "truncated", "scannedRows", "rowInventory"]);
 const rowInventoryKeys = new Set(["scanned", "returned", "shown", "truncated", "displayLimit"]);
 const cellKeys = new Set(["type", "bytes", "previewBase64", "truncated"]);
 const limitKeys = new Set(Object.keys(limitsDefaults));
@@ -79,7 +80,7 @@ function safeText(value: unknown, maximum: number, allowEmpty = false, allowLine
   for (const character of value) {
     if (unsafeUnicode.test(character) && !(allowLineBreaks && (character === "\t" || character === "\n" || character === "\r"))) return undefined;
   }
-  if ([...value].length > maximum || new TextEncoder().encode(value).byteLength > maximum) return undefined;
+  if (value.length > maximum) return undefined;
   return value;
 }
 
@@ -156,13 +157,15 @@ function cellView(value: unknown): unknown {
 function latestView(value: unknown): SqlLensPanelView["latest"] | undefined {
   const source = ownDataRecord(value, latestKeys);
   if (source === undefined || !hasExactly(source, latestKeys)) return undefined;
+  const cwd = safeText(source.cwd, 4_096);
   const database = safeText(source.database, 4_096);
-  const query = safeText(source.query, limitsDefaults.queryLength);
+  const query = safeText(source.query, limitsDefaults.queryLength, false, true);
   const columnsRaw = ownDataArray(source.columns, limitsDefaults.columns);
   const rowsRaw = ownDataArray(source.rows, limitsDefaults.panelRows);
   const scannedRows = safeInteger(source.scannedRows, Number.MAX_SAFE_INTEGER);
   const inventory = ownDataRecord(source.rowInventory, rowInventoryKeys);
   if (
+    cwd === undefined ||
     database === undefined ||
     query === undefined ||
     columnsRaw === undefined ||
@@ -210,6 +213,7 @@ function latestView(value: unknown): SqlLensPanelView["latest"] | undefined {
   }
   const visible = rows.slice(0, visibleRows);
   return {
+    cwd,
     database,
     query,
     columns: columns.slice(0, visibleColumns),

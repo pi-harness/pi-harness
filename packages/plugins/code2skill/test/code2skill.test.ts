@@ -3,9 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { parse } from "yaml";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import type * as FsPromises from "node:fs/promises";
 import code2SkillPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
+
+// Hold the real manifest write after it completes so interruption before directory publication is deterministic.
+const fsHooks = vi.hoisted(() => ({ afterManifest: undefined as (() => Promise<void>) | undefined }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  const writeFile: typeof actual.writeFile = async (...args) => {
+    await actual.writeFile(...args);
+    if (typeof args[0] === "string" && args[0].endsWith("/SKILL.md")) await fsHooks.afterManifest?.();
+  };
+  return { ...actual, writeFile };
+});
 
 async function createCode2Skill(): Promise<{
   context: Context;
@@ -261,4 +273,96 @@ describe("code2skill", () => {
       await dispose(fixture);
     }
   });
+});
+
+test("creates packs in the current native workspace and invalidates queued work on session changes", async () => {
+  const fixture = await createCode2Skill();
+  const active = join(fixture.root, "active");
+  let id = "initial";
+  let session = { sessionId: id, sessionManager: { getCwd: () => fixture.cwd } };
+  try {
+    await mkdir(active);
+    await writeFile(join(fixture.cwd, "source.ts"), "launch source");
+    await writeFile(join(active, "source.ts"), "active source");
+    fixture.context.provide("piRuntime", {
+      get session() {
+        return session;
+      },
+    } as never);
+    const params = { name: "Native", description: "Native workspace", files: ["source.ts"] };
+    await fixture.tool.execute("initial", params, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { generated: 0, latest: null } }]);
+    await fixture.tool.execute("active", params, undefined, undefined, {} as never);
+    expect(await readFile(join(active, ".pi/skills/native/references/source.ts"), "utf8")).toBe("active source");
+    expect(await readFile(join(fixture.cwd, ".pi/skills/native/references/source.ts"), "utf8")).toBe("launch source");
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { generated: 1, latest: { slug: "native" } } }]);
+    const first = fixture.tool.execute("first-queued", { ...params, name: "Old One" }, undefined, undefined, {} as never);
+    const second = fixture.tool.execute("second-queued", { ...params, name: "Old Two" }, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(first).rejects.toThrow(/workspace changed/iu);
+    await expect(second).rejects.toThrow(/workspace changed/iu);
+    await expect(access(join(active, ".pi/skills/old-one"))).rejects.toThrow();
+    await expect(access(join(active, ".pi/skills/old-two"))).rejects.toThrow();
+    await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { generated: 0, latest: null } }]);
+  } finally {
+    await dispose(fixture);
+  }
+});
+
+test.each(["switch", "cancel", "dispose"])("removes staged files when %s interrupts before publication", async (kind) => {
+  const fixture = await createCode2Skill();
+  let id = "initial";
+  fixture.context.provide("piRuntime", {
+    session: {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => fixture.cwd },
+    },
+  } as never);
+  let reached!: () => void, release!: () => void;
+  const manifestWritten = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const controller = new AbortController();
+  try {
+    await writeFile(join(fixture.cwd, "source.ts"), "original");
+    fsHooks.afterManifest = async () => {
+      reached();
+      await held;
+    };
+    const pending = fixture.tool.execute(
+      "held",
+      { name: "Interrupted", description: "Never published", files: ["source.ts"] },
+      controller.signal,
+      undefined,
+      {} as never,
+    );
+    const outcome = pending.then(
+      () => "unexpected success",
+      (error: unknown) => String(error),
+    );
+    await manifestWritten;
+    if (kind === "switch") id = "replacement";
+    else if (kind === "cancel") controller.abort(new Error("caller cancelled"));
+    else await fixture.context.fiber.dispose();
+    release();
+    expect(await outcome).toMatch(/workspace changed|cancelled|disposed/iu);
+    expect(await readdir(join(fixture.cwd, ".pi/skills"))).toEqual([]);
+    expect(await readFile(join(fixture.cwd, "source.ts"), "utf8")).toBe("original");
+    if (kind !== "dispose") await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { generated: 0, latest: null } }]);
+  } finally {
+    fsHooks.afterManifest = undefined;
+    release();
+    await dispose(fixture);
+  }
 });

@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { opendir, stat } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
@@ -6,6 +6,8 @@ import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agen
 import { EmptyConfig, readBoundedFile, resolveExistingWorkspacePath } from "@pi-harness/plugin-api";
 
 const maxFiles = 500;
+const maxFindings = 200;
+const maxEntries = 4096;
 const maxFileBytes = 512 * 1024;
 const maxDirectories = 512;
 const maxDepth = 16;
@@ -32,10 +34,13 @@ export interface AuditSummary {
   medium: number;
   changed: boolean;
   findings: AuditFinding[];
+  truncated: boolean;
+  incomplete: boolean;
+  credentialLinesSkipped: number;
 }
 
 const credentialPattern = /\b(?:sk-[A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9]{10,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{12,})\b/iu;
-const privateKeyPattern = /-----BEGIN (?:RSA|EC|OPENSSH|DSA|PGP )?PRIVATE KEY-----/u;
+const privateKeyPattern = /-----BEGIN (?:(?:(?:RSA|EC|OPENSSH|DSA|ENCRYPTED) )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----/u;
 // A credential assignment is recognised by walking the line to each `:` or `=` and looking at a bounded window on either side, never by one regex spanning the whole line. The earlier single-regex form put the credential word inside two stars made of the same characters, so a line of repeated `token_` had quadratically many split points and a 512 KB line cost about 74 seconds. Here the key window is capped at maxCredentialKeyLength and the value window at maxCredentialValueLength, so the work at one separator is constant and cannot compound with the work at the next. The per-line cap is a second, cruder line of defence: 4096 characters is far above any hand-written config or source line that could carry a credential and far below a minified bundle line, so a line over that is skipped outright rather than trusted to the scan above.
 // The key side is matched loosely (any case, any quoting, any prefix or suffix) and the decision is made on the value side, because that is what separates a leaked credential from ordinary source. A credential value is a literal: a quoted string, or an unquoted run that stops at the punctuation of code, so calls, member expressions and generic type arguments never produce a value at all. Three literals are excluded on top of that: a mixed-case alphabetic word is a camelCase or PascalCase symbol name rather than a secret, an all-digit run is a numeric constant such as a token budget, and a version range under a quoted package-name key is a dependency specifier from a lockfile. A password key whose value is a mixed-case alphabetic word such as SuperSecretPass is therefore missed; that is the price of not reporting every TypeScript type annotation.
 const maxCredentialLineLength = 4096;
@@ -222,61 +227,108 @@ export function summarizeAudit(findings: readonly AuditFinding[], root = ".", sc
   const critical = findings.filter((item) => item.severity === "critical").length;
   const high = findings.filter((item) => item.severity === "high").length;
   const medium = findings.filter((item) => item.severity === "medium").length;
-  return { root, scanned, skipped, total: findings.length, critical, high, medium, changed: findings.length > 0, findings: [...findings] };
+  return {
+    root,
+    scanned,
+    skipped,
+    total: findings.length,
+    critical,
+    high,
+    medium,
+    changed: findings.length > 0,
+    findings: structuredClone(findings.slice(0, maxFindings)),
+    truncated: findings.length > maxFindings,
+    incomplete: skipped > 0,
+    credentialLinesSkipped: 0,
+  };
 }
 
-type WalkState = { files: string[]; directories: number };
+function checkCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error("Security audit was cancelled");
+}
 
-async function workspaceFiles(root: string, current: string, state: WalkState, depth = 0): Promise<void> {
-  if (state.files.length >= maxFiles || state.directories >= maxDirectories || depth > maxDepth) return;
+type WalkState = { files: string[]; directories: number; entries: number; truncated: boolean; skipped: number };
+
+async function workspaceFiles(root: string, current: string, state: WalkState, assertCurrent: () => void, depth = 0): Promise<void> {
+  assertCurrent();
+  if (state.files.length >= maxFiles || state.directories >= maxDirectories || depth >= maxDepth) {
+    state.truncated = true;
+    return;
+  }
   state.directories += 1;
-  if (depth >= maxDepth) return;
-  const entries = await readdir(current, { withFileTypes: true });
-  for (const entry of entries) {
-    if (state.files.length >= maxFiles || state.directories >= maxDirectories) return;
+  let directory: Awaited<ReturnType<typeof opendir>>;
+  try {
+    const checked = await resolveExistingWorkspacePath(root, current, "Audit directory must stay inside the workspace");
+    assertCurrent();
+    directory = await opendir(checked.target);
+  } catch {
+    assertCurrent();
+    state.skipped += 1;
+    return;
+  }
+  for await (const entry of directory) {
+    assertCurrent();
+    if (state.files.length >= maxFiles || state.entries >= maxEntries) {
+      state.truncated = true;
+      return;
+    }
+    state.entries += 1;
     const fullPath = join(current, entry.name);
     if (entry.isDirectory()) {
-      if (!ignoredDirectories.has(entry.name)) await workspaceFiles(root, fullPath, state, depth + 1);
-    } else if (entry.isFile()) {
-      state.files.push(relative(root, fullPath));
-    }
+      if (!ignoredDirectories.has(entry.name)) await workspaceFiles(root, fullPath, state, assertCurrent, depth + 1);
+    } else if (entry.isFile()) state.files.push(relative(root, fullPath));
   }
 }
 
-export async function auditWorkspace(root: string, requested = "."): Promise<AuditSummary> {
+async function scanWorkspace(root: string, requested: string, assertCurrent: () => void): Promise<AuditSummary> {
+  assertCurrent();
   const resolved = await resolveExistingWorkspacePath(root, requested, "Audit path must stay inside the current workspace");
+  assertCurrent();
   root = resolved.root;
   const target = resolved.target;
   const metadata = await stat(target);
-  const state: WalkState = { files: [], directories: 0 };
+  assertCurrent();
+  const state: WalkState = { files: [], directories: 0, entries: 0, truncated: false, skipped: 0 };
   if (metadata.isFile()) state.files.push(relative(root, target));
-  else if (metadata.isDirectory()) await workspaceFiles(root, target, state);
+  else if (metadata.isDirectory()) await workspaceFiles(root, target, state, assertCurrent);
   else throw new Error("Audit target must be a file or directory");
-  const files = state.files;
-  const findings: AuditFinding[] = [];
-  let skipped = 0;
-  for (const file of files) {
-    const fullPath = resolve(root, file);
-    const fileMetadata = await stat(fullPath);
-    if (fileMetadata.size > maxFileBytes) {
-      skipped += 1;
-      continue;
-    }
+  assertCurrent();
+  const summary = summarizeAudit([], relative(root, target) || ".", state.files.length, state.skipped);
+  for (const file of state.files) {
+    assertCurrent();
     let source: string;
     try {
-      const bytes = await readBoundedFile(fullPath, maxFileBytes, "Audit file");
+      const checked = await resolveExistingWorkspacePath(root, resolve(root, file), "Audit file must stay inside the workspace");
+      assertCurrent();
+      const bytes = await readBoundedFile(checked.target, maxFileBytes, "Audit file");
+      assertCurrent();
       if (bytes.includes(0)) {
-        skipped += 1;
+        summary.skipped += 1;
         continue;
       }
       source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
-      skipped += 1;
+      assertCurrent();
+      summary.skipped += 1;
       continue;
     }
-    findings.push(...auditText(file || basename(fullPath), source));
+    summary.credentialLinesSkipped += source.split("\n").filter((line) => line.length > maxCredentialLineLength).length;
+    const found = summarizeAudit(auditText(file || basename(file), source));
+    summary.total += found.total;
+    summary.critical += found.critical;
+    summary.high += found.high;
+    summary.medium += found.medium;
+    summary.findings.push(...found.findings.slice(0, maxFindings - summary.findings.length));
   }
-  return summarizeAudit(findings, relative(root, target) || ".", files.length, skipped);
+  assertCurrent();
+  summary.changed = summary.total > 0;
+  summary.truncated = state.truncated || summary.total > summary.findings.length;
+  summary.incomplete = state.truncated || summary.skipped > 0 || summary.credentialLinesSkipped > 0;
+  return summary;
+}
+
+export async function auditWorkspace(root: string, requested = ".", signal?: AbortSignal): Promise<AuditSummary> {
+  return scanWorkspace(root, requested, () => checkCancelled(signal));
 }
 
 function emptySummary(): AuditSummary {
@@ -289,6 +341,21 @@ export default {
   Config: EmptyConfig,
   apply(context: Context) {
     let latest: AuditSummary | undefined;
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
     const unregister = context.piTools.register(
       defineTool({
         name: "security_audit",
@@ -296,30 +363,64 @@ export default {
         description: "Read-only scan of workspace text files for exposed credentials and dangerous shell commands; findings are value-redacted.",
         promptSnippet: "audit the workspace for secrets and dangerous commands",
         parameters: Type.Object(
-          { path: Type.Optional(Type.String({ description: "Workspace-relative file or directory to scan" })) },
+          { path: Type.Optional(Type.String({ description: "Workspace-relative file or directory to scan", maxLength: 4096 })) },
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<AuditSummary>> {
-          latest = await auditWorkspace(context.piHarnessLaunch.cwd, params.path ?? ".");
+        async execute(_toolCallId, params, callerSignal): Promise<AgentToolResult<AuditSummary>> {
+          const signal = callerSignal === undefined ? lifecycle.signal : AbortSignal.any([callerSignal, lifecycle.signal]);
+          checkCancelled(signal);
+          const current = refreshScope();
+          const assertCurrent = () => {
+            checkCancelled(signal);
+            if (refreshScope() !== current) throw new Error("Security audit workspace changed during execution");
+          };
+          if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Audit parameters must be an object");
+          const descriptors = Object.getOwnPropertyDescriptors(params);
+          if (Reflect.ownKeys(descriptors).some((key) => key !== "path") || Object.values(descriptors).some((item) => !("value" in item)))
+            throw new Error("Audit parameters must contain only a path data property");
+          const path = descriptors.path?.value as unknown;
+          if (path !== undefined && (typeof path !== "string" || path.length > 4096 || path.includes("\0")))
+            throw new Error("Audit path must be a string of at most 4096 characters without NUL");
+          const result = await scanWorkspace(current.cwd, path ?? ".", assertCurrent);
+          assertCurrent();
+          latest = structuredClone(result);
           return {
-            content: [{ type: "text", text: `${latest.total} findings across ${latest.scanned} files (${latest.critical} critical, ${latest.high} high).` }],
-            details: latest,
+            content: [
+              {
+                type: "text",
+                text: [
+                  `${result.total} findings across ${result.scanned} candidate files (${result.critical} critical, ${result.high} high).`,
+                  `Coverage: ${result.incomplete ? "incomplete" : "within configured scope"}; ${result.skipped} skipped files/directories; ${result.credentialLinesSkipped} lines skipped by the general credential-assignment check.`,
+                  `Details: ${result.findings.length}/${result.total}; discovery or output truncated: ${result.truncated}. Heuristic checks do not prove safety.`,
+                  ...result.findings.map((item) => `${item.path}:${item.line} [${item.severity}/${item.kind}] ${item.message}`),
+                ].join("\n"),
+              },
+            ],
+            details: result,
           };
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "secure-audit-panel",
-      pluginId: "@pi-harness/plugin-secure-audit",
-      title: "Secure Audit",
-      description: "只读扫描工作区中的凭据泄露和危险命令，结果不会显示敏感值。",
-      icon: "⌕",
-      read: () => latest ?? emptySummary(),
-    });
-    context.effect(() => () => {
+    context.effect(() => unregister);
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "secure-audit-panel",
+        pluginId: "@pi-harness/plugin-secure-audit",
+        title: "Secure Audit",
+        description: "只读扫描工作区中的凭据泄露和危险命令，结果不会显示敏感值。",
+        icon: "⌕",
+        read: () => {
+          refreshScope();
+          return { ...structuredClone(latest ?? emptySummary()), hasRun: latest !== undefined };
+        },
+      });
+    } catch (error) {
+      lifecycle.abort();
       unregister();
-      disposePanel();
-    });
+      throw error;
+    }
+    context.effect(() => disposePanel);
   },
 };

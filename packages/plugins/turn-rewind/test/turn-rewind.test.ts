@@ -27,6 +27,7 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
   ]);
   context.provide("piRuntime", {
     session: {
+      sessionId: "initial-session",
       isIdle: !streaming,
       isStreaming: streaming,
       sessionManager: {
@@ -57,7 +58,11 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
   await context.plugin(turnRewindPlugin);
   const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_rewind");
   if (tool === undefined) throw new Error("Turn Rewind tool was not registered");
-  return { context, panels, tool, navigations, rawNavigations, commandContextNavigations, candidateScans: () => candidateScans };
+  const settle = () => {
+    Object.assign(context.piRuntime.session, { isIdle: true, isStreaming: false });
+    context.emit("pi/session-event", { type: "agent_settled" });
+  };
+  return { context, panels, tool, navigations, rawNavigations, commandContextNavigations, settle, candidateScans: () => candidateScans };
 }
 
 describe("turn rewind", () => {
@@ -213,9 +218,69 @@ describe("turn rewind", () => {
       expect(fixture.navigations).toEqual([]);
       await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { latest: { status: "queued" } } }]);
 
-      fixture.context.emit("pi/session-event", { type: "agent_settled" });
+      fixture.settle();
       await expect.poll(() => fixture.navigations).toEqual([{ entryId: "u2", summarize: false }]);
       await expect.poll(async () => (await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "completed" } });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("keeps the rewind queued when a settled event arrives during another active run", async () => {
+    const fixture = await createTurnRewind(true);
+    try {
+      await fixture.tool.execute("queued", {}, undefined, undefined, {} as never);
+      fixture.context.emit("pi/session-event", { type: "agent_settled" });
+      await Promise.resolve();
+      expect(fixture.navigations).toEqual([]);
+      expect((await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "queued" } });
+      fixture.settle();
+      await expect.poll(() => fixture.navigations).toHaveLength(1);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("cancels stale queued targets when the same native session object opens another session", async () => {
+    const fixture = await createTurnRewind(true);
+    try {
+      await fixture.tool.execute("queued", {}, undefined, undefined, {} as never);
+      Object.assign(fixture.context.piRuntime.session, { sessionId: "replacement-session" });
+      fixture.settle();
+      await Promise.resolve();
+      expect(fixture.navigations).toEqual([]);
+      expect((await fixture.panels.snapshot())[0]?.data).toMatchObject({
+        latest: { status: "cancelled", error: "Session changed before the queued rewind could start" },
+      });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test.each(["panel", "tool"])("releases a stale queue on %s access before another settlement", async (access) => {
+    const fixture = await createTurnRewind(true);
+    try {
+      await fixture.tool.execute("queued", {}, undefined, undefined, {} as never);
+      Object.assign(fixture.context.piRuntime.session, { sessionId: "replacement-session", isIdle: true, isStreaming: false });
+      if (access === "panel") expect((await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "cancelled" } });
+      await expect(fixture.tool.execute("new", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { status: "completed" } });
+      expect(fixture.navigations).toHaveLength(1);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("refreshes candidates after an in-place native session switch without a settled event", async () => {
+    const fixture = await createTurnRewind(false);
+    try {
+      Object.assign(fixture.context.piRuntime.session, {
+        sessionId: "replacement-session",
+        sessionManager: {
+          getLeafEntry: () => ({ type: "message", id: "new", parentId: null, message: { role: "user", content: "新会话" } }),
+          getEntry: () => undefined,
+        },
+      });
+      expect((await fixture.panels.snapshot())[0]?.data).toMatchObject({ candidates: [{ entryId: "new", text: "新会话" }] });
     } finally {
       await fixture.context.fiber.dispose();
     }
@@ -229,7 +294,7 @@ describe("turn rewind", () => {
       });
       await expect(fixture.tool.execute("second", { turns: 2 }, undefined, undefined, {} as never)).rejects.toThrow(/rewind.*already.*progress/iu);
 
-      fixture.context.emit("pi/session-event", { type: "agent_settled" });
+      fixture.settle();
       await expect.poll(() => fixture.navigations).toEqual([{ entryId: "u2", summarize: false }]);
     } finally {
       await fixture.context.fiber.dispose();
@@ -257,7 +322,7 @@ describe("turn rewind", () => {
     const fixture = await createTurnRewind(false, () => Promise.resolve({ cancelled: true, editorText: `edit\0${"x".repeat(8_000)}` }));
     try {
       const result = await fixture.tool.execute("cancelled", { turns: 1, summarize: true }, undefined, undefined, {} as never);
-      expect(result.content).toEqual([{ type: "text", text: "Session rewind was cancelled." }]);
+      expect(result.content).toEqual([{ type: "text", text: JSON.stringify(result.details) }]);
       expect(result.details).toMatchObject({
         status: "cancelled",
         target: { entryId: "u2", text: "第二轮" },
@@ -323,7 +388,7 @@ describe("turn rewind", () => {
       caller.abort(new Error("caller stopped"));
       await expect.poll(async () => (await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "cancelled" } });
 
-      fixture.context.emit("pi/session-event", { type: "agent_settled" });
+      fixture.settle();
       await Promise.resolve();
       expect(fixture.navigations).toEqual([]);
     } finally {
@@ -382,7 +447,7 @@ describe("turn rewind", () => {
         },
       });
 
-      fixture.context.emit("pi/session-event", { type: "agent_settled" });
+      fixture.settle();
       await expect.poll(async () => (await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "cancelled" } });
       const panel = (await fixture.panels.snapshot())[0]?.data as { latest: { error: string } };
       expect(panel.latest.error).toMatch(/session.*changed/iu);

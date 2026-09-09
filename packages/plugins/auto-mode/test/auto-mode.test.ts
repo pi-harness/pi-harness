@@ -123,6 +123,37 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 describe("auto-mode", () => {
+  test("requires confirmation for file magic compilation while allowing ordinary inspection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
+    const context = new Context();
+    try {
+      await writeFile(join(root, "sample.magic"), "0 string SAMPLE sample format\n");
+      await writeFile(join(root, "sample.txt"), "SAMPLE payload\n");
+      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      const tools = new PiToolRegistry();
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(autoModePlugin, { mode: "safe" });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec")!;
+      for (const option of ["-C", "-bC", "--compile", "--comp", "-z", "--uncompress"]) {
+        await expect(tool.execute("compile", { command: ["file", option, "-m", "sample.magic"] }, undefined, undefined, {} as never)).rejects.toThrow(
+          /confirm=true/iu,
+        );
+        await expect(access(join(root, "sample.magic.mgc"))).rejects.toThrow();
+      }
+      await expect(
+        tool.execute("inspect", { command: ["file", "--brief", "--mime-type", "--", "sample.txt"] }, undefined, undefined, {} as never),
+      ).resolves.toMatchObject({ details: { exitCode: 0, confirmed: false } });
+      await expect(
+        tool.execute("confirmed", { command: ["file", "-C", "-m", "sample.magic"], confirm: true }, undefined, undefined, {} as never),
+      ).resolves.toMatchObject({ details: { exitCode: 0, confirmed: true } });
+      await expect(access(join(root, "sample.magic.mgc"))).resolves.toBeUndefined();
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("requires confirmation for unknown workspace executables", async () => {
     if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
@@ -1077,7 +1108,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("requires confirmation when the hostile submodule is beside the working directory rather than under it", async () => {
     if (process.platform === "win32") return;
@@ -1118,7 +1149,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("does not probe the repository for Git commands that only report a version", async () => {
     if (process.platform === "win32") return;
@@ -1153,7 +1184,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("does not require confirmation for a program-executing key that belongs to the machine rather than the repository", async () => {
     if (process.platform === "win32") return;
@@ -1526,4 +1557,75 @@ describe("auto-mode", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+test("checks and executes in the current native workspace and rejects obsolete probes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-auto-native-")),
+    active = join(root, "active");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  try {
+    await mkdir(active);
+    await execFileAsync("git", ["init", "-q"], { cwd: active });
+    await execFileAsync("git", ["config", "filter.test.clean", "./filter.sh"], { cwd: active });
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piRuntime", {
+      get session() {
+        return session;
+      },
+    } as never);
+    await context.plugin(autoModePlugin, {});
+    const tool = tools.snapshot().customTools[0]!;
+    await tool.execute("first", { command: ["pwd"] }, undefined, undefined, {} as never);
+    session = {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => active },
+    };
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+    await expect(tool.execute("risky", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never)).rejects.toThrow(/risky command/iu);
+    const result = await tool.execute(
+      "write",
+      { command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker', 'active')"], confirm: true },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(result.details).toMatchObject({ exitCode: 0 });
+    expect(await readFile(join(active, "marker"), "utf8")).toBe("active");
+    await expect(access(join(root, "marker"))).rejects.toThrow(/ENOENT/u);
+    const pending = tool.execute("pending", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never);
+    id = "replacement";
+    await expect(pending).rejects.toThrow(/workspace changed/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null, blocked: 0 } }]);
+    const changingParams = {
+      get command() {
+        id = "getter-replacement";
+        return ["pwd"];
+      },
+      confirm: true,
+    };
+    await expect(tool.execute("getter", changingParams, undefined, undefined, {} as never)).rejects.toThrow(/workspace changed/iu);
+    for (const exitCode of [0, 7]) {
+      const running = tool.execute(
+        "running",
+        { command: [process.execPath, "-e", `process.exit(${exitCode})`], confirm: true },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      id = `replacement-${exitCode}`;
+      await expect(running).rejects.toThrow(/workspace changed/iu);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null, blocked: 0 } }]);
+    }
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 });

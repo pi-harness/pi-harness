@@ -4,6 +4,29 @@ import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agen
 import { EmptyConfig } from "@pi-harness/plugin-api";
 
 const maxLabelLength = 120;
+const failedManagers = new WeakMap<object, object | null>();
+const writeFailureMessage = "Bookmark write failed; reopen the session from disk before using bookmarks again";
+
+function parameters(value: unknown): { action: "add" | "list" | "remove"; label?: string; entryId?: string; bookmarkId?: string } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Bookmark parameters must be an object");
+  const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (typeof key !== "string" || !("value" in descriptor)) throw new Error("Bookmark parameters require string data properties");
+    output[key] = descriptor.value;
+  }
+  if (output.action !== "add" && output.action !== "list" && output.action !== "remove") throw new Error("Unknown bookmark action");
+  const allowed = output.action === "add" ? ["action", "label", "entryId"] : output.action === "remove" ? ["action", "bookmarkId"] : ["action"];
+  if (Object.keys(output).some((key) => !allowed.includes(key))) throw new Error("Unknown property for bookmark action");
+  for (const key of ["label", "entryId", "bookmarkId"] as const) {
+    if (
+      output[key] !== undefined &&
+      (typeof output[key] !== "string" || output[key].includes("\0") || output[key].trim().length > (key === "label" ? 120 : 128))
+    )
+      throw new Error(`Invalid bookmark ${key}`);
+  }
+  return output as ReturnType<typeof parameters>;
+}
 
 export type SessionBookmark = { id: string; entryId: string; label: string };
 
@@ -33,8 +56,17 @@ export default {
   inject: ["piSession", "piPluginUi", "piTools"],
   Config: EmptyConfig,
   apply(context: Context) {
-    const manager = context.piSession.manager;
-    const readBookmarks = (): SessionBookmark[] => listSessionBookmarks(manager.getEntries());
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+    const readBookmarks = (): SessionBookmark[] => {
+      const manager = currentManager();
+      if (failedManagers.has(manager)) {
+        if (failedManagers.get(manager) === manager.getHeader()) throw new Error(writeFailureMessage);
+        failedManagers.delete(manager);
+      }
+      return listSessionBookmarks(manager.getEntries());
+    };
     const unregister = context.piTools.register(
       defineTool({
         name: "session_bookmarks",
@@ -51,13 +83,29 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, params): Promise<AgentToolResult<{ bookmarks: SessionBookmark[] }>> {
+        async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ bookmarks: SessionBookmark[] }>> {
+          if (signal?.aborted === true || lifecycle.signal.aborted) throw new Error("Bookmark request was cancelled");
+          const manager = currentManager();
+          const header = manager.getHeader();
           return Promise.resolve().then(() => {
+            if (signal?.aborted === true || lifecycle.signal.aborted) throw new Error("Bookmark request was cancelled");
+            if (currentManager() !== manager || manager.getHeader() !== header) throw new Error("Bookmark session changed before execution");
+            const params = parameters(rawParams);
+            readBookmarks();
+            const persist = (entryId: string, label: string | undefined): void => {
+              if (manager.getEntry(entryId) === undefined) throw new Error(`Entry ${entryId} not found`);
+              try {
+                manager.appendLabelChange(entryId, label);
+              } catch (error) {
+                failedManagers.set(manager, header);
+                throw new Error(writeFailureMessage, { cause: error });
+              }
+            };
             if (params.action === "add") {
               const label = normalizeBookmarkLabel(params.label ?? "");
               const entryId = params.entryId?.trim();
               if (entryId === undefined || entryId === "") throw new Error("Bookmark entryId is required when adding a bookmark");
-              manager.appendLabelChange(entryId, label);
+              persist(entryId, label);
               return { content: [{ type: "text", text: `Bookmark added: ${label}` }], details: { bookmarks: readBookmarks() } };
             }
             if (params.action === "remove") {
@@ -65,7 +113,7 @@ export default {
               if (bookmarkId === undefined || bookmarkId === "") throw new Error("Bookmark bookmarkId is required when removing a bookmark");
               const bookmark = readBookmarks().find((item) => item.id === bookmarkId);
               if (bookmark === undefined) throw new Error("Bookmark was not found");
-              manager.appendLabelChange(bookmark.entryId, undefined);
+              persist(bookmark.entryId, undefined);
             }
             const bookmarks = readBookmarks();
             return {
@@ -76,6 +124,7 @@ export default {
         },
       }),
     );
+    context.effect(() => unregister);
     const disposePanel = context.piPluginUi.register({
       id: "session-bookmarks-panel",
       pluginId: "@pi-harness/plugin-session-bookmarks",
@@ -87,9 +136,6 @@ export default {
         return { bookmarks, total: bookmarks.length };
       },
     });
-    context.effect(() => () => {
-      unregister();
-      disposePanel();
-    });
+    context.effect(() => disposePanel);
   },
 };

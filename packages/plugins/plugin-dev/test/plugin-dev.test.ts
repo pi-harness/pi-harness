@@ -243,4 +243,38 @@ describe("plugin dev reload boundaries", () => {
       await Promise.allSettled([result]);
     }
   });
+  test("cancels queued reloads before the session settles", async () => {
+    const fixture = await createPluginDev({ idle: false });
+    const controller = new AbortController();
+    try {
+      await fixture.tool.execute("queued", { reason: "cancel this request" }, controller.signal, undefined, {} as never);
+      controller.abort();
+      fixture.context.emit("pi/session-event", { type: "agent_settled" });
+      await Promise.resolve();
+      expect(fixture.reloads()).toBe(0);
+      expect((await fixture.panels.snapshot())[0]!.data).toMatchObject({ status: "cancelled", reason: "cancel this request" });
+      await expect(fixture.tool.execute("next", { reason: "next request" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { status: "queued" },
+      });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("does not replace a running reload status with an unrelated cancelled request", async () => {
+    const reload = deferred();
+    const fixture = await createPluginDev({ reload: () => reload.promise });
+    const first = fixture.tool.execute("first", { reason: "active request" }, undefined, undefined, {} as never);
+    try {
+      await expect.poll(fixture.reloads).toBe(1);
+      const controller = new AbortController();
+      controller.abort();
+      await expect(fixture.tool.execute("cancelled", { reason: "unrelated" }, controller.signal, undefined, {} as never)).rejects.toThrow();
+      expect((await fixture.panels.snapshot())[0]!.data).toMatchObject({ status: "running", reason: "active request" });
+    } finally {
+      reload.resolve();
+      await first;
+      await fixture.context.fiber.dispose();
+    }
+  });
 });

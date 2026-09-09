@@ -83,4 +83,41 @@ describe("plan execute", () => {
     (panel?.data as { title: string }).title = "panel-mutated";
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { title: "Protected" } }]);
   });
+  test("rejects invalid step numbers, statuses, cancellation, and disposed tools without changing the plan", async () => {
+    const { create, advance, context, panels } = await fixture();
+    await create.execute("create", { title: "Plan", steps: ["One"] }, undefined, undefined, {} as never);
+    for (const step of [Number.NaN, 1.5, 0, 2])
+      await expect(advance.execute("bad", { step, status: "done" }, undefined, undefined, {} as never)).rejects.toThrow(/step/iu);
+    await expect(advance.execute("bad", { step: 1, status: "invalid" }, undefined, undefined, {} as never)).rejects.toThrow(/status/iu);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(create.execute("cancel", { title: "Changed", steps: ["New"] }, controller.signal, undefined, {} as never)).rejects.toThrow();
+    await expect(advance.execute("cancel", { step: 1, status: "done" }, controller.signal, undefined, {} as never)).rejects.toThrow();
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ title: "Plan", steps: [{ status: "pending" }] });
+    await context.fiber.dispose();
+    await expect(create.execute("disposed", { title: "New", steps: ["New"] }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    await expect(advance.execute("disposed", { step: 1, status: "done" }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+  });
+
+  test("enforces acyclic dependencies and prevents reopening prerequisites of active dependents", async () => {
+    const { create, advance, panels } = await fixture();
+    const params = {
+      title: "Release",
+      steps: ["Test", "Build", "Ship"],
+      dependencies: [
+        { step: 2, dependsOn: [1] },
+        { step: 3, dependsOn: [2] },
+      ],
+    };
+    await create.execute("create", params, undefined, undefined, {} as never);
+    await expect(advance.execute("blocked", { step: 2, status: "in_progress" }, undefined, undefined, {} as never)).rejects.toThrow(/depend/iu);
+    await advance.execute("done", { step: 1, status: "done" }, undefined, undefined, {} as never);
+    await advance.execute("active", { step: 2, status: "in_progress" }, undefined, undefined, {} as never);
+    await expect(advance.execute("reopen", { step: 1, status: "pending" }, undefined, undefined, {} as never)).rejects.toThrow(/depend/iu);
+    await advance.execute("skip", { step: 2, status: "skipped" }, undefined, undefined, {} as never);
+    await advance.execute("ship", { step: 3, status: "done" }, undefined, undefined, {} as never);
+    for (const dependencies of [[{ step: 1, dependsOn: [3] }, ...params.dependencies], [{ step: 1, dependsOn: [1] }], [{ step: 4, dependsOn: [1] }]])
+      await expect(create.execute("invalid", { ...params, dependencies }, undefined, undefined, {} as never)).rejects.toThrow(/depend/iu);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ title: "Release", completed: 2, total: 3 });
+  });
 });

@@ -1,10 +1,10 @@
 import { inflateSync, deflateSync } from "node:zlib";
-import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { EmptyConfig, atomicWriteFile } from "@pi-harness/plugin-api";
+import { EmptyConfig, atomicWriteFile, prepareWorkspaceFile, readBoundedFile } from "@pi-harness/plugin-api";
 
 const pngSignature = Buffer.from("89504e470d0a1a0a", "hex");
 const maxInputBytes = 32 * 1024 * 1024;
@@ -28,6 +28,10 @@ function workspacePath(root: string, requested: string): string {
   const target = resolve(root, requested);
   if (!isImageCompressorPathInside(root, target)) throw new Error("Image path must stay inside the current workspace");
   return target;
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Image compression cancelled");
 }
 
 function crc32(input: Buffer): number {
@@ -144,33 +148,61 @@ export default {
   Config: EmptyConfig,
   apply(context: Context) {
     let last: CompressionReport | undefined;
-    const compress = async (requestedPath: string, requestedOutput: string | undefined, confirm: boolean): Promise<CompressionReport> => {
+    const lifecycle = new AbortController();
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        last = undefined;
+      }
+      return scope;
+    };
+    const assertCurrent = (operationScope: ReturnType<typeof readScope>, signal: AbortSignal) => {
+      throwIfAborted(signal);
+      if (refreshScope() !== operationScope) throw new Error("Image workspace changed during compression");
+    };
+    const compress = async (
+      requestedPath: string,
+      requestedOutput: string | undefined,
+      confirm: boolean,
+      signal: AbortSignal,
+      operationScope: ReturnType<typeof readScope>,
+    ): Promise<CompressionReport> => {
+      const assertOperationCurrent = () => assertCurrent(operationScope, signal);
+      assertOperationCurrent();
       if (!confirm) throw new Error("Image compression writes a file and requires confirm=true");
-      const root = await realpath(context.piHarnessLaunch.cwd);
+      const root = await realpath(operationScope.cwd);
+      assertOperationCurrent();
       const input = await realpath(workspacePath(root, requestedPath));
       if (!isImageCompressorPathInside(root, input)) throw new Error("Image path must stay inside the current workspace");
-      const metadata = await stat(input);
-      if (!metadata.isFile() || metadata.size > maxInputBytes) throw new Error("Input image must be a regular PNG file no larger than 32 MiB");
+      assertOperationCurrent();
+      const inputBytes = await readBoundedFile(input, maxInputBytes, "Input image");
+      assertOperationCurrent();
+      const compressed = optimizePng(inputBytes);
+      assertOperationCurrent();
       // Without an explicit outputPath the result lands next to its source, not at the workspace root, so same-named inputs in different directories cannot collide. dirname(input) is already realpath'd and containment-checked above, so it must not go back through workspacePath, which would reject the backslashes relative() produces on Windows.
       const explicitOutput = requestedOutput?.trim() || undefined;
-      const output = explicitOutput === undefined ? join(dirname(input), `${basename(input, extname(input))}.min.png`) : workspacePath(root, explicitOutput);
-      const outputParent = dirname(output);
-      await mkdir(outputParent, { recursive: true });
-      if (!isImageCompressorPathInside(root, await realpath(outputParent))) throw new Error("Image output path must stay inside the current workspace");
-      try {
-        if ((await lstat(output)).isSymbolicLink()) throw new Error("Image output cannot be a symbolic link");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      const inputBytes = await readFile(input);
-      const compressed = optimizePng(inputBytes);
+      const requestedTarget =
+        explicitOutput === undefined ? join(dirname(input), `${basename(input, extname(input))}.min.png`) : workspacePath(root, explicitOutput);
+      const { target: output } = await prepareWorkspaceFile(
+        root,
+        requestedTarget,
+        "Image output path must stay inside the current workspace and name a regular file",
+      );
+      assertOperationCurrent();
       // confirm=true approves compressing the input, not clobbering whatever already sits at the derived path; only an explicit outputPath may replace an existing file.
       try {
-        await atomicWriteFile(output, compressed, { mode: 0o600, overwrite: explicitOutput !== undefined });
+        await atomicWriteFile(output, compressed, { mode: 0o600, overwrite: explicitOutput !== undefined, signal, beforeCommit: assertOperationCurrent });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         throw new Error(`Image output already exists: ${relative(root, output)}; pass outputPath explicitly to replace it`, { cause: error });
       }
+      assertOperationCurrent();
       const report: CompressionReport = {
         inputPath: relative(root, input),
         outputPath: relative(root, output),
@@ -180,7 +212,6 @@ export default {
         savedBytes: inputBytes.length - compressed.length,
         saved: true,
       };
-      last = report;
       return report;
     };
     const unregisterTool = context.piTools.register(
@@ -191,8 +222,13 @@ export default {
         promptSnippet: "losslessly compress a workspace PNG",
         parameters: Type.Object({ path: Type.String(), outputPath: Type.Optional(Type.String()), confirm: Type.Boolean() }, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<CompressionReport>> {
-          const report = await compress(params.path, params.outputPath, params.confirm);
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<CompressionReport>> {
+          throwIfAborted(lifecycle.signal);
+          const operationScope = refreshScope();
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const report = await compress(params.path, params.outputPath, params.confirm, operationSignal, operationScope);
+          assertCurrent(operationScope, operationSignal);
+          last = { ...report };
           return {
             content: [
               { type: "text", text: `PNG compressed: ${report.inputPath} -> ${report.outputPath} (${report.inputBytes} -> ${report.outputBytes} bytes)` },
@@ -210,13 +246,17 @@ export default {
         title: "Image Compressor",
         description: "对工作区 PNG 做确认后的无损重压缩，减少上下文附件体积。",
         icon: "▧",
-        read: () => ({ supported: ["png"], maxInputBytes, maxDecodedBytes, last: last ?? null }),
+        read: () => {
+          refreshScope();
+          return { supported: ["png"], maxInputBytes, maxDecodedBytes, last: last === undefined ? null : { ...last } };
+        },
       });
     } catch (error) {
       unregisterTool();
       throw error;
     }
     context.effect(() => () => {
+      lifecycle.abort(new Error("Image compressor plugin disposed"));
       unregisterTool();
       disposePanel();
     });

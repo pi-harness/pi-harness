@@ -31,7 +31,8 @@ const patterns: readonly GuardPattern[] = [
     severity: "high",
     score: 6,
     message: "检测到可能删除、重置或覆盖数据的命令。",
-    pattern: /\b(?:rm\s+-[a-z]*r[a-z]*f|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|mkfs(?:\.\w+)?|dd\s+if=|:\(\)\s*\{)/iu,
+    pattern:
+      /\b(?:rm\s+(?:(?:-[a-z]+|--[a-z-]+)\s+)*(?:-[a-z]*r[a-z]*|--recursive)(?=$|[\s"'<>;|&()])|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|mkfs(?:\.\w+)?|dd\s+if=|:\(\)\s*\{)/iu,
   },
   {
     code: "sensitive_path",
@@ -52,7 +53,7 @@ const patterns: readonly GuardPattern[] = [
     severity: "high",
     score: 6,
     message: "检测到疑似凭据赋值，例如 API_KEY=、TOKEN= 或 password:。",
-    pattern: /(?:api[_-]?key|access[_-]?key|password|secret|token)\s*[:=]\s*\S+/iu,
+    pattern: /(?:api[_-]?key|access[_-]?key|password|secret|token)["']?\s*[:=]\s*\S+/iu,
   },
   {
     code: "remote_exfiltration",
@@ -118,11 +119,11 @@ export default {
     const receipts: GuardReport[] = [];
     const record = (report: GuardReport): void => {
       events += 1;
-      latest = report;
+      latest = structuredClone(report);
       if (report.risk === "blocked") blocked += 1;
       else if (report.risk === "review") review += 1;
       else safe += 1;
-      receipts.unshift(report);
+      receipts.unshift(latest);
       if (receipts.length > maxReceipts) receipts.length = maxReceipts;
     };
     const unsubscribe = context.on("pi/session-event", (event) => {

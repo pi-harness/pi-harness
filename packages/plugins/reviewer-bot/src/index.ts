@@ -4,18 +4,23 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 const execFileAsync = promisify(execFile);
 const maxFiles = 512;
+const maxFindings = 100;
 const defaultTimeoutMs = 15_000;
 type ReviewFinding = { kind: "whitespace" | "secret" | "todo"; severity: "error" | "warning"; message: string; path?: string };
 type ReviewFile = { path: string; added: number; removed: number };
 type ReviewReport = {
+  cwd: string;
   status: "pass" | "warning" | "error";
   files: ReviewFile[];
   findings: ReviewFinding[];
   changedFiles: number;
+  findingCount: number;
+  filesTruncated: boolean;
+  findingsTruncated: boolean;
   addedLines: number;
   removedLines: number;
 };
@@ -25,8 +30,13 @@ export interface ReviewerBotPluginConfig {
   timeoutMs?: number;
 }
 export const Config: z<ReviewerBotPluginConfig> = z.object({
-  maxDiffBytes: z.number().default(1024 * 1024),
-  timeoutMs: z.number().default(defaultTimeoutMs),
+  maxDiffBytes: z
+    .number()
+    .min(16 * 1024)
+    .max(8 * 1024 * 1024)
+    .step(1)
+    .default(1024 * 1024),
+  timeoutMs: z.number().min(100).max(60_000).step(1).default(defaultTimeoutMs),
 });
 
 function outputOf(error: unknown, key: "stdout" | "stderr"): string {
@@ -38,9 +48,39 @@ function outputOf(error: unknown, key: "stdout" | "stderr"): string {
   return "";
 }
 
-async function git(cwd: string, args: readonly string[], maxBuffer: number, timeoutMs: number): Promise<string> {
+async function git(cwd: string, args: readonly string[], maxBuffer: number, timeoutMs: number, signal: AbortSignal): Promise<string> {
+  const env = { ...process.env };
+  for (const name of [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_WORK_TREE",
+  ])
+    delete env[name];
   // core.quotepath=false keeps non-ASCII paths as literal UTF-8 instead of octal escapes; it does nothing for the ASCII bytes git always escapes, which is why the diff headers still have to be unquoted below.
-  const result = await execFileAsync("git", ["-c", "core.quotepath=false", ...args], { cwd, maxBuffer, timeout: timeoutMs });
+  const result = await execFileAsync(
+    "git",
+    [
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.quotepath=false",
+      "-c",
+      "color.ui=false",
+      ...args,
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-color",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+    ],
+    { cwd, env, maxBuffer, timeout: timeoutMs, signal },
+  );
   return result.stdout;
 }
 
@@ -92,25 +132,77 @@ function headerPath(line: string, prefix: "a/" | "b/"): string | undefined {
   return decoded !== undefined && decoded.startsWith(prefix) ? decoded.slice(prefix.length) : undefined;
 }
 
+function modelReport(report: ReviewReport): string {
+  const preview = {
+    ...report,
+    files: report.files.slice(0, 20),
+    findings: [...report.findings].sort((a, b) => Number(b.severity === "error") - Number(a.severity === "error")).slice(0, 50),
+  };
+  const render = () => {
+    preview.filesTruncated = preview.changedFiles > preview.files.length;
+    preview.findingsTruncated = preview.findingCount > preview.findings.length;
+    return `${report.status}: ${report.changedFiles} files, +${report.addedLines}/-${report.removedLines}, ${report.findingCount} findings.\n${JSON.stringify(preview)}`;
+  };
+  let text = render();
+  while (Buffer.byteLength(text, "utf8") > 32 * 1024 && (preview.files.length > 0 || preview.findings.length > 0)) {
+    if (preview.files.length > 0) preview.files.pop();
+    else preview.findings.pop();
+    text = render();
+  }
+  return text;
+}
+
 export default {
   name: "pi-reviewer-bot",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: ReviewerBotPluginConfig) {
-    const maxDiffBytes = Math.max(16 * 1024, Math.min(8 * 1024 * 1024, Math.trunc(config.maxDiffBytes ?? 1024 * 1024)));
-    const timeoutMs = Math.max(100, Math.min(60_000, Math.trunc(config.timeoutMs ?? defaultTimeoutMs)));
+    assertKnownConfigKeys("pi-reviewer-bot", config, ["maxDiffBytes", "timeoutMs"]);
+    const maxDiffBytes = Number.isFinite(config.maxDiffBytes) ? Math.max(16 * 1024, Math.min(8 * 1024 * 1024, Math.trunc(config.maxDiffBytes!))) : 1024 * 1024;
+    const timeoutMs = Number.isFinite(config.timeoutMs) ? Math.max(100, Math.min(60_000, Math.trunc(config.timeoutMs!))) : defaultTimeoutMs;
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
+    const checkCancelled = (signal: AbortSignal) => {
+      if (signal.aborted) throw new Error("Git review was cancelled");
+    };
     let latest: ReviewReport | undefined;
-    const review = async (): Promise<ReviewReport> => {
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
+    const review = async (cwd: string, signal: AbortSignal, assertCurrent: () => void): Promise<ReviewReport> => {
+      checkCancelled(signal);
       let diff: string;
       let names: string;
       const findings: ReviewFinding[] = [];
+      let findingCount = 0;
+      let hasError = false;
+      const finding = (item: ReviewFinding): void => {
+        findingCount += 1;
+        hasError ||= item.severity === "error";
+        if (findings.length < maxFindings) findings.push(item);
+        else if (item.severity === "error") {
+          const warning = findings.findLastIndex((entry) => entry.severity === "warning");
+          if (warning >= 0) findings[warning] = item;
+        }
+      };
       try {
         [diff, names] = await Promise.all([
-          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--no-ext-diff", "--unified=0"], maxDiffBytes, timeoutMs),
+          git(cwd, ["diff", "HEAD", "--no-ext-diff", "--unified=0"], maxDiffBytes, timeoutMs, signal),
           // -z is the only --name-only form git never quotes, so the listing always carries the same literal paths the decoded diff headers do.
-          git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff", "-z"], maxDiffBytes, timeoutMs),
+          git(cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff", "-z"], maxDiffBytes, timeoutMs, signal),
         ]);
       } catch (error) {
+        checkCancelled(signal);
         const timedOut = typeof error === "object" && error !== null && "killed" in error && (error as { killed?: unknown }).killed === true;
         throw new Error(
           timedOut
@@ -119,7 +211,8 @@ export default {
           { cause: error },
         );
       }
-      const paths = names.split("\0").filter(Boolean).slice(0, maxFiles);
+      assertCurrent();
+      const paths = names.split("\0").filter(Boolean);
       const fileMap = new Map<string, ReviewFile>();
       let addedLines = 0;
       let removedLines = 0;
@@ -129,6 +222,7 @@ export default {
       for (const line of diff.split("\n")) {
         if (line.startsWith("diff --git ")) {
           inHunk = false;
+          currentPath = undefined;
           continue;
         }
         if (line.startsWith("@@")) {
@@ -157,9 +251,9 @@ export default {
           addedLines += 1;
           if (currentPath !== undefined) fileMap.set(currentPath, { ...fileMap.get(currentPath)!, added: fileMap.get(currentPath)!.added + 1 });
           if (/(?:api[_-]?key|secret|token|password)\s*[:=]\s*["'][^"']{12,}/iu.test(line))
-            findings.push({ kind: "secret", severity: "error", message: "新增行疑似包含凭据。", ...(currentPath === undefined ? {} : { path: currentPath }) });
+            finding({ kind: "secret", severity: "error", message: "新增行疑似包含凭据。", ...(currentPath === undefined ? {} : { path: currentPath }) });
           if (/\b(?:TODO|FIXME)\b/u.test(line))
-            findings.push({
+            finding({
               kind: "todo",
               severity: "warning",
               message: "新增行包含 TODO/FIXME。",
@@ -172,19 +266,25 @@ export default {
         }
       }
       try {
-        await git(context.piHarnessLaunch.cwd, ["diff", "HEAD", "--check"], maxDiffBytes, timeoutMs);
+        await git(cwd, ["diff", "HEAD", "--check"], maxDiffBytes, timeoutMs, signal);
       } catch (error) {
+        checkCancelled(signal);
         const timedOut = typeof error === "object" && error !== null && "killed" in error && (error as { killed?: unknown }).killed === true;
         if (timedOut) throw new Error(`Git review timed out after ${timeoutMs} ms`, { cause: error });
-        const output = `${outputOf(error, "stdout")}\n${outputOf(error, "stderr")}`.trim();
-        findings.push({ kind: "whitespace", severity: "error", message: output || "git diff --check 检测到空白错误。" });
+        if (!(error instanceof Error) || !("code" in error) || error.code !== 2) throw new Error("Git whitespace check failed", { cause: error });
+        finding({ kind: "whitespace", severity: "error", message: "git diff --check 检测到空白错误；为避免泄露内容，报告不包含原始行。" });
       }
-      const status = findings.some((finding) => finding.severity === "error") ? "error" : findings.length > 0 ? "warning" : "pass";
+      checkCancelled(signal);
+      const status = hasError ? "error" : findingCount > 0 ? "warning" : "pass";
       return {
+        cwd,
         status,
-        files: paths.map((path) => fileMap.get(path) ?? { path, added: 0, removed: 0 }),
+        files: paths.slice(0, maxFiles).map((path) => fileMap.get(path) ?? { path, added: 0, removed: 0 }),
         findings,
         changedFiles: paths.length,
+        findingCount,
+        filesTruncated: paths.length > maxFiles,
+        findingsTruncated: findingCount > findings.length,
         addedLines,
         removedLines,
       };
@@ -197,16 +297,27 @@ export default {
         promptSnippet: "review the current Git diff for release risks",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(): Promise<AgentToolResult<ReviewReport>> {
-          latest = await review();
+        async execute(_toolCallId, params, callerSignal): Promise<AgentToolResult<ReviewReport>> {
+          const signal = callerSignal === undefined ? lifecycle.signal : AbortSignal.any([callerSignal, lifecycle.signal]);
+          checkCancelled(signal);
+          if (params === null || typeof params !== "object" || Array.isArray(params) || Reflect.ownKeys(params).length !== 0)
+            throw new Error("Review parameters must be an empty object");
+          const operationScope = refreshScope();
+          const assertCurrent = () => {
+            checkCancelled(signal);
+            if (refreshScope() !== operationScope) throw new Error("Git review workspace changed during inspection");
+          };
+          const report = await review(operationScope.cwd, signal, assertCurrent);
+          assertCurrent();
+          latest = structuredClone(report);
           return {
             content: [
               {
                 type: "text",
-                text: `${latest.status}: ${latest.changedFiles} files, +${latest.addedLines}/-${latest.removedLines}, ${latest.findings.length} findings.`,
+                text: modelReport(report),
               },
             ],
-            details: latest,
+            details: report,
           };
         },
       }),
@@ -219,7 +330,10 @@ export default {
         title: "Reviewer Bot",
         description: "只读检查 Git 改动中的空白、凭据和遗留标记风险。",
         icon: "✓",
-        read: () => ({ latest: latest ?? null, maxDiffBytes, timeoutMs }),
+        read: () => {
+          refreshScope();
+          return { latest: latest === undefined ? null : structuredClone(latest), maxDiffBytes, timeoutMs };
+        },
       });
     } catch (error) {
       unregisterTool();

@@ -28,7 +28,7 @@ const maxManifestCandidates = 1_000;
 const maxTraversalDirectories = 512;
 const maxPathLength = 4_096;
 const maxBase64Length = Math.ceil(maxSnapshotBytes / 3) * 4;
-const maxNamedSkips = 5;
+const maxTraversalEntries = 8_192;
 const sensitiveNames = new Set([
   ".env",
   ".envrc",
@@ -63,11 +63,13 @@ interface SavepointFile {
   bytes: number;
   sha256: string;
   content: string;
-  mode?: number;
+  mode: number;
 }
 
 interface SavepointManifest {
   version: 1;
+  cwd: string;
+  truncated: boolean;
   id: string;
   reason: string;
   createdAt: string;
@@ -79,6 +81,7 @@ interface SavepointSummary {
   reason: string;
   createdAt: string;
   fileCount: number;
+  truncated: boolean;
 }
 
 interface SavepointDiff {
@@ -90,7 +93,16 @@ interface SavepointDiff {
 
 function safeStoreName(value: string | undefined): string {
   const name = (value ?? defaultStoreName).trim();
-  if (name === "" || basename(name) !== name || name.includes(sep) || name === "." || name === "..")
+  if (
+    name === "" ||
+    name.length > 200 ||
+    name.includes("\0") ||
+    name.includes("\\") ||
+    basename(name) !== name ||
+    name.includes(sep) ||
+    name === "." ||
+    name === ".."
+  )
     throw new Error("storeName must be a single directory name");
   return name;
 }
@@ -136,30 +148,60 @@ function hash(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-async function collectFiles(root: string, trackedPaths: readonly string[], maxFiles: number, maxFileBytes: number): Promise<SavepointFile[]> {
+async function collectFiles(
+  root: string,
+  trackedPaths: readonly string[],
+  maxFiles: number,
+  maxFileBytes: number,
+  store: string,
+  check: () => void,
+): Promise<{ files: SavepointFile[]; truncated: boolean }> {
   const files: SavepointFile[] = [];
   const seen = new Set<string>();
   let totalBytes = 0;
   let directories = 0;
+  let entries = 0;
+  let truncated = false;
   const visit = async (path: string, depth: number): Promise<void> => {
-    if (files.length >= maxFiles || totalBytes >= maxTotalSnapshotBytes || isIgnoredPath(relative(root, path)) || isSensitivePath(path)) return;
+    check();
+    entries += 1;
+    if (files.length >= maxFiles || totalBytes >= maxTotalSnapshotBytes || entries > maxTraversalEntries) {
+      truncated = true;
+      return;
+    }
+    if (withinRoot(store, path) || isIgnoredPath(relative(root, path)) || isSensitivePath(path)) return;
     const info = await lstat(path).catch(() => undefined);
-    if (info === undefined) return;
+    if (info === undefined) {
+      truncated = true;
+      return;
+    }
     if (info.isSymbolicLink()) return;
     if (info.isDirectory()) {
       directories += 1;
-      if (directories > maxTraversalDirectories || depth >= maxTraversalDepth) return;
+      if (directories > maxTraversalDirectories || depth >= maxTraversalDepth) {
+        truncated = true;
+        return;
+      }
       const directory = await opendir(path);
       for await (const entry of directory) {
-        if (entry.isSymbolicLink()) continue;
         await visit(join(path, entry.name), depth + 1);
-        if (files.length >= maxFiles || totalBytes >= maxTotalSnapshotBytes) return;
+        if (files.length >= maxFiles || totalBytes >= maxTotalSnapshotBytes || entries >= maxTraversalEntries) {
+          truncated = true;
+          return;
+        }
       }
       return;
     }
-    if (!info.isFile() || info.size > maxFileBytes || info.size > maxTotalSnapshotBytes - totalBytes) return;
+    if (!info.isFile()) return;
+    if (info.size > maxFileBytes || info.size > maxTotalSnapshotBytes - totalBytes) {
+      truncated = true;
+      return;
+    }
     const content = await readBoundedFile(path, Math.min(maxFileBytes, maxTotalSnapshotBytes - totalBytes), "Savepoint file").catch(() => undefined);
-    if (content === undefined || content.byteLength > maxTotalSnapshotBytes - totalBytes) return;
+    if (content === undefined || content.byteLength > maxTotalSnapshotBytes - totalBytes) {
+      truncated = true;
+      return;
+    }
     if (content.includes(0)) return;
     const relativeName = relativePath(root, path);
     if (relativeName === "" || seen.has(relativeName)) return;
@@ -169,9 +211,12 @@ async function collectFiles(root: string, trackedPaths: readonly string[], maxFi
   };
   for (const path of trackedPaths) {
     await visit(path, 0);
-    if (files.length >= maxFiles) break;
+    if (files.length >= maxFiles || entries >= maxTraversalEntries) {
+      truncated = true;
+      break;
+    }
   }
-  return files.sort((left, right) => left.path.localeCompare(right.path));
+  return { files: files.sort((left, right) => left.path.localeCompare(right.path)), truncated };
 }
 
 function isValidRelativePath(path: string): boolean {
@@ -190,13 +235,16 @@ function isCanonicalBase64(value: string): boolean {
   return Buffer.from(value, "base64").toString("base64") === value;
 }
 
-// An entry naming an ignored directory is deliberately not checked here. Manifests taken before the save side folded case can legitimately contain `Build/x.ts`, and rejecting the whole file for one such entry destroys the savepoint: `list` stops showing it and `restore` refuses the innocent entries alongside it. Restore skips those entries instead and reports them. Everything that makes a manifest structurally untrustworthy - bad JSON, a path that escapes the workspace, a sensitive name, a hash that does not match - still fails the whole manifest here.
+// Disallowed directory entries are skipped on restore; malformed content, permissions, paths, or hashes invalidate the entire manifest.
 function isSavepointFile(value: unknown, seenPaths: Set<string>, totalBytes: { value: number }): value is SavepointFile {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const file = value as Record<string, unknown>;
   if (Object.keys(file).some((key) => !new Set(["path", "bytes", "sha256", "content", "mode"]).has(key))) return false;
   if (
-    (file.mode !== undefined && (typeof file.mode !== "number" || !Number.isSafeInteger(file.mode) || file.mode < 0 || file.mode > 0o777)) ||
+    typeof file.mode !== "number" ||
+    !Number.isSafeInteger(file.mode) ||
+    file.mode < 0 ||
+    file.mode > 0o777 ||
     typeof file.path !== "string" ||
     !isValidRelativePath(file.path) ||
     isSensitivePath(file.path) ||
@@ -229,8 +277,13 @@ async function readManifest(path: string, maxFiles: number): Promise<SavepointMa
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid savepoint: ${basename(path)}`);
   const record = parsed as Record<string, unknown>;
   if (
-    Object.keys(record).some((key) => !new Set(["version", "id", "reason", "createdAt", "files"]).has(key)) ||
+    Object.keys(record).some((key) => !new Set(["version", "cwd", "truncated", "id", "reason", "createdAt", "files"]).has(key)) ||
     record.version !== 1 ||
+    typeof record.cwd !== "string" ||
+    record.cwd.length > maxPathLength ||
+    record.cwd.includes("\0") ||
+    resolve(record.cwd) !== record.cwd ||
+    typeof record.truncated !== "boolean" ||
     typeof record.id !== "string" ||
     !/^\d{17}-[0-9a-f]{8}$/u.test(record.id) ||
     record.id !== basename(path, extname(path)) ||
@@ -251,6 +304,8 @@ async function readManifest(path: string, maxFiles: number): Promise<SavepointMa
   }
   return {
     version: 1,
+    cwd: record.cwd,
+    truncated: record.truncated,
     id: record.id,
     reason: record.reason,
     createdAt: record.createdAt,
@@ -258,11 +313,15 @@ async function readManifest(path: string, maxFiles: number): Promise<SavepointMa
   };
 }
 
-async function listManifests(directory: string, maxFiles: number): Promise<SavepointSummary[]> {
+async function listManifests(directory: string, maxFiles: number, cwd: string, check: () => void): Promise<SavepointSummary[]> {
   const names: string[] = [];
   try {
     const handle = await opendir(directory);
+    let scanned = 0;
     for await (const entry of handle) {
+      scanned += 1;
+      if (scanned > maxManifestCandidates) break;
+      check();
       if (!entry.isFile() || extname(entry.name) !== ".json") continue;
       names.push(entry.name);
       if (names.length >= maxManifestCandidates) break;
@@ -274,16 +333,25 @@ async function listManifests(directory: string, maxFiles: number): Promise<Savep
   const summaries: SavepointSummary[] = [];
   for (const name of names.slice(0, maxManifestCount)) {
     const manifest = await readManifest(join(directory, name), maxFiles).catch(() => undefined);
-    if (manifest !== undefined) summaries.push({ id: manifest.id, reason: manifest.reason, createdAt: manifest.createdAt, fileCount: manifest.files.length });
+    check();
+    if (manifest?.cwd === cwd)
+      summaries.push({
+        id: manifest.id,
+        reason: manifest.reason,
+        createdAt: manifest.createdAt,
+        fileCount: manifest.files.length,
+        truncated: manifest.truncated,
+      });
   }
   return summaries;
 }
 
-async function diffManifest(root: string, manifest: SavepointManifest): Promise<SavepointDiff> {
+async function diffManifest(root: string, manifest: SavepointManifest, check: () => void): Promise<SavepointDiff> {
   const changed: string[] = [];
   const missing: string[] = [];
   let unchanged = 0;
   for (const file of manifest.files) {
+    check();
     const path = await resolveWorkspaceFilePath(root, file.path, "Savepoint path must stay inside the workspace").catch(() => undefined);
     if (path === undefined) {
       missing.push(file.path);
@@ -301,14 +369,81 @@ async function diffManifest(root: string, manifest: SavepointManifest): Promise<
   return { id: manifest.id, changed, missing, unchanged };
 }
 
+function parameters(value: unknown): { action: "save" | "list" | "diff" | "restore"; id?: string; reason?: string; confirm?: boolean } {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
+  )
+    throw new Error("Savepoint parameters must be a plain object");
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (
+    Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !["action", "id", "reason", "confirm"].includes(key)) ||
+    Object.values(descriptors).some((d) => !("value" in d))
+  )
+    throw new Error("Invalid savepoint parameter property");
+  const action: unknown = descriptors.action?.value;
+  const id: unknown = descriptors.id?.value;
+  const reason: unknown = descriptors.reason?.value;
+  const confirm: unknown = descriptors.confirm?.value;
+  if (action !== "save" && action !== "list" && action !== "diff" && action !== "restore") throw new Error("Invalid savepoint action");
+  if (id !== undefined && (typeof id !== "string" || !/^\d{17}-[0-9a-f]{8}$/u.test(id))) throw new Error("Invalid savepoint id");
+  if ((action === "diff" || action === "restore") && id === undefined) throw new Error(`action ${action} requires id`);
+  if (reason !== undefined && (typeof reason !== "string" || reason.length > maxReasonLength || reason.includes("\0")))
+    throw new Error(`Savepoint reason must be at most ${maxReasonLength} characters without NUL`);
+  if (confirm !== undefined && typeof confirm !== "boolean") throw new Error("Savepoint confirm must be a boolean");
+  if (
+    (id !== undefined && action !== "diff" && action !== "restore") ||
+    (reason !== undefined && action !== "save") ||
+    (confirm !== undefined && action !== "restore")
+  )
+    throw new Error("Savepoint parameters do not match action");
+  return {
+    action,
+    ...(id === undefined ? {} : { id: id }),
+    ...(reason === undefined ? {} : { reason: reason }),
+    ...(confirm === undefined ? {} : { confirm: confirm }),
+  };
+}
+
 export default {
   name: "pi-undo-savepoint",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   Config,
   async apply(context: Context, config: UndoSavepointPluginConfig) {
-    const cwd = (await resolveExistingWorkspacePath(context.piHarnessLaunch.cwd, ".", "Workspace path is invalid")).root;
-    const store = join(context.piHarnessLaunch.agentDir, safeStoreName(config.storeName));
-    const trackedPaths = await normalizedTrackedPaths(cwd, config.trackedPaths ?? defaultTrackedPaths);
+    const store = (await resolveWorkspaceFilePath(context.piHarnessLaunch.agentDir, safeStoreName(config.storeName), "Savepoint store path is invalid")).target;
+    const lifecycle = new AbortController();
+    let disposed = false;
+    let running = false;
+    const capture = async (signal?: AbortSignal) => {
+      if (disposed) throw new Error("Savepoint operation was cancelled");
+      const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+      const session = context.get("piRuntime")?.session;
+      const manager = session?.sessionManager;
+      const sessionId = session?.sessionId;
+      const workspace = manager?.getCwd() ?? context.piHarnessLaunch.cwd;
+      const check = () => {
+        if (disposed || operationSignal.aborted) throw new Error("Savepoint operation was cancelled");
+        const current = context.get("piRuntime")?.session;
+        if (
+          current !== session ||
+          current?.sessionManager !== manager ||
+          current?.sessionId !== sessionId ||
+          (current?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd) !== workspace
+        )
+          throw new Error("Session workspace changed during savepoint operation");
+      };
+      check();
+      const cwd = (await resolveExistingWorkspacePath(workspace, ".", "Workspace path is invalid")).root;
+      const storeInfo = await lstat(store).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+        return undefined;
+      });
+      if (storeInfo !== undefined && (storeInfo.isSymbolicLink() || !storeInfo.isDirectory())) throw new Error("Savepoint store must be a regular directory");
+      check();
+      return { cwd, check, signal: operationSignal };
+    };
     const normalizeLimit = (value: number | undefined, fallback: number, maximum: number): number =>
       typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(maximum, Math.trunc(value))) : fallback;
     const maxFiles = normalizeLimit(config.maxFiles, 400, maxManifestFiles);
@@ -317,32 +452,49 @@ export default {
       if (!/^\d{17}-[0-9a-f]{8}$/u.test(id)) throw new Error("Invalid savepoint id");
       return join(store, `${id}.json`);
     };
-    const load = async (id: string): Promise<SavepointManifest> => readManifest(manifestPath(id), maxFiles);
-    const save = async (reason: string): Promise<SavepointManifest> => {
+    const load = async (id: string, cwd: string): Promise<SavepointManifest> => {
+      const manifest = await readManifest(manifestPath(id), maxFiles);
+      if (manifest.cwd !== cwd) throw new Error("Savepoint belongs to another workspace");
+      return manifest;
+    };
+    const save = async (cwd: string, reason: string, check: () => void, signal: AbortSignal): Promise<SavepointManifest> => {
       const normalizedReason = reason.trim() || "manual savepoint";
       if (normalizedReason.length > maxReasonLength) throw new Error(`Savepoint reason must be at most ${maxReasonLength} characters`);
       const createdAt = new Date().toISOString();
       const id = `${createdAt.replace(/[-:.TZ]/gu, "").slice(0, 17)}-${randomUUID().slice(0, 8)}`;
+      const trackedPaths = await normalizedTrackedPaths(cwd, config.trackedPaths ?? defaultTrackedPaths);
+      const snapshot = await collectFiles(cwd, trackedPaths, maxFiles, maxFileBytes, store, check);
       const manifest: SavepointManifest = {
         version: 1,
+        cwd,
+        truncated: snapshot.truncated,
         id,
         reason: normalizedReason,
         createdAt,
-        files: await collectFiles(cwd, trackedPaths, maxFiles, maxFileBytes),
+        files: snapshot.files,
       };
       const serialized = JSON.stringify(manifest, null, 2);
       if (Buffer.byteLength(serialized, "utf8") > maxManifestBytes) throw new Error(`Savepoint manifest exceeds the ${maxManifestBytes}-byte limit`);
+      check();
       await mkdir(store, { recursive: true });
-      await atomicWriteFile(manifestPath(id), serialized, { encoding: "utf8", mode: 0o600 });
+      check();
+      await atomicWriteFile(manifestPath(id), serialized, { encoding: "utf8", mode: 0o600, signal });
       return manifest;
     };
-    const restore = async (manifest: SavepointManifest): Promise<{ restored: string[]; skipped: string[] }> => {
+    const restore = async (
+      cwd: string,
+      manifest: SavepointManifest,
+      check: () => void,
+      signal: AbortSignal,
+    ): Promise<{ restored: string[]; skipped: string[] }> => {
       const restored: string[] = [];
       const skipped: string[] = [];
+      const writes: Array<{ path: string; target: string; content: Buffer; mode: number | undefined }> = [];
       for (const file of manifest.files) {
+        check();
         const lexicalPath = resolve(cwd, ...file.path.split("/"));
         // The ignore list that keeps collectFiles out of .git and friends has to hold on the way back in as well, otherwise a hand-edited manifest could write a directory a savepoint is never allowed to snapshot. This runs before prepareWorkspaceFile precisely so a blocked entry never gets its parent directory created.
-        if (!withinRoot(cwd, lexicalPath) || isSensitivePath(lexicalPath) || isIgnoredPath(relative(cwd, lexicalPath))) {
+        if (!withinRoot(cwd, lexicalPath) || withinRoot(store, lexicalPath) || isSensitivePath(lexicalPath) || isIgnoredPath(relative(cwd, lexicalPath))) {
           skipped.push(file.path);
           continue;
         }
@@ -350,21 +502,41 @@ export default {
         if (hash(content) !== file.sha256) throw new Error(`Savepoint integrity check failed: ${file.path}`);
         const prepared = await prepareWorkspaceFile(cwd, file.path, `Savepoint path must stay inside the workspace and target a regular file: ${file.path}`);
         // prepareWorkspaceFile realpaths the parent directory, so the same check has to run again on the canonical path: the lexical one above only sees what the manifest spelled, and a workspace symlink, or a trailing dot that Windows strips, can spell something that resolves into an ignored directory the lexical spelling never named.
-        if (isIgnoredPath(prepared.relativePath)) {
+        if (withinRoot(store, prepared.target) || isIgnoredPath(prepared.relativePath)) {
           skipped.push(file.path);
           continue;
         }
         const destinationMode = prepared.exists ? (await lstat(prepared.target)).mode & 0o777 : undefined;
-        // atomicWriteFile renames a freshly created temporary file over the target, so the temporary file's permissions become the target's. Passing no mode at all makes it carry over the bits the target already has, or fall back to owner-only for a file the restore creates: that is what a manifest written before modes were recorded needs, and it is also how an already executable destination keeps its own execute bit, which the manifest itself is never allowed to grant.
-        const mode = file.mode === undefined || (destinationMode !== undefined && (destinationMode & 0o111) !== 0) ? undefined : restorableMode(file.mode);
-        await atomicWriteFile(prepared.target, content, mode === undefined ? {} : { mode });
-        restored.push(file.path);
+        // Preserve an existing executable destination's own permissions; a manifest cannot grant execution to a new or non-executable file.
+        const mode = destinationMode !== undefined && (destinationMode & 0o111) !== 0 ? undefined : restorableMode(file.mode);
+        writes.push({ path: file.path, target: prepared.target, content, mode });
+      }
+      for (const write of writes) {
+        check();
+        await atomicWriteFile(write.target, write.content, { ...(write.mode === undefined ? {} : { mode: write.mode }), signal });
+        restored.push(write.path);
       }
       return { restored, skipped };
     };
-    const report = async (): Promise<{ store: string; trackedPaths: string[]; count: number; savepoints: SavepointSummary[] }> => {
-      const savepoints = await listManifests(store, maxFiles);
-      return { store, trackedPaths: trackedPaths.map((path) => relativePath(cwd, path) || "."), count: savepoints.length, savepoints };
+    const report = async () => {
+      const { cwd, check } = await capture();
+      const savepoints = await listManifests(store, maxFiles, cwd, check);
+      check();
+      return {
+        cwd,
+        store,
+        trackedPaths: [...(config.trackedPaths?.length ? config.trackedPaths : defaultTrackedPaths)],
+        count: savepoints.length,
+        savepoints,
+        limits: {
+          manifests: maxManifestCount,
+          manifestCandidates: maxManifestCandidates,
+          files: maxFiles,
+          fileBytes: maxFileBytes,
+          totalBytes: maxTotalSnapshotBytes,
+          traversalEntries: maxTraversalEntries,
+        },
+      };
     };
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -375,47 +547,39 @@ export default {
         parameters: Type.Object(
           {
             action: Type.Union([Type.Literal("save"), Type.Literal("list"), Type.Literal("diff"), Type.Literal("restore")]),
-            id: Type.Optional(Type.String({ description: "Savepoint id for diff or restore" })),
-            reason: Type.Optional(Type.String({ description: "Why this savepoint is being created" })),
+            id: Type.Optional(Type.String({ description: "Savepoint id for diff or restore", pattern: "^\\d{17}-[0-9a-f]{8}$", maxLength: 26 })),
+            reason: Type.Optional(Type.String({ description: "Why this savepoint is being created", maxLength: maxReasonLength })),
             confirm: Type.Optional(Type.Boolean({ description: "Must be true before restoring files" })),
           },
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
-          if (params.action === "save") {
-            const manifest = await save(params.reason ?? "manual savepoint");
-            return {
-              content: [{ type: "text", text: `Savepoint ${manifest.id} saved (${manifest.files.length} files).` }],
-              details: { action: "save", id: manifest.id, fileCount: manifest.files.length },
-            };
+        async execute(_toolCallId, raw, signal): Promise<AgentToolResult<unknown>> {
+          const params = parameters(raw);
+          if (running) throw new Error("A savepoint operation is already running");
+          running = true;
+          try {
+            const { cwd, check, signal: operationSignal } = await capture(signal);
+            let details: unknown;
+            if (params.action === "save") {
+              const manifest = await save(cwd, params.reason ?? "manual savepoint", check, operationSignal);
+              details = { action: "save", cwd, id: manifest.id, fileCount: manifest.files.length, truncated: manifest.truncated };
+            } else if (params.action === "list") {
+              details = { action: "list", ...(await report()) };
+            } else {
+              if (params.action === "restore" && params.confirm !== true) throw new Error("Restoring a savepoint requires confirm=true");
+              const manifest = await load(params.id!, cwd);
+              check();
+              details =
+                params.action === "diff"
+                  ? { action: "diff", cwd, ...(await diffManifest(cwd, manifest, check)) }
+                  : { action: "restore", cwd, id: manifest.id, ...(await restore(cwd, manifest, check, operationSignal)) };
+            }
+            check();
+            return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+          } finally {
+            running = false;
           }
-          if (params.action === "list") {
-            const details = await report();
-            return { content: [{ type: "text", text: `${details.savepoints.length} savepoints available.` }], details: { action: "list", ...details } };
-          }
-          if (params.id === undefined || params.id.trim() === "") throw new Error(`action ${params.action} requires id`);
-          const manifest = await load(params.id);
-          if (params.action === "diff") {
-            const details = await diffManifest(cwd, manifest);
-            return {
-              content: [{ type: "text", text: `${details.changed.length} changed, ${details.missing.length} missing, ${details.unchanged} unchanged.` }],
-              details: { action: "diff", ...details },
-            };
-          }
-          if (params.confirm !== true) throw new Error("Restoring a savepoint requires confirm=true");
-          const { restored, skipped } = await restore(manifest);
-          // The skipped names come straight out of an untrusted manifest, which may hold up to 2000 entries of up to 4096 characters each and puts no restriction on newlines. The text goes to the model verbatim, so only the first few names are named, and each is JSON-quoted so a path cannot break out of the sentence. The full list is in the details.
-          const named = skipped.slice(0, maxNamedSkips).map((path) => JSON.stringify(path));
-          const remainder = skipped.length - named.length;
-          const skippedNote =
-            skipped.length === 0
-              ? ""
-              : ` Skipped ${skipped.length} entries that target an ignored directory: ${named.join(", ")}${remainder === 0 ? "" : `, and ${remainder} more`}.`;
-          return {
-            content: [{ type: "text", text: `Restored ${restored.length} files from ${manifest.id}.${skippedNote}` }],
-            details: { action: "restore", id: manifest.id, restored, skipped },
-          };
         },
       }),
     );
@@ -434,6 +598,8 @@ export default {
       throw error;
     }
     context.effect(() => () => {
+      disposed = true;
+      lifecycle.abort(new Error("Savepoint operation was cancelled"));
       unregisterTool();
       disposePanel();
     });

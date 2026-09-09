@@ -164,3 +164,23 @@ describe("atomicWriteFile", () => {
     expect(await readdir(root)).toEqual([]);
   });
 });
+
+test.each([false, true])("checks publication after file fsync and preserves targets on rejection, overwrite=%s", async (overwrite) => {
+  const root = await mkdtemp(join(tmpdir(), "pi-atomic-commit-"));
+  temporaryDirectories.push(root);
+  const target = join(root, "target.txt");
+  if (overwrite) await writeFile(target, "original");
+  await expect(
+    atomicWriteFile(target, "replacement", {
+      overwrite,
+      beforeCommit: () => {
+        expect(durability.sequence.some((entry) => entry.startsWith("sync:") && entry.endsWith(".tmp"))).toBe(true);
+        expect(durability.sequence.some((entry) => entry.startsWith("rename:"))).toBe(false);
+        throw new Error("publication invalidated");
+      },
+    }),
+  ).rejects.toThrow("publication invalidated");
+  if (overwrite) expect(await readFile(target, "utf8")).toBe("original");
+  else await expect(readFile(target)).rejects.toMatchObject({ code: "ENOENT" });
+  expect((await readdir(root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+});

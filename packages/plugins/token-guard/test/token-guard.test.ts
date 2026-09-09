@@ -1,5 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
+import { access, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, test, vi } from "vitest";
 import { PiPluginUiRegistry } from "@pi-harness/plugin-api";
 import tokenGuardPlugin from "../src/index.js";
@@ -271,9 +273,9 @@ describe("token guard absolute run budget", () => {
     });
     try {
       await expect(context.plugin(tokenGuardPlugin)).rejects.toThrow(/already registered/iu);
-      expect(inspections).toBe(1);
+      expect(inspections).toBe(0);
       context.emit("pi/session-event", { type: "message_end" } as never);
-      expect(inspections).toBe(1);
+      expect(inspections).toBe(0);
     } finally {
       disposeDuplicate();
       await context.fiber.dispose();
@@ -392,4 +394,107 @@ describe("token guard absolute run budget", () => {
     expect(aborts).toBe(1);
     await context.fiber.dispose();
   });
+});
+
+test("stops a budget-exhausting assistant response before its real write tool executes", async () => {
+  const { context } = await createTestRuntimeContext(
+    [fauxAssistantMessage(fauxToolCall("write", { path: "budget-marker.txt", content: "should not run" })), fauxAssistantMessage("finished")],
+    ["write"],
+  );
+  const root = context.piHarnessLaunch.cwd,
+    agentDir = context.piHarnessLaunch.agentDir;
+  try {
+    await context.plugin(tokenGuardPlugin, { maxPercent: 100, maxRunTokens: 1 });
+    await context.piRuntime.prompt("write the marker");
+    await expect(access(join(root, "budget-marker.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(context.piPluginUi.snapshot()).resolves.toMatchObject([{ data: { runExceeded: true, aborts: 1 } }]);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("does not attach an old abort rejection to a new run", async () => {
+  const context = new Context(),
+    panels = new PiPluginUiRegistry();
+  let rejectAbort: (reason: unknown) => void = () => {};
+  let percent = 90;
+  context.provide("piRuntime", {
+    session: { sessionId: "a", isStreaming: true, getContextUsage: () => ({ tokens: percent, contextWindow: 100, percent }) },
+    abort: () =>
+      new Promise<void>((_resolve, reject) => {
+        rejectAbort = reject;
+      }),
+  } as never);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(tokenGuardPlugin, { maxPercent: 80 });
+    percent = 10;
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    rejectAbort(new Error("old run failure"));
+    await Promise.resolve();
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { lastError: null, exceeded: false } }]);
+  } finally {
+    await context.fiber.dispose();
+  }
+});
+
+test("resets on a native session ID change without aborting from panel polling", async () => {
+  const context = new Context(),
+    panels = new PiPluginUiRegistry();
+  let sessionId = "first",
+    aborts = 0;
+  const session = {
+    get sessionId() {
+      return sessionId;
+    },
+    isStreaming: true,
+    getContextUsage: () => ({ tokens: 90, contextWindow: 100, percent: 90 }),
+    getSessionStats: () => ({ tokens: { total: 500 } }),
+  };
+  context.provide("piRuntime", {
+    session,
+    abort: () => {
+      aborts++;
+      return Promise.resolve();
+    },
+  } as never);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(tokenGuardPlugin, { maxPercent: 80, maxRunTokens: 50 });
+    expect(aborts).toBe(1);
+    sessionId = "second";
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { aborts: 0, runTokens: null, exceeded: true } }]);
+    expect(aborts).toBe(1);
+    context.emit("pi/session-event", { type: "message_update" } as never);
+    expect(aborts).toBe(2);
+  } finally {
+    await context.fiber.dispose();
+  }
+});
+
+test.each(["assistant", "toolResult"])("counts finalized %s usage once before and after native persistence", async (role) => {
+  const context = new Context(),
+    panels = new PiPluginUiRegistry();
+  let total = 100;
+  context.provide("piRuntime", {
+    session: { isStreaming: true, getContextUsage: () => ({ tokens: 10, contextWindow: 1000, percent: 1 }), getSessionStats: () => ({ tokens: { total } }) },
+    abort: () => Promise.resolve(),
+  } as never);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(tokenGuardPlugin, { maxPercent: 100, maxRunTokens: 100 });
+    context.emit("pi/session-event", { type: "agent_start" } as never);
+    context.emit("pi/session-event", {
+      type: "message_end",
+      message: { role, usage: { input: 5, output: 15, cacheRead: 20, cacheWrite: 20 } },
+    } as never);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { runTokens: 60, aborts: 0 } }]);
+    total = 160;
+    context.emit("pi/session-event", { type: "turn_end" } as never);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { runTokens: 60, aborts: 0 } }]);
+  } finally {
+    await context.fiber.dispose();
+  }
 });

@@ -30,6 +30,31 @@ async function setupPlugin(root: string): Promise<{ context: Context; panels: Pi
 }
 
 describe("dependency checker", () => {
+  test("uses optional dependencies instead of overridden required declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-dependency-checker-override-"));
+    temporaryDirectories.push(root);
+    await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { feature: "^1.0.0" }, optionalDependencies: { feature: "^2.0.0" } }));
+    await expect(inspectManifest(root)).resolves.toMatchObject({
+      declared: 1,
+      installed: 0,
+      missing: [],
+      optionalMissing: ["feature"],
+      conflicts: [],
+      unresolved: [],
+    });
+
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ dependencies: { feature: "workspace:*" }, optionalDependencies: { feature: "^2.0.0" }, peerDependencies: { feature: "^3.0.0" } }),
+    );
+    await expect(inspectManifest(root)).resolves.toMatchObject({
+      missing: ["feature"],
+      optionalMissing: [],
+      conflicts: [{ name: "feature", constraints: ["^2.0.0", "^3.0.0"] }],
+      unresolved: [],
+    });
+  });
+
   test("parses Python requirements, detects conflicts, and checks a local virtualenv", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-dependency-checker-"));
     temporaryDirectories.push(root);
@@ -545,9 +570,12 @@ describe("dependency checker", () => {
     });
     const { tool } = await setupPlugin(root);
     const result = await tool.execute("summary", {}, undefined, undefined, {} as never);
-    expect(result.content[0]).toMatchObject({
-      type: "text",
-      text: "package.json: 1 required missing, 1 optional missing, 0 invalid, 0 conflicts, 0 unresolved constraint groups.",
+    expect(result.content[0]?.type).toBe("text");
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({
+      missing: ["required"],
+      optionalMissing: ["optional"],
+      counts: { missing: 1, optionalMissing: 1 },
+      truncated: false,
     });
   });
 
@@ -630,4 +658,57 @@ describe("dependency checker", () => {
     expect(tools.snapshot().customTools).toEqual([]);
     await expect(panels.snapshot()).resolves.toMatchObject([{ id: "dependency-checker-panel", pluginId: "fixture" }]);
   });
+});
+
+test("refreshes native workspace scans and discards old tool and automatic panel scans", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-dependencies-native-"));
+  temporaryDirectories.push(root);
+  const active = join(root, "active");
+  await mkdir(active);
+  await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { "launch-only": "1" } }));
+  await writeFile(join(active, "package.json"), JSON.stringify({ dependencies: { "active-only": "1" } }));
+  const { context, panels, tool } = await setupPlugin(root);
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  await tool.execute("first", {}, undefined, undefined, {} as never);
+  session = {
+    get sessionId() {
+      return id;
+    },
+    sessionManager: { getCwd: () => active },
+  };
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { report: { missing: ["active-only"] } } }]);
+  const result = await tool.execute("active", {}, undefined, undefined, {} as never);
+  expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({ missing: ["active-only"] });
+  const pending = tool.execute("pending", {}, undefined, undefined, {} as never);
+  id = "second";
+  await expect(pending).rejects.toThrow(/workspace changed/iu);
+  const panel = panels.snapshot();
+  id = "third";
+  await expect(panel).resolves.toMatchObject([{ error: expect.stringMatching(/workspace changed/iu) as unknown }]);
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { report: { missing: ["active-only"] } } }]);
+});
+
+test("bounds actionable model diagnostics and preserves complete panel details", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-dependencies-model-"));
+  temporaryDirectories.push(root);
+  const dependencies = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`package-${index}`, "https://example.invalid/" + "界".repeat(900)]));
+  const peerDependencies = Object.fromEntries(Object.keys(dependencies).map((name) => [name, "1.0.0"]));
+  await writeFile(join(root, "package.json"), JSON.stringify({ dependencies, peerDependencies }));
+  const { tool } = await setupPlugin(root);
+  const result = await tool.execute("bounded", {}, undefined, undefined, {} as never);
+  const text = (result.content[0] as { text: string }).text;
+  expect(Buffer.byteLength(text)).toBeLessThanOrEqual(32 * 1024);
+  expect(JSON.parse(text)).toMatchObject({
+    counts: { missing: 30, unresolved: 30 },
+    missing: expect.arrayContaining(["package-0"]) as unknown,
+    unresolved: expect.arrayContaining([expect.objectContaining({ name: "package-0" })]) as unknown,
+    truncated: true,
+  });
+  expect((result.details as DependencyReport).unresolved).toHaveLength(30);
 });

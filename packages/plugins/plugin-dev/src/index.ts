@@ -75,6 +75,7 @@ export default {
     const lifecycle = new AbortController();
     let latest: ReloadState = { status: "idle", reason: "" };
     let queued: { reason: string; requestedAt: string } | undefined;
+    let clearQueuedListener: (() => void) | undefined;
     let active: Promise<ReloadState> | undefined;
     const startReload = (request: { reason: string; requestedAt: string }): Promise<ReloadState> => {
       if (lifecycle.signal.aborted) {
@@ -117,6 +118,8 @@ export default {
       if (event.type !== "agent_settled" || queued === undefined) return;
       const request = queued;
       queued = undefined;
+      clearQueuedListener?.();
+      clearQueuedListener = undefined;
       void startReload(request).catch(() => undefined);
     });
     const unregisterTool = context.piTools.register(
@@ -135,7 +138,8 @@ export default {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           const requestedAt = new Date().toISOString();
           if (operationSignal.aborted) {
-            latest = { status: "cancelled", reason, requestedAt, error: "Plugin reload was cancelled before it started" };
+            if (active === undefined && queued === undefined)
+              latest = { status: "cancelled", reason, requestedAt, error: "Plugin reload was cancelled before it started" };
             throw cancellationError(operationSignal);
           }
           if (active !== undefined || queued !== undefined) throw new Error("A plugin reload is already in progress");
@@ -146,8 +150,18 @@ export default {
             throw error;
           }
           if (runtime.session.isIdle === false) {
-            queued = { reason, requestedAt };
-            latest = { status: "queued", ...queued };
+            const request = { reason, requestedAt };
+            queued = request;
+            const cancelQueued = () => {
+              if (queued !== request) return;
+              queued = undefined;
+              clearQueuedListener?.();
+              clearQueuedListener = undefined;
+              latest = { status: "cancelled", ...request, error: "Plugin reload was cancelled before it started" };
+            };
+            operationSignal.addEventListener("abort", cancelQueued, { once: true });
+            clearQueuedListener = () => operationSignal.removeEventListener("abort", cancelQueued);
+            latest = { status: "queued", ...request };
             return {
               content: [{ type: "text", text: `Pi session resource reload queued until the current agent run settles: ${reason}` }],
               details: { ...latest },
@@ -183,6 +197,8 @@ export default {
         latest = { status: "cancelled", ...queued, error: "Plugin reload was cancelled before it started" };
         queued = undefined;
       }
+      clearQueuedListener?.();
+      clearQueuedListener = undefined;
       unsubscribe();
       unregisterTool();
       disposePanel();

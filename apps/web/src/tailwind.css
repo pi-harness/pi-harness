@@ -3,6 +3,11 @@
 
 @theme static {
   --animate-pulse-soft: pulse-soft 1.4s ease-in-out infinite;
+  --color-green-soft: #f0fbf4;
+  --color-red-soft: #fff5f5;
+  --color-amber-soft: #fff9ed;
+  --color-surface: #ffffff;
+  --color-inverse: #ffffff;
   --color-ink: #0f1115;
   --color-muted: #65707b;
   --color-faint: #687381;
@@ -12,7 +17,7 @@
   --color-blue-soft: #edf3fe;
   --color-green: #14733f;
   --color-red: #b42318;
-  --color-amber: #f59e0b;
+  --color-amber: #754c00;
   --color-empty: #9aa0a6;
   --color-starter-border: rgba(15, 17, 21, 0.14);
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;

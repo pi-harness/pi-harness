@@ -192,9 +192,11 @@ export default {
   apply(context: Context) {
     const lifecycle = new AbortController();
     let latest: RewindResult | undefined;
-    let queued: (RewindRequest & { session: unknown; signal: AbortSignal; removeAbortListener: () => void }) | undefined;
+    let queued: (RewindRequest & { session: unknown; sessionId: string; manager: unknown; signal: AbortSignal; removeAbortListener: () => void }) | undefined;
     let active: Promise<RewindResult> | undefined;
     let cachedSession: unknown;
+    let cachedSessionId: string | undefined;
+    let cachedManager: unknown;
     let candidateInventory: RewindCandidateInventory = {
       candidates: [],
       scannedEntries: 0,
@@ -208,6 +210,8 @@ export default {
     const refreshCandidateCache = (): RewindCandidateInventory => {
       const session = context.get("piRuntime")?.session;
       cachedSession = session;
+      cachedSessionId = session?.sessionId;
+      cachedManager = session?.sessionManager;
       candidateInventory =
         session === undefined
           ? { candidates: [], scannedEntries: 0, scanTruncated: false, candidateTruncated: false }
@@ -253,27 +257,34 @@ export default {
       );
       return operation;
     };
+    const cancelStaleQueue = () => {
+      if (queued === undefined) return;
+      const session = context.get("piRuntime")?.session;
+      if (session === queued.session && session?.sessionId === queued.sessionId && session?.sessionManager === queued.manager) return;
+      const request = queued;
+      queued = undefined;
+      request.removeAbortListener();
+      latest = {
+        status: "cancelled",
+        target: request.target,
+        summarized: request.summarized,
+        requestedAt: request.requestedAt,
+        finishedAt: new Date().toISOString(),
+        cancelled: true,
+        error: "Session changed before the queued rewind could start",
+      };
+    };
     const unsubscribe = context.on("pi/session-event", (event) => {
       if (event.type !== "agent_settled") return;
+      cancelStaleQueue();
       if (queued === undefined) {
         refreshCandidateCache();
         return;
       }
+      if (!context.piRuntime.session.isIdle) return;
       const request = queued;
       queued = undefined;
       request.removeAbortListener();
-      if (context.get("piRuntime")?.session !== request.session) {
-        latest = {
-          status: "cancelled",
-          target: request.target,
-          summarized: request.summarized,
-          requestedAt: request.requestedAt,
-          finishedAt: new Date().toISOString(),
-          cancelled: true,
-          error: "Session changed before the queued rewind could start",
-        };
-        return;
-      }
       void startNavigation({ target: request.target, summarized: request.summarized, requestedAt: request.requestedAt }).catch(() => undefined);
     });
     const unregister = context.piTools.register(
@@ -298,6 +309,7 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<RewindResult>> {
           const requestParameters = rewindParameters(params);
+          cancelStaleQueue();
           if (active !== undefined || queued !== undefined) throw new Error("A session rewind is already in progress");
           const runtime = context.get("piRuntime");
           if (runtime === undefined) throw new Error("Pi runtime is not ready");
@@ -335,18 +347,20 @@ export default {
             queued = {
               ...request,
               session: runtime.session,
+              sessionId: runtime.session.sessionId,
+              manager: runtime.session.sessionManager,
               signal: operationSignal,
               removeAbortListener: () => operationSignal.removeEventListener("abort", onAbort),
             };
             latest = { status: "queued", ...request, cancelled: false };
             return {
-              content: [{ type: "text", text: `Session rewind queued until the current agent run settles: ${target.text}` }],
+              content: [{ type: "text", text: JSON.stringify(latest) }],
               details: cloneRewindResult(latest),
             };
           }
           const result = await waitForNavigation(startNavigation(request), operationSignal);
           return {
-            content: [{ type: "text", text: result.cancelled ? "Session rewind was cancelled." : `Session rewound to: ${target.text}` }],
+            content: [{ type: "text", text: JSON.stringify(result) }],
             details: cloneRewindResult(result),
           };
         },
@@ -361,7 +375,9 @@ export default {
         description: "回到之前的用户轮次并保留原分支，不直接删除会话历史。",
         icon: "↶",
         read: () => {
-          if (context.get("piRuntime")?.session !== cachedSession) refreshCandidateCache();
+          cancelStaleQueue();
+          const session = context.get("piRuntime")?.session;
+          if (session !== cachedSession || session?.sessionId !== cachedSessionId || session?.sessionManager !== cachedManager) refreshCandidateCache();
           const inventory = cloneInventory();
           return {
             candidates: inventory.candidates,

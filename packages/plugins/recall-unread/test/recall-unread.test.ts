@@ -55,14 +55,6 @@ async function loadPlugin(sessionDir: string, active: { id: string; path?: strin
   return { context, tools, panels };
 }
 
-async function waitForCondition(condition: () => boolean, description: string, timeoutMs = 10_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${description}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
 describe("recall unread", () => {
   test("returns the latest user message only when no later assistant message exists", () => {
     expect(
@@ -175,6 +167,97 @@ describe("recall unread", () => {
       const second = (await panels.snapshot())[0]?.data;
       expect(first).toMatchObject({ scans: 1, total: 1, items: [{ id: "unread", name: "Needs reply", message: "older question" }] });
       expect(second).toEqual(first);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("rejects requests queued before native replacement and clears the previous workspace panel", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-recall-native-queue-"));
+    temporaryDirectories.push(root);
+    const sessionDir = join(root, "sessions");
+    await mkdir(sessionDir);
+    await writeSession(join(sessionDir, "old.jsonl"), "old", [{ role: "user", text: "old workspace task" }]);
+    await writeSession(join(sessionDir, "new.jsonl"), "new", [{ role: "user", text: "new workspace task" }], undefined, "/replacement");
+    const { context, tools, panels } = await loadPlugin(sessionDir, { id: "launch" });
+    const manager = SessionManager.create("/workspace", sessionDir);
+    const runtime = { session: { sessionManager: manager } };
+    context.provide("piRuntime", runtime as never);
+    const tool = tools.snapshot().customTools[0]!;
+    try {
+      await tool.execute("warm", {}, undefined, undefined, {} as never);
+      const first = tool.execute("first", {}, undefined, undefined, {} as never);
+      const second = tool.execute("second", {}, undefined, undefined, {} as never);
+      runtime.session = { sessionManager: SessionManager.create("/replacement", sessionDir) };
+      const outcomes = await Promise.allSettled([first, second]);
+      for (const outcome of outcomes) {
+        if (outcome.status !== "rejected") throw new Error("A stale scan unexpectedly succeeded");
+        const reason: unknown = outcome.reason;
+        if (!(reason instanceof Error)) throw new Error("A stale scan did not return an error");
+        expect(reason.message).toMatch(/session changed/iu);
+      }
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        { data: { total: 0, items: [], inventory: { scanned: 0, unread: 0 }, status: { state: "idle" } } },
+      ]);
+      await expect(tool.execute("current", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 1, items: [{ id: "new" }] } });
+      const pending = tool.execute("new-session", {}, undefined, undefined, {} as never);
+      runtime.session.sessionManager.newSession();
+      await expect(pending).rejects.toThrow(/session changed/iu);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { total: 0, items: [], status: { state: "idle" } } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("binds the native session before reading raw parameters", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-native-params-"));
+    temporaryDirectories.push(sessionDir);
+    const { context, tools, panels } = await loadPlugin(sessionDir, { id: "launch" });
+    const manager = SessionManager.create("/workspace", sessionDir);
+    context.provide("piRuntime", { session: { sessionManager: manager } } as never);
+    const params = new Proxy(
+      {},
+      {
+        ownKeys() {
+          manager.newSession();
+          return [];
+        },
+      },
+    );
+    try {
+      await expect(tools.snapshot().customTools[0]!.execute("switch", params, undefined, undefined, {} as never)).rejects.toThrow(/session changed/iu);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { total: 0, status: { state: "idle" } } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("does not publish a stale startup failure over the replacement session panel", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-startup-switch-"));
+    temporaryDirectories.push(sessionDir);
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    const manager = SessionManager.create("/workspace", sessionDir);
+    const runtime = { session: { sessionManager: manager } };
+    provideLaunchContext(context, { cwd: "/workspace", agentDir: sessionDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager });
+    context.provide("piRuntime", runtime as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    let switchedPanel: Promise<unknown> | undefined;
+    vi.spyOn(manager, "getSessionDir").mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        runtime.session = { sessionManager: SessionManager.create("/replacement", sessionDir) };
+        switchedPanel = panels.snapshot();
+      });
+      return sessionDir;
+    });
+    try {
+      await context.plugin(recallUnread, {});
+      expect(switchedPanel).toBeDefined();
+      await expect(switchedPanel).resolves.toMatchObject([{ data: { status: { state: "idle" } } }]);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { scans: 0, items: [], status: { state: "idle" } } }]);
     } finally {
       await context.fiber.dispose();
     }
@@ -541,50 +624,80 @@ describe("recall unread", () => {
     }
   });
 
-  test("commits concurrent rescans in invocation order", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-harness-recall-unread-order-"));
-    temporaryDirectories.push(root);
-    const initialDir = join(root, "initial");
-    const slowDir = join(root, "slow");
-    const latestDir = join(root, "latest");
-    await Promise.all([mkdir(initialDir), mkdir(slowDir), mkdir(latestDir)]);
-    for (let offset = 0; offset < 4_096; offset += 256) {
-      await Promise.all(Array.from({ length: 256 }, (_, index) => writeFile(join(slowDir, `${String(offset + index).padStart(4, "0")}.jsonl`), "", "utf8")));
-    }
-    await writeFile(join(slowDir, "overflow.jsonl"), "", "utf8");
-    await writeSession(join(latestDir, "latest.jsonl"), "latest", [{ role: "user", text: "latest invocation" }]);
-
-    const context = new Context();
-    const tools = new PiToolRegistry();
-    const panels = new PiPluginUiRegistry();
-    const directories = [initialDir, slowDir, latestDir];
-    let directoryCalls = 0;
-    provideLaunchContext(context, { cwd: "/workspace", agentDir: root, args: [], requestExit() {} });
-    context.provide("piTools", tools);
-    context.provide("piPluginUi", panels);
-    context.provide("piSession", {
-      manager: {
-        getSessionDir: () => directories[Math.min(directoryCalls++, directories.length - 1)]!,
-        getSessionId: () => "active",
-        getSessionFile: () => undefined,
-        getCwd: () => "/workspace",
-      },
-    } as never);
-    await context.plugin(recallUnread, { maxSessions: 1 });
+  test.each(["id", "path", "cwd", "manager"])("rejects a %s switch during discovery without publishing mixed inventory", async (field) => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-harness-recall-unread-switch-"));
+    temporaryDirectories.push(sessionDir);
+    await writeSession(join(sessionDir, "unread.jsonl"), "unread", [{ role: "user", text: "keep previous scan" }]);
+    const active: { id: string; path?: string } = { id: "original" };
+    const { context, tools, panels } = await loadPlugin(sessionDir, active);
     const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_recall_unread");
     if (tool === undefined) throw new Error("Recall Unread tool was not registered");
-    try {
-      const first = tool.execute("first", {}, undefined, undefined, {} as never);
-      await waitForCondition(() => directoryCalls === 2, "the first rescan to enter directory discovery");
-      const second = tool.execute("second", {}, undefined, undefined, {} as never);
-      await waitForCondition(() => directoryCalls === 3, "the second rescan to enter directory discovery");
-      const [firstResult, secondResult] = await Promise.all([first, second]);
-      expect(firstResult.details).toMatchObject({
-        total: 0,
-        inventory: { available: 4_096, candidates: 4_096, discoveryTruncated: true, truncated: true },
+    vi.spyOn(context.piSession.manager, "getSessionDir").mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        if (field === "id") active.id = "replacement";
+        else if (field === "path") active.path = join(sessionDir, "replacement.jsonl");
+        else if (field === "cwd") vi.spyOn(context.piSession.manager, "getCwd").mockReturnValue("/replacement");
+        else
+          context.provide("piRuntime", {
+            session: {
+              sessionManager: {
+                getSessionDir: () => sessionDir,
+                getSessionId: () => "replacement",
+                getSessionFile: () => undefined,
+                getCwd: () => "/workspace",
+              },
+            },
+          } as never);
       });
-      expect(secondResult.details).toMatchObject({ total: 1, items: [{ id: "latest" }] });
-      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { scans: 3, total: 1, items: [{ id: "latest" }] } }]);
+      return sessionDir;
+    });
+    try {
+      await expect(tool.execute("switch", {}, undefined, undefined, {} as never)).rejects.toThrow(/session changed/iu);
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { scans: 1, total: 0, items: [], status: { state: "idle" } } }]);
+      await expect(tool.execute("retry", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: field === "cwd" ? 0 : 1 } });
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { scans: 2, status: { state: "completed" } } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("keeps concurrent scan queries independent and lets a queued scan recover after cancellation", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-order-"));
+    temporaryDirectories.push(sessionDir);
+    await writeSession(join(sessionDir, "alpha.jsonl"), "alpha", [{ role: "user", text: "alpha task" }]);
+    await writeSession(join(sessionDir, "beta.jsonl"), "beta", [{ role: "user", text: "beta task" }]);
+    const { context, tools, panels } = await loadPlugin(sessionDir, { id: "active" });
+    const tool = tools.snapshot().customTools[0]!;
+    try {
+      const results = await Promise.all([
+        tool.execute("alpha", { query: "alpha" }, undefined, undefined, {} as never),
+        tool.execute("beta", { query: "beta" }, undefined, undefined, {} as never),
+      ]);
+      expect(results[0].details).toMatchObject({ total: 1, items: [{ id: "alpha" }] });
+      expect(results[1].details).toMatchObject({ total: 1, items: [{ id: "beta" }] });
+      const caller = new AbortController();
+      const cancelled = tool.execute("cancelled", {}, caller.signal, undefined, {} as never);
+      const queued = tool.execute("queued", {}, undefined, undefined, {} as never);
+      caller.abort();
+      await expect(cancelled).rejects.toThrow(/cancelled/iu);
+      await expect(queued).resolves.toMatchObject({ details: { total: 2 } });
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { scans: 4, total: 2, status: { state: "completed" } } }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("stops discovery after the directory entry limit", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-discovery-limit-"));
+    temporaryDirectories.push(sessionDir);
+    for (let offset = 0; offset < 4_097; offset += 256) {
+      await Promise.all(Array.from({ length: Math.min(256, 4_097 - offset) }, (_, index) => writeFile(join(sessionDir, `${offset + index}.jsonl`), "")));
+    }
+    const { context, panels } = await loadPlugin(sessionDir, { id: "active" }, 1);
+    try {
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        { data: { total: 0, inventory: { available: 4_096, candidates: 4_096, scanned: 1, discoveryTruncated: true, truncated: true } } },
+      ]);
     } finally {
       await context.fiber.dispose();
     }

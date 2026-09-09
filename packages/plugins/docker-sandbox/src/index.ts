@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import { stripVTControlCharacters } from "node:util";
 import { EmptyConfig } from "@pi-harness/plugin-api";
 import type { Context } from "@deepseek-ai/cordis";
@@ -151,6 +152,25 @@ async function containerId(cidfile: string): Promise<string | undefined> {
   }
 }
 
+async function waitForContainerRemoval(id: string): Promise<void> {
+  const deadline = Date.now() + cleanupTimeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await execFileAsync("docker", ["container", "inspect", id], {
+        timeout: Math.max(1, deadline - Date.now()),
+        maxBuffer: 1_000_000,
+        windowsHide: true,
+      });
+    } catch (error) {
+      const detail = outputFromFailure(error as { stdout?: string; stderr?: string; message?: string });
+      if (/No such (?:container|object)/iu.test(detail)) return;
+      throw new Error(`Docker sandbox container cleanup could not be confirmed: ${detail.slice(-1_024) || "unknown Docker error"}`, { cause: error });
+    }
+    await delay(Math.min(50, Math.max(0, deadline - Date.now())));
+  }
+  throw new Error("Docker sandbox container cleanup could not be confirmed: container removal timed out");
+}
+
 async function removeOwnedContainer(id: string): Promise<void> {
   try {
     await execFileAsync("docker", ["rm", "--force", id], {
@@ -162,6 +182,7 @@ async function removeOwnedContainer(id: string): Promise<void> {
     const failure = error as { stdout?: string; stderr?: string; message?: string };
     const detail = outputFromFailure(failure);
     if (/No such container/iu.test(detail)) return;
+    if (/removal.*already in progress/iu.test(detail)) return waitForContainerRemoval(id);
     throw new Error(`Docker sandbox container cleanup could not be confirmed: ${detail.slice(-1_024) || "unknown Docker error"}`, { cause: error });
   }
 }
@@ -173,6 +194,19 @@ export default {
   apply(context: Context) {
     let latest: SandboxRun | undefined;
     const lifecycle = new AbortController();
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
     let unregisterTool: () => void = () => undefined;
     let disposePanel: () => void = () => undefined;
     try {
@@ -199,30 +233,38 @@ export default {
           async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<SandboxRun>> {
             const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
             throwIfAborted(operationSignal);
+            const operationScope = refreshScope();
+            const assertCurrent = () => {
+              throwIfAborted(operationSignal);
+              if (refreshScope() !== operationScope) throw new Error("Docker sandbox workspace changed during execution");
+            };
             const params = validateParameters(rawParams);
             const executable = params.command[0]!;
             if (shellCommands.has(executableName(executable))) throw new Error("Shell wrappers are not allowed; pass an executable argv directly");
             const image = params.image?.trim() || defaultImage;
             validateImage(image);
             if (params.write && !params.confirmWrite) throw new Error("Writable sandbox requires confirmWrite=true");
+            assertCurrent();
             try {
               await execFileAsync("docker", ["image", "inspect", image], {
+                cwd: operationScope.cwd,
                 timeout: inspectTimeoutMs,
                 maxBuffer: 1_000_000,
                 signal: operationSignal,
                 windowsHide: true,
               });
             } catch (error) {
-              throwIfAborted(operationSignal);
+              assertCurrent();
               const failure = error as { code?: number | string };
               if (failure.code === "ENOENT") throw new Error("Docker executable is not available on PATH", { cause: error });
               throw new Error(`Docker image is not available locally: ${image}`, { cause: error });
             }
 
+            assertCurrent();
             const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-harness-docker-sandbox-"));
             const cidfile = join(temporaryDirectory, "container.cid");
             const containerName = `pi-harness-sandbox-${randomUUID()}`;
-            const mount = `type=bind,${csvField("src", context.piHarnessLaunch.cwd)},dst=/workspace${params.write ? "" : ",readonly"}`;
+            const mount = `type=bind,${csvField("src", operationScope.cwd)},dst=/workspace${params.write ? "" : ",readonly"}`;
             const args = [
               "run",
               "--rm",
@@ -250,19 +292,24 @@ export default {
               mount,
               "--workdir",
               "/workspace",
+              "--entrypoint",
+              "",
               image,
               ...params.command,
             ];
+            let run: SandboxRun;
             try {
+              assertCurrent();
               try {
                 const result = await execFileAsync("docker", args, {
-                  cwd: context.piHarnessLaunch.cwd,
+                  cwd: operationScope.cwd,
                   timeout: runTimeoutMs,
                   maxBuffer: 4 * 1024 * 1024,
                   signal: operationSignal,
                   windowsHide: true,
                 });
-                const run: SandboxRun = {
+                assertCurrent();
+                run = {
                   image,
                   command: [...params.command],
                   write: params.write,
@@ -270,17 +317,12 @@ export default {
                   status: "completed",
                   output: safeOutput(`${result.stdout}${result.stderr}`),
                 };
-                latest = cloneRun(run);
-                return {
-                  content: [{ type: "text", text: `Docker sandbox exited with ${run.exitCode}.\n${run.output}` }],
-                  details: cloneRun(run),
-                };
               } catch (error) {
                 const id = await containerId(cidfile);
                 await removeOwnedContainer(id ?? containerName);
-                throwIfAborted(operationSignal);
+                assertCurrent();
                 const failure = error as { code?: number | string; killed?: boolean; stdout?: string; stderr?: string; message?: string };
-                const run: SandboxRun = {
+                run = {
                   image,
                   command: [...params.command],
                   write: params.write,
@@ -288,15 +330,16 @@ export default {
                   status: failure.killed === true ? "timed_out" : "failed",
                   output: outputFromFailure(failure),
                 };
-                latest = cloneRun(run);
-                return {
-                  content: [{ type: "text", text: `Docker sandbox exited with ${run.exitCode}.\n${run.output}` }],
-                  details: cloneRun(run),
-                };
               }
             } finally {
               await rm(temporaryDirectory, { force: true, recursive: true });
             }
+            assertCurrent();
+            latest = cloneRun(run);
+            return {
+              content: [{ type: "text", text: `Docker sandbox exited with ${run.exitCode}.\n${run.output}` }],
+              details: cloneRun(run),
+            };
           },
         }),
       );
@@ -306,20 +349,23 @@ export default {
         title: "Docker Sandbox",
         description: "仅使用本地镜像，并以无网络、只读根文件系统和有界资源运行 argv 命令。工作区默认只读。",
         icon: "⬡",
-        read: () => ({
-          latest: latest === undefined ? null : cloneRun(latest),
-          defaults: {
-            network: "none",
-            rootFilesystem: "read-only",
-            workspace: "read-only",
-            image: defaultImage,
-            pull: "never",
-            memory: memoryLimit,
-            cpus: Number(cpuLimit),
-            pids: processLimit,
-            timeoutMs: runTimeoutMs,
-          },
-        }),
+        read: () => {
+          refreshScope();
+          return {
+            latest: latest === undefined ? null : cloneRun(latest),
+            defaults: {
+              network: "none",
+              rootFilesystem: "read-only",
+              workspace: "read-only",
+              image: defaultImage,
+              pull: "never",
+              memory: memoryLimit,
+              cpus: Number(cpuLimit),
+              pids: processLimit,
+              timeoutMs: runTimeoutMs,
+            },
+          };
+        },
       });
     } catch (error) {
       disposePanel();

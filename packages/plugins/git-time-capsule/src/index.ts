@@ -158,6 +158,7 @@ async function applyCapsuleWithMetadata(
   capsulePath: string,
   timeoutMs = defaultTimeoutMs,
   signal?: AbortSignal,
+  beforeApply?: () => void,
 ): Promise<{ bytes: number; files: number }> {
   if (signal !== undefined) throwIfAborted(signal);
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
@@ -179,6 +180,7 @@ async function applyCapsuleWithMetadata(
       if (cause instanceof Error && /timed out after/iu.test(cause.message)) throw cause;
       throw new Error("Git capsule does not apply cleanly", { cause });
     }
+    beforeApply?.();
     await git(cwd, ["-c", "apply.ignoreWhitespace=false", "apply", "--reverse", "--binary", "--whitespace=nowarn", verifiedPath], normalizedTimeoutMs, signal);
     return { bytes: capsule.length, files };
   } finally {
@@ -312,10 +314,29 @@ export default {
   Config,
   apply(context: Context, config: GitTimeCapsulePluginConfig) {
     assertKnownConfigKeys("git time capsule", config, ["timeoutMs"]);
-    const directory = join(context.piHarnessLaunch.agentDir, capsuleDirectory);
+    const agentDir = context.piHarnessLaunch.agentDir;
+    const launchCwd = context.piHarnessLaunch.cwd;
+    const directory = join(agentDir, capsuleDirectory);
     const timeoutMs = normalizeTimeout(config.timeoutMs);
     let latest: CapsuleActivity | undefined;
     const lifecycle = new AbortController();
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? launchCwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+      }
+      return scope;
+    };
+    const assertScope = (expected: ReturnType<typeof readScope>) => {
+      throwIfAborted(lifecycle.signal);
+      if (refreshScope() !== expected) throw new Error("Git capsule workspace changed during operation");
+    };
     let operationTail = Promise.resolve();
     const runExclusive = <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
       const result = operationTail.then(operation, operation);
@@ -336,20 +357,26 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ name: string; bytes: number; files: number }>> {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          throwIfAborted(lifecycle.signal);
+          const operationScope = refreshScope();
+          const assertCurrent = () => assertScope(operationScope);
           try {
             dataDescriptors(rawParams, "Git snapshot parameters", new Set());
             throwIfAborted(operationSignal);
             return await runExclusive(async () => {
               throwIfAborted(operationSignal);
-              await ensureGitWorkingTree(context.piHarnessLaunch.cwd, timeoutMs, operationSignal);
+              assertCurrent();
+              await ensureGitWorkingTree(operationScope.cwd, timeoutMs, operationSignal);
+              assertCurrent();
               const patch = await git(
-                context.piHarnessLaunch.cwd,
-                ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--", ".", ":(exclude).pi-harness/capsules"],
+                operationScope.cwd,
+                ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--", ".", ":(exclude).pi-harness/capsules"],
                 timeoutMs,
                 operationSignal,
               );
               if (patch.length === 0) throw new Error("No tracked Git changes are available to capture; staged and untracked changes are excluded");
               throwIfAborted(operationSignal);
+              assertCurrent();
               await mkdir(directory, { recursive: true, mode: 0o700 });
               await inspectCapsuleDirectory(directory, false);
               const inventory = await listCapsules(directory);
@@ -359,6 +386,7 @@ export default {
                 );
               if (inventory.total >= maxCapsuleInventory)
                 throw new Error(`Git capsule inventory reached the ${maxCapsuleInventory}-capsule limit; remove an older capsule before capturing another`);
+              assertCurrent();
               const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
               const name = `${timestamp}-${randomUUID().slice(0, 8)}.patch`;
               const path = join(directory, name);
@@ -366,24 +394,27 @@ export default {
               let files: number;
               try {
                 await writeFile(temporaryPath, patch, { mode: 0o600, flag: "wx", signal: operationSignal });
-                files = await patchFileCount(context.piHarnessLaunch.cwd, temporaryPath, timeoutMs, operationSignal);
+                files = await patchFileCount(operationScope.cwd, temporaryPath, timeoutMs, operationSignal);
                 throwIfAborted(operationSignal);
+                assertCurrent();
                 await link(temporaryPath, path);
               } finally {
                 await rm(temporaryPath, { force: true }).catch(() => undefined);
               }
+              assertCurrent();
               const bytes = patch.length;
               latest = { action: "capture", status: "completed", at: new Date().toISOString(), name, bytes, files };
               return { content: [{ type: "text", text: `Git undo capsule saved: ${name}` }], details: { name, bytes, files } };
             }, operationSignal);
           } catch (error) {
-            const failure = publicOperationError(error, context.piHarnessLaunch.cwd, context.piHarnessLaunch.agentDir);
-            latest = {
-              action: "capture",
-              status: operationSignal.aborted ? "cancelled" : "failed",
-              at: new Date().toISOString(),
-              error: failure.message,
-            };
+            const failure = publicOperationError(error, operationScope.cwd, agentDir);
+            if (!lifecycle.signal.aborted && refreshScope() === operationScope)
+              latest = {
+                action: "capture",
+                status: operationSignal.aborted ? "cancelled" : "failed",
+                at: new Date().toISOString(),
+                error: failure.message,
+              };
             throw failure;
           }
         },
@@ -403,16 +434,21 @@ export default {
         executionMode: "sequential",
         async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ name: string; restored: true }>> {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          throwIfAborted(lifecycle.signal);
+          const operationScope = refreshScope();
+          const assertCurrent = () => assertScope(operationScope);
           try {
             const params = restoreParameters(rawParams);
             throwIfAborted(operationSignal);
             return await runExclusive(async () => {
               throwIfAborted(operationSignal);
+              assertCurrent();
               if (!params.confirm) throw new Error("Git capsule restore writes the workspace and requires confirm=true");
               const name = restoreCapsuleName(params.name);
               const path = join(directory, name);
               await inspectCapsuleDirectory(directory, false);
-              const applied = await applyCapsuleWithMetadata(context.piHarnessLaunch.cwd, path, timeoutMs, operationSignal);
+              const applied = await applyCapsuleWithMetadata(operationScope.cwd, path, timeoutMs, operationSignal, assertCurrent);
+              assertCurrent();
               latest = {
                 action: "restore",
                 status: "completed",
@@ -425,13 +461,14 @@ export default {
               return { content: [{ type: "text", text: `Git undo capsule restored: ${name}` }], details: { name, restored: true } };
             }, operationSignal);
           } catch (error) {
-            const failure = publicOperationError(error, context.piHarnessLaunch.cwd, context.piHarnessLaunch.agentDir);
-            latest = {
-              action: "restore",
-              status: operationSignal.aborted ? "cancelled" : "failed",
-              at: new Date().toISOString(),
-              error: failure.message,
-            };
+            const failure = publicOperationError(error, operationScope.cwd, agentDir);
+            if (!lifecycle.signal.aborted && refreshScope() === operationScope)
+              latest = {
+                action: "restore",
+                status: operationSignal.aborted ? "cancelled" : "failed",
+                at: new Date().toISOString(),
+                error: failure.message,
+              };
             throw failure;
           }
         },
@@ -445,8 +482,11 @@ export default {
       description: "查看当前 unstaged tracked 改动生成的撤销胶囊；胶囊保存在工作区之外，不包含 staged 或未跟踪文件。",
       icon: "◫",
       read: async () => {
+        throwIfAborted(lifecycle.signal);
+        const operationScope = refreshScope();
         try {
           const inventory = await listCapsules(directory);
+          assertScope(operationScope);
           return {
             latest: latest === undefined ? null : { ...latest },
             capsules: inventory.capsules.map((capsule) => ({ ...capsule })),
@@ -455,7 +495,7 @@ export default {
             limits: { capsuleBytes: maxCapsuleBytes, inventory: maxCapsuleInventory, directoryEntries: maxCapsuleDirectoryEntries },
           };
         } catch (error) {
-          throw publicOperationError(error, context.piHarnessLaunch.cwd, context.piHarnessLaunch.agentDir);
+          throw publicOperationError(error, operationScope.cwd, agentDir);
         }
       },
     });

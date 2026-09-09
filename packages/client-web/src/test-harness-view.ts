@@ -1,6 +1,7 @@
 export type TestHarnessStatus = "passed" | "failed" | "timed-out" | "cancelled";
 
 export interface TestHarnessRunView {
+  readonly cwd: string;
   readonly script: string;
   readonly command: string;
   readonly status: TestHarnessStatus;
@@ -25,7 +26,7 @@ const outputBytes = 12 * 1024;
 const defaultTimeoutMs = 120_000;
 const minimumTimeoutMs = 100;
 const maximumTimeoutMs = 600_000;
-const maximumDurationMs = maximumTimeoutMs + 10_000;
+const maximumDurationMs = Number.MAX_SAFE_INTEGER;
 
 function ownDataRecord(value: unknown): Record<string, unknown> | undefined {
   try {
@@ -107,7 +108,19 @@ function runView(value: unknown): { value: TestHarnessRunView | null; altered: b
   const source = ownDataRecord(value);
   if (
     source === undefined ||
-    !hasExactKeys(source, ["script", "command", "status", "exitCode", "signal", "durationMs", "output", "outputBytes", "outputTruncated", "outputSanitized"])
+    !hasExactKeys(source, [
+      "cwd",
+      "script",
+      "command",
+      "status",
+      "exitCode",
+      "signal",
+      "durationMs",
+      "output",
+      "outputBytes",
+      "outputTruncated",
+      "outputSanitized",
+    ])
   )
     return { value: null, altered: true };
   const script = source.script;
@@ -116,6 +129,9 @@ function runView(value: unknown): { value: TestHarnessRunView | null; altered: b
   const signal = signalValue(source.signal);
   const output = boundedOutput(source.output);
   if (
+    typeof source.cwd !== "string" ||
+    source.cwd.length === 0 ||
+    source.cwd.includes("\0") ||
     typeof script !== "string" ||
     !allowedScripts.includes(script as (typeof allowedScripts)[number]) ||
     source.command !== `npm run ${script}` ||
@@ -142,6 +158,7 @@ function runView(value: unknown): { value: TestHarnessRunView | null; altered: b
   if (!validOutcome || !validAccounting) return { value: null, altered: true };
   return {
     value: {
+      cwd: source.cwd,
       script,
       command: source.command,
       status,

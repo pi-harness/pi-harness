@@ -1,7 +1,7 @@
 {
   "name": "@pi-harness/plugin-plugin-radar",
   "version": "0.1.29",
-  "description": "Inspect installed and configured plugins with lifecycle state and source metadata.",
+  "description": "Discover public Pi Harness repositories on GitHub, sorted by stars.",
   "keywords": [
     "cordis",
     "pi-harness",

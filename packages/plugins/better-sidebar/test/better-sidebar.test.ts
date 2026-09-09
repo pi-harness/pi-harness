@@ -1,3 +1,4 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,7 @@ describe("better sidebar", () => {
       gitAvailable: true,
       branch: "feature/sidebar",
       clean: false,
+      changedCount: 2,
       changedFiles: [
         { path: "src/app.tsx", status: " M" },
         { path: "README.md", status: "??" },
@@ -48,6 +50,7 @@ describe("better sidebar", () => {
         gitAvailable: false,
         branch: null,
         clean: false,
+        changedCount: 0,
         changedFiles: [],
         directoryCount: 0,
         fileCount: 0,
@@ -66,6 +69,7 @@ describe("better sidebar", () => {
       gitAvailable: true,
       branch: null,
       clean: false,
+      changedCount: 20,
       changedFiles: Array.from({ length: 20 }, (_, index) => ({ path: `file-${index}.ts`, status: " M" })),
       directoryCount: 1,
       fileCount: 20,
@@ -78,6 +82,17 @@ describe("better sidebar", () => {
     expect(report.truncated).toBe(true);
   });
 
+  test("uses the upstream changed count when Git entries are truncated", async () => {
+    const inspect = createSidebarInspector({
+      cwd: "/workspace/project",
+      getSessionId: () => "session",
+      listNodes: () => Promise.resolve({ nodes: [], scannedEntries: 0, directoryCount: 0, fileCount: 0, truncated: false }),
+      readGitStatus: () =>
+        Promise.resolve({ available: true, branch: "main", clean: false, entries: [{ path: "first.txt", status: "??" }], changedCount: 600, truncated: true }),
+    });
+    await expect(inspect()).resolves.toMatchObject({ changedCount: 600, truncated: true, summary: "main · 600 个变更" });
+  });
+
   test("refreshes live Git state while reusing the bounded workspace tree within the cache window", async () => {
     let treeReads = 0;
     let gitReads = 0;
@@ -86,14 +101,14 @@ describe("better sidebar", () => {
       getSessionId: () => "session",
       listNodes() {
         treeReads += 1;
-        return Promise.resolve({ nodes: [], directoryCount: 4, fileCount: 18, truncated: false });
+        return Promise.resolve({ nodes: [], scannedEntries: 0, directoryCount: 4, fileCount: 18, truncated: false });
       },
       readGitStatus() {
         gitReads += 1;
         return Promise.resolve(
           gitReads === 1
-            ? { available: true, branch: "feature/old", clean: false, entries: [{ path: "src/app.ts", status: " M" }] }
-            : { available: true, branch: "main", clean: true, entries: [] },
+            ? { available: true, branch: "feature/old", clean: false, entries: [{ path: "src/app.ts", status: " M" }], changedCount: 1, truncated: false }
+            : { available: true, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false },
         );
       },
     });
@@ -111,7 +126,7 @@ describe("better sidebar", () => {
       cwd: "/workspace/project",
       getSessionId: () => "session",
       listNodes() {
-        return Promise.resolve({ nodes: [], directoryCount: 0, fileCount: 0, truncated: false });
+        return Promise.resolve({ nodes: [], scannedEntries: 0, directoryCount: 0, fileCount: 0, truncated: false });
       },
       readGitStatus: () => {
         gitReads += 1;
@@ -124,7 +139,7 @@ describe("better sidebar", () => {
     const first = inspect();
     const second = inspect();
     expect(second).toBe(first);
-    resolveGit({ available: true, branch: "main", clean: true, entries: [] });
+    resolveGit({ available: true, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false });
     await expect(first).resolves.toMatchObject({ branch: "main" });
     expect(gitReads).toBe(1);
   });
@@ -138,9 +153,9 @@ describe("better sidebar", () => {
         treeReads += 1;
         return treeReads === 1
           ? Promise.reject(new Error("temporary scan failure"))
-          : Promise.resolve({ nodes: [], directoryCount: 1, fileCount: 2, truncated: false });
+          : Promise.resolve({ nodes: [], scannedEntries: 0, directoryCount: 1, fileCount: 2, truncated: false });
       },
-      readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [] }),
+      readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
     });
 
     await expect(inspect()).rejects.toThrow(/temporary scan failure/iu);
@@ -156,13 +171,13 @@ describe("better sidebar", () => {
       getSessionId: () => "session",
       listNodes() {
         treeReads += 1;
-        return Promise.resolve({ nodes: [], directoryCount: 1, fileCount: 2, truncated: false });
+        return Promise.resolve({ nodes: [], scannedEntries: 0, directoryCount: 1, fileCount: 2, truncated: false });
       },
       readGitStatus() {
         gitReads += 1;
         return gitReads === 1
           ? Promise.reject(new Error("temporary Git failure"))
-          : Promise.resolve({ available: true, branch: "main", clean: true, entries: [] });
+          : Promise.resolve({ available: true, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false });
       },
     });
 
@@ -182,10 +197,12 @@ describe("better sidebar", () => {
       listNodes() {
         treeReads += 1;
         return Promise.resolve(
-          treeReads === 1 ? { nodes: [], directoryCount: 1, fileCount: 3, truncated: false } : { nodes: [], directoryCount: 7, fileCount: 43, truncated: true },
+          treeReads === 1
+            ? { nodes: [], scannedEntries: 0, directoryCount: 1, fileCount: 3, truncated: false }
+            : { nodes: [], scannedEntries: 0, directoryCount: 7, fileCount: 43, truncated: true },
         );
       },
-      readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [] }),
+      readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
     });
 
     await expect(inspect()).resolves.toMatchObject({ directoryCount: 1, fileCount: 3, truncated: false });
@@ -206,7 +223,7 @@ describe("better sidebar", () => {
         cwd: root,
         getSessionId: () => "session",
         now: () => clock,
-        readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [] }),
+        readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
       });
       await expect(inspect()).resolves.toMatchObject({ directoryCount: 0, fileCount: 1 });
 
@@ -227,7 +244,7 @@ describe("better sidebar", () => {
     try {
       await writeFile(join(root, "README.md"), "# workspace\n", "utf8");
       provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
-      context.provide("piSession", { manager: { getSessionId: () => "session-sidebar" } } as never);
+      context.provide("piSession", { manager: { getHeader: () => null, getCwd: () => root, getSessionId: () => "session-sidebar" } } as never);
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(betterSidebarPlugin);
@@ -260,7 +277,7 @@ describe("better sidebar", () => {
     try {
       await writeFile(join(root, "README.md"), "# workspace\n", "utf8");
       provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
-      context.provide("piSession", { manager: { getSessionId: () => "session-sidebar" } } as never);
+      context.provide("piSession", { manager: { getHeader: () => null, getCwd: () => root, getSessionId: () => "session-sidebar" } } as never);
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(betterSidebarPlugin);
@@ -276,4 +293,44 @@ describe("better sidebar", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+test("follows native cwd and rejects obsolete, cancelled and disposed overview requests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sidebar-native-"));
+  const activeCwd = join(root, "active");
+  const context = new Context(),
+    tools = new PiToolRegistry(),
+    panels = new PiPluginUiRegistry();
+  const launch = SessionManager.inMemory(root),
+    active = SessionManager.inMemory(activeCwd);
+  const runtime = { session: { sessionManager: launch } };
+  try {
+    await mkdir(activeCwd);
+    await writeFile(join(activeCwd, "current.txt"), "current");
+    await writeFile(join(root, "launch.txt"), "launch");
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piSession", { manager: launch });
+    context.provide("piRuntime", runtime as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(betterSidebarPlugin);
+    const tool = tools.snapshot().customTools[0]!;
+    const call = (signal?: AbortSignal) => tool.execute("native", {}, signal, undefined, {} as never);
+    expect((await call()).details).toMatchObject({ cwd: root, fileCount: 2 });
+    runtime.session.sessionManager = active;
+    expect((await call()).details).toMatchObject({ cwd: activeCwd, fileCount: 1, sessionId: active.getSessionId() });
+    const pending = call();
+    active.newSession();
+    await expect(pending).rejects.toThrow(/session changed/);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ cwd: activeCwd, sessionId: active.getSessionId() });
+    const caller = new AbortController();
+    const cancelled = call(caller.signal);
+    caller.abort(new Error("caller cancelled"));
+    await expect(cancelled).rejects.toThrow(/cancelled/);
+    await context.fiber.dispose();
+    await expect(call()).rejects.toThrow(/disposed/);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -66,6 +66,30 @@ function panelReport(report: PairReport) {
   };
 }
 
+function modelReport(report: PairReport): string {
+  const summary = {
+    ...report,
+    missing: [] as string[],
+    extra: [] as string[],
+    missingTotal: report.missing.length,
+    extraTotal: report.extra.length,
+    truncated: false,
+  };
+  for (let index = 0; index < 20; index += 1) {
+    for (const side of ["missing", "extra"] as const) {
+      const key = report[side][index];
+      if (key === undefined) continue;
+      summary[side].push(key);
+      if (Buffer.byteLength(JSON.stringify(summary), "utf8") > 32 * 1024) {
+        summary[side].pop();
+        summary.truncated = true;
+      }
+    }
+  }
+  summary.truncated ||= summary.missing.length !== report.missing.length || summary.extra.length !== report.extra.length;
+  return JSON.stringify(summary);
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   throw signal.reason instanceof Error ? signal.reason : new Error("I18n pair operation was cancelled", { cause: signal.reason });
@@ -248,6 +272,20 @@ export default {
     let latest: PairReport | undefined;
     let status: PairStatus = { state: "idle" };
     const lifecycle = new AbortController();
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+        status = { state: "idle" };
+      }
+      return scope;
+    };
     let unregisterTool: () => void = () => undefined;
     let disposePanel: () => void = () => undefined;
     try {
@@ -266,25 +304,34 @@ export default {
           ),
           executionMode: "sequential",
           async execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<PairReport>> {
+            throwIfAborted(lifecycle.signal);
+            const operationScope = refreshScope();
             const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+            const assertCurrent = () => {
+              throwIfAborted(operationSignal);
+              if (refreshScope() !== operationScope) throw new Error("I18n workspace changed during scan");
+            };
             status = { state: "running" };
             try {
               throwIfAborted(operationSignal);
               const params = inspectParameters(rawParams);
-              const report = await withCancellation(inspectPair(context.piHarnessLaunch.cwd, params.base, params.target, operationSignal), operationSignal);
-              throwIfAborted(operationSignal);
+              assertCurrent();
+              const report = await withCancellation(inspectPair(operationScope.cwd, params.base, params.target, operationSignal), operationSignal);
+              assertCurrent();
               latest = cloneReport(report);
               status = { state: "completed", at: new Date().toISOString() };
               return {
-                content: [{ type: "text", text: `${report.target}: ${report.missing.length} missing and ${report.extra.length} extra keys.` }],
+                content: [{ type: "text", text: modelReport(report) }],
                 details: cloneReport(report),
               };
             } catch (error) {
-              status = {
-                state: operationSignal.aborted ? "cancelled" : "failed",
-                at: new Date().toISOString(),
-                error: boundedError(error),
-              };
+              if (!lifecycle.signal.aborted && refreshScope() === operationScope) {
+                status = {
+                  state: operationSignal.aborted ? "cancelled" : "failed",
+                  at: new Date().toISOString(),
+                  error: boundedError(error),
+                };
+              }
               throw error;
             }
           },
@@ -296,18 +343,21 @@ export default {
         title: "I18n Pair",
         description: "检查两个本地语言包的键是否同步，不自动改写翻译文件。",
         icon: "文",
-        read: () => ({
-          report: latest === undefined ? null : panelReport(latest),
-          status: { ...status },
-          limits: {
-            fileBytes: maxLocaleBytes,
-            depth: maxLocaleDepth,
-            keysPerFile: maxLocaleKeys,
-            flattenedKeyLength: maxFlattenedKeyLength,
-            pathLength: maxLocalePathLength,
-            panelKeysPerSide: maxPanelKeysPerSide,
-          },
-        }),
+        read: () => {
+          refreshScope();
+          return {
+            report: latest === undefined ? null : panelReport(latest),
+            status: { ...status },
+            limits: {
+              fileBytes: maxLocaleBytes,
+              depth: maxLocaleDepth,
+              keysPerFile: maxLocaleKeys,
+              flattenedKeyLength: maxFlattenedKeyLength,
+              pathLength: maxLocalePathLength,
+              panelKeysPerSide: maxPanelKeysPerSide,
+            },
+          };
+        },
       });
     } catch (error) {
       disposePanel();
