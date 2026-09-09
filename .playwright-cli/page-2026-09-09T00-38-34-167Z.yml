@@ -1,0 +1,45 @@
+- main [ref=e2]:
+    - generic [ref=e3]:
+        - complementary [ref=e4]:
+            - generic [ref=e5]:
+                - strong [ref=e7]: pi harness
+                - generic [ref=e8]: 0.1.10
+            - generic [ref=e9]:
+                - button "＋ 新建会话" [ref=e10] [cursor=pointer]
+                - searchbox "搜索会话" [ref=e12]
+            - generic [ref=e13]:
+                - generic [ref=e14]:
+                    - strong [ref=e15]: 会话
+                    - generic [ref=e16]: "0"
+                - generic [ref=e17]:
+                    - button "选择" [ref=e18] [cursor=pointer]
+                    - button "会话工具" [ref=e20] [cursor=pointer]: ⋯
+            - generic [ref=e21]: 暂无已保存会话
+            - generic [ref=e23]:
+                - generic [ref=e24]:
+                    - generic [ref=e25]:
+                        - text: model
+                        - generic [ref=e26]: —
+                    - generic [ref=e27]:
+                        - text: msgs
+                        - generic [ref=e28]: "0"
+                    - generic [ref=e29]:
+                        - text: status
+                        - generic [ref=e30]: connecting
+                - button "插件，已安装 0 个" [ref=e31] [cursor=pointer]:
+                    - text: ◈
+                    - generic [ref=e32]: 插件
+                    - generic [ref=e33]: "0"
+                - button "设置" [ref=e34] [cursor=pointer]: ⚙
+        - generic [ref=e36]:
+            - generic [ref=e37]:
+                - generic [ref=e38]:
+                    - strong [ref=e39]: 新会话
+                    - generic [ref=e40]: 未选择工作区
+                - generic "会话视图" [ref=e41]:
+                    - button "对话" [pressed] [ref=e42] [cursor=pointer]
+                    - button "轨迹" [ref=e43] [cursor=pointer]
+                    - button "产出" [ref=e44] [cursor=pointer]
+                - button "会话操作" [ref=e47] [cursor=pointer]: ⋯
+                - button "打开详情" [ref=e48] [cursor=pointer]: ◨ 详情
+            - status [ref=e50]: 正在连接 Pi runtime…

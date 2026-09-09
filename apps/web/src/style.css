@@ -662,12 +662,22 @@ button:disabled {
   @apply [display:flex] [align-items:center] [gap:8px] [color:var(--color-muted)] [font-size:12px];
 }
 @keyframes spin-smooth {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 @keyframes thinking-dots {
-  0%, 20% { content: "."; }
-  40% { content: ".."; }
-  60%, 100% { content: "..."; }
+  0%,
+  20% {
+    content: ".";
+  }
+  40% {
+    content: "..";
+  }
+  60%,
+  100% {
+    content: "...";
+  }
 }
 .streaming-spinner {
   display: inline-block;
