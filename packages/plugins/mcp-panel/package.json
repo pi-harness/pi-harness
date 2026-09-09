@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-mcp-panel",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Inspect MCP server health and tools, preview profile patches, and apply changes only with an explicit confirmation and backup.",
   "keywords": [
     "cordis",

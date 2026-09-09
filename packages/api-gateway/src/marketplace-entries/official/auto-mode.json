@@ -1,7 +1,7 @@
 {
   "id": "auto-mode",
   "packageName": "@pi-harness/plugin-auto-mode",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Auto Mode",
   "description": "在受控策略下执行 argv 命令：拒绝 shell 包装，危险操作要求确认。",
   "author": "Pi Harness",

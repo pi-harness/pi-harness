@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-vision-toolkit",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Catalog signature-verified PNG, JPEG, GIF, and WebP metadata with bounded header reads, cancellable workspace traversal, explicit partial results, and a local-only normalized panel.",
   "keywords": [
     "cordis",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-git-time-capsule",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Capture the current unstaged tracked Git diff as a byte-exact, validated undo capsule without external diff or textconv helpers, then reverse-apply it only after explicit confirmation.",
   "keywords": [
     "cordis",

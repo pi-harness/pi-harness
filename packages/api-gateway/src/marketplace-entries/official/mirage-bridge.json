@@ -1,7 +1,7 @@
 {
   "id": "mirage-bridge",
   "packageName": "@pi-harness/plugin-mirage-bridge",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Mirage Bridge",
   "description": "把 Pi Harness 接到官方 Mirage 虚拟终端 CLI，不额外引入第二个宿主 shell。",
   "author": "Pi Harness",

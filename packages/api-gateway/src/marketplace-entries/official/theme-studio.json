@@ -1,7 +1,7 @@
 {
   "id": "theme-studio",
   "packageName": "@pi-harness/plugin-theme-studio",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Theme Studio",
   "description": "为 Pi Harness 控制台切换浅色、午夜、纸张和高对比四套主题。",
   "author": "Pi Harness",

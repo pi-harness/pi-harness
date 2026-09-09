@@ -1,7 +1,7 @@
 {
   "id": "reviewer-bot",
   "packageName": "@pi-harness/plugin-reviewer-bot",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Reviewer Bot",
   "description": "评审当前 Git diff 里的高风险改动、未完成标记和超大文件，不改动工作区。",
   "author": "Pi Harness",

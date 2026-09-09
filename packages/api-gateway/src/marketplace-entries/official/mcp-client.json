@@ -1,7 +1,7 @@
 {
   "id": "mcp-client",
   "packageName": "@pi-harness/plugin-mcp-client",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "MCP Client",
   "description": "连接 argv 直启的 MCP stdio 服务，桥接它的工具、资源与提示词，请求排队可取消，进程随生命周期回收。",
   "author": "Pi Harness",

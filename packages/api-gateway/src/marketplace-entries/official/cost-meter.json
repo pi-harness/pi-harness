@@ -1,7 +1,7 @@
 {
   "id": "cost-meter",
   "packageName": "@pi-harness/plugin-cost-meter",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Cost Meter",
   "description": "把运行时上报的费用按 UTC 天累计到本地账本，提供会话快照和可选的日预算提醒；不猜测模型价格。",
   "author": "Pi Harness",

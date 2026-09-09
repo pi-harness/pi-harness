@@ -1,7 +1,7 @@
 {
   "id": "plugin-radar",
   "packageName": "@pi-harness/plugin-plugin-radar",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Plugin Radar",
   "description": "查看已安装和已配置的插件，包括生命周期状态与来源。",
   "author": "Pi Harness",

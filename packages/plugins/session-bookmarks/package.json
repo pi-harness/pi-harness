@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-session-bookmarks",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Persist labels for important native Pi session entries without changing the underlying transcript.",
   "keywords": [
     "cordis",

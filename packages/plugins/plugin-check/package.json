@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-plugin-check",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Inspect installed plugin manifests and report unsafe, malformed, or incompatible extension metadata before loading it.",
   "keywords": [
     "cordis",

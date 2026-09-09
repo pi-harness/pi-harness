@@ -1,7 +1,7 @@
 {
   "id": "prompt-guard",
   "packageName": "@pi-harness/plugin-prompt-guard",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Prompt Guard",
   "description": "识别提示词覆盖、密钥外传、远程载荷和隐藏指令的迹象，不保留输入原文。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-modlens",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Send bounded workspace images to native vision models or return schema-validated evidence from the bundled ModLens engine for text-only models.",
   "keywords": [
     "cordis",

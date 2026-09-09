@@ -1,7 +1,7 @@
 {
   "id": "vision-toolkit",
   "packageName": "@pi-harness/plugin-vision-toolkit",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Vision Toolkit",
   "description": "读取 PNG、JPEG、GIF、WebP 的签名与元数据并建立目录，只读文件头，遍历可取消，结果仅在本机面板展示。",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "modlens",
   "packageName": "@pi-harness/plugin-modlens",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "ModLens Vision Bridge",
   "description": "把工作区图片交给原生视觉模型；纯文本模型则用内置 ModLens 引擎返回结构化的图像证据。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-telemetry-blocker",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Block configured outbound telemetry destinations and report blocked attempts without collecting payload contents.",
   "keywords": [
     "cordis",

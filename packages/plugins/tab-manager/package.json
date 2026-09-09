@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-tab-manager",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Organize active Pi sessions into named tabs and switch between them without losing session identity.",
   "keywords": [
     "cordis",

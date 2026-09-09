@@ -1,7 +1,7 @@
 {
   "id": "plugin-finder",
   "packageName": "@pi-harness/plugin-plugin-finder",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Plugin Finder",
   "description": "在配置好的 npm 兼容 registry 里搜索 Pi 插件，查询有上限，安装交回控制台完成。",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "dependency-checker",
   "packageName": "@pi-harness/plugin-dependency-checker",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Dependency Checker",
   "description": "离线只读检查工作区的 package.json 与 requirements*.txt：本地是否已安装、重复声明是否一致、约束能否解析。",
   "author": "Pi Harness",

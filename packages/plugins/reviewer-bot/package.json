@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-reviewer-bot",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Review tracked Git changes against HEAD for whitespace, likely credentials, and TODO/FIXME markers without executing diff helpers.",
   "keywords": [
     "cordis",

@@ -1,7 +1,7 @@
 {
   "id": "taskboard",
   "packageName": "@pi-harness/plugin-taskboard",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Taskboard",
   "description": "用一块持久的看板跟踪 agent 的任务、状态和依赖。",
   "author": "Pi Harness",

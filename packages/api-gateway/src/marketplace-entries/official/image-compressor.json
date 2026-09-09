@@ -1,7 +1,7 @@
 {
   "id": "image-compressor",
   "packageName": "@pi-harness/plugin-image-compressor",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Image Compressor",
   "description": "为模型上下文生成体积受限的图片副本，保留原图并报告省下的字节数。",
   "author": "Pi Harness",

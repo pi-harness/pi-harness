@@ -1,7 +1,7 @@
 {
   "id": "yaml-validator",
   "packageName": "@pi-harness/plugin-yaml-validator",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "YAML Validator",
   "description": "校验工作区内的 UTF-8 多文档 YAML，读取受限可取消，报错带行号。",
   "author": "Pi Harness",

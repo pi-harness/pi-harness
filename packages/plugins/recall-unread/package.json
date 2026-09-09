@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-recall-unread",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Read-only bounded discovery with strict UTF-8 session reads finds current workspace conversations ending in an unanswered user message, uses cached startup inventory, and rescans only on explicit tool calls.",
   "keywords": [
     "cordis",

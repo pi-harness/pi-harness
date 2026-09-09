@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-runtime-doctor",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Audit workspace, agent directory, model, runtime, MCP servers, and extension errors in one read-only report.",
   "keywords": [
     "cordis",

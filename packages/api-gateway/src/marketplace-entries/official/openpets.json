@@ -1,7 +1,7 @@
 {
   "id": "openpets",
   "packageName": "@pi-harness/plugin-openpets",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "OpenPets",
   "description": "根据最近的会话事件维护一只桌面宠物的状态，不保存消息内容，操作受限且持久化状态可见。",
   "author": "Pi Harness",

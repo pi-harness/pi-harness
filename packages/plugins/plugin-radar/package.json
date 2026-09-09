@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-plugin-radar",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Discover public Pi Harness repositories on GitHub, sorted by stars.",
   "keywords": [
     "cordis",

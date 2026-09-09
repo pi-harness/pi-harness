@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-mcp-client",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Connect to direct-argv MCP stdio servers with bounded pagination and protocol validation, tool, resource, and prompt bridging, cancellable queued requests, and lifecycle-owned process cleanup.",
   "keywords": [
     "cordis",

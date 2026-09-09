@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-plugin-stars",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Search a curated raw.githubusercontent.com plugin snapshot through descriptor-safe inputs, strict bounded validation, a cancellable lifecycle, and fail-closed panel reporting.",
   "keywords": [
     "cordis",

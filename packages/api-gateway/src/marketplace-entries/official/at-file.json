@@ -1,7 +1,7 @@
 {
   "id": "at-file",
   "packageName": "@pi-harness/plugin-at-file",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "@file Context",
   "description": "把工作区里的单个文件（上限 256 KiB、严格 UTF-8）作为只读上下文附给模型，路径限定在工作区内且不跟随符号链接。",
   "author": "Pi Harness",

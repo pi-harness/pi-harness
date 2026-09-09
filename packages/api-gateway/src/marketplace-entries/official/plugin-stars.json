@@ -1,7 +1,7 @@
 {
   "id": "plugin-stars",
   "packageName": "@pi-harness/plugin-plugin-stars",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Plugin Stars",
   "description": "在 raw.githubusercontent.com 上的插件榜单快照里检索，输入受限、校验严格、可取消，失败即关闭面板。",
   "author": "Pi Harness",

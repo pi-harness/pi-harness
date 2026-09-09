@@ -1,7 +1,7 @@
 {
   "id": "i18n-pair",
   "packageName": "@pi-harness/plugin-i18n-pair",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "I18n Pair",
   "description": "只读比对两份 JSON 语言文件，列出缺失键和多余键，路径不跟随符号链接，可取消。",
   "author": "Pi Harness",

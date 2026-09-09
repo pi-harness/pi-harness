@@ -1,7 +1,7 @@
 {
   "id": "memory",
   "packageName": "@pi-harness/plugin-memory",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Memory",
   "description": "跨会话保存有上限的笔记，支持显式的回忆与更新。",
   "author": "Pi Harness",

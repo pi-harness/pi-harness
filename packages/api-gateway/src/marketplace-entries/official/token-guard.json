@@ -1,7 +1,7 @@
 {
   "id": "token-guard",
   "packageName": "@pi-harness/plugin-token-guard",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Token Guard",
   "description": "上下文占比或计费 token 超过预算时，一次运行最多发出一次中止请求，并提供缓存的面板视图。",
   "author": "Pi Harness",

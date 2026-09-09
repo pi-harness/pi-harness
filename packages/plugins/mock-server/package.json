@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-mock-server",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Start a local, bounded HTTP mock server from explicit routes for integration testing without external services.",
   "keywords": [
     "cordis",

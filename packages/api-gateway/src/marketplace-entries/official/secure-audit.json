@@ -1,7 +1,7 @@
 {
   "id": "secure-audit",
   "packageName": "@pi-harness/plugin-secure-audit",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Secure Audit",
   "description": "只读扫描工作区里泄露的凭据和危险 shell 命令，结果中的敏感值会被打码。",
   "author": "Pi Harness",

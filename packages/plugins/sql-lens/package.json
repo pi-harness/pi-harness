@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-sql-lens",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Inspect workspace-contained SQLite databases with strict descriptor-safe inputs, a single read-only statement, bounded results, symlink and replacement checks, timed worker execution, cancellation, and fail-closed panel reporting.",
   "keywords": [
     "cordis",

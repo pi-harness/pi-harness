@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-session-export",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Export the current Pi conversation to a bounded Markdown file inside the workspace without changing session history.",
   "keywords": [
     "cordis",

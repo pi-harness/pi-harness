@@ -1,7 +1,7 @@
 {
   "id": "code2skill",
   "packageName": "@pi-harness/plugin-code2skill",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Code2Skill",
   "description": "把选中的工作区源码打包成一个本地 Pi skill，自动生成 SKILL.md 并保留引用。",
   "author": "Pi Harness",

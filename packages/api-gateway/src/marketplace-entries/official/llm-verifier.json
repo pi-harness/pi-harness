@@ -1,7 +1,7 @@
 {
   "id": "llm-verifier",
   "packageName": "@pi-harness/plugin-llm-verifier",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "LLM Verifier",
   "description": "让指定的校验模型对着有上限的证据判断一条结论是否成立。",
   "author": "Pi Harness",

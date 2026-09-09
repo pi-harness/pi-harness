@@ -1,7 +1,7 @@
 {
   "id": "history-compressor",
   "packageName": "@pi-harness/plugin-history-compressor",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "History Compressor",
   "description": "上下文占用接近设定阈值时，自动压缩当前 Pi 会话。",
   "author": "Pi Harness",

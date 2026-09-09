@@ -1,7 +1,7 @@
 {
   "id": "mock-server",
   "packageName": "@pi-harness/plugin-mock-server",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Mock Server",
   "description": "按显式路由起一个本地 HTTP mock 服务，用来做集成测试，不依赖外部服务。",
   "author": "Pi Harness",

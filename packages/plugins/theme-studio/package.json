@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-theme-studio",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Apply bounded Light, Midnight, Paper, and High Contrast presets to the Pi Harness web surface.",
   "keywords": [
     "cordis",

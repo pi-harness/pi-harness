@@ -1,7 +1,7 @@
 {
   "id": "runtime-doctor",
   "packageName": "@pi-harness/plugin-runtime-doctor",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Runtime Doctor",
   "description": "一次只读体检：工作区、agent 目录、模型、运行时、MCP 服务和插件错误。",
   "author": "Pi Harness",

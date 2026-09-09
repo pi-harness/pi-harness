@@ -1,7 +1,7 @@
 {
   "id": "web-research",
   "packageName": "@pi-harness/plugin-web-research",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Web Research",
   "description": "通过可配置的搜索服务检索公网，返回带出处、有上限的证据。",
   "author": "Pi Harness",

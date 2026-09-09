@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-workspace-navigator",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Show a bounded workspace tree and read-only Git status for a high-signal coding sidebar.",
   "keywords": [
     "cordis",

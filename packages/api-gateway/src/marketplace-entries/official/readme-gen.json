@@ -1,7 +1,7 @@
 {
   "id": "readme-gen",
   "packageName": "@pi-harness/plugin-readme-gen",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "README Gen",
   "description": "根据依赖清单和加载器清单生成 README 报告，Markdown 转义安全；写文件不覆盖已有内容，覆盖需显式确认。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-prompt-guard",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Detect prompt override, secret exfiltration, remote payloads, and hidden-instruction indicators without retaining input text.",
   "keywords": [
     "cordis",

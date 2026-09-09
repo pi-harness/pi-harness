@@ -1,7 +1,7 @@
 {
   "id": "archify",
   "packageName": "@pi-harness/plugin-archify",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Architecture Map",
   "description": "从工作区的模块和依赖清单生成一张只读的架构图。",
   "author": "Pi Harness",

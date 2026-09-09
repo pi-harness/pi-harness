@@ -1,7 +1,7 @@
 {
   "id": "colleague-skill",
   "packageName": "@pi-harness/plugin-colleague-skill",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Colleague Skill",
   "description": "为另一个角色生成结构化的交接包，不会隐式启动 agent，也不会代发消息。",
   "author": "Pi Harness",

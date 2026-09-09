@@ -1,7 +1,7 @@
 {
   "id": "reverse-skill",
   "packageName": "@pi-harness/plugin-reverse-skill",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Reverse Skill Firewall",
   "description": "检查不可信的 Skill 文本，只通过一条显式的数据边界注入。",
   "author": "Pi Harness",

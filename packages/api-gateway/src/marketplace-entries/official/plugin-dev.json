@@ -1,7 +1,7 @@
 {
   "id": "plugin-dev",
   "packageName": "@pi-harness/plugin-plugin-dev",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Plugin Dev",
   "description": "把 Pi 会话的资源重载推迟到 agent 空闲后执行，同时只允许一个重载在跑，仅对本机开发开放。",
   "author": "Pi Harness",

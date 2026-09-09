@@ -1,7 +1,7 @@
 {
   "id": "session-bookmarks",
   "packageName": "@pi-harness/plugin-session-bookmarks",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Session Bookmarks",
   "description": "给重要的 Pi 会话条目打标签，不改动原始记录。",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "hol-guard",
   "packageName": "@pi-harness/plugin-hol-guard",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "HOL Guard",
   "description": "审计工具参数与待执行文本里的破坏性命令、敏感路径、凭据和外传行为。只提示风险，不拦截执行。",
   "author": "Pi Harness",

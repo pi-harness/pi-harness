@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-readme-gen",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Generate README reports from strictly bounded manifest metadata and a descriptor-safe loader inventory with Markdown-safe rendering, plus confirmed no-clobber atomic writes, explicit overwrite confirmation, and cancellable sequential execution.",
   "keywords": [
     "cordis",

@@ -1,7 +1,7 @@
 {
   "id": "tab-manager",
   "packageName": "@pi-harness/plugin-tab-manager",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Session Tabs",
   "description": "把正在进行的 Pi 会话整理成命名标签页并在其间切换，不影响会话本身。",
   "author": "Pi Harness",

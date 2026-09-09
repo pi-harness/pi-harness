@@ -1,7 +1,7 @@
 {
   "id": "telemetry-blocker",
   "packageName": "@pi-harness/plugin-telemetry-blocker",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Telemetry Blocker",
   "description": "拦截配置好的遥测出站地址并记录拦截次数，不收集载荷内容。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-image-compressor",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Create bounded image copies for model context while preserving the original file and reporting saved bytes.",
   "keywords": [
     "cordis",

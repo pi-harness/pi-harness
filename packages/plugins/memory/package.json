@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-memory",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Persist bounded cross-session notes with explicit recall and update operations.",
   "keywords": [
     "cordis",

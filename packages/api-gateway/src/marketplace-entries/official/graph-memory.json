@@ -1,7 +1,7 @@
 {
   "id": "graph-memory",
   "packageName": "@pi-harness/plugin-graph-memory",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Graph Memory",
   "description": "把任务、技能、事件存成带类型的节点和有向关系，落盘加锁，可跨会话检索。",
   "author": "Pi Harness",

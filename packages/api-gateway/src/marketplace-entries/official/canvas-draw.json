@@ -1,7 +1,7 @@
 {
   "id": "canvas-draw",
   "packageName": "@pi-harness/plugin-canvas-draw",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Canvas Draw",
   "description": "在面板里用结构化的节点和连线生成经过校验的 Mermaid 流程图源码。",
   "author": "Pi Harness",

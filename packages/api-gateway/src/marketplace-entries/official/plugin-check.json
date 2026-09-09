@@ -1,7 +1,7 @@
 {
   "id": "plugin-check",
   "packageName": "@pi-harness/plugin-plugin-check",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Plugin Check",
   "description": "在加载前检查已安装插件的清单，报告不安全、格式错误或不兼容的元数据。",
   "author": "Pi Harness",
