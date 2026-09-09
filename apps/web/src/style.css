@@ -705,6 +705,32 @@ button:disabled {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
+.streaming-timeout-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fef3cd;
+  border: 1px solid #ffc107;
+  color: #856404;
+  font-size: 12px;
+}
+.streaming-timeout-warning button {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid #856404;
+  border-radius: 4px;
+  background: transparent;
+  color: #856404;
+  font-size: 11px;
+  cursor: pointer;
+}
+.streaming-timeout-warning button:hover {
+  background: #856404;
+  color: #fff;
+}
 .workspace-path-input-row {
   display: flex;
   gap: 6px;

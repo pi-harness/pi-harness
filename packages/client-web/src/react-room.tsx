@@ -8739,6 +8739,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               </div>
             )}
             {streamingAssistant.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={streamingAssistant.text} />}
+            {elapsedSeconds > 300 && (
+              <div className="streaming-timeout-warning">
+                <span>{t("已运行 {seconds} 秒，模型响应较慢", { seconds: elapsedSeconds })}</span>
+                <button onClick={() => void api.abort()} type="button">
+                  {t("停止")}
+                </button>
+              </div>
+            )}
           </article>
         )}
         {pendingPrompt && !data.session?.messages.some((message) => message.role === "user" && messageText(message) === pendingPrompt) && (
