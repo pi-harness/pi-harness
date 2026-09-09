@@ -659,7 +659,81 @@ button:disabled {
   @apply [position:absolute] [width:1px] [height:1px] [padding:0] [margin:-1px] [overflow:hidden] [clip:rect(0,0,0,0)] [white-space:nowrap] [border:0];
 }
 .streaming-placeholder {
-  @apply [color:var(--color-muted)] [font-size:12px];
+  @apply [display:flex] [align-items:center] [gap:8px] [color:var(--color-muted)] [font-size:12px];
+}
+@keyframes spin-smooth {
+  to { transform: rotate(360deg); }
+}
+@keyframes thinking-dots {
+  0%, 20% { content: "."; }
+  40% { content: ".."; }
+  60%, 100% { content: "..."; }
+}
+.streaming-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--color-line);
+  border-top-color: var(--color-muted);
+  border-radius: 50%;
+  animation: spin-smooth 0.8s linear infinite;
+}
+.reasoning-head::after {
+  content: "...";
+  display: inline-block;
+  animation: thinking-dots 1.5s steps(1, end) infinite;
+  min-width: 1.5em;
+}
+.streaming-elapsed {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-soft);
+  color: var(--color-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.workspace-path-input-row {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+.workspace-path-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  background: #fff;
+  color: var(--color-ink);
+  outline: none;
+}
+.workspace-path-input:focus {
+  border-color: var(--color-blue);
+  box-shadow: 0 0 0 2px rgba(53, 101, 197, 0.15);
+}
+.workspace-path-input::placeholder {
+  color: var(--color-faint);
+}
+.workspace-path-go {
+  flex: none;
+  padding: 6px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--color-soft);
+  color: var(--color-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.workspace-path-go:hover {
+  background: #eaeef2;
+}
+.workspace-path-go:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .plugin-event {
   @apply [display:flex] [align-items:center] [gap:8px] [height:30px] [padding:0_11px] [border:1px_dashed_rgba(65,_118,_230,_0.35)] [border-radius:8px] [background:#f7faff] [color:var(--color-blue)] [font:11px_var(--font-mono)];
