@@ -16,6 +16,8 @@ const maxSourceLength = 512;
 const maxQueryLength = 160;
 const maxFileBytes = 4 * 1024 * 1024;
 const maxSearchResults = 50;
+const maxSearchResponseBytes = 128 * 1024;
+const searchRelationReserveBytes = 16 * 1024;
 const lockRetryMs = 25;
 const lockTimeoutMs = 10_000;
 const staleLockMs = 30_000;
@@ -28,11 +30,23 @@ type RelationKind = "USED_SKILL" | "SOLVED_BY" | "REQUIRES" | "PATCHES" | "CONFL
 type GraphNode = { id: string; kind: NodeKind; label: string; summary: string; source?: string; createdAt: string; updatedAt: string };
 type GraphRelation = { id: string; from: string; to: string; relation: RelationKind; createdAt: string };
 type GraphFile = { version: 1; nodes: GraphNode[]; relations: GraphRelation[] };
-type GraphSearchReport = { query: string; total: number; nodes: GraphNode[]; relations: GraphRelation[] };
+type GraphSearchReport = {
+  query: string;
+  total: number;
+  nodes: GraphNode[];
+  relations: GraphRelation[];
+  offset: number;
+  nextOffset: number | null;
+  nodesTruncated: boolean;
+  relationsOffset: number;
+  relationsTotal: number;
+  nextRelationsOffset: number | null;
+  relationsTruncated: boolean;
+};
 type GraphState = Pick<GraphFile, "nodes" | "relations">;
 type RecordParameters = { kind: NodeKind; label: string; summary: string; source?: string };
 type LinkParameters = { from: string; to: string; relation: RelationKind };
-type SearchParameters = { query: string; kind?: NodeKind; limit?: number };
+type SearchParameters = { query: string; kind?: NodeKind; limit?: number; offset?: number; relationsOffset?: number };
 type ForgetParameters = { id: string; confirm: boolean };
 
 function cloneNode(node: GraphNode): GraphNode {
@@ -154,14 +168,74 @@ function linkParameters(value: unknown): LinkParameters {
 }
 
 function searchParameters(value: unknown): SearchParameters {
-  const descriptors = dataDescriptors(value, "Graph memory search parameters", new Set(["query", "kind", "limit"]));
+  const descriptors = dataDescriptors(value, "Graph memory search parameters", new Set(["query", "kind", "limit", "offset", "relationsOffset"]));
   const query: unknown = descriptors.query?.value;
   const kind: unknown = descriptors.kind?.value;
   const limit: unknown = descriptors.limit?.value;
   if (typeof query !== "string") throw new Error("Graph memory query must be a string");
   if (kind !== undefined && !isNodeKind(kind)) throw new Error("Graph memory search kind must be task, skill, or event");
   if (limit !== undefined && typeof limit !== "number") throw new Error("Graph memory search limit must be a number");
-  return { query, ...(kind === undefined ? {} : { kind }), ...(limit === undefined ? {} : { limit }) };
+  const offset = searchOffset(descriptors.offset?.value, "offset", absoluteNodeLimit);
+  const relationsOffset = searchOffset(descriptors.relationsOffset?.value, "relationsOffset", absoluteRelationLimit);
+  return { query, ...(kind === undefined ? {} : { kind }), ...(limit === undefined ? {} : { limit }), offset, relationsOffset };
+}
+
+function searchOffset(value: unknown, name: string, maximum: number): number {
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > maximum)
+    throw new Error(`Graph memory ${name} must be an integer from 0 to ${maximum}`);
+  return value;
+}
+
+function searchPage(query: string, ranked: GraphNode[], allRelations: GraphRelation[], params: SearchParameters, limit: number): GraphSearchReport {
+  const offset = params.offset ?? 0;
+  const relationsOffset = params.relationsOffset ?? 0;
+  const report: GraphSearchReport = {
+    query,
+    total: ranked.length,
+    nodes: [],
+    relations: [],
+    offset,
+    nextOffset: null,
+    nodesTruncated: false,
+    // Node selection must not change when only the relation cursor changes.
+    relationsOffset: absoluteRelationLimit,
+    relationsTotal: 0,
+    nextRelationsOffset: null,
+    relationsTruncated: false,
+  };
+  const bytes = () => Buffer.byteLength(JSON.stringify(report), "utf8");
+  for (const node of ranked.slice(offset, offset + limit)) {
+    report.nodes.push(cloneNode(node));
+    if (bytes() > maxSearchResponseBytes - searchRelationReserveBytes) {
+      report.nodes.pop();
+      if (report.nodes.length === 0) throw new Error("Graph memory node exceeds the search page byte limit; inspect its stored metadata");
+      break;
+    }
+  }
+  const end = offset + report.nodes.length;
+  report.relationsOffset = relationsOffset;
+  report.nextOffset = end < ranked.length ? end : null;
+  report.nodesTruncated = report.nodes.length < ranked.length;
+  const ids = new Set(report.nodes.map((node) => node.id));
+  const incident = allRelations.filter((relation) => ids.has(relation.from) || ids.has(relation.to));
+  report.relationsTotal = incident.length;
+  // Reserve the worst-case continuation metadata before byte checks.
+  report.nextRelationsOffset = absoluteRelationLimit;
+  report.relationsTruncated = false;
+  for (const relation of incident.slice(relationsOffset, relationsOffset + limit * 4)) {
+    report.relations.push(cloneRelation(relation));
+    if (bytes() > maxSearchResponseBytes) {
+      report.relations.pop();
+      if (report.relations.length === 0) throw new Error("Graph memory relation exceeds the search page byte limit; inspect its stored metadata");
+      break;
+    }
+  }
+  const relationEnd = relationsOffset + report.relations.length;
+  report.nextRelationsOffset = relationEnd < incident.length ? relationEnd : null;
+  report.relationsTruncated = report.relations.length < incident.length;
+  if (bytes() > maxSearchResponseBytes) throw new Error("Graph memory search page exceeds its byte limit");
+  return report;
 }
 
 function forgetParameters(value: unknown): ForgetParameters {
@@ -529,6 +603,14 @@ export default {
           query: Type.String(),
           kind: Type.Optional(Type.Union([Type.Literal("task"), Type.Literal("skill"), Type.Literal("event")])),
           limit: Type.Optional(Type.Number()),
+          offset: Type.Optional(Type.Integer({ minimum: 0, maximum: absoluteNodeLimit, description: "Node page offset; use nextOffset to continue" })),
+          relationsOffset: Type.Optional(
+            Type.Integer({
+              minimum: 0,
+              maximum: absoluteRelationLimit,
+              description: "Relation page offset for the same query, kind, limit and node offset; use nextRelationsOffset",
+            }),
+          ),
         },
         { additionalProperties: false },
       ),
@@ -540,7 +622,6 @@ export default {
         await withCancellation(load(), operationSignal);
         throwIfAborted(operationSignal);
         const query = normalizeText(params.query, "Graph memory query", maxQueryLength);
-        if (query.length < 2) throw new Error(`Graph memory query must contain 2-${maxQueryLength} characters`);
         const needle = query.toLocaleLowerCase();
         const limit = boundedInteger(params.limit, 12, maxSearchResults);
         const ranked = nodes
@@ -566,19 +647,19 @@ export default {
           })
           .filter((match) => match.score > 0)
           .sort((left, right) => right.score - left.score || right.node.updatedAt.localeCompare(left.node.updatedAt));
-        const matches = ranked.slice(0, limit).map((match) => match.node);
-        const matchedIds = new Set(matches.map((node) => node.id));
-        const matchedRelations = relations.filter((relation) => matchedIds.has(relation.from) || matchedIds.has(relation.to)).slice(0, limit * 4);
-        const report = { query, total: ranked.length, nodes: matches.map(cloneNode), relations: matchedRelations.map(cloneRelation) };
+        const report = searchPage(
+          query,
+          ranked.map((match) => match.node),
+          relations,
+          params,
+          limit,
+        );
         lastSearch = cloneSearchReport(report);
         return {
           content: [
             {
               type: "text",
-              text:
-                matches.length === 0
-                  ? `No graph memories found for ${query}.`
-                  : matches.map((node) => `${node.id} [${node.kind}] ${node.label}: ${node.summary}`).join("\n"),
+              text: JSON.stringify(report),
             },
           ],
           details: cloneSearchReport(report),
