@@ -1,6 +1,8 @@
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
@@ -70,6 +72,39 @@ function stopFixtureProcess(pid: number | undefined): void {
 }
 
 describe("test-harness", () => {
+  test.skipIf(process.platform === "win32")("finishes hard cleanup before a short-lived host exits", async () => {
+    const { root } = await fixture();
+    const pidPath = join(root, "worker.pid");
+    const npmCli = join(root, "owned-npm.mjs");
+    const worker = `process.on('SIGTERM',()=>{});require('node:fs').writeFileSync(${JSON.stringify(pidPath)},String(process.pid));setTimeout(()=>process.exit(9),8000);`;
+    await writeFile(npmCli, `import {spawn} from 'node:child_process';spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:'ignore'});`);
+    let pid: number | undefined;
+    try {
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", `
+import {Context} from '@deepseek-ai/cordis';
+import {PiToolRegistry,PiPluginUiRegistry,provideLaunchContext} from '@pi-harness/plugin-api';
+import plugin from './packages/plugins/test-harness/dist/index.js';
+const context=new Context(),tools=new PiToolRegistry();
+provideLaunchContext(context,{cwd:${JSON.stringify(root)},agentDir:${JSON.stringify(root)},args:[],requestExit(){}});
+context.provide('piTools',tools);context.provide('piPluginUi',new PiPluginUiRegistry());
+await context.plugin(plugin,{timeoutMs:500});
+try {
+  const result=await tools.snapshot().customTools.find(t=>t.name==='run_project_tests').execute('timeout',{},undefined,undefined,{});
+  process.stdout.write(JSON.stringify(result.details));
+} finally {await context.fiber.dispose();}
+`], { cwd: process.cwd(), env: { ...process.env, npm_execpath: npmCli }, timeout: 5000 });
+      expect(JSON.parse(stdout)).toMatchObject({ status: "timed-out" });
+      pid = Number(await readFile(pidPath, "utf8"));
+      expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+      await expect.poll(() => {
+        try { process.kill(pid!, 0); return true; } catch { return false; }
+      }, { timeout: 2000, interval: 20 }).toBe(false);
+    } finally {
+      if (pid === undefined) pid = Number(await readFile(pidPath, "utf8").catch(() => "0"));
+      stopFixtureProcess(pid);
+    }
+  });
+
   test("declares a strict sequential tool contract", async () => {
     const { context, tools } = await fixture();
     await context.plugin(testHarnessPlugin);
