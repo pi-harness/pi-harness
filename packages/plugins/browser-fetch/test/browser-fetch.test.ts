@@ -753,12 +753,15 @@ describe("browser-fetch", () => {
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "browser_fetch");
       if (tool === undefined) throw new Error("browser_fetch was not registered");
 
-      await expect(tool.execute("exact", { url: `http://127.0.0.1:${address.port}/exact` }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      const exact = await tool.execute("exact", { url: `http://127.0.0.1:${address.port}/exact` }, undefined, undefined, {} as never);
+      expect(exact).toMatchObject({
         details: { bytes: 512 * 1024, contentType: "text/plain", truncated: false },
       });
+      expect(JSON.stringify(exact.content).includes("Response body truncated")).toBe(false);
       const oversized = await tool.execute("oversized", { url: `http://127.0.0.1:${address.port}/oversized` }, undefined, undefined, {} as never);
       expect(oversized.details).toMatchObject({ bytes: 512 * 1024, contentType: "text/plain", truncated: true });
       expect((oversized.details as { text: string }).text).toHaveLength(512 * 1024);
+      expect(JSON.stringify(oversized.content).includes("Response body truncated at the 524288-byte limit; this is not the complete page.")).toBe(true);
     } finally {
       await context.fiber.dispose();
       await new Promise<void>((resolve, reject) => server.close((error) => (error === undefined ? resolve() : reject(error))));
