@@ -281,7 +281,6 @@ export default {
         refreshCandidateCache();
         return;
       }
-      if (!context.piRuntime.session.isIdle) return;
       const request = queued;
       queued = undefined;
       request.removeAbortListener();

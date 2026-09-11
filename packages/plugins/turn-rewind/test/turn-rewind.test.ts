@@ -226,15 +226,12 @@ describe("turn rewind", () => {
     }
   });
 
-  test("keeps the rewind queued when a settled event arrives during another active run", async () => {
+  test("starts the rewind when the authoritative settled event arrives", async () => {
     const fixture = await createTurnRewind(true);
     try {
       await fixture.tool.execute("queued", {}, undefined, undefined, {} as never);
       fixture.context.emit("pi/session-event", { type: "agent_settled" });
       await Promise.resolve();
-      expect(fixture.navigations).toEqual([]);
-      expect((await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "queued" } });
-      fixture.settle();
       await expect.poll(() => fixture.navigations).toHaveLength(1);
     } finally {
       await fixture.context.fiber.dispose();
