@@ -2,6 +2,8 @@
 
 Code2Skill — Package selected workspace source files into a bounded local Pi skill with a generated SKILL.md manifest and preserved references.
 
+The creation tool returns the actual slug, output directory, source file paths and per-file/total byte counts as model-visible JSON matching its details. Source file contents are not echoed into that report.
+
 ## Install
 
 ```sh

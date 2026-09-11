@@ -2,6 +2,8 @@
 
 Mock Server — Start a local, bounded HTTP mock server from explicit routes for integration testing without external services.
 
+Start and status tools return the same JSON state to the model and the panel: running state, local URL, route count, latest request and latest error. Route bodies and request bodies are not included in this diagnostic state.
+
 ## Install
 
 ```sh

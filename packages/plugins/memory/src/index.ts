@@ -338,7 +338,7 @@ export default {
           const currentSignal = operationSignal(signal);
           await refresh(currentSignal);
           const query = params.query.trim().toLocaleLowerCase();
-          if (query.length < 2 || query.length > maxKeyLength) throw new Error(`Memory search query must contain 2-${maxKeyLength} characters`);
+          if (query.length < 1 || query.length > maxKeyLength) throw new Error(`Memory search query must contain 1-${maxKeyLength} characters`);
           const results = memories.filter((item) => [item.key, item.value, ...item.tags].some((field) => field.toLocaleLowerCase().includes(query)));
           last = { query: params.query.trim(), total: results.length, memories: results };
           return {

@@ -10,6 +10,7 @@ const defaultLimit = 10;
 const defaultTimeoutMs = 15_000;
 const maxResponseBytes = 1024 * 1024;
 const maxQueryLength = 120;
+const maxRegistryTextLength = 64;
 const maxKeywordLength = 64;
 const queryParameterNames = new Set(["query"]);
 
@@ -154,6 +155,7 @@ export default {
     const registryUrl = normalizeRegistryUrl(config.registryUrl);
     const limit = Math.max(1, Math.min(25, Math.trunc(config.limit !== undefined && Number.isFinite(config.limit) ? config.limit : defaultLimit)));
     const keyword = normalizeSearchKeyword(config.keyword);
+    const registryTextPrefix = `keywords:${keyword} `;
     const timeoutMs = Math.max(
       1_000,
       Math.min(60_000, Math.trunc(config.timeoutMs !== undefined && Number.isFinite(config.timeoutMs) ? config.timeoutMs : defaultTimeoutMs)),
@@ -172,7 +174,9 @@ export default {
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<PluginSearchReport>> {
           const query = queryParameter(params).trim();
           if (query.length < 2 || query.length > maxQueryLength) throw new Error(`Plugin search query must contain 2-${maxQueryLength} characters`);
-          const search = new URLSearchParams({ text: `keywords:${keyword} ${query}`, size: "250" });
+          if (registryTextPrefix.length + query.length > maxRegistryTextLength)
+            throw new Error(`Plugin search query is too long for the registry text limit of ${maxRegistryTextLength} characters`);
+          const search = new URLSearchParams({ text: `${registryTextPrefix}${query}`, size: "250" });
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           const payload = await searchRegistry(`${registryUrl}/-/v1/search?${search.toString()}`, timeoutMs, operationSignal);
           const objects = Array.isArray(payload.objects) ? payload.objects : [];
@@ -216,7 +220,7 @@ export default {
             content: [
               {
                 type: "text",
-                text: results.length === 0 ? `No plugins found for ${query}.` : results.map((result) => `${result.name}@${result.version}`).join("\n"),
+                text: JSON.stringify(latest),
               },
             ],
             details: structuredClone(latest),

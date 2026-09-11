@@ -13,6 +13,27 @@ afterEach(async () => {
 });
 
 describe("archify", () => {
+  test("exposes incomplete scan metadata alongside the diagram to the model", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-report-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, "src"));
+    await mkdir(join(root, "tests"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(archifyPlugin);
+    try {
+      const tool = tools.snapshot().customTools.find((item) => item.name === "architecture_map")!;
+      const result = await tool.execute("partial", { maxNodes: 1 }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ truncated: true, workspace: root });
+      expect(result.content).toEqual([{ type: "text", text: JSON.stringify(result.details) }]);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("keeps component ids unique when an original name matches a generated suffix", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-archify-"));
     temporaryDirectories.push(root);

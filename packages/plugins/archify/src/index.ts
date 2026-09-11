@@ -175,7 +175,7 @@ export default {
           const report = await buildArchitectureReport(operationScope.cwd, maxNodes, operationSignal);
           assertCurrent();
           latest = report;
-          return { content: [{ type: "text", text: report.mermaid }], details: structuredClone(report) };
+          return { content: [{ type: "text", text: JSON.stringify(report) }], details: structuredClone(report) };
         },
       }),
     );
