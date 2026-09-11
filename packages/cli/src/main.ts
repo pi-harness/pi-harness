@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { bootHarness, prepareHarnessProfile, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
 import { CliUsageError, parseLauncherArgs } from "./args.js";
 import { NodeStdio } from "./node-stdio.js";
@@ -168,6 +169,7 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
   try {
     const bootOutcome: Promise<BootOutcome> = bootHarness({
       configPath,
+      pluginResolutionAnchor: fileURLToPath(import.meta.url),
       signal: startupAbort.signal,
       onFullReload() {
         if (environment.supervised !== true) {

@@ -130,6 +130,7 @@ for (const signal of signals) {
 try {
   harness = await bootHarness({
     configPath: profilePath,
+    pluginResolutionAnchor: fileURLToPath(import.meta.url),
     signal: startupAbort.signal,
     prepare(context) {
       provideLaunchContext(context, { cwd, agentDir, configPath: profilePath, args: [], requestExit() {} });

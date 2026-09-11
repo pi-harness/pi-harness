@@ -97,12 +97,29 @@ function isBareSpecifier(name: string): boolean {
 }
 
 // A bare plugin specifier has to be resolved against the profile, because that is the package the console installs a marketplace plugin into. The loader's own resolution runs from its file inside the harness installation, which is read-only and holds no plugin the user installed.
-function resolveFromProfile(anchor: string, name: string): string | undefined {
+async function resolveFromProfile(anchor: string, name: string, internal?: Context["loader"]["internal"]): Promise<string | undefined> {
+  if (internal !== undefined) {
+    try {
+      const parentUrl = pathToFileURL(anchor).href;
+      // Match Cordis HMR's Node 22/23 versus Node 24+ resolver dispatch, keeping
+      // the internal loader's import conditions and custom resolution hooks.
+      const result =
+        internal.version === "v1" ? await internal.resolve(name, parentUrl, {}) : internal.resolveSync(parentUrl, { specifier: name, attributes: {} });
+      return result.url;
+    } catch (error) {
+      // A malformed/blocked package or a missing exported file is not an absent
+      // installation. Do not silently replace it with the launcher's version.
+      if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND" && error.message.startsWith("Cannot find package "))
+        return undefined;
+      throw error;
+    }
+  }
   try {
-    return createRequire(anchor).resolve(name);
+    return pathToFileURL(createRequire(anchor).resolve(name)).href;
   } catch {
     // The CJS resolver reports a package whose "exports" declares no "require" condition as not exported, which is every ESM-only plugin, so a marketplace package installed beside the profile has to be located under the import conditions instead of being handed straight to the loader.
-    return resolvePluginEntry(anchor, name);
+    const entry = resolvePluginEntry(anchor, name);
+    return entry === undefined ? undefined : pathToFileURL(entry).href;
   }
 }
 
@@ -144,29 +161,35 @@ function assertValidEntryTree(entries: unknown): asserts entries is EntryOptions
   }
 }
 
-class ReadonlyInclude extends Include {
-  constructor(ctx: Context, config: Include.Config) {
-    super(ctx, config);
-    const update = this.root.update.bind(this.root);
-    this.root.update = async (entries: EntryOptions[]) => {
-      assertValidEntryTree(entries);
-      await update(entries);
-    };
-  }
+function readonlyIncludeWithAnchor(pluginResolutionAnchor?: string) {
+  return class ReadonlyInclude extends Include {
+    constructor(ctx: Context, config: Include.Config) {
+      super(ctx, config);
+      const update = this.root.update.bind(this.root);
+      this.root.update = async (entries: EntryOptions[]) => {
+        assertValidEntryTree(entries);
+        await update(entries);
+      };
+    }
 
-  override write(): void {}
+    override write(): void {}
 
-  override import(name: string, getOuterStack?: () => string[]): unknown {
-    if (isTimerSpecifier(name)) return HardenedTimerService;
-    if (this.ctx.loader.internal !== undefined || !isBareSpecifier(name)) return super.import(name, getOuterStack);
-    const resolved = resolveFromProfile(this.filename, name);
-    if (resolved === undefined) return super.import(name, getOuterStack);
-    return super.import(pathToFileURL(resolved).href, getOuterStack);
-  }
+    override async import(name: string, getOuterStack?: () => string[]): Promise<unknown> {
+      if (isTimerSpecifier(name)) return HardenedTimerService;
+      if ((this.ctx.loader.internal !== undefined && pluginResolutionAnchor === undefined) || !isBareSpecifier(name)) return super.import(name, getOuterStack);
+      const resolved =
+        (await resolveFromProfile(this.filename, name, this.ctx.loader.internal)) ??
+        (pluginResolutionAnchor === undefined ? undefined : await resolveFromProfile(pluginResolutionAnchor, name, this.ctx.loader.internal));
+      if (resolved === undefined) return super.import(name, getOuterStack);
+      return super.import(resolved, getOuterStack);
+    }
+  };
 }
 
 export interface BootHarnessOptions {
   configPath: string;
+  /** Launcher file used to resolve bundled plugins after the profile's own dependencies. */
+  pluginResolutionAnchor?: string;
   prepare?: (context: Context) => Promise<void> | void;
   onFullReload?: () => void;
   signal?: AbortSignal;
@@ -234,8 +257,8 @@ async function assertEntriesActivated(context: Context): Promise<void> {
   if (failures.length > 0) throw new Error(`Cordis plugin tree did not activate:\n${failures.join("\n")}`);
 }
 
-async function mountProfile(context: Context, configPath: string): Promise<void> {
-  context.loader.builtins.include = ReadonlyInclude;
+async function mountProfile(context: Context, configPath: string, pluginResolutionAnchor?: string): Promise<void> {
+  context.loader.builtins.include = readonlyIncludeWithAnchor(pluginResolutionAnchor);
   context.loader.builtins.group = Group;
   const root: EntryOptions = {
     id: "profile",
@@ -247,6 +270,7 @@ async function mountProfile(context: Context, configPath: string): Promise<void>
 
 export async function bootHarness(options: BootHarnessOptions): Promise<BootedHarness> {
   const configPath = resolve(options.configPath);
+  const pluginResolutionAnchor = options.pluginResolutionAnchor === undefined ? undefined : resolve(options.pluginResolutionAnchor);
   const context = new Context();
   hardenLoggerService(context);
   const abort = () => {
@@ -260,16 +284,19 @@ export async function bootHarness(options: BootHarnessOptions): Promise<BootedHa
     await context.plugin(Loader);
     const loadPlugin = context.loader.import.bind(context.loader);
     // The console adds a marketplace plugin as an entry of the loader's own root tree rather than of the profile's include tree, so that tree needs the same profile-anchored resolution the include tree gets.
-    context.loader.import = (name, getOuterStack) => {
+    context.loader.import = async (name, getOuterStack) => {
       if (isTimerSpecifier(name)) return HardenedTimerService;
-      if (context.loader.internal !== undefined || !isBareSpecifier(name)) return loadPlugin(name, getOuterStack) as unknown;
-      const resolved = resolveFromProfile(configPath, name);
-      return loadPlugin(resolved === undefined ? name : pathToFileURL(resolved).href, getOuterStack) as unknown;
+      if ((context.loader.internal !== undefined && pluginResolutionAnchor === undefined) || !isBareSpecifier(name))
+        return loadPlugin(name, getOuterStack) as unknown;
+      const resolved =
+        (await resolveFromProfile(configPath, name, context.loader.internal)) ??
+        (pluginResolutionAnchor === undefined ? undefined : await resolveFromProfile(pluginResolutionAnchor, name, context.loader.internal));
+      return loadPlugin(resolved ?? name, getOuterStack) as unknown;
     };
     if (options.onFullReload !== undefined) context.loader.exit = options.onFullReload;
     await options.prepare?.(context);
     stage = "plugin tree activation";
-    await mountProfile(context, configPath);
+    await mountProfile(context, configPath, pluginResolutionAnchor);
     await context.get("loader")?.await();
     await assertEntriesActivated(context);
     if (options.signal?.aborted === true) throw new Error("Pi Harness startup was aborted", { cause: options.signal.reason });
