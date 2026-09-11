@@ -231,7 +231,7 @@ export default {
             latest = report;
             generated += 1;
             return {
-              content: [{ type: "text" as const, text: `Skill pack created: ${report.slug} (${report.files.length} file(s)).` }],
+              content: [{ type: "text" as const, text: JSON.stringify(report) }],
               details: structuredClone(report),
             };
           });
