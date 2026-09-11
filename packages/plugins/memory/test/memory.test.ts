@@ -34,6 +34,15 @@ afterEach(async () => {
 });
 
 describe("memory", () => {
+  test("recalls valid one-character keys and rejects empty queries", async () => {
+    const { set, search } = await fixture();
+    await set.execute("set", { key: "锈", value: "Rust" }, undefined, undefined, {} as never);
+    await expect(search.execute("search", { query: " 锈 " }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { query: "锈", total: 1, memories: [{ key: "锈", value: "Rust" }] },
+    });
+    await expect(search.execute("empty", { query: "  " }, undefined, undefined, {} as never)).rejects.toThrow(/query/iu);
+  });
+
   test("rejects cancelled and disposed writes without creating a store", async () => {
     const { root, context, set } = await fixture();
     const controller = new AbortController();
