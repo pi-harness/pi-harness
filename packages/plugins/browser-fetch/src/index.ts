@@ -265,7 +265,11 @@ async function readBody(response: UndiciResponse, signal?: AbortSignal): Promise
         if (remaining > 0) chunks.push(chunk.subarray(0, remaining));
         bytes = maxResponseBytes;
         truncated = true;
-        await reader.cancel();
+        try {
+          await reader.cancel();
+        } catch {
+          // Body cleanup is best effort; preserve the bounded truncated result.
+        }
         break;
       }
       chunks.push(chunk);
