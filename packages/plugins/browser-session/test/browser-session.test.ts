@@ -335,6 +335,62 @@ describe("browser session boundaries", () => {
     }
   });
 
+  test("cancels a tab-list body that stalls after the HTTP response", async () => {
+    const originalFetch = globalThis.fetch;
+    let cancelCalled = false;
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<{ done: true; value?: undefined }>((resolve) => {
+      releaseRead = () => resolve({ done: true });
+    });
+    globalThis.fetch = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              read: () => pendingRead,
+              cancel() {
+                cancelCalled = true;
+                releaseRead();
+                return Promise.resolve();
+              },
+              releaseLock() {},
+            };
+          },
+        },
+      } as unknown as Response);
+    const context = await createBrowserSession();
+    const caller = new AbortController();
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    let execution: Promise<unknown> | undefined;
+    try {
+      execution = browserTool(context, "browser_tabs").execute("call-1", {}, caller.signal, undefined, {} as never);
+      await Promise.resolve();
+      caller.abort(new Error("cancel stalled tab list"));
+      const outcome = await Promise.race([
+        execution.then(
+          () => new Error("Browser tab discovery unexpectedly succeeded"),
+          (error: unknown) => error,
+        ),
+        new Promise<string>((resolve) => {
+          fallback = setTimeout(() => resolve("Browser tab discovery remained pending"), 500);
+        }),
+      ]);
+
+      expect(outcome).toBeInstanceOf(Error);
+      expect(String(outcome)).toMatch(/cancelled/iu);
+      expect(cancelCalled).toBe(true);
+    } finally {
+      if (fallback !== undefined) clearTimeout(fallback);
+      releaseRead();
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+      await execution?.catch(() => undefined);
+    }
+  });
+
   test("rejects navigation URLs containing credentials before tab discovery", async () => {
     const originalFetch = globalThis.fetch;
     let fetches = 0;

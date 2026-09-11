@@ -85,7 +85,7 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
-async function readTabList(response: Response): Promise<unknown> {
+async function readTabList(response: Response, signal?: AbortSignal): Promise<unknown> {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxTabListBytes) {
     await cancelResponseBody(response);
@@ -95,9 +95,46 @@ async function readTabList(response: Response): Promise<unknown> {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
+  const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (signal?.aborted === true) throw cancelledError("Chrome DevTools discovery", signal.reason);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        void Promise.resolve()
+          .then(() => reader.cancel())
+          .catch(() => undefined);
+        reject(cancelledError("Chrome DevTools discovery", signal?.reason));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) {
+        onAbort();
+        return;
+      }
+      void Promise.resolve()
+        .then(() => reader.read())
+        .then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error instanceof Error ? error : new Error("Chrome DevTools tab-list read failed", { cause: error }));
+          },
+        );
+    });
+  };
   try {
     while (true) {
-      const next = await reader.read();
+      const next = await readChunk();
       if (next.done) break;
       bytes += next.value.byteLength;
       if (bytes > maxTabListBytes) {
@@ -167,7 +204,7 @@ async function tabs(endpoint: URL, signal?: AbortSignal): Promise<BrowserTab[]> 
       await cancelResponseBody(response);
       throw new Error(`Chrome DevTools returned HTTP ${response.status}`);
     }
-    payload = await readTabList(response);
+    payload = await readTabList(response, signal);
   } catch (error) {
     if (timedOut) throw new Error(`Chrome DevTools discovery timed out after ${requestTimeoutMs} ms`, { cause: error });
     if (controller.signal.aborted) throw cancelledError("Chrome DevTools discovery", error);
