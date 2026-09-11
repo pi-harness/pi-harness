@@ -1346,7 +1346,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const view = agentTeamsPanelView(data);
           return (
             <div className="mt-3 grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                 {[
                   [t("成员"), view.inventory.members.total],
                   [t("任务"), view.inventory.tasks.total],
@@ -1367,11 +1367,19 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               <div className="grid gap-2">
                 {view.members.length > 0 ? (
                   view.members.map((member) => (
-                    <div className="flex items-center gap-3 rounded-lg border border-[var(--color-line)] px-3 py-2" key={member.id}>
-                      <span className={`h-2 w-2 rounded-full ${member.status === "working" ? "bg-[#22c55e]" : "bg-[#a0a8b2]"}`}></span>
-                      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[var(--color-ink)]">{member.name}</span>
-                      <span className="truncate text-[10px] text-[var(--color-faint)]">{member.role}</span>
-                      <span className="font-mono text-[10px] text-[var(--color-blue)]">{member.status}</span>
+                    <div
+                      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 rounded-lg border border-[var(--color-line)] px-3 py-2"
+                      key={member.id}
+                    >
+                      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${member.status === "working" ? "bg-[#22c55e]" : "bg-[#a0a8b2]"}`}></span>
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                          <span className="min-w-0 break-words text-[11px] font-semibold text-[var(--color-ink)]">{member.name}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-[var(--color-blue)]">{member.status}</span>
+                        </div>
+                        <code className="mt-1 block break-all text-[9px] text-[var(--color-blue)]">{member.id}</code>
+                        <span className="mt-1 block break-words text-[10px] leading-4 text-[var(--color-faint)]">{member.role}</span>
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -1381,18 +1389,22 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               <div className="grid gap-2">
                 {view.tasks.length > 0 ? (
                   view.tasks.map((task) => (
-                    <div className="flex items-center gap-3 rounded-lg border border-[var(--color-line)] px-3 py-2" key={task.id}>
+                    <div
+                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-lg border border-[var(--color-line)] px-3 py-2"
+                      key={task.id}
+                    >
                       <div className="min-w-0 flex-1">
-                        <span className="block truncate text-[11px] text-[var(--color-ink)]">{task.title}</span>
+                        <span className="block break-words text-[11px] leading-4 text-[var(--color-ink)]">{task.title}</span>
+                        <code className="mt-1 block break-all text-[9px] text-[var(--color-blue)]">{task.id}</code>
+                        <code className="mt-1 block break-all text-[9px] text-[var(--color-faint)]">{task.assignee}</code>
                         {task.dependsOn.length > 0 ? (
-                          <span className="mt-0.5 block truncate font-mono text-[9px] text-[var(--color-faint)]">
+                          <span className="mt-1 block break-all font-mono text-[9px] leading-4 text-[var(--color-faint)]">
                             {t("依赖：{v0}", { v0: task.dependsOn.join(", ") })}
                           </span>
                         ) : null}
                       </div>
-                      <span className="text-[10px] text-[var(--color-faint)]">{task.assignee}</span>
                       <span
-                        className={`rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : task.status === "done" ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"}`}
+                        className={`shrink-0 rounded-full px-2 py-1 text-[10px] ${task.status === "blocked" ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : task.status === "done" ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"}`}
                       >
                         {task.status}
                       </span>

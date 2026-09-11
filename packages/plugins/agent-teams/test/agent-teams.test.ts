@@ -251,6 +251,9 @@ describe("agent teams plugin", () => {
     await expect(tool.execute("boolean", { action: "read_messages", to: "reviewer", unreadOnly: "yes" }, undefined, undefined, {} as never)).rejects.toThrow(
       /unreadOnly must be a boolean/iu,
     );
+    await expect(tool.execute("offset", { action: "read_messages", to: "reviewer", offset: 1.5 }, undefined, undefined, {} as never)).rejects.toThrow(
+      /offset must be an integer/iu,
+    );
     await expect(tool.execute("sparse", { action: "add_task", title: "Invalid", dependsOn: Array(1) }, undefined, undefined, {} as never)).rejects.toThrow(
       /contain only strings/iu,
     );
@@ -403,6 +406,37 @@ describe("agent teams plugin", () => {
     expect((result.details as { messages: unknown[] }).messages).toHaveLength(25);
     const current = await tool.execute("state", { action: "get_state" }, undefined, undefined, {} as never);
     expect(current.details).toMatchObject({ unreadMessages: 30 });
+  });
+
+  test("pages across previously read mailbox notes instead of returning the first page forever", async () => {
+    const manager = SessionManager.inMemory();
+    const state = persistedState("Mailbox", 0, 1, 30);
+    for (const message of state.messages) message.read = true;
+    manager.appendCustomEntry("pi-harness/agent-teams", checkpoint(state));
+    const { tool } = await createPlugin(manager);
+
+    const first = await tool.execute("first", { action: "read_messages", to: "member-1" }, undefined, undefined, {} as never);
+    const second = await tool.execute("second", { action: "read_messages", to: "member-1", offset: 25 }, undefined, undefined, {} as never);
+
+    expect(first.content[0]?.type === "text" ? first.content[0].text : "").toContain("continue with offset 25");
+    const firstDetails = first.details as { messages: Array<{ id: string }> } & Record<string, unknown>;
+    expect(firstDetails).toMatchObject({
+      offset: 0,
+      returned: 25,
+      remaining: 5,
+      nextOffset: 25,
+      truncated: true,
+    });
+    expect(firstDetails.messages.slice(0, 2)).toMatchObject([{ id: "message-1" }, { id: "message-2" }]);
+    expect(firstDetails.messages.at(-1)).toMatchObject({ id: "message-25" });
+    expect(second.details).toMatchObject({
+      offset: 25,
+      returned: 5,
+      remaining: 0,
+      nextOffset: null,
+      truncated: false,
+      messages: [{ id: "message-26" }, { id: "message-27" }, { id: "message-28" }, { id: "message-29" }, { id: "message-30" }],
+    });
   });
 
   test("persists growing mailboxes with linear-size journal entries", async () => {

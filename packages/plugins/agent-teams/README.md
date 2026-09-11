@@ -26,6 +26,8 @@ Board reads and writes use the current native runtime manager; the launch manage
 
 The collaboration ledger stores roles, tasks and local mailbox notes. It does not spawn agents or deliver messages outside the session. Native journal appends are synchronous and cannot be interrupted after they begin.
 
+`read_messages` returns at most 25 matching notes per call. Follow the returned `nextOffset` to retrieve later pages. When `unreadOnly: true`, returned notes leave the unread result set, so `nextOffset` intentionally remains at the current offset until that page is exhausted. Continuation assumes the same session, recipient and filter with no intervening mailbox cleanup; restart at offset `0` after changing that result set.
+
 ## Journal contract
 
 Recovery accepts only valid `journalVersion: 1` checkpoint and delta entries. Unversioned snapshots are ignored; no legacy field repair, dependency-state migration or compatibility aliases are provided. Inconsistent checkpoints and deltas are rejected as a whole, while earlier valid entries remain recoverable. Delta revisions must connect to the recovered checkpoint. Current derived dependency and member states must be consistent at each revision.

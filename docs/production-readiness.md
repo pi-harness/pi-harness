@@ -6,6 +6,13 @@ This is the running evidence log for the plugin functional verification audit, k
 
 The audit is incomplete. The current count is 53 of 75 plugins with partial real runtime or browser evidence and 22 pending; partial evidence for a plugin is not acceptance of that plugin. Entries are appended over time, so a later dated observation supersedes an earlier one, including any numeric checkpoint.
 
+### Agent Teams mailbox pagination and operable browser ledger (2026-09-12)
+
+- A native JSONL `SessionManager` fixture with 30 previously read notes reproduced an unreachable-tail defect: two consecutive `read_messages` calls both returned `message-1` through `message-25` while reporting five remaining, and the tool exposed no page parameter. `read_messages` now accepts a bounded integer `offset`, returns `offset` and `nextOffset`, and tells the model how to continue. With `unreadOnly: true`, returned notes leave the filtered set, so continuation deliberately retains the current offset.
+- The fixed native workflow returned `message-1…25` followed by `message-26…30`. A multi-tenant ticket SaaS fixture then exercised four roles, long multilingual labels and 64-character IDs, a spec → implementation → QA dependency chain, rejected premature claims with unchanged state, ordered claims/completions, 30 mailbox writes and a fresh `SessionManager.open()` recovery. The recovered panel retained four members, three tasks and all 30 messages.
+- Real Chromium at 760px and 1440px confirmed a second operational defect: member IDs and terminal task IDs were absent, while long roles, titles and assignees expanded beyond the narrow content area and were clipped. The panel now exposes both IDs, wraps long names/roles/titles/assignees/dependencies, and uses two statistic columns in constrained layouts. Browser assertions confirmed every checked value stayed inside the viewport with no horizontal text clipping and no console/page errors.
+- The focused Agent Teams suite, client component suite, client build and web build passed during implementation. Final workspace verification is recorded separately before integration; this checkpoint does not include an authenticated model call, and the overall production-readiness audit remains incomplete.
+
 ### Plugin panel refresh isolation (2026-09-12)
 
 - A real isolated runtime/Chromium regression held only `/api/plugin-ui` while all ten other initial API requests completed. The control room still remained indefinitely behind “Connecting to the Pi runtime…” even though its header already showed the ready status and active session; every action awaiting the broad refresh was also held by the same `Promise.allSettled` barrier.
