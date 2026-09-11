@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
@@ -11,8 +12,11 @@ const validPlugin = {
   fullName: "owner/fixture",
   description: "Fixture",
   htmlUrl: "https://github.com/owner/fixture",
+  homepage: "https://example.invalid/fixture",
+  npmName: "@fixture/plugin",
   stars: 1,
   updatedAt: "2026-09-05T00:00:00Z",
+  license: "MIT",
   topics: ["pi-harness-plugin"],
 };
 
@@ -163,6 +167,15 @@ describe("plugin stars", () => {
     expect(report).toMatchObject({ generatedAt: "2026-09-02T12:00:00Z", source: "fixture-ranking" });
   });
 
+  test("keeps the public-transport ranking fixture valid", async () => {
+    const payload = JSON.parse(await readFile(new URL("./fixtures/ranking.json", import.meta.url), "utf8")) as unknown;
+    const report = parsePluginStarsPayload(payload);
+
+    expect(searchPluginStars(report, "productivity")).toEqual([
+      expect.objectContaining({ fullName: "pi-harness/workflow-engine-fixture", stars: 840, npmName: "@fixture/workflow-engine" }),
+    ]);
+  });
+
   test("rejects malformed entries instead of silently publishing a partial ranking", () => {
     expect(() =>
       parsePluginStarsPayload({
@@ -198,6 +211,8 @@ describe("plugin stars", () => {
     [{ ...validPlugin, name: "x".repeat(257) }, /plugin 1 name.*256/iu],
     [{ ...validPlugin, description: "x".repeat(4_097) }, /plugin 1 description.*4096/iu],
     [{ ...validPlugin, htmlUrl: "https://github.com/owner/other" }, /plugin 1 repository URL.*fullName/iu],
+    [{ ...validPlugin, homepage: "javascript:alert(1)" }, /plugin 1 homepage.*http/iu],
+    [{ ...validPlugin, homepage: "https://user:secret@example.com/" }, /plugin 1 homepage.*credentials/iu],
     [{ ...validPlugin, stars: Number.MAX_SAFE_INTEGER + 1 }, /plugin 1 stars.*safe integer/iu],
     [{ ...validPlugin, updatedAt: "not-a-date" }, /plugin 1 updatedAt.*timestamp/iu],
     [{ ...validPlugin, updatedAt: "2026-02-30T00:00:00Z" }, /plugin 1 updatedAt.*timestamp/iu],
@@ -308,11 +323,12 @@ describe("plugin stars", () => {
     try {
       const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
       const result = await tool!.execute("call-1", {}, undefined, undefined, {} as never);
-      expect(result.details).toMatchObject({ total: 12 });
+      expect(result.details).toMatchObject({ total: 12, truncated: true });
       expect((result.details as { results: unknown[] }).results).toHaveLength(5);
-      await expect(context.piPluginUi.snapshot()).resolves.toMatchObject([
-        { data: { inventory: { total: 12, shown: 5, truncated: true }, latest: { total: 12 } } },
-      ]);
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(result.details);
+      const panelSnapshot = await context.piPluginUi.snapshot();
+      expect(panelSnapshot).toMatchObject([{ data: { inventory: { total: 12, shown: 5, truncated: true }, latest: { total: 12 } } }]);
+      expect(Object.keys((panelSnapshot[0]!.data as { latest: object }).latest)).not.toContain("truncated");
     } finally {
       globalThis.fetch = originalFetch;
       await context.fiber.dispose();
@@ -353,6 +369,37 @@ describe("plugin stars", () => {
       await expect(tool!.execute("call-1", {}, undefined, undefined, {} as never)).rejects.toThrow(/2 MiB limit/iu);
       expect(bodyRead).toBe(false);
       expect(bodyCancelled).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
+  test("preserves the response-size error when oversized-body cleanup fails", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              read: () => Promise.resolve({ done: false, value: new Uint8Array(2 * 1024 * 1024 + 1) }),
+              cancel: () => Promise.reject(new Error("cleanup failed")),
+              releaseLock() {},
+            };
+          },
+        },
+      } as unknown as Response);
+    const context = new Context();
+    try {
+      provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
+      await context.plugin(toolsPlugin, { names: [] });
+      await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
+      const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
+
+      await expect(tool!.execute("oversized-cleanup", {}, undefined, undefined, {} as never)).rejects.toThrow(/source exceeded the 2 MiB limit/iu);
     } finally {
       globalThis.fetch = originalFetch;
       await context.fiber.dispose();
@@ -507,6 +554,80 @@ describe("plugin stars", () => {
       await expect(tool.execute("cancelled", { query: "after" }, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
       expect((await panels.snapshot())[0]?.data).toMatchObject({ latest: { query: "before" } });
     } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
+  test("cancels a ranking response body that stalls after headers arrive", async () => {
+    const originalFetch = globalThis.fetch;
+    let cancelCalled = false;
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<{ done: true; value?: undefined }>((resolve) => {
+      releaseRead = () => resolve({ done: true });
+    });
+    globalThis.fetch = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              read() {
+                markReadStarted();
+                return pendingRead;
+              },
+              cancel() {
+                cancelCalled = true;
+                releaseRead();
+                return Promise.resolve();
+              },
+              releaseLock() {},
+            };
+          },
+        },
+      } as unknown as Response);
+    const context = new Context();
+    provideLaunchContext(context, { cwd: "/tmp", agentDir: "/tmp", args: [], requestExit() {} });
+    await context.plugin(toolsPlugin, { names: [] });
+    await context.plugin(pluginStars, { sourceUrl: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json" });
+    const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_stars_search");
+    if (tool === undefined) throw new Error("plugin_stars_search was not registered");
+    const caller = new AbortController();
+    let execution: Promise<unknown> | undefined;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      execution = tool.execute("stalled-body", {}, caller.signal, undefined, {} as never);
+      await Promise.race([
+        readStarted,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error("timed out waiting for ranking read to start")), 5_000);
+        }),
+      ]);
+      if (watchdog !== undefined) clearTimeout(watchdog);
+      caller.abort(new Error("cancel stalled ranking body"));
+      const outcome = await Promise.race([
+        execution.then(
+          () => new Error("Plugin stars search unexpectedly succeeded"),
+          (error: unknown) => error,
+        ),
+        new Promise<string>((resolve) => {
+          watchdog = setTimeout(() => resolve("Plugin stars search remained pending"), 500);
+        }),
+      ]);
+
+      expect(outcome).toBeInstanceOf(Error);
+      expect(String(outcome)).toMatch(/cancelled/iu);
+      expect(cancelCalled).toBe(true);
+    } finally {
+      if (watchdog !== undefined) clearTimeout(watchdog);
+      releaseRead();
+      await execution?.catch(() => undefined);
       globalThis.fetch = originalFetch;
       await context.fiber.dispose();
     }
