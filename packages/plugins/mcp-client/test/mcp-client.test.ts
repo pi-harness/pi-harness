@@ -3,10 +3,22 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
+import assert from "node:assert/strict";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import mcpClientPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
+
+function resultRecord(value: unknown): Record<string, unknown> {
+  assert(value !== null && typeof value === "object" && !Array.isArray(value));
+  return value as Record<string, unknown>;
+}
+
+function resultArray(value: unknown): unknown[] {
+  assert(Array.isArray(value));
+  return value;
+}
 
 // Only the plugin holds a reference to the servers it spawns, so recording the real children is the only way to assert how their stdio streams are wired.
 const spawnedChildren = vi.hoisted(() => [] as ChildProcess.ChildProcessWithoutNullStreams[]);
@@ -56,6 +68,211 @@ async function writeServer(cwd: string, body: string): Promise<string> {
 }
 
 describe("MCP client production boundaries", () => {
+  test("preserves structured-only tool results in model-visible text", async () => {
+    const fixture = await createFixture();
+    const server = fileURLToPath(new URL("../../../../scripts/fixtures/plugin-verification/mcp/server.mjs", import.meta.url));
+    try {
+      const result = await tool(fixture.tools, "mcp_call").execute(
+        "structured",
+        {
+          command: [process.execPath, server],
+          name: "audit_structured",
+          arguments: {},
+        },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(result.details).toMatchObject({ structuredContent: { evidence: "PIH_STRUCTURED_FIXTURE", count: 7 } });
+      expect(result.content).toContainEqual({ type: "text", text: JSON.stringify({ evidence: "PIH_STRUCTURED_FIXTURE", count: 7 }) });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test.each([null, [], "invalid"])("rejects malformed structured tool results: %j", async (structuredContent) => {
+    const fixture = await createFixture();
+    const server = await writeServer(
+      fixture.cwd,
+      `
+      import { createInterface } from 'node:readline';
+      createInterface({input:process.stdin}).on('line', line => {
+        const message = JSON.parse(line);
+        if (message.id === undefined) return;
+        const result = message.method === 'initialize' ? {protocolVersion:'2025-06-18',capabilities:{},serverInfo:{name:'invalid',version:'1'}} : ${JSON.stringify({ content: [], structuredContent })};
+        process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result})+'\\n');
+      });`,
+    );
+    try {
+      await expect(
+        tool(fixture.tools, "mcp_call").execute("bad-structured", { command: [process.execPath, server], name: "test" }, undefined, undefined, {} as never),
+      ).rejects.toThrow(/invalid structured/iu);
+      expect((await fixture.panels.snapshot())[0]?.data).toMatchObject({ lastCall: null });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("does not duplicate structured content already supplied as identical text", async () => {
+    const fixture = await createFixture();
+    const value = { count: 7 };
+    const content = [{ type: "text", text: JSON.stringify(value) }];
+    const server = await writeServer(
+      fixture.cwd,
+      `
+      import { createInterface } from 'node:readline';
+      createInterface({input:process.stdin}).on('line', line => {
+        const message = JSON.parse(line);
+        if (message.id === undefined) return;
+        const result = message.method === 'initialize' ? {protocolVersion:'2025-06-18',capabilities:{},serverInfo:{name:'duplicate',version:'1'}} : ${JSON.stringify({ content, structuredContent: value })};
+        process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result})+'\\n');
+      });`,
+    );
+    try {
+      const result = await tool(fixture.tools, "mcp_call").execute(
+        "structured",
+        { command: [process.execPath, server], name: "test" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(result.content).toEqual(content);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("exposes tool schemas and required prompt arguments with bounded inventory navigation", async () => {
+    const fixture = await createFixture();
+    const command = [process.execPath, fileURLToPath(new URL("../../../../scripts/fixtures/plugin-verification/mcp/server.mjs", import.meta.url))];
+    const call = (name: string, params: unknown) => tool(fixture.tools, name).execute("inventory", params, undefined, undefined, {} as never);
+    const text = (result: { content: unknown[] }) => resultRecord(JSON.parse((result.content[0] as { text: string }).text));
+    try {
+      const first = text(await call("mcp_list_tools", { command, limit: 1 }));
+      expect(first).toMatchObject({
+        total: 3,
+        shown: 1,
+        nextOffset: 1,
+        truncated: true,
+        tools: [{ name: "audit_echo", inputSchema: { required: ["auditValue"] } }],
+      });
+      const second = text(await call("mcp_list_tools", { command, offset: 1, limit: 2 }));
+      expect(second).toMatchObject({ shown: 2, nextOffset: null, truncated: false, tools: [{ name: "audit_structured" }, { name: "audit_error" }] });
+      const exact = text(await call("mcp_list_tools", { command, name: "audit_echo" }));
+      expect(resultArray(exact.tools)).toHaveLength(1);
+      expect(resultRecord(resultRecord(resultArray(exact.tools)[0]).inputSchema).required).toEqual(["auditValue"]);
+      const prompts = text(await call("mcp_list_prompts", { command }));
+      expect(resultRecord(resultArray(prompts.prompts)[0]).arguments).toEqual([{ name: "subject", description: "Synthetic subject", required: true }]);
+      await expect(call("mcp_list_tools", { command, name: "missing" })).rejects.toThrow(/not found/iu);
+      await expect(call("mcp_list_tools", { command, offset: -1 })).rejects.toThrow(/offset/iu);
+      await expect(call("mcp_list_tools", { command, limit: 0 })).rejects.toThrow(/limit/iu);
+      await expect(call("mcp_list_tools", { command, name: "audit_echo", offset: 1 })).rejects.toThrow(/name/iu);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("keeps oversized Unicode descriptors discoverable without clipping their schemas", async () => {
+    const fixture = await createFixture();
+    const descriptor = { name: "large", inputSchema: { type: "object", description: "界".repeat(30_000) } };
+    const server = await writeServer(
+      fixture.cwd,
+      `
+      import { createInterface } from 'node:readline';
+      createInterface({input:process.stdin}).on('line', line => {
+        const message = JSON.parse(line);
+        if (message.id === undefined) return;
+        const result = message.method === 'initialize' ? {protocolVersion:'2025-06-18',capabilities:{},serverInfo:{name:'large',version:'1'}} : {tools:[${JSON.stringify(descriptor)},{name:'small',inputSchema:{type:'object'}}]};
+        process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result})+'\\n');
+      });`,
+    );
+    try {
+      const command = [process.execPath, server];
+      const result = await tool(fixture.tools, "mcp_list_tools").execute("large", { command }, undefined, undefined, {} as never);
+      const text = (result.content[0] as { text: string }).text;
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024);
+      expect(JSON.parse(text)).toMatchObject({
+        tools: [
+          { name: "large", descriptorOmitted: true },
+          { name: "small", inputSchema: { type: "object" } },
+        ],
+      });
+      const exact = await tool(fixture.tools, "mcp_list_tools").execute("exact", { command, name: "large" }, undefined, undefined, {} as never);
+      expect(resultRecord(JSON.parse((exact.content[0] as { text: string }).text)).tools).toEqual([descriptor]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects nonnumeric inventory pagination before starting a process", async () => {
+    const fixture = await createFixture();
+    try {
+      for (const field of ["offset", "limit"]) {
+        for (const invalid of [null, "1", true, Number.NaN, 1.5]) {
+          await expect(
+            tool(fixture.tools, "mcp_list_tools").execute(
+              "invalid-page",
+              { command: ["/missing-server"], [field]: invalid },
+              undefined,
+              undefined,
+              {} as never,
+            ),
+          ).rejects.toThrow(new RegExp(field));
+        }
+      }
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("walks byte-limited Unicode pages without losing or duplicating entries", async () => {
+    const fixture = await createFixture();
+    const server = await writeServer(
+      fixture.cwd,
+      `
+      import { createInterface } from 'node:readline';
+      createInterface({input:process.stdin}).on('line', line => {
+        const message = JSON.parse(line);
+        if (message.id === undefined) return;
+        const result = message.method === 'initialize' ? {protocolVersion:'2025-06-18',capabilities:{},serverInfo:{name:'pages',version:'1'}} : {tools:Array.from({length:20},(_,n)=>({name:'item-'+n,inputSchema:{type:'object',description:'界'.repeat(3000)}}))};
+        process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result})+'\\n');
+      });`,
+    );
+    try {
+      let offset = 0;
+      const names: string[] = [];
+      do {
+        const result = await tool(fixture.tools, "mcp_list_tools").execute(
+          "page",
+          { command: [process.execPath, server], offset },
+          undefined,
+          undefined,
+          {} as never,
+        );
+        const text = (result.content[0] as { text: string }).text;
+        expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024);
+        const page = resultRecord(JSON.parse(text));
+        expect(page.total).toBe(20);
+        expect(page.shown).toBeGreaterThan(0);
+        const items = resultArray(page.tools);
+        expect(page.shown).toBe(items.length);
+        for (const value of items) {
+          const item = resultRecord(value);
+          expect(resultRecord(item.inputSchema).description).toBe("界".repeat(3000));
+          assert(typeof item.name === "string");
+          names.push(item.name);
+        }
+        if (page.nextOffset === null) break;
+        assert(typeof page.nextOffset === "number" && Number.isInteger(page.nextOffset));
+        expect(page.nextOffset).toBeGreaterThan(offset);
+        offset = page.nextOffset;
+      } while (offset < 20);
+      expect(names).toEqual(Array.from({ length: 20 }, (_, n) => `item-${n}`));
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("rejects unknown configuration before registering any surface", async () => {
     const fixture = await createFixture({ loadPlugin: false });
     try {
