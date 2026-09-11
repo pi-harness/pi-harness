@@ -64,6 +64,9 @@ The argument is the list of scripted model responses; pass `[]` for a plugin tha
 - **Workspace paths** — `resolveExistingWorkspacePath`, `resolveWorkspaceFilePath`, `prepareWorkspaceFile` and `isPathInside`, which keep a plugin from escaping the workspace root through symlinks or `..`.
 - **Bounded file access** — `readBoundedFile` and `readBoundedTextFile` with their `BoundedFileSizeError` / `BoundedFileTypeError`, which refuse oversized files, directories, FIFOs and symlinks rather than stranding the process on them.
 - **Atomic writes** — `atomicWriteFile`, which serialises concurrent writes to the same path, preserves an existing target's permission bits and fsyncs the containing directory.
+- **Bounded commands** — `runBoundedCommand(argv, cwd, timeoutMs, maxOutputBytes, signal?, options?)`, a no-shell, stdin-EOF runner with per-stream byte limits. Optional `env` applies only to the child; `encoding: "buffer"` preserves raw stdout/stderr on success and failure, while the default remains UTF-8 strings. Timeout must be an integer from 1 to 2147483647 ms; output limits must be non-negative safe integers. Failures retain bounded stdout/stderr and exec-style code/killed metadata. POSIX commands own a process group; failure signals the group and escalates after one second even if its leader exits. Escalation closes pipes and settles failure independently of escaped descendants. Windows uses taskkill tree termination with direct-process fallback; native Windows acceptance is outstanding. This is local lifecycle cleanup, not a sandbox or proof that deliberately escaped descendants or remote jobs stopped.
+
+The command runner accepts an optional sixth argument `{ env }` for an explicit child environment. Omit it to inherit the host environment. Supplying it does not mutate `process.env`; include inherited values explicitly when they are needed. Notification integrations use this to carry text as data rather than executable source.
 
 ## License
 

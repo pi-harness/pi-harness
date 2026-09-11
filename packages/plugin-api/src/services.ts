@@ -203,8 +203,8 @@ export class PiPluginUiRegistry {
   async snapshot(): Promise<readonly PiPluginPanelSnapshot[]> {
     const snapshots: PiPluginPanelSnapshot[] = [];
     for (const panel of this.#panels.values()) {
-      if (panel.visible !== undefined && !(await panel.visible())) continue;
       try {
+        if (panel.visible !== undefined && !(await panel.visible())) continue;
         const data = await panel.read();
         snapshots.push({
           id: panel.id,
