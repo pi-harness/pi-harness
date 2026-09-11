@@ -2,6 +2,8 @@
 
 Architecture Map — Build a bounded, read-only architecture map from workspace components and package dependencies.
 
+The model receives the complete bounded report as JSON: workspace, scanned components and counts, package dependencies, the incompleteness flag and Mermaid source. When `truncated` is true, counts reflect only the scanned subset; the diagram must not be treated as a complete inventory.
+
 ## Install
 
 ```sh
