@@ -15,12 +15,13 @@ const sessionReadConcurrency = 8;
 const maxDirectoryEntries = 4_096;
 const maxPanelItems = 50;
 const maxToolItems = 100;
+const maxResultBytes = 128 * 1024;
 const maxSessionIdChars = 256;
 const maxSessionNameChars = 256;
 const maxSessionPathChars = 4_096;
 const maxQueryLength = 120;
 const maxStatusErrorChars = 2_000;
-const queryParameterNames = new Set(["query"]);
+const queryParameterNames = new Set(["query", "offset", "limit"]);
 
 export interface RecallUnreadPluginConfig {
   maxSessions?: number;
@@ -133,6 +134,45 @@ type RecallInventory = {
 type SessionDiscovery = { candidates: SessionCandidate[]; available: number; truncated: boolean };
 type RecallStatus = { state: "idle" | "running" | "completed" | "failed" | "cancelled"; at?: string; error?: string };
 
+interface RecallPage {
+  total: number;
+  items: UnreadSession[];
+  offset: number;
+  returned: number;
+  nextOffset: number | null;
+  previewCharacters: number;
+  inventory: RecallInventory & { matched: number; shown: number; resultTruncated: boolean };
+}
+
+function recallPage(matches: readonly UnreadSession[], inventory: RecallInventory, offset: number, limit: number): AgentToolResult<RecallPage> {
+  const shown: UnreadSession[] = [];
+  const page = (): RecallPage => ({
+    total: matches.length,
+    items: shown,
+    offset,
+    returned: shown.length,
+    nextOffset: offset + shown.length < matches.length ? offset + shown.length : null,
+    previewCharacters: maxPreviewChars,
+    inventory: {
+      ...inventory,
+      matched: matches.length,
+      shown: shown.length,
+      resultTruncated: shown.length < matches.length,
+      truncated: inventory.truncated || shown.length < matches.length,
+    },
+  });
+  for (const item of matches.slice(offset, offset + limit)) {
+    shown.push(item);
+    if (Buffer.byteLength(JSON.stringify(page()), "utf8") > maxResultBytes) {
+      shown.pop();
+      if (shown.length === 0) throw new Error("Recall Unread entry exceeds the model-visible page limit");
+      break;
+    }
+  }
+  const details = structuredClone(page());
+  return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+}
+
 function boundedMetadataText(value: unknown, maximum: number): string | undefined {
   if (typeof value !== "string" || value.includes("\0")) return undefined;
   const normalized = value.trim();
@@ -149,7 +189,7 @@ function sessionCwd(value: unknown): string | undefined {
   return value;
 }
 
-function queryParameter(value: unknown): string {
+function queryParameter(value: unknown): { query: string; offset: number; limit: number } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Recall Unread parameters must be an object");
   let prototype: unknown;
   let descriptors: PropertyDescriptorMap;
@@ -168,7 +208,13 @@ function queryParameter(value: unknown): string {
   const normalized = (query ?? "").trim();
   if (normalized.length > maxQueryLength) throw new Error(`Recall unread query must contain 0-${maxQueryLength} characters`);
   if (normalized.includes("\0")) throw new Error("Recall Unread query must not contain NUL characters");
-  return normalized.toLocaleLowerCase();
+  const offset: unknown = descriptors.offset?.value === undefined ? 0 : descriptors.offset.value;
+  const limit: unknown = descriptors.limit?.value === undefined ? maxToolItems : descriptors.limit.value;
+  if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > maxAllowedSessions)
+    throw new Error(`Recall Unread offset must be an integer from 0 to ${maxAllowedSessions}`);
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > maxToolItems)
+    throw new Error(`Recall Unread limit must be an integer from 1 to ${maxToolItems}`);
+  return { query: normalized.toLocaleLowerCase(), offset, limit };
 }
 
 function boundedError(error: unknown): string {
@@ -221,7 +267,13 @@ async function discoverSessionCandidates(sessionDir: string, activePath: string 
       // Files may disappear or change type while the directory is being scanned.
     }
   }
-  return { candidates: candidates.sort((left, right) => right.modified.getTime() - left.modified.getTime()), available, truncated };
+  return {
+    candidates: candidates.sort(
+      (left, right) => right.modified.getTime() - left.modified.getTime() || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
+    ),
+    available,
+    truncated,
+  };
 }
 
 function sessionMetadata(entries: readonly unknown[], candidate: SessionCandidate, expectedCwd: string): Omit<UnreadSession, "message"> | undefined {
@@ -399,21 +451,21 @@ export default {
       defineTool({
         name: "session_recall_unread",
         label: "Recall unread sessions",
-        description: "Find persisted Pi sessions whose latest message is an unanswered user message without modifying the sessions.",
+        description:
+          "Find unanswered persisted Pi sessions without modifying them. Returns bounded JSON pages with IDs, paths, 500-character message previews and scan-completeness metadata. Follow nextOffset with the same query and limit for more scanned matches; each call rescans.",
         promptSnippet: "find previous sessions with unanswered user messages",
-        parameters: Type.Object({ query: Type.Optional(Type.String({ maxLength: maxQueryLength })) }, { additionalProperties: false }),
+        parameters: Type.Object(
+          {
+            query: Type.Optional(Type.String({ maxLength: maxQueryLength })),
+            offset: Type.Optional(Type.Integer({ minimum: 0, maximum: maxAllowedSessions, description: "Matched-result offset; follow nextOffset" })),
+            limit: Type.Optional(
+              Type.Integer({ minimum: 1, maximum: maxToolItems, description: "Maximum results per page; defaults to 100, also bounded by 128 KiB JSON" }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
         executionMode: "sequential",
-        async execute(
-          _toolCallId,
-          params,
-          signal,
-        ): Promise<
-          AgentToolResult<{
-            total: number;
-            items: UnreadSession[];
-            inventory: RecallInventory & { matched: number; shown: number; resultTruncated: boolean };
-          }>
-        > {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<RecallPage>> {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           throwIfCancelled(lifecycle.signal);
           const sequence = ++operationSequence;
@@ -423,31 +475,14 @@ export default {
             refreshScope(scope);
             const requestedScope = scope;
             checkScope(requestedScope, operationSignal);
-            const query = queryParameter(params);
+            const { query, offset, limit } = queryParameter(params);
             checkScope(requestedScope, operationSignal);
             status = { state: "running" };
             const result = await runExclusive(operationSignal, async () => {
               const scanned = await scan(requestedScope, operationSignal);
               checkScope(requestedScope, operationSignal);
               const matches = scanned.filter((item) => query === "" || `${item.name} ${item.message} ${item.cwd}`.toLocaleLowerCase().includes(query));
-              const shown = matches.slice(0, maxToolItems);
-              const resultTruncated = matches.length > shown.length;
-              const resultInventory = {
-                ...inventory,
-                matched: matches.length,
-                shown: shown.length,
-                resultTruncated,
-                truncated: inventory.truncated || resultTruncated,
-              };
-              return {
-                content: [
-                  {
-                    type: "text" as const,
-                    text: shown.map((item) => `${item.name}: ${item.message}`).join("\n") || "No unanswered sessions found.",
-                  },
-                ],
-                details: structuredClone({ total: matches.length, items: shown, inventory: resultInventory }),
-              };
+              return recallPage(matches, inventory, offset, limit);
             });
             checkScope(requestedScope, operationSignal);
             if (sequence === operationSequence) status = { state: "completed", at: new Date().toISOString() };
