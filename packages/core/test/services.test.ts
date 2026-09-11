@@ -530,12 +530,14 @@ describe("Pi domain plugins", () => {
     await expect(
       tool.execute("invalid-status", { action: "add_task", title: "Invalid", status: "almost_done" }, undefined, undefined, {} as never),
     ).rejects.toThrow(/task status/iu);
-    await expect(tool.execute("invalid-member", { action: "add_member", name: "审阅者" }, undefined, undefined, {} as never)).rejects.toThrow(/member id/iu);
+    await expect(tool.execute("unicode-member", { action: "add_member", name: "审阅者" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { kind: "member", item: { id: "member-1", name: "审阅者", role: "协作成员", status: "idle" } },
+    });
     await expect(
       tool.execute("invalid-member-status", { action: "add_member", id: "observer", name: "Observer", status: "offline" }, undefined, undefined, {} as never),
     ).rejects.toThrow(/member status/iu);
     await expect(tool.execute("long-title", { action: "add_task", title: "x".repeat(201) }, undefined, undefined, {} as never)).rejects.toThrow(/title.*200/iu);
-    expect(entries).toEqual([]);
+    expect(entries).toHaveLength(1);
     await expect(tool.execute("call-1", { action: "add_task", title: "Review plugin manifest" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       content: [{ text: "Task task-1 created." }],
     });
@@ -586,7 +588,7 @@ describe("Pi domain plugins", () => {
     expect(members.find((member) => member.id === "builder")).toMatchObject({
       status: "working",
     });
-    expect(entries).toHaveLength(7);
+    expect(entries).toHaveLength(8);
   });
 
   test("publishes agent team input bounds in the tool parameter schema", async () => {

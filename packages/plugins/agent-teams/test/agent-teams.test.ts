@@ -272,6 +272,14 @@ describe("agent teams plugin", () => {
     expect(manager.getEntries()).toEqual([]);
   });
 
+  test("allocates a stable fallback ID for members whose names are not ASCII slugs", async () => {
+    const { tool } = await createPlugin();
+
+    await expect(tool.execute("member", { action: "add_member", name: "项目经理" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { item: { id: "member-1", name: "项目经理", role: "协作成员", status: "idle" } },
+    });
+  });
+
   test("queries the durable task board without writing another snapshot", async () => {
     const { manager, tool } = await createPlugin();
     await tool.execute("create", { action: "add_task", title: "Production verification" }, undefined, undefined, {} as never);
