@@ -73,6 +73,8 @@ export function compareMessageEntries(left: readonly SessionCompareMessage[], ri
   let shared = 0;
   let addedCount = 0;
   let removedCount = 0;
+  let addedTextTruncated = false;
+  let removedTextTruncated = false;
   const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
     const leftMessage = left[index];
@@ -83,10 +85,24 @@ export function compareMessageEntries(left: readonly SessionCompareMessage[], ri
     }
     if (rightMessage !== undefined) addedCount += 1;
     if (leftMessage !== undefined) removedCount += 1;
-    if (rightMessage !== undefined && added.length < maxDiffMessages) added.push({ ...rightMessage, text: rightMessage.text.slice(0, maxMessageTextLength) });
-    if (leftMessage !== undefined && removed.length < maxDiffMessages) removed.push({ ...leftMessage, text: leftMessage.text.slice(0, maxMessageTextLength) });
+    if (rightMessage !== undefined && added.length < maxDiffMessages) {
+      addedTextTruncated ||= rightMessage.text.length > maxMessageTextLength;
+      added.push({ ...rightMessage, text: rightMessage.text.slice(0, maxMessageTextLength) });
+    }
+    if (leftMessage !== undefined && removed.length < maxDiffMessages) {
+      removedTextTruncated ||= leftMessage.text.length > maxMessageTextLength;
+      removed.push({ ...leftMessage, text: leftMessage.text.slice(0, maxMessageTextLength) });
+    }
   }
-  return { shared, added, removed, addedCount, removedCount, addedTruncated: addedCount > added.length, removedTruncated: removedCount > removed.length };
+  return {
+    shared,
+    added,
+    removed,
+    addedCount,
+    removedCount,
+    addedTruncated: addedTextTruncated || addedCount > added.length,
+    removedTruncated: removedTextTruncated || removedCount > removed.length,
+  };
 }
 
 function sessionName(session: SessionInfo): string {

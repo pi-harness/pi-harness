@@ -17,6 +17,20 @@ afterEach(async () => {
 });
 
 describe("session compare", () => {
+  test("marks per-message preview clipping even when only one message differs", () => {
+    const diff = compareMessageEntries([{ role: "user", text: "left".repeat(1_001) }], [{ role: "user", text: "right".repeat(801) }]);
+    expect(diff).toMatchObject({ shared: 0, addedCount: 1, removedCount: 1, addedTruncated: true, removedTruncated: true });
+    expect(diff.added[0]?.text).toHaveLength(4_000);
+    expect(diff.removed[0]?.text).toHaveLength(4_000);
+  });
+
+  test("does not mark complete or shared boundary-length messages as clipped", () => {
+    const exact = { role: "user", text: "a".repeat(4_000) };
+    expect(compareMessageEntries([], [exact])).toMatchObject({ addedTruncated: false, removedTruncated: false });
+    const shared = { role: "user", text: "b".repeat(4_001) };
+    expect(compareMessageEntries([shared], [shared])).toMatchObject({ shared: 1, addedTruncated: false, removedTruncated: false });
+  });
+
   test("reports added and removed messages by conversation position", () => {
     const left: SessionCompareMessage[] = [
       { role: "user", text: "Keep the API stable" },
@@ -101,6 +115,14 @@ describe("session compare", () => {
     const result = await compare!.execute("clone", { left: "left", right: "right" }, undefined, undefined, {} as never);
     (result.details as { added: Array<{ text: string }> }).added[0]!.text = "MUTATED";
     expect(JSON.stringify(await context.piPluginUi.snapshot())).not.toContain("MUTATED");
+    await writeFile(
+      join(sessionDir, "right.jsonl"),
+      `${JSON.stringify(header("right"))}\n${JSON.stringify(message("right-long", null, "assistant", "x".repeat(4_001)))}\n`,
+      "utf8",
+    );
+    const clipped = await compare!.execute("clipped", { left: "left", right: "right" }, undefined, undefined, {} as never);
+    expect(clipped).toMatchObject({ details: { addedTruncated: true, removedTruncated: false, addedCount: 1, removedCount: 1 } });
+    expect(clipped.content).toEqual([expect.objectContaining({ type: "text", text: expect.stringContaining("Difference previews are limited") as unknown })]);
     await expect(compare!.execute("invalid", { left: "left", right: "right", extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/Unknown/);
     await context.fiber.dispose();
     await expect(compare!.execute("disposed", { left: "left", right: "right" }, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/);
