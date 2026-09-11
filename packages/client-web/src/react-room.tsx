@@ -61,7 +61,7 @@ import { contextInsightsPanelView } from "./context-insights-view.js";
 import { tokenGuardPanelView } from "./token-guard-view.js";
 import { sessionBridgePanelView } from "./session-bridge-view.js";
 import { skillGuardPanelView } from "./skill-guard-view.js";
-import { sqlLensPanelView } from "./sql-lens-view.js";
+import { sqlLensDisplayText, sqlLensPanelView, sqlLensRowsJson } from "./sql-lens-view.js";
 import { agentTeamsPanelView } from "./agent-teams-view.js";
 import { modlensPanelView } from "./modlens-view.js";
 import { visionToolkitPanelView } from "./vision-toolkit-view.js";
@@ -874,6 +874,29 @@ const sidebarPopoverPosition = (
   };
 };
 
+export function ProviderAuthNotice({ model, providers, onConfigure }: { model?: string; providers: readonly ClientProvider[]; onConfigure: () => void }) {
+  const provider = providers.find((item) => model?.startsWith(`${item.provider}/`));
+  // Absence of metadata is not evidence of missing credentials. Warn only on
+  // the selected provider's explicit status; local commands remain usable.
+  if (provider?.auth?.configured !== false) return null;
+  return (
+    <div className="provider-auth-notice" role="status">
+      <div className="action-error-summary">
+        <strong>{t("模型尚未配置认证")}</strong>
+        <span>{provider.name}</span>
+        <span>
+          {provider.provider === "everyapi"
+            ? t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
+            : t("请在设置 → 提供商中配置 API key，然后重试。")}
+        </span>
+      </div>
+      <button className="tool-chip" type="button" onClick={onConfigure}>
+        {t("提供商")}
+      </button>
+    </div>
+  );
+}
+
 function PromptError({ message }: { message: string }) {
   const everyApiAuth = /No API key found for everyapi/i.test(message);
   const requiresAuth = everyApiAuth || /No API key found|authentication|未配置认证/i.test(message);
@@ -1643,7 +1666,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <div className="mt-2 grid gap-1 text-[11px] text-[var(--color-muted)]">
                     {latest.name !== null ? <p className="truncate font-mono text-[10px] text-[var(--color-ink)]">{latest.name}</p> : null}
                     <p>
-                      {latest.files} {t("个文件 ·")} {latest.bytes} bytes · <time dateTime={latest.at}>{latest.at.replace("T", " ")}</time>
+                      {latest.status === "completed" ? <>{latest.files} {t("个文件 ·")} {latest.bytes} bytes · </> : null}
+                      <time dateTime={latest.at}>{latest.at.replace("T", " ")}</time>
                     </p>
                     {latest.error !== null ? <p className="break-words text-[var(--color-red)]">{latest.error}</p> : null}
                   </div>
@@ -2033,7 +2057,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 {sections.map(([label, item]) => (
                   <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3" key={label}>
                     <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">{label}</span>
-                    <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-[var(--color-ink)]">{item || t("暂无")}</p>
+                    <p className="mt-2 min-w-0 whitespace-pre-wrap text-[11px] leading-5 text-[var(--color-ink)] [overflow-wrap:anywhere]">{item || t("暂无")}</p>
                   </div>
                 ))}
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -2043,7 +2067,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       {items.length > 0 ? (
                         <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[var(--color-muted)]">
                           {items.map((item, index) => (
-                            <li className="break-words" key={`${item}-${index}`}>
+                            <li className="min-w-0 [overflow-wrap:anywhere]" key={`${item}-${index}`}>
                               {item}
                             </li>
                           ))}
@@ -2114,23 +2138,29 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   >
                     {data.changed === true ? t("两个会话的文本消息在对应位置存在差异。") : t("两个会话的文本消息投影一致；未比较图片、工具调用参数及元数据。")}
                   </div>
-                  {Array.isArray(data.added) && data.added.length > 0 ? (
-                    <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">
-                        {t("右侧差异预览（最多显示 4 条）")}
-                      </span>
-                      <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[var(--color-muted)]">
-                        {data.added.slice(0, 4).map((item, index) => {
-                          const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                          return (
-                            <li key={`${value(message.role)}-${index}`}>
-                              [{value(message.role)}] {value(message.text)}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
+                  {data.addedTruncated === true || data.removedTruncated === true ? (
+                    <p className="text-[11px] text-[var(--color-amber)]">{t("工具返回的差异预览已截断；上方计数仍为完整差异数量。")}</p>
                   ) : null}
+                  {[
+                    { key: "removed", label: t("左侧差异预览（最多显示 4 条）"), messages: data.removed },
+                    { key: "added", label: t("右侧差异预览（最多显示 4 条）"), messages: data.added },
+                  ].map(({ key, label, messages }) =>
+                    Array.isArray(messages) && messages.length > 0 ? (
+                      <div key={key} className="min-w-0 rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                        <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">{label}</span>
+                        <ul className="mt-2 grid gap-1 text-[10px] leading-4 text-[var(--color-muted)]">
+                          {messages.slice(0, 4).map((item, index) => {
+                            const message = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                            return (
+                              <li className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" key={`${value(message.role)}-${index}`}>
+                                [{value(message.role)}] {value(message.text)}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : null,
+                  )}
                 </>
               );
             })()
@@ -2169,8 +2199,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             </p>
           ) : null}
           {Array.isArray(data?.findings) && data.findings.length > 0 ? (
-            <div className="grid gap-2">
-              {data.findings.slice(0, 6).map((item, index) => {
+            <div className="grid max-h-96 gap-2 overflow-auto">
+              {data.findings.slice(0, 200).map((item, index) => {
                 const finding = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 const severity = value(finding.severity, "medium");
                 return (
@@ -2296,17 +2326,23 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           {data?.lastError ? <p className="text-[11px] text-[var(--color-red)]">{t("最近错误：{v0}", { v0: value(data.lastError) })}</p> : null}
         </div>
       ) : panel.id === "session-export-panel" ? (
-        <div className="mt-3 grid gap-3">
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
           {data?.latest && typeof data.latest === "object" ? (
             (() => {
               const latest = data.latest as Record<string, unknown>;
               return (
-                <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                <div className="min-w-0 rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
                   <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-faint)]">{t("最近导出")}</span>
-                  <code className="mt-2 block truncate text-[11px] text-[var(--color-blue)]">{value(latest.path ?? "pi-session.md")}</code>
+                  <code className="mt-2 block whitespace-pre-wrap text-[11px] text-[var(--color-blue)] [overflow-wrap:anywhere]">{value(latest.path ?? "pi-session.md")}</code>
                   <p className="mt-1 text-[10px] text-[var(--color-muted)]">
                     {t("{v0} 个文本段 · {v1} bytes", { v0: value(latest.messages ?? 0), v1: value(latest.bytes ?? 0) })}
                   </p>
+                  <dl className="mt-2 grid gap-1 text-[10px] text-[var(--color-muted)]">
+                    <dt>{t("会话")}</dt>
+                    <dd className="break-all font-mono">{value(latest.sessionId, "—")}</dd>
+                    <dt>{t("工作区：")}</dt>
+                    <dd className="break-all font-mono">{value(latest.workspace, "—")}</dd>
+                  </dl>
                 </div>
               );
             })()
@@ -2320,7 +2356,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           </p>
         </div>
       ) : panel.id === "session-search-panel" ? (
-        <div className="mt-3 grid gap-3">
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
           <p className="text-[10px] leading-4 text-[var(--color-faint)]">
             {t("只搜索持久化日志中的用户和助手文本，包含历史分支；不含图片、思考或工具输出。以下为最近一次搜索，最多显示 8 个会话。")}
           </p>
@@ -2336,28 +2372,40 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           {data?.query ? (
             <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
               <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(data.query)}</code>
-              <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">{t("{v0} 个会话", { v0: value(data.total ?? 0) })}</strong>
+              <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">
+                {t(typeof data.nextCursor === "string" || data.nextCursor === null ? "本页匹配 {v0} 个会话" : "{v0} 个会话", { v0: value(data.total ?? 0) })}
+              </strong>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               {t("输入查询后显示匹配的历史会话。")}
             </div>
           )}
+          {data?.query && typeof data.nextCursor === "string" && data.nextCursor.length > 0 ? (
+            <div className="grid min-w-0 gap-2 text-[10px] leading-4 text-[var(--color-muted)]">
+              <p>{t("还有未扫描的会话。即使本页没有匹配，也可使用相同查询和 nextCursor 继续搜索。")}</p>
+              <code className="block break-all whitespace-pre-wrap rounded-lg bg-[var(--color-soft)] p-2">
+                {JSON.stringify({ query: data.query, cursor: data.nextCursor })}
+              </code>
+            </div>
+          ) : data?.query && data.nextCursor === null ? (
+            <p className="text-[10px] leading-4 text-[var(--color-faint)]">{t("目录扫描已结束；跳过的文件和省略的预览不代表已完整检查。")}</p>
+          ) : null}
           {Array.isArray(data?.items) && data.items.length > 0 ? (
-            <div className="grid gap-2">
+            <div className="grid min-w-0 grid-cols-1 gap-2">
               {data.items.slice(0, 8).map((item, index) => {
                 const session = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 const hits = Array.isArray(session.hits) ? session.hits : [];
                 return (
                   <div
-                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                    className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
                     key={`${value(session.id ?? "session")}-${index}`}
                   >
                     <strong className="block truncate text-[11px] text-[var(--color-ink)]">{value(session.name ?? session.id ?? t("未命名会话"))}</strong>
                     <p className="mt-1 text-[10px] text-[var(--color-faint)]">
                       {t("{v0} 条匹配消息 · 返回 {v1} 条预览", { v0: value(session.totalHits), v1: hits.length })}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[var(--color-muted)]">
+                    <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap text-[10px] leading-4 text-[var(--color-muted)] [overflow-wrap:anywhere]">
                       {hits
                         .map((hit) => (hit !== null && typeof hit === "object" ? value((hit as Record<string, unknown>).text ?? "") : value(hit)))
                         .join(" | ")}
@@ -2373,22 +2421,22 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           ) : null}
         </div>
       ) : panel.id === "session-bookmarks-panel" ? (
-        <div className="mt-3 grid gap-3">
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
           <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
             <span className="text-[11px] text-[var(--color-muted)]">{t("当前会话书签")}</span>
             <strong className="font-mono text-[11px] text-[var(--color-blue)]">{t("{v0} 个书签", { v0: value(data?.total ?? 0) })}</strong>
           </div>
           {Array.isArray(data?.bookmarks) && data.bookmarks.length > 0 ? (
-            <div className="grid gap-2">
-              {data.bookmarks.slice(0, 12).map((item, index) => {
+            <div className="grid max-h-96 min-w-0 grid-cols-1 gap-2 overflow-y-auto">
+              {data.bookmarks.map((item, index) => {
                 const bookmark = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
                 return (
                   <div
-                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                    className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
                     key={`${value(bookmark.id ?? "bookmark")}-${index}`}
                   >
-                    <strong className="block truncate text-[11px] text-[var(--color-ink)]">{value(bookmark.label ?? t("未命名书签"))}</strong>
-                    <code className="mt-1 block truncate text-[10px] text-[var(--color-faint)]">entry: {value(bookmark.entryId ?? "—")}</code>
+                    <strong className="block whitespace-pre-wrap text-[11px] text-[var(--color-ink)] [overflow-wrap:anywhere]">{value(bookmark.label ?? t("未命名书签"))}</strong>
+                    <code className="mt-1 block whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">entry: {value(bookmark.entryId ?? "—")}</code>
                   </div>
                 );
               })}
@@ -2470,6 +2518,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(latest.query ?? "")}</code>
                     <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">{t("{v0} 个结果", { v0: value(matches.length) })}</strong>
                   </div>
+                  {latest.truncated === true || (typeof latest.skippedFiles === "number" && latest.skippedFiles > 0) ? (
+                    <p className="text-[10px] text-[var(--color-amber)]">{t("结果不完整：已达到扫描、读取或结果上限，存在跳过文件，或匹配片段已裁剪。")}</p>
+                  ) : null}
                   {matches.length > 0 ? (
                     <div className="grid gap-2">
                       {matches.slice(0, 10).map((item, index) => {
@@ -2512,7 +2563,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           const changedFiles = Array.isArray(data?.changedFiles) ? data.changedFiles : [];
           const clean = data?.clean === true;
           return (
-            <div className="mt-3 grid gap-3">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
               <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(data?.cwd ?? t("当前工作区"))}</code>
@@ -2522,8 +2573,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     {clean ? "clean" : t("{count} 个变更", { count: value(data?.changedCount ?? changedFiles.length) })}
                   </span>
                 </div>
-                <p className="mt-2 font-mono text-[10px] text-[var(--color-muted)]">{value(data?.summary ?? t("等待工作区扫描"))}</p>
-                <p className="mt-1 text-[10px] text-[var(--color-faint)]">
+                <p className="mt-2 break-all font-mono text-[10px] text-[var(--color-muted)]">{value(data?.summary ?? t("等待工作区扫描"))}</p>
+                <p className="mt-1 break-all text-[10px] text-[var(--color-faint)]">
                   {t("会话 {v0} · 目录 {v1} · 文件 {v2}", {
                     v0: value(data?.sessionId ?? "—"),
                     v1: value(data?.directoryCount ?? 0),
@@ -2532,7 +2583,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </p>
               </div>
               {changedFiles.length > 0 ? (
-                <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
+                <div className="grid min-w-0 grid-cols-1 gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
                   <p className="text-[10px] text-[var(--color-faint)]">
                     {t("显示 {v0} / {v1} 个变更", { v0: Math.min(changedFiles.length, 8), v1: value(data?.changedCount ?? changedFiles.length) })}
                   </p>
@@ -2706,8 +2757,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ) : null}
                   {files.length > 0 ? (
                     <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
-                      {files.slice(0, 8).map((file) => (
-                        <code className="truncate text-[10px] text-[var(--color-muted)]" key={file}>
+                      {files.map((file, index) => (
+                        <code className="min-w-0 break-all text-[10px] text-[var(--color-muted)]" key={`${file}-${index}`}>
                           {file}
                         </code>
                       ))}
@@ -2717,7 +2768,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-amber-soft)] px-3 py-2">
                       <strong className="text-[10px] text-[var(--color-amber)]">{t("约束")}</strong>
                       <ul className="mt-1 grid gap-1 text-[10px] text-[var(--color-muted)]">
-                        {constraints.slice(0, 8).map((constraint, index) => (
+                        {constraints.map((constraint, index) => (
                           <li key={`${constraint}-${index}`}>• {constraint}</li>
                         ))}
                       </ul>
@@ -2727,7 +2778,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-green-soft)] px-3 py-2">
                       <strong className="text-[10px] text-[var(--color-green)]">{t("验收条件")}</strong>
                       <ul className="mt-1 grid gap-1 text-[10px] text-[var(--color-muted)]">
-                        {acceptance.slice(0, 8).map((criterion, index) => (
+                        {acceptance.map((criterion, index) => (
                           <li key={`${criterion}-${index}`}>• {criterion}</li>
                         ))}
                       </ul>
@@ -2788,6 +2839,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         </div>
       ) : panel.id === "reviewer-bot-panel" ? (
         <div className="mt-3 grid gap-3">
+          {data?.status === "running" ? <p role="status" className="text-[11px] text-[var(--color-muted)]">{t("运行中")}</p> : null}
+          {typeof data?.lastError === "string" && data.lastError.length > 0 ? (
+            <p role="alert" className="break-words rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+              {t("操作失败：{v0}", { v0: data.lastError })}
+            </p>
+          ) : null}
           {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
             (() => {
               const report = data.latest as Record<string, unknown>;
@@ -2801,9 +2858,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 <>
                   <code className="break-all text-[10px] text-[var(--color-faint)]">{value(report.cwd)}</code>
                   <div
-                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${status === "error" ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : status === "warning" ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-3 text-[11px] ${data.latestStale === true ? "border-[var(--color-line)] bg-[var(--color-soft)] text-[var(--color-muted)]" : status === "error" ? "border-[#f4caca] bg-[var(--color-red-soft)] text-[var(--color-red)]" : status === "warning" ? "border-[#f3dfab] bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : "border-[#b9e6c9] bg-[var(--color-green-soft)] text-[var(--color-green)]"}`}
                   >
-                    <span>{status === "error" ? t("发现错误风险") : status === "warning" ? t("需要关注") : t("未命中检查规则")}</span>
+                    <span>{data.latestStale === true ? t("上次成功结果（非本次审阅）") : status === "error" ? t("发现错误风险") : status === "warning" ? t("需要关注") : t("未命中检查规则")}</span>
                     <strong className="font-mono">{value(report.findingCount)} findings</strong>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
@@ -2868,9 +2925,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             </div>
           </div>
           {data?.last && typeof data.last === "object" ? (
-            <pre className="max-h-32 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
-              {value((data.last as Record<string, unknown>).stdout, "") || value((data.last as Record<string, unknown>).stderr ?? t("无输出"))}
-            </pre>
+            <>
+              <span className={`text-[11px] ${(data.last as Record<string, unknown>).exitCode === 0 ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}>
+                exit {value((data.last as Record<string, unknown>).exitCode ?? "—")}
+              </span>
+              <pre className="max-h-32 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
+                {[value((data.last as Record<string, unknown>).stdout, ""), value((data.last as Record<string, unknown>).stderr, "")].filter(Boolean).join("\n") || t("无输出")}
+              </pre>
+            </>
           ) : (
             <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
               {t("尚未执行命令。Agent 可调用 auto_mode_exec。")}
@@ -3002,8 +3064,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </div>
               {data?.truncated === true && <p className="text-[10px] text-[var(--color-faint)]">{t("仅显示部分匹配结果，请缩小查询范围。")}</p>}
               {Array.isArray(data?.results) && data.results.length > 0 ? (
-                <ul className="grid gap-1.5">
-                  {data.results.slice(0, 5).map((result, index) => {
+                <ul className="grid max-h-96 gap-1.5 overflow-auto">
+                  {data.results.slice(0, 25).map((result, index) => {
                     const item = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
                     return (
                       <li
@@ -3272,7 +3334,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
                 <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
                   <span className="block text-[10px] text-[var(--color-faint)]">{t("MCP 服务器")}</span>
-                  <strong className="mt-1 block font-mono text-[17px] text-[var(--color-blue)]">{value(data?.mcpCount ?? 0)}</strong>
+                  <strong className="mt-1 block font-mono text-[17px] text-[var(--color-blue)]">
+                    {data?.mcpAvailable === false ? t("不可用") : value(data?.mcpCount ?? 0)}
+                  </strong>
                 </div>
               </div>
               {data?.truncated ? <p className="text-[10px] text-[var(--color-amber)]">{t("目录结果或字段已截断，计数包含未展示条目。")}</p> : null}
@@ -3349,8 +3413,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 ? "text-[var(--color-amber)]"
                 : "text-[var(--color-green)]";
           return (
-            <div className="mt-3 grid gap-3">
-              <div className="grid grid-cols-3 gap-2">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {[
                   [t("今日（UTC）"), `$${Number(data?.todayCost ?? 0).toFixed(4)}`],
                   [t("当前会话"), `$${Number(data?.sessionCost ?? 0).toFixed(4)}`],
@@ -3363,7 +3427,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 ))}
               </div>
               <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
-                <div className="flex items-center justify-between text-[11px]">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                   <span className="text-[var(--color-muted)]">{t("每日预算（UTC）")}</span>
                   <strong className={budgetClass}>{budget === null ? t("未设置") : `$${budget.toFixed(4)} · ${budgetPercent?.toFixed(2) ?? "0.00"}%`}</strong>
                 </div>
@@ -3386,7 +3450,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               ) : null}
               {meterView.entries.length > 0 ? (
-                <ul className="grid gap-1.5">
+                <ul className="grid min-w-0 grid-cols-1 gap-1.5">
                   {meterView.entries.map((entry, index) => (
                     <li
                       className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
@@ -3418,7 +3482,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         (() => {
           const savepoints = Array.isArray(data?.savepoints) ? data.savepoints : [];
           return (
-            <div className="mt-3 grid gap-3">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
               <p className="break-all text-[10px] text-[var(--color-faint)]">
                 {t("工作区：")}
                 {value(data?.cwd)}
@@ -3436,7 +3500,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               </div>
               {savepoints.length > 0 ? (
-                <ul className="grid gap-1.5">
+                <ul className="grid min-w-0 grid-cols-1 gap-1.5">
                   {savepoints.slice(0, 6).map((entry, index) => {
                     const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     return (
@@ -3444,8 +3508,8 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
                         key={`${value(item.id ?? "savepoint")}-${index}`}
                       >
-                        <div className="flex items-center gap-2">
-                          <code className="font-mono text-[10px] text-[var(--color-blue)]">{value(item.id, "unknown")}</code>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <code className="min-w-0 break-all font-mono text-[10px] text-[var(--color-blue)]">{value(item.id, "unknown")}</code>
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(item.reason, "manual savepoint")}</strong>
                           <span className="text-[9px] text-[var(--color-faint)]">
                             {t("{v0} 文件", { v0: value(item.fileCount, "0") })}
@@ -3524,12 +3588,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
                 : "bg-[var(--color-red-soft)] text-[var(--color-red)]";
           return (
-            <div className="mt-3 grid gap-3">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
                 <span className="text-[11px] text-[var(--color-muted)]">{t("运行时边界检查")}</span>
                 <span className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase ${statusClass}`}>{status}</span>
               </div>
-              <div className="grid gap-1.5">
+              <div className="grid min-w-0 grid-cols-1 gap-1.5">
                 {checks.map((entry, index) => {
                   const check = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                   const checkStatus = value(check.status ?? "unknown");
@@ -3570,7 +3634,10 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : panel.id === "plugin-check-panel" ? (
         (() => {
           const latest = data?.latest !== null && typeof data?.latest === "object" ? (data.latest as Record<string, unknown>) : undefined;
-          const checks = latest?.checks !== null && typeof latest?.checks === "object" ? (latest.checks as Record<string, unknown>) : undefined;
+          const checks =
+            latest?.checks !== null && typeof latest?.checks === "object" && !Array.isArray(latest.checks)
+              ? (latest.checks as Record<string, unknown>)
+              : undefined;
           const errors: unknown[] = Array.isArray(latest?.errors) ? latest.errors : [];
           const warnings: unknown[] = Array.isArray(latest?.warnings) ? latest.warnings : [];
           const reports: unknown[] = Array.isArray(latest?.reports) ? latest.reports : [];
@@ -3589,7 +3656,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   <span className="text-[var(--color-muted)]">{t("目录扫描")}</span>
                   <strong className="font-mono text-[var(--color-blue)]">{t("{v0} 个仓库", { v0: value(latest.scanned) })}</strong>
                 </div>
-              ) : latest?.verdict !== undefined ? (
+              ) : latest?.verdict !== undefined && schema.length === 0 ? (
                 <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-2 text-[10px]">
                   <span className="truncate text-[var(--color-muted)]">{value(latest.repo ?? t("当前插件"))}</span>
                   <span className={`rounded px-1.5 py-0.5 font-mono ${verdictClass}`}>{verdict}</span>
@@ -3613,7 +3680,25 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ))}
                 </div>
               ) : null}
-              {reports.length > 0 ? (
+              {latest?.truncated === true || reports.length > 6 ? (
+                <p className="text-[10px] text-[var(--color-amber)]">{t("结果不完整：已达到扫描、读取或结果上限，存在跳过文件，或匹配片段已裁剪。")}</p>
+              ) : null}
+              {schema.length > 0 ? (
+                <ul className="grid gap-1.5">
+                  {schema.map((entry, index) => {
+                    const check = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                    return (
+                      <li
+                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[10px]"
+                        key={`${value(check.code)}-${index}`}
+                      >
+                        <strong className="font-mono text-[var(--color-ink)]">{value(check.code)}</strong>
+                        <p className="mt-1 text-[var(--color-muted)]">{value(check.label)}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : reports.length > 0 ? (
                 <ul className="grid gap-1.5">
                   {reports.slice(0, 6).map((entry, index) => {
                     const report = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
@@ -3648,11 +3733,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     );
                   })}
                 </ul>
-              ) : (
+              ) : latest === undefined ? (
                 <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   {t("尚未检查插件。Agent 可调用 plugin_check 执行 check、scan 或 schema。")}
                 </div>
-              )}
+              ) : null}
               <div className="text-[10px] text-[var(--color-faint)]">{t("只读检查，不修改、不构建被检仓库。")}</div>
             </div>
           );
@@ -3661,7 +3746,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         (() => {
           const results = Array.isArray(data?.results) ? data.results : [];
           return (
-            <div className="mt-3 grid gap-3">
+            <div className="mt-3 grid min-w-0 gap-3">
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
                 <span className="text-[var(--color-muted)]">{t("GitHub Pi Harness 生态")}</span>
                 <span className="font-mono text-[var(--color-blue)]">
@@ -3670,14 +3755,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </div>
               {data?.query ? <div className="text-[11px] text-[var(--color-muted)]">{t("查询：{v0}", { v0: value(data.query) })}</div> : null}
               {results.length > 0 ? (
-                <ol className="grid gap-1.5">
+                <ol className="grid min-w-0 gap-1.5">
                   {results.slice(0, 8).map((entry, index) => {
                     const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
                     const topics = Array.isArray(item.topics) ? item.topics.filter((topic): topic is string => typeof topic === "string").slice(0, 3) : [];
                     const url = typeof item.url === "string" ? item.url : undefined;
                     return (
                       <li
-                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
                         key={`${value(item.fullName ?? "repo")}-${index}`}
                       >
                         <div className="flex items-center gap-2">
@@ -3747,15 +3832,24 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               </div>
               {latest ? (
                 <div
-                  className={`flex items-center justify-between rounded-lg border border-[var(--color-line)] px-3 py-2 text-[10px] ${riskClass(latest.risk)}`}
+                  className={`min-w-0 rounded-lg border border-[var(--color-line)] px-3 py-2 text-[10px] ${riskClass(latest.risk)}`}
                 >
-                  <span>{t("最近一次：{v0}", { v0: value(latest.source, "unknown") })}</span>
-                  <strong>
-                    {t("{v0} · {v1} 项", {
-                      v0: riskLabel(latest.risk),
-                      v1: value(latest.findings && Array.isArray(latest.findings) ? latest.findings.length : 0),
-                    })}
-                  </strong>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">{t("最近一次：{v0}", { v0: value(latest.source, "unknown") })}</span>
+                    <strong className="shrink-0">
+                      {t("{v0} · {v1} 项", {
+                        v0: riskLabel(latest.risk),
+                        v1: value(latest.findings && Array.isArray(latest.findings) ? latest.findings.length : 0),
+                      })}
+                    </strong>
+                  </div>
+                  {Array.isArray(latest.findings) && latest.findings.length > 0 ? (
+                    <ul className="mt-2 grid gap-1 [overflow-wrap:anywhere]">
+                      {latest.findings.map((finding, index) => (
+                        <li key={index}>{value(finding !== null && typeof finding === "object" ? (finding as Record<string, unknown>).message : finding)}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               ) : null}
               {receipts.length > 0 ? (
@@ -3838,7 +3932,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             nodes.filter((entry): entry is Record<string, unknown> => entry !== null && typeof entry === "object").map((entry) => [value(entry.id), entry]),
           );
           return (
-            <div className="mt-3 grid gap-3">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
               <div className="grid grid-cols-3 gap-2">
                 {[
                   [t("会话"), nodes.length],
@@ -3858,7 +3952,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
               ) : null}
               {nodes.length > 0 ? (
-                <ul className="grid gap-1.5">
+                <ul className="grid min-w-0 grid-cols-1 gap-1.5">
                   <li className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
                     {t("最近会话 {v0} / {v1}", { v0: Math.min(nodes.length, 8), v1: nodes.length })}
                   </li>
@@ -4124,7 +4218,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                         <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{session.name}</strong>
                         <span className="shrink-0 font-mono text-[9px] text-[var(--color-faint)]">{t("{v0} 条消息", { v0: session.messageCount })}</span>
                       </div>
-                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[10px] leading-4 text-[var(--color-muted)]">{session.message}</p>
+                      <p className="mt-1 min-w-0 line-clamp-2 whitespace-pre-wrap text-[10px] leading-4 text-[var(--color-muted)] [overflow-wrap:anywhere]">{session.message}</p>
                     </div>
                   ))}
                 </div>
@@ -4307,7 +4401,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   const findings = Array.isArray(report.findings) ? report.findings : [];
                   return findings.length > 0 ? (
                     <ul className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[10px] text-[var(--color-muted)]">
-                      {findings.slice(0, 4).map((finding, index) => {
+                      {findings.slice(0, 6).map((finding, index) => {
                         const item = finding && typeof finding === "object" ? (finding as Record<string, unknown>) : {};
                         return (
                           <li key={`${value(item.code ?? "finding")}-${index}`}>
@@ -4384,7 +4478,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                   ) : block.type === "text" ? (
                     <div className={`rounded-lg border px-3 py-2 text-[11px] ${toneClass[block.tone]}`} key={`${block.label}-${index}`}>
                       <strong className="block text-[10px]">{block.label}</strong>
-                      <p className="mt-1 whitespace-pre-wrap break-words leading-4">{block.value}</p>
+                      <p className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] leading-4">{block.value}</p>
                     </div>
                   ) : (
                     <div
@@ -4434,7 +4528,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </div>
                 {violations.length > 0 ? (
                   <ul className="grid gap-1 rounded-lg border border-[#f4caca] bg-[var(--color-soft)] px-3 py-2 text-[10px] text-[var(--color-red)]">
-                    {violations.slice(0, 4).map((item, index) => (
+                    {violations.slice(0, 5).map((item, index) => (
                       <li key={`${value(item)}-${index}`}>
                         {value(item && typeof item === "object" ? ((item as Record<string, unknown>).message ?? t("违规")) : item)}
                       </li>
@@ -4445,6 +4539,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             );
           })()}
           <p className="text-[10px] text-[var(--color-faint)]">{t("可让 Agent 调用 trajectory_anchor_check 审计当前执行轨迹。")}</p>
+          <p className="text-[10px] text-[var(--color-faint)]">{t("告警自插件加载以来累计，跨会话保留；只读审计，不会阻止工具执行。")}</p>
         </div>
       ) : panel.id === "telemetry-blocker-panel" ? (
         <div className="mt-3 grid gap-3">
@@ -4537,7 +4632,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         </div>
       ) : panel.id === "change-verifier-panel" ? (
         <div className="mt-3 grid gap-3">
-          {data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
+          {data?.status === "running" ? (
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-muted)]">{t("执行中")}</div>
+          ) : data?.status === "failed" || data?.status === "cancelled" ? (
+            <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+              <p>{data.status === "cancelled" ? t("验证已取消") : t("验证失败")}</p>
+              {typeof data.lastError === "string" ? <p className="mt-2 break-words">{data.lastError}</p> : null}
+            </div>
+          ) : data?.latest !== null && data?.latest !== undefined && typeof data.latest === "object" ? (
             (() => {
               const report = data.latest as Record<string, unknown>;
               const tests = report.tests && typeof report.tests === "object" ? (report.tests as Record<string, unknown>) : {};
@@ -4685,15 +4787,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       <strong className="shrink-0 font-mono text-[12px] text-[var(--color-blue)]">{report.rowInventory.returned} rows</strong>
                     </div>
                     <code className="mt-2 block max-h-16 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-[var(--color-faint)]">
-                      {report.query}
+                      {sqlLensDisplayText(report.query, true)}
                     </code>
                   </div>
                   <p className="break-words text-[10px] text-[var(--color-faint)]">
                     {t("列：")}
-                    {report.columns.join(", ")}
+                    {report.columns.map((column) => sqlLensDisplayText(column)).join(", ")}
                   </p>
                   <pre className="max-h-56 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
-                    {JSON.stringify(report.rows, null, 2)}
+                    {sqlLensRowsJson(report.rows)}
                   </pre>
                   {report.rowInventory.truncated ? (
                     <p className="text-[10px] text-[var(--color-amber)]">
@@ -5122,7 +5224,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 </ul>
               ) : (
                 <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-                  {t("当前没有 MCP 服务器快照。")}
+                  {data?.available === false ? `MCP ${t("不可用")}` : t("当前没有 MCP 服务器快照。")}
                 </div>
               )}
               <div className="text-[10px] text-[var(--color-faint)]">
@@ -5140,9 +5242,15 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           </div>
           {data?.url ? <code className="rounded-md bg-[var(--color-surface)] px-3 py-2 text-[10px] text-[var(--color-muted)]">{value(data.url)}</code> : null}
           {data?.lastRequest ? <p className="text-[11px] text-[var(--color-faint)]">{t("最近请求：{v0}", { v0: value(data.lastRequest) })}</p> : null}
+          {typeof data?.lastError === "string" && data.lastError.length > 0 ? (
+            <p role="alert" className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[11px] [overflow-wrap:anywhere] text-[var(--color-red)]">
+              {data.lastError.slice(0, 500)}
+            </p>
+          ) : null}
         </div>
       ) : panel.id === "cli-notifier-panel" ? (
         <div className="mt-3 grid gap-3">
+          <p className="text-[10px] leading-4 text-[var(--color-faint)]">{t("提交成功不代表通知已显示或已读；请检查系统通知设置。")}</p>
           <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
             <span className="font-mono text-[11px] text-[var(--color-ink)]">{data?.enabled === true ? t("已启用") : t("已停用")}</span>
             <span className="font-mono text-[10px] text-[var(--color-faint)]">
@@ -5161,7 +5269,7 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     <div className="flex items-center justify-between gap-2">
                       <strong className="text-[var(--color-ink)]">{value(item.title ?? "Pi Harness")}</strong>
                       <span className={item.delivered === true ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}>
-                        {item.delivered === true ? t("已送达") : t("未送达")}
+                        {item.delivered === true ? t("已提交系统") : t("未提交系统")}
                       </span>
                     </div>
                     <span className="mt-1 block text-[var(--color-muted)]">{value(item.message, "")}</span>
@@ -7661,6 +7769,26 @@ const TOOL_ARGUMENT_PREVIEW_LIMIT = 140;
 // A tool result is untrusted text of any length, and the row it belongs to is collapsed, so the transcript keeps a readable head of it rather than pushing megabytes of file contents into the document.
 const TOOL_RESULT_PREVIEW_LIMIT = 4_000;
 
+function toolSignatureValue(input: unknown): string {
+  if (input === undefined) return "<undefined>";
+  if (typeof input === "string") return input;
+  try {
+    const seen = new WeakSet<object>();
+    const serialized = JSON.stringify(input, (_key: string, nested: unknown): unknown => {
+      if (nested !== null && typeof nested === "object") {
+        if (seen.has(nested)) return "[Circular]";
+        seen.add(nested);
+      }
+      return nested;
+    });
+    return serialized ?? "[Unavailable]";
+  } catch {
+    // Runtime payloads normally arrive through JSON, but a local adapter can hand
+    // the client a cyclic object. The signature must never make rendering fail.
+    return "[Unavailable]";
+  }
+}
+
 /** The arguments of a call as one line, so the row says which file was read rather than only that `read` ran. */
 export function toolArgumentSummary(args: unknown): string {
   if (args === undefined || args === null) return "";
@@ -7668,12 +7796,14 @@ export function toolArgumentSummary(args: unknown): string {
   if (typeof args !== "object") return previewText(value(args, ""), TOOL_ARGUMENT_PREVIEW_LIMIT);
   const parts = Object.entries(args as Record<string, unknown>)
     .filter(([, item]) => item !== undefined && item !== null && item !== "")
-    .map(([key, item]) => `${key}=${typeof item === "string" ? item : JSON.stringify(item)}`);
+    .map(([key, item]) => `${key}=${toolSignatureValue(item)}`);
   return previewText(parts.join(" · "), TOOL_ARGUMENT_PREVIEW_LIMIT);
 }
 
-function toolSignature(tools: readonly ChatToolCall[]): string {
-  return tools.map((tool) => `${tool.id}:${tool.name}:${tool.failed ? 1 : 0}:${tool.result?.length ?? -1}`).join("|");
+export function toolSignature(tools: readonly ChatToolCall[]): string {
+  return tools
+    .map((tool) => `${tool.id}:${tool.name}:${tool.failed ? 1 : 0}:${toolSignatureValue(tool.arguments)}:${toolSignatureValue(tool.result)}`)
+    .join("|");
 }
 
 // Memoised on primitive props so a poll that returns an identical transcript does not re-run marked + DOMPurify over every turn. The tool list is a fresh array on every poll, so it is compared by content instead of by identity, which is what the default shallow comparison would do.
@@ -7782,6 +7912,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [selectedSessionPath, setSelectedSessionPath] = useState<string | undefined>(initialQueryState.sessionPath);
   const initialSessionPathRef = useRef(initialQueryState.sessionPath);
   const sessionRestoreAttemptedRef = useRef(false);
+  const [initialSessionRestorePending, setInitialSessionRestorePending] = useState(Boolean(initialQueryState.sessionPath));
+  const sessionNavigationRef = useRef<Promise<void>>(Promise.resolve());
+  const sessionNavigationIntentRef = useRef(0);
+  const pendingSessionNavigationRef = useRef<{ intent: number; path?: string; accepted: boolean } | undefined>(undefined);
+  const [pendingSessionUrlPath, setPendingSessionUrlPath] = useState<string>();
   const [draft, setDraft] = useState("");
   const [annotations, setAnnotations] = useState<ClientAnnotation[]>([]);
   const [annotationSelection, setAnnotationSelection] = useState("");
@@ -7807,6 +7942,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [sessionPage, setSessionPage] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
   const [sessionHasNext, setSessionHasNext] = useState(false);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [selectedSessionPaths, setSelectedSessionPaths] = useState<ReadonlySet<string>>(new Set());
   const importInputRef = useRef<HTMLInputElement>(null);
   const sessionPopoverTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -7816,6 +7952,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const stickToBottomRef = useRef(true);
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const refreshQueuedRef = useRef(false);
+  const refreshSequenceRef = useRef({ requested: 0, applied: 0 });
+  const liveRefreshSequenceRef = useRef({ status: 0, session: 0, pluginPanels: 0 });
   const resolvedMarketplaceDetailIdRef = useRef<string | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
@@ -7963,6 +8101,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       document.removeEventListener("keydown", dismissProviderModels);
     };
   }, []);
+  // Plugins can switch the runtime without a sidebar click. Once loaded,
+  // the URL describes the displayed session, not an earlier selection.
+  const sessionUrlPath = pendingSessionUrlPath ?? (initialSessionRestorePending ? initialQueryState.sessionPath : data.session ? data.session.sessionFile : selectedSessionPath);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -7971,7 +8112,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     else params.set("view", view);
     if (settings) params.set("settings", settings);
     else params.delete("settings");
-    if (selectedSessionPath) params.set("session", selectedSessionPath);
+    if (sessionUrlPath) params.set("session", sessionUrlPath);
     else params.delete("session");
     if (marketplaceQuery) params.set("marketplaceQuery", marketplaceQuery);
     else params.delete("marketplaceQuery");
@@ -7994,7 +8135,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     marketplacePluginId,
     marketplaceQuery,
     page,
-    selectedSessionPath,
+    sessionUrlPath,
     settings,
     view,
   ]);
@@ -8085,7 +8226,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     };
   }, [api, installedPluginId, marketplaceCatalog]);
   const refresh = useCallback(async () => {
-    const results = await Promise.allSettled([
+    const sequence = ++refreshSequenceRef.current.requested;
+    const pendingNavigation = pendingSessionNavigationRef.current;
+    const requests = [
       api.getStatus(),
       api.getSession(),
       api.listSessions(sessionPage, 30, includeArchivedSessions),
@@ -8097,8 +8240,31 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory),
       api.listCommands(),
       api.listWorkspaces(),
-    ]);
-    const [status, session, sessions, files, models, providers, plugins, pluginPanels, marketplace, commands, workspaces] = results;
+    ] as const;
+    const allResults = Promise.allSettled(requests);
+    const applyLive = <K extends "status" | "session" | "pluginPanels">(key: K, result: RoomData[K]) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current[key]) return;
+      liveRefreshSequenceRef.current[key] = sequence;
+      // Do not advance the full-batch barrier: a fast status read must not
+      // continually invalidate slower panel reads. Setters retain queue order
+      // with authoritative navigation updates; updater functions stay pure.
+      setData((current) => ({ ...current, [key]: result }));
+    };
+    void requests[0].then((result) => applyLive("status", result), () => {});
+    void requests[1].then((result) => applyLive("session", result), () => {});
+    void requests[7].then((result) => applyLive("pluginPanels", result), () => {});
+    const results = await allResults;
+    const [, session, sessions, files, models, providers, plugins, , marketplace, commands, workspaces] = results;
+    // Slow older batches must not overwrite a newer applied snapshot. An older
+    // result can still render while a newer batch is pending, avoiding starvation.
+    if (sequence < refreshSequenceRef.current.applied) return;
+    refreshSequenceRef.current.applied = sequence;
+    // Only an applied session read started after navigation was accepted can
+    // settle its route. Failed reads and older refreshes must not revert it.
+    if (session.status === "fulfilled" && pendingNavigation?.accepted && pendingSessionNavigationRef.current === pendingNavigation) {
+      pendingSessionNavigationRef.current = undefined;
+      setPendingSessionUrlPath(undefined);
+    }
     setRefreshIssues(
       failedRefreshLabels(
         [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("模型"), t("提供商"), t("插件"), t("插件面板"), t("插件市场"), t("命令"), t("工作区")],
@@ -8107,14 +8273,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     );
     setInitialRefreshPending(false);
     setData((current) => ({
-      status: status.status === "fulfilled" ? status.value : current.status,
-      session: session.status === "fulfilled" ? session.value : current.session,
+      // Live fields are applied independently above, including stale guards.
+      // Reapplying them here could overwrite a newer partial response.
+      status: current.status,
+      session: current.session,
       sessions: sessions.status === "fulfilled" ? sessions.value.items : current.sessions,
       files: files.status === "fulfilled" ? files.value : current.files,
       models: models.status === "fulfilled" ? models.value : current.models,
       providers: providers.status === "fulfilled" ? providers.value : current.providers,
       plugins: plugins.status === "fulfilled" ? plugins.value : current.plugins,
-      pluginPanels: pluginPanels.status === "fulfilled" ? pluginPanels.value : current.pluginPanels,
+      pluginPanels: current.pluginPanels,
       marketplace: marketplace.status === "fulfilled" ? marketplace.value.items : current.marketplace,
       marketplaceCapabilities: marketplace.status === "fulfilled" ? marketplace.value.capabilities : current.marketplaceCapabilities,
       marketplaceCategories: marketplace.status === "fulfilled" ? marketplace.value.categories : current.marketplaceCategories,
@@ -8125,6 +8293,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       workspaces: workspaces.status === "fulfilled" ? workspaces.value : current.workspaces,
     }));
     if (sessions.status === "fulfilled") {
+      setSessionsLoaded(true);
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
@@ -8166,28 +8335,51 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const handleRuntimeEventRef = useRef(handleRuntimeEvent);
   const refreshRef = useRef(refresh);
   const createNewSession = useCallback(
-    async (workspace?: ClientWorkspace) => {
+    (workspace?: ClientWorkspace) => {
       setPromptError("");
       setWorkspaceError("");
-      try {
-        const created = await api.createSession(workspace?.path);
-        if (created.sessionFile) setSelectedSessionPath(created.sessionFile);
-        setSettings(undefined);
-        setCommandOpen(false);
-        setGlobalSearchOpen(false);
-        setDetails(undefined);
-        setWorkspaceChooserOpen(false);
-        setSelectedWorkspacePath(workspace?.path);
-        setCommandQuery("");
-        setPage("session");
-        setView("chat");
-        setSessionMenuOpen(false);
-        await refresh();
-      } catch (cause: unknown) {
-        const message = cause instanceof Error ? cause.message : String(cause);
-        if (workspace) setWorkspaceError(message);
-        else setPromptError(message);
-      }
+      const intent = ++sessionNavigationIntentRef.current;
+      pendingSessionNavigationRef.current = { intent, accepted: false };
+      setPendingSessionUrlPath(undefined);
+      sessionNavigationRef.current = sessionNavigationRef.current.then(async () => {
+        try {
+          const created = await api.createSession(workspace?.path);
+          // The create response supersedes every refresh started before it.
+          // Reserve a sequence so those batches cannot restore the old room
+          // while the post-create refresh is still pending.
+          refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+          if (pendingSessionNavigationRef.current?.intent === intent) {
+            pendingSessionNavigationRef.current = { intent, path: created.sessionFile, accepted: true };
+            setPendingSessionUrlPath(created.sessionFile);
+          }
+          if (created.sessionFile) setSelectedSessionPath(created.sessionFile);
+          // The create response is authoritative for the newly selected
+          // session. Apply it before the broad refresh so a concurrent stale
+          // /api/session read cannot briefly put the previous session back in
+          // the room or leave the active row showing its message count.
+          setData((current) => ({ ...current, session: created }));
+          setSettings(undefined);
+          setCommandOpen(false);
+          setGlobalSearchOpen(false);
+          setDetails(undefined);
+          setWorkspaceChooserOpen(false);
+          setSelectedWorkspacePath(workspace?.path);
+          setCommandQuery("");
+          setPage("session");
+          setView("chat");
+          setSessionMenuOpen(false);
+          await refresh();
+        } catch (cause: unknown) {
+          if (pendingSessionNavigationRef.current?.intent === intent) {
+            pendingSessionNavigationRef.current = undefined;
+            setPendingSessionUrlPath(undefined);
+          }
+          const message = cause instanceof Error ? cause.message : String(cause);
+          if (workspace) setWorkspaceError(message);
+          else setPromptError(message);
+        }
+      });
+      return sessionNavigationRef.current;
     },
     [api, refresh],
   );
@@ -8232,19 +8424,35 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [data.status?.status]);
   useEffect(() => {
     const path = initialSessionPathRef.current;
-    if (!path || sessionRestoreAttemptedRef.current || data.sessions.length === 0) return;
+    if (!path || sessionRestoreAttemptedRef.current || !sessionsLoaded) return;
     sessionRestoreAttemptedRef.current = true;
+    if (sessionNavigationIntentRef.current > 0) {
+      setInitialSessionRestorePending(false);
+      return;
+    }
     const target = data.sessions.find((session) => session.path === path);
     if (!target || typeof target.path !== "string") {
       setSelectedSessionPath(undefined);
+      setInitialSessionRestorePending(false);
       return;
     }
-    if (data.session?.sessionFile === target.path) return;
-    void api
-      .openSession(target.path)
-      .then(refresh)
-      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
-  }, [api, data.session?.sessionFile, data.sessions, refresh]);
+    if (data.session?.sessionFile === target.path) {
+      setInitialSessionRestorePending(false);
+      return;
+    }
+    sessionNavigationRef.current = sessionNavigationRef.current
+      .then(async () => {
+        if (sessionNavigationIntentRef.current > 0) return;
+        await api.openSession(path);
+        if (sessionNavigationIntentRef.current === 0) {
+          pendingSessionNavigationRef.current = { intent: 0, path, accepted: true };
+          setPendingSessionUrlPath(path);
+        }
+        await refresh();
+      })
+      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setInitialSessionRestorePending(false));
+  }, [api, data.session?.sessionFile, data.sessions, refresh, sessionsLoaded]);
   useEffect(() => {
     setCommandIndex(0);
     if (!commandOpen) return;
@@ -8341,7 +8549,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         setAnnotations([]);
         await refresh();
       })
-      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)))
+      .catch((cause: unknown) => {
+        setPromptError(cause instanceof Error ? cause.message : String(cause));
+        // A rejected request was never accepted as a turn. Keep it editable,
+        // without replacing a new draft the user typed while awaiting it.
+        setDraft((current) => current || question);
+      })
       .finally(() => setPendingPrompt(""))
       .finally(() => setPromptBusy(false));
   };
@@ -8395,6 +8608,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
     if (!path) return;
+    const intent = ++sessionNavigationIntentRef.current;
+    pendingSessionNavigationRef.current = { intent, path, accepted: false };
+    setPendingSessionUrlPath(path);
     setSettings(undefined);
     setCommandOpen(false);
     setGlobalSearchOpen(false);
@@ -8402,10 +8618,29 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setView("chat");
     setDetails(undefined);
     setSelectedSessionPath(path);
-    void api
-      .openSession(path)
+    // Check the runtime, not the cached page snapshot: a newly created session
+    // can be active before refresh has painted it. Reopening the actual active
+    // session would discard session-scoped plugin state just to navigate back.
+    // Serialize navigation, including the read, so an earlier slow switch
+    // cannot finish after the user's latest selection and replace it.
+    sessionNavigationRef.current = sessionNavigationRef.current
+      .then(async () => {
+        const current = await api.getSession();
+        const opened = path !== current.sessionFile ? await api.openSession(path) : current;
+        refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+        setData((previous) => ({ ...previous, session: opened }));
+        if (pendingSessionNavigationRef.current?.intent === intent) {
+          pendingSessionNavigationRef.current = { intent, path, accepted: true };
+        }
+      })
       .then(refresh)
-      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause: unknown) => {
+        if (pendingSessionNavigationRef.current?.intent === intent) {
+          pendingSessionNavigationRef.current = undefined;
+          setPendingSessionUrlPath(undefined);
+        }
+        setPromptError(cause instanceof Error ? cause.message : String(cause));
+      });
   };
   const sessionAction = async (action: () => Promise<void>) => {
     if (sessionActionBusy) return;
@@ -8717,6 +8952,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           </div>
         </div>
         <div className="composer-stack">
+          <ProviderAuthNotice model={data.status?.model} providers={data.providers} onConfigure={() => setSettings("providers")} />
           {promptError && <PromptError message={promptError} />}
           {annotationSelection ? (
             <div aria-label={t("添加批注")} className="rounded-lg border border-[#cdddf8] bg-[var(--color-blue-soft)] px-3 py-2">
@@ -9030,6 +9266,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               void sessionAction(async () => {
                 const imported = await api.importSession(await file.text(), file.name);
                 if (imported.sessionFile) setSelectedSessionPath(imported.sessionFile);
+                // Import returns a receipt, not the imported message history.
+                // Read that history without waiting for unrelated refresh APIs.
+                const session = await api.getSession();
+                if (session.sessionId !== imported.sessionId) throw new Error("Imported session is no longer active");
+                refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+                setData((current) => ({ ...current, session }));
               });
             }}
             ref={importInputRef}
@@ -9222,7 +9464,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                         const result = await api.forkSession(activeSessionPath);
                         if (result.sessionFile) {
                           setSelectedSessionPath(result.sessionFile);
-                          await api.openSession(result.sessionFile);
+                          const session = await api.openSession(result.sessionFile);
+                          refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+                          setData((current) => ({ ...current, session }));
                         }
                       })
                     }
@@ -9306,7 +9550,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                               const result = await api.forkSession(session.path as string);
                               if (result.sessionFile) {
                                 setSelectedSessionPath(result.sessionFile);
-                                await api.openSession(result.sessionFile);
+                                const session = await api.openSession(result.sessionFile);
+                                refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+                                setData((current) => ({ ...current, session }));
                               }
                             })
                           }
@@ -9525,7 +9771,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                           const result = await api.forkSession(activeSessionPath as string);
                           if (result.sessionFile) {
                             setSelectedSessionPath(result.sessionFile);
-                            await api.openSession(result.sessionFile);
+                            const session = await api.openSession(result.sessionFile);
+                            refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+                            setData((current) => ({ ...current, session }));
                           }
                         })
                       }

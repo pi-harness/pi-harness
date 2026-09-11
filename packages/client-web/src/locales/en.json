@@ -1,4 +1,12 @@
 {
+  "上次成功结果（非本次审阅）": "Previous successful result (not this review)",
+  "已提交系统": "Submitted to system",
+  "未提交系统": "Not submitted",
+  "提交成功不代表通知已显示或已读；请检查系统通知设置。": "Successful submission does not confirm display or reading; check system notification settings.",
+  "本页匹配 {v0} 个会话": "{v0} matching sessions on this page",
+  "还有未扫描的会话。即使本页没有匹配，也可使用相同查询和 nextCursor 继续搜索。": "More sessions remain unscanned. Even if this page has no matches, continue with the same query and nextCursor.",
+  "目录扫描已结束；跳过的文件和省略的预览不代表已完整检查。": "Directory scanning has ended; skipped files and omitted previews have not been fully checked.",
+  "告警自插件加载以来累计，跨会话保留；只读审计，不会阻止工具执行。": "Warnings accumulate since plugin load and persist across sessions. Read-only audit; tool execution is never blocked.",
   " / {limit} 上限": " / {limit} limit",
   " profile patch 写入未配置，apply 会被拒绝。": " profile patch writing is not configured; apply will be rejected.",
   " · 不完整": " · incomplete",
