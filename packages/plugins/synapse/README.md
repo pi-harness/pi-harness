@@ -28,4 +28,6 @@ Panel polls reuse a detached snapshot for up to five seconds within the same ses
 
 `maxSessions` must be an integer from 1 to 2000 (default 500). It limits returned nodes after the native SDK has read and sorted the complete directory; it does not bound disk I/O, memory use or scan duration. Node labels are limited to 120 UTF-16 units without splitting surrogate pairs. Only persisted sessions appear, and a parent outside the returned subset is counted as undisplayed, not proven missing. Fork edges describe separate native session files, not branches within one journal.
 
+Before listing, Synapse opens and closes the session directory to surface access errors or a path that is not a directory, instead of treating those failures as a successful empty map. A missing directory remains a normal empty inventory before the first persisted session. This preflight is not an atomic guarantee: subsequent filesystem changes and individual journal reads retain the native SDK's behavior.
+
 The panel shows at most eight nodes and five edges. Each node's branch count covers the displayed graph only. Files can change during enumeration, so the map is not an atomic filesystem snapshot.
