@@ -2,7 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
 
 export type SessionInsightsPluginConfig = Record<never, never>;
 
@@ -315,12 +315,20 @@ export default {
       return cloneDetails(cachedStats, compaction);
     };
     const startCompaction = (session: NonNullable<ReturnType<typeof runtime>>["session"], callerSignal: AbortSignal, requestedAt: string): Promise<void> => {
+      const releaseCompaction = session.isCompacting ? undefined : tryAcquireSessionCompaction(session);
+      if (releaseCompaction === undefined) {
+        const error = new Error("A session compaction is already in progress");
+        compaction = { status: "failed", requestedAt, finishedAt: new Date().toISOString(), error: error.message };
+        return Promise.reject(error);
+      }
       const sessionId = session.sessionId;
       const controller = new AbortController();
       const signal = AbortSignal.any([callerSignal, controller.signal]);
       const startedAt = new Date().toISOString();
       compaction = { status: "running", requestedAt, startedAt };
       const operation = Promise.resolve().then(async () => {
+        let nativeStarted = false;
+        let unsubscribeCompaction: (() => void) | undefined;
         const abort = (): void => {
           try {
             session.abortCompaction();
@@ -328,27 +336,29 @@ export default {
             // Cancellation remains authoritative even if the runtime is already tearing down.
           }
         };
-        signal.addEventListener("abort", abort, { once: true });
-        const unsubscribeCompaction = session.subscribe((event) => {
-          if (event.type === "compaction_start" && signal.aborted) abort();
-        });
-        const nativeOperation = Promise.resolve()
-          .then(async () => {
-            throwIfCancelled(signal);
-            if (runtime()?.session !== session || session.sessionId !== sessionId) {
-              controller.abort(new Error("Session changed before session compaction started"));
-              throwIfCancelled(signal);
-            }
-            await session.compact();
-          })
-          .finally(() => {
-            signal.removeEventListener("abort", abort);
-            unsubscribeCompaction();
-            if (active === nativeOperation) active = undefined;
-            if (activeRequest?.controller === controller) activeRequest = undefined;
-          });
-        active = nativeOperation;
         try {
+          signal.addEventListener("abort", abort, { once: true });
+          unsubscribeCompaction = session.subscribe((event) => {
+            if (event.type === "compaction_start" && signal.aborted) abort();
+          });
+          const nativeOperation = Promise.resolve()
+            .then(async () => {
+              throwIfCancelled(signal);
+              if (runtime()?.session !== session || session.sessionId !== sessionId) {
+                controller.abort(new Error("Session changed before session compaction started"));
+                throwIfCancelled(signal);
+              }
+              await session.compact();
+            })
+            .finally(() => {
+              signal.removeEventListener("abort", abort);
+              unsubscribeCompaction?.();
+              releaseCompaction();
+              if (active === nativeOperation) active = undefined;
+              if (activeRequest?.controller === controller) activeRequest = undefined;
+            });
+          nativeStarted = true;
+          active = nativeOperation;
           await waitForOperation(nativeOperation, signal);
           throwIfCancelled(signal);
           if (runtime()?.session !== session || session.sessionId !== sessionId) {
@@ -367,6 +377,12 @@ export default {
           };
           if (runtime()?.session === session) refreshStats();
           throw error;
+        } finally {
+          if (!nativeStarted) {
+            signal.removeEventListener("abort", abort);
+            unsubscribeCompaction?.();
+            releaseCompaction();
+          }
         }
       });
       active = operation;
@@ -432,6 +448,7 @@ export default {
         refreshStats();
         if (request.compact) {
           if (active !== undefined || queued !== undefined) throw new Error("A session compaction is already in progress");
+          if (service.session.isCompacting) throw new Error("A session compaction is already in progress");
           const requestedAt = new Date().toISOString();
           if (service.session.isIdle === false) {
             const onAbort = (): void => {

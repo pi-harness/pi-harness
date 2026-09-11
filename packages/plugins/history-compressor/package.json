@@ -41,7 +41,11 @@
     "typecheck": "tsc -p tsconfig.build.json --noEmit"
   },
   "dependencies": {
-    "@pi-harness/plugin-api": "^0.1.27"
+    "@pi-harness/plugin-api": "^0.1.57"
+  },
+  "devDependencies": {
+    "@pi-harness/core": "^0.1.28",
+    "@pi-harness/plugin-session-insights": "^0.1.30"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

@@ -2,7 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import z from "@deepseek-ai/schemastery";
-import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
+import { assertKnownConfigKeys, tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
 
 type CompressionState = {
   enabled: boolean;
@@ -23,6 +23,28 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("History compaction cancelled");
 }
 
+function cancellationError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error("History compaction cancelled", { cause: signal.reason });
+}
+
+function waitForOperation<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(cancellationError(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void operation.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error instanceof Error ? error : new Error("History compaction failed with a non-error rejection", { cause: error }));
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
 export default {
   name: "pi-history-compressor",
   inject: ["piPluginUi", "piTools"],
@@ -34,21 +56,58 @@ export default {
     const state: CompressionState = { enabled, thresholdPercent, compactions: 0, lastUsagePercent: null, queued: false, lastError: null };
     let inFlight = false;
     const lifecycle = new AbortController();
-    let queued: { session: unknown; automatic: boolean; signal: AbortSignal; removeAbortListener: () => void } | undefined;
     const runtime = () => context.get("piRuntime");
-    const startCompaction = async (automatic: boolean, signal: AbortSignal): Promise<CompressionResult> => {
+    type RuntimeSession = NonNullable<ReturnType<typeof runtime>>["session"];
+    let activeRequest: { session: RuntimeSession; controller: AbortController } | undefined;
+    let queued: { session: RuntimeSession; automatic: boolean; signal: AbortSignal; removeAbortListener: () => void } | undefined;
+    const cancelForSessionChange = (session: unknown): void => {
+      if (queued !== undefined && queued.session !== session) {
+        const request = queued;
+        queued = undefined;
+        request.removeAbortListener();
+        state.queued = false;
+        state.lastError = "Session changed before the queued history compaction could start";
+      }
+      if (activeRequest !== undefined && activeRequest.session !== session && !activeRequest.controller.signal.aborted) {
+        activeRequest.controller.abort(new Error("Session changed while history compaction was running"));
+      }
+    };
+    const startCompaction = async (session: RuntimeSession, automatic: boolean, callerSignal: AbortSignal): Promise<CompressionResult> => {
+      const controller = new AbortController();
+      const signal = AbortSignal.any([callerSignal, controller.signal]);
       throwIfAborted(signal);
-      const service = runtime();
-      if (service === undefined) throw new Error("Pi runtime is not ready");
-      const session = service.session;
-      const abort = (): void => session.abortCompaction();
+      const abort = (): void => {
+        try {
+          session.abortCompaction();
+        } catch {
+          // Caller cancellation remains authoritative while the runtime tears down.
+        }
+      };
       const unsubscribeCompaction = session.subscribe((event) => {
         if (event.type === "compaction_start" && signal.aborted) abort();
       });
+      const releaseCompaction = tryAcquireSessionCompaction(session);
+      if (releaseCompaction === undefined) {
+        unsubscribeCompaction();
+        return { compacted: false, automatic, queued: false };
+      }
       signal.addEventListener("abort", abort, { once: true });
       inFlight = true;
+      activeRequest = { session, controller };
+      const nativeOperation = Promise.resolve()
+        .then(async () => {
+          throwIfAborted(signal);
+          await session.compact();
+        })
+        .finally(() => {
+          signal.removeEventListener("abort", abort);
+          unsubscribeCompaction();
+          releaseCompaction();
+          inFlight = false;
+          if (activeRequest?.controller === controller) activeRequest = undefined;
+        });
       try {
-        await session.compact();
+        await waitForOperation(nativeOperation, signal);
         throwIfAborted(signal);
         state.compactions += 1;
         state.lastError = null;
@@ -56,10 +115,6 @@ export default {
       } catch (error) {
         state.lastError = (error instanceof Error ? error.message : String(error)).replaceAll("\0", "�").slice(0, 2_000);
         throw error;
-      } finally {
-        signal.removeEventListener("abort", abort);
-        unsubscribeCompaction();
-        inFlight = false;
       }
     };
     // session.compact() aborts the active agent operation, including a pending retry or queued continuation, so a request raised while the session is busy waits for the authoritative agent_settled event instead of destroying the turn that asked for it.
@@ -68,7 +123,7 @@ export default {
       const service = runtime();
       if (service === undefined) throw new Error("Pi runtime is not ready");
       if (automatic && !enabled) return { compacted: false, automatic, queued: false };
-      if (inFlight || queued !== undefined) return { compacted: false, automatic, queued: queued !== undefined };
+      if (inFlight || queued !== undefined || service.session.isCompacting === true) return { compacted: false, automatic, queued: queued !== undefined };
       if (service.session.isIdle === false) {
         const onAbort = (): void => {
           if (queued?.signal !== signal) return;
@@ -81,7 +136,7 @@ export default {
         state.queued = true;
         return { compacted: false, automatic, queued: true };
       }
-      return startCompaction(automatic, signal);
+      return startCompaction(service.session, automatic, signal);
     };
     const readUsagePercent = (): number | null => {
       const service = runtime();
@@ -100,6 +155,8 @@ export default {
       if (enabled && usagePercent !== null && usagePercent >= thresholdPercent) void compact(true).catch(() => undefined);
     };
     const unsubscribe = context.on("pi/session-event", (event) => {
+      const service = runtime();
+      cancelForSessionChange(service?.session);
       const descriptor = Object.getOwnPropertyDescriptor(event, "type");
       const type: unknown = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
       if (type === "agent_end") inspectAndMaybeCompact();
@@ -109,7 +166,6 @@ export default {
       queued = undefined;
       request.removeAbortListener();
       state.queued = false;
-      const service = runtime();
       if (service === undefined || service.session !== request.session) {
         state.lastError = "Session changed before the queued history compaction could start";
         return;
@@ -119,7 +175,7 @@ export default {
         const usagePercent = readUsagePercent();
         if (usagePercent === null || usagePercent < thresholdPercent) return;
       }
-      void startCompaction(request.automatic, request.signal).catch(() => undefined);
+      void startCompaction(request.session, request.automatic, request.signal).catch(() => undefined);
     });
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -151,7 +207,10 @@ export default {
         title: "History Compressor",
         description: "在上下文接近阈值时自动压缩历史消息。",
         icon: "↯",
-        read: () => ({ ...state }),
+        read: () => {
+          cancelForSessionChange(runtime()?.session);
+          return { ...state };
+        },
       });
     } catch (error) {
       unregisterTool();
