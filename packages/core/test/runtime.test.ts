@@ -35,6 +35,32 @@ describe("Pi runtime plugin", () => {
     expect(callCount()).toBe(1);
   });
 
+  test("stops an aborted tool turn before preparing another provider request", async () => {
+    const { context, faux } = await createTestRuntimeContext(
+      [
+        fauxAssistantMessage([{ type: "toolCall", id: "budget-read", name: "read", arguments: { path: "unused.txt" } }], { stopReason: "toolUse" }),
+        fauxAssistantMessage("must not request this response"),
+      ],
+      ["read"],
+    );
+    contexts.push(context);
+    let abortRequested = false;
+    context.piRuntime.session.subscribe((event) => {
+      if (!abortRequested && event.type === "message_end" && event.message.role === "assistant") {
+        abortRequested = true;
+        void context.piRuntime.abort();
+      }
+    });
+    await context.piRuntime.prompt("read then continue");
+    expect(abortRequested).toBe(true);
+    expect(faux.state.callCount).toBe(1);
+    expect(context.piRuntime.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "aborted" });
+    expect(context.piRuntime.session.isIdle).toBe(true);
+    await context.piRuntime.prompt("a new user prompt after stopping");
+    expect(faux.state.callCount).toBe(2);
+    expect(context.piRuntime.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
+  });
+
   test("disposes the Pi session with its Cordis fiber", async () => {
     const { context } = await createRuntimeContext();
     const runtime = context.piRuntime;

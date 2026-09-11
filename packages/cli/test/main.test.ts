@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { DUPLICATE_SIGNAL_WINDOW_MS, runCli, type CliEnvironment } from "../src/main.js";
 
 interface TestEnvironment extends CliEnvironment {
@@ -92,10 +92,16 @@ describe("runCli duplicate signal delivery", () => {
     const result = runCli(["--config", profile.configPath], environment);
     await waitForFileContent(profile.markerPath, "started:run");
 
-    // The terminal broadcasts Ctrl-C to the process group and the development supervisor relays the same signal; both land within a millisecond or two of each other.
-    environment.emitSignal("SIGINT");
-    await sleep(2);
-    environment.emitSignal("SIGINT");
+    // Control only signal receipt timestamps: a real 2ms timer can wake after the
+    // duplicate window under scheduler contention. Shutdown itself remains real.
+    const receiptClock = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    try {
+      environment.emitSignal("SIGINT");
+      receiptClock.mockReturnValue(1_002);
+      environment.emitSignal("SIGINT");
+    } finally {
+      receiptClock.mockRestore();
+    }
 
     await expect(result).resolves.toBe(130);
     expect(environment.forcedExitCodes).toEqual([]);
