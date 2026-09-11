@@ -275,6 +275,68 @@ describe("browser-fetch", () => {
     }
   });
 
+  test("cancels a response body reader that stalls after headers arrive", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-browser-fetch-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    let cancelCalled = false;
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    fetchMock.override = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              markReadStarted();
+              return new Promise<void>((resolve) => {
+                releaseRead = () => {
+                  try {
+                    controller.close();
+                  } catch {
+                    // The production cancellation path may already have closed this stream.
+                  }
+                  resolve();
+                };
+              });
+            },
+            cancel() {
+              cancelCalled = true;
+            },
+          }),
+          { headers: { "content-type": "text/plain" } },
+        ),
+      );
+    try {
+      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(browserFetchPlugin, { allowPrivate: true });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "browser_fetch");
+      if (tool === undefined) throw new Error("browser_fetch was not registered");
+      const caller = new AbortController();
+      const execution = tool.execute("stalled-body", { url: "http://127.0.0.1:9/" }, caller.signal, undefined, {} as never);
+      await readStarted;
+      caller.abort(new Error("cancel stalled response body"));
+
+      const outcome = await Promise.race([
+        execution.then(
+          () => "resolved" as const,
+          () => "rejected" as const,
+        ),
+        new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 500)),
+      ]);
+      expect(outcome).toBe("rejected");
+      expect(cancelCalled).toBe(true);
+    } finally {
+      releaseRead?.();
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("does not start a fetch when the tool call is already cancelled", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-browser-fetch-"));
     const context = new Context();

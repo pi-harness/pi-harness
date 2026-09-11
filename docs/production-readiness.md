@@ -32,6 +32,12 @@ The audit is incomplete. The current count is 53 of 75 plugins with partial real
 
 The `scripts/verify-*.py` verifiers named throughout are not in this repository. They drive an authenticated local source launch and make real model calls, and several still hard-code absolute paths from the machine they were written on. They are kept on the audit branch rather than shipped here.
 
+### Browser Fetch cancellation while reading the response body (2026-09-12)
+
+- Added a regression with a response whose headers are available but whose body reader never settles. Before the fix, aborting `browser_fetch` left the operation pending because `readBody()` read directly from the stream without observing the caller/lifecycle signal; the red test returned `pending` after 500 ms and never called the stream's `cancel()`.
+- Response-body reads now race each `reader.read()` with the active signal, cancel the underlying reader on abort, normalize non-Error read failures, and preserve the existing request timeout/cancellation classification. The browser-fetch README documents that cancellation covers a stalled body.
+- Focused browser-fetch/rebinding tests passed 37/37; plugin-api dependency build, browser-fetch build/typecheck, scoped ESLint, formatter and whitespace checks passed. Redirect, body-size, encoding and live model-workflow gates remain separate; overall audit remains incomplete.
+
 ## Observation corrections (2026-09-10)
 
 ### Taskboard actual-model workspace isolation

@@ -212,15 +212,52 @@ function textualContentType(value: string): boolean {
   return value.startsWith("text/") || value.endsWith("+json") || value.endsWith("+xml") || value === "image/svg+xml" || textualApplicationTypes.has(value);
 }
 
-async function readBody(response: UndiciResponse): Promise<{ bytes: number; truncated: boolean; text: string }> {
+async function readBody(response: UndiciResponse, signal?: AbortSignal): Promise<{ bytes: number; truncated: boolean; text: string }> {
   if (response.body === null) return { bytes: 0, truncated: false, text: "" };
   const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
   const chunks: Uint8Array[] = [];
   let bytes = 0;
   let truncated = false;
+  const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (signal?.aborted === true) throw abortError(signal);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        void Promise.resolve()
+          .then(() => reader.cancel())
+          .catch(() => undefined);
+        reject(abortError(signal!));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) {
+        onAbort();
+        return;
+      }
+      void Promise.resolve()
+        .then(() => reader.read())
+        .then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error instanceof Error ? error : new Error("Browser response body read failed", { cause: error }));
+          },
+        );
+    });
+  };
   try {
     while (true) {
-      const next = await reader.read();
+      const next = await readChunk();
       if (next.done) break;
       const chunk = next.value;
       if (bytes + chunk.byteLength > maxResponseBytes) {
@@ -280,7 +317,7 @@ async function fetchPage(rawUrl: unknown, allowPrivate: boolean, timeoutMs: numb
           await cancelResponseBody(response);
           throw new Error(`Browser fetch rejected unsupported content type: ${responseContentType}`);
         }
-        const body = await readBody(response);
+        const body = await readBody(response, requestSignal);
         return {
           url: original,
           finalUrl: current.url.toString(),
