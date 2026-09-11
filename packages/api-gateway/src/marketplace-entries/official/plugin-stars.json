@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-plugin-stars",
   "version": "0.1.30",
   "name": "Plugin Stars",
-  "description": "在 raw.githubusercontent.com 上的插件榜单快照里检索，输入受限、校验严格、可取消，失败即关闭面板。",
+  "description": "显式配置 raw.githubusercontent.com 上的 Pi Harness 榜单后只读检索；输入受限、校验严格、可取消，失败保留上次成功结果。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -18,7 +18,6 @@
   "profile": {
     "name": "@pi-harness/plugin-plugin-stars",
     "config": {
-      "sourceUrl": "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json",
       "limit": 10,
       "timeoutMs": 15000
     }
