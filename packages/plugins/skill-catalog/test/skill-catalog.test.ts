@@ -29,7 +29,7 @@ afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-async function fixture() {
+async function fixture(withMcp = true) {
   const root = await mkdtemp(join(tmpdir(), "pi-catalog-"));
   roots.push(root);
   const skillDir = join(root, ".pi", "skills", "review");
@@ -53,16 +53,45 @@ async function fixture() {
   const tools = new PiToolRegistry(),
     panels = new PiPluginUiRegistry();
   context.provide("piResources", { resourceLoader: loader } as never);
-  context.provide("piMcp", {
-    snapshot: () => ({ servers: [{ id: "docs", status: "running", command: ["server", "--token", "fixture-private-value"], startedAt: 1 }] }),
-  });
+  if (withMcp)
+    context.provide("piMcp", {
+      snapshot: () => ({ servers: [{ id: "docs", status: "running", command: ["server", "--token", "fixture-private-value"], startedAt: 1 }] }),
+    });
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
   await context.plugin(plugin);
   const tool = tools.snapshot().customTools[0]!;
   const call = (params: unknown, signal?: AbortSignal) => tool.execute("catalog", params, signal, undefined, {} as never);
-  return { context, loader, panels, call, file };
+  return { context, loader, panels, call, file, tools };
 }
+
+test("activates without MCP and reports its absence without hiding loaded skills", async () => {
+  const { call, tools, panels } = await fixture(false);
+  expect(tools.snapshot().customTools.map((tool) => tool.name)).toContain("skill_catalog");
+  expect((await call({ action: "list" })).details).toMatchObject({ total: 1 });
+  expect((await call({ action: "read", name: "review" })).content).toEqual([
+    expect.objectContaining({ type: "text", text: expect.stringContaining("Read the project tests.") as unknown }),
+  ]);
+  const result = await call({ action: "mcp" });
+  expect(result.details).toMatchObject({ available: false, total: 0, servers: [] });
+  expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({ available: false });
+  expect((await panels.snapshot())[0]?.data).toMatchObject({ skillCount: 1, mcpAvailable: false });
+});
+
+test("uses the active workspace loader for list, panel and same-name skill reads", async () => {
+  const first = await fixture(false);
+  const second = await fixture(false);
+  await writeFile(second.file, "Current workspace content, not launch workspace content.\n");
+  const runtime = { session: { resourceLoader: first.loader } };
+  first.context.provide("piRuntime", runtime as never);
+  runtime.session = { resourceLoader: second.loader };
+  expect((await first.call({ action: "list" })).details).toMatchObject({ skills: [{ filePath: second.file }] });
+  expect((await first.panels.snapshot())[0]?.data).toMatchObject({ skills: [{ filePath: second.file }] });
+  expect(JSON.stringify(await first.call({ action: "read", name: "review" }))).toContain("Current workspace content");
+  const pending = first.call({ action: "read", name: "review" });
+  runtime.session = { resourceLoader: first.loader };
+  await expect(pending).rejects.toThrow("Loaded skill changed during catalog read");
+});
 
 test("lists real loaded metadata and omits MCP command arguments", async () => {
   const { call } = await fixture();
@@ -70,6 +99,23 @@ test("lists real loaded metadata and omits MCP command arguments", async () => {
   expect(list.details).toMatchObject({ total: 1, skills: [{ name: "review", modelInvocationDisabled: true }] });
   expect(JSON.stringify(list.content)).toContain("modelInvocationDisabled");
   expect(JSON.stringify(await call({ action: "mcp" }))).not.toContain("fixture-private-value");
+});
+
+test("observes an MCP service added and removed after catalog activation", async () => {
+  const { context, call, panels } = await fixture(false);
+  const provider = await context.plugin({
+    name: "catalog-test-mcp-provider",
+    apply(ctx: Context) {
+      ctx.provide("piMcp", { snapshot: () => ({ servers: [{ id: "dynamic", status: "running", command: ["private-argv"], startedAt: 1 }] }) });
+    },
+  });
+  const available = await call({ action: "mcp" });
+  expect(available.details).toMatchObject({ available: true, total: 1, servers: [{ id: "dynamic" }] });
+  expect(JSON.stringify(available)).not.toContain("private-argv");
+  await provider.dispose();
+  expect((await call({ action: "mcp" })).details).toMatchObject({ available: false, total: 0 });
+  expect((await panels.snapshot())[0]?.data).toMatchObject({ mcpAvailable: false, mcpCount: 0 });
+  expect((await call({ action: "list" })).details).toMatchObject({ total: 1 });
 });
 
 test("rejects cancellation, disposal and resource reload during reads", async () => {

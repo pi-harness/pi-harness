@@ -18,6 +18,8 @@ Add the entry to the Cordis profile the harness starts from:
   config: {}
 ```
 
+Skills Catalog requires the core resource loader, but MCP Client is optional. Without the `piMcp` service, skill listing and reading still work; `action: "mcp"` reports `available: false` and the panel shows MCP as unavailable rather than claiming zero configured servers. To inspect MCP status, separately install and enable `@pi-harness/plugin-mcp-client`; reuse an existing instance instead of adding a duplicate. An empty `servers: []` configuration provides the service without starting external processes.
+
 The Pi Harness plugin marketplace installs and enables this package for you; the steps above are the manual equivalent.
 
 ## Tool contract
@@ -28,4 +30,4 @@ The Pi Harness plugin marketplace installs and enables this package for you; the
 
 `read` finds an exact loaded skill name independently of the list display limit and reads at most 128 KiB of valid UTF-8 from a regular nonsymlink file. It returns permitted content as untrusted data; review/blocked findings withhold the source. These are heuristic checks, not proof of safety or an instruction execution boundary. The tool does not activate skills. Cancellation, disposal or replacement/removal of the loaded skill during the read rejects the result; an in-flight bounded filesystem read completes before cancellation is observed. File contents are read at execution time, not frozen when the loader indexed metadata.
 
-`mcp` returns up to 100 server IDs, statuses and start times, with full count and truncation. Startup commands and arguments are omitted. It does not start servers or change configuration. The panel reads current snapshots and displays at most eight skills and six server states. All bounded metadata is model-visible and no legacy aliases are retained.
+`mcp` returns service availability, up to 100 server IDs, statuses and start times, with full count and truncation. Startup commands and arguments are omitted. It does not start servers or change configuration. The panel reads current snapshots and displays at most eight skills and six server states. All bounded metadata is model-visible and no legacy aliases are retained.

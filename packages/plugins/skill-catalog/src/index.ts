@@ -51,8 +51,12 @@ function parameters(value: unknown): { action: "list" | "read" | "mcp"; query?: 
   return { action, ...(typeof query === "string" ? { query: query.trim().toLowerCase() } : {}), ...(typeof name === "string" ? { name: name.trim() } : {}) };
 }
 
+function currentLoader(context: Context) {
+  return context.get("piRuntime")?.session.resourceLoader ?? context.piResources.resourceLoader;
+}
+
 function readCatalog(context: Context, query = ""): SkillCatalogReport {
-  const loaded = context.piResources.resourceLoader.getSkills();
+  const loaded = currentLoader(context).getSkills();
   const skills: SkillCatalogItem[] = [];
   let total = 0,
     truncated = false;
@@ -89,6 +93,7 @@ function readCatalog(context: Context, query = ""): SkillCatalogReport {
 
 type McpStatus = Pick<PiMcpServerSnapshot, "id" | "status" | "startedAt">;
 interface McpReport {
+  available: boolean;
   total: number;
   servers: McpStatus[];
   truncated: boolean;
@@ -96,14 +101,17 @@ interface McpReport {
 
 export default {
   name: "pi-skill-catalog",
-  inject: ["piResources", "piMcp", "piPluginUi", "piTools"],
+  inject: ["piResources", "piPluginUi", "piTools"],
   Config: EmptyConfig,
   apply(context: Context) {
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort());
     const readMcp = (): McpReport => {
-      const snapshot = context.piMcp.snapshot();
+      const service = context.get("piMcp");
+      if (service === undefined) return { available: false, total: 0, truncated: false, servers: [] };
+      const snapshot = service.snapshot();
       return {
+        available: true,
         total: snapshot.servers.length,
         truncated: snapshot.servers.length > 100 || snapshot.servers.some((server) => server.id.length > 128 || server.status.length > 64),
         servers: snapshot.servers
@@ -142,7 +150,7 @@ export default {
             const report = readCatalog(context, params.query);
             return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
           }
-          const loader = context.piResources.resourceLoader;
+          const loader = currentLoader(context);
           const skills = loader.getSkills().skills;
           const name = params.name!;
           const skill = skills.find((candidate) => candidate.name === name);
@@ -151,7 +159,7 @@ export default {
           const content = await readBoundedTextFile(filePath, maxSkillBytes, "Skill file");
           checkCancelled();
           if (
-            context.piResources.resourceLoader !== loader ||
+            currentLoader(context) !== loader ||
             loader.getSkills().skills !== skills ||
             !skills.includes(skill) ||
             skill.name !== name ||
@@ -190,6 +198,7 @@ export default {
           diagnosticCount: report.diagnosticCount,
           truncated: report.truncated || mcp.truncated,
           mcpCount: mcp.total,
+          mcpAvailable: mcp.available,
           mcpServers: mcp.servers,
         };
       },
