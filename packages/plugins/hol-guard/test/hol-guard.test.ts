@@ -23,6 +23,57 @@ afterEach(async () => {
 });
 
 describe("HOL guard", () => {
+  test("reports an incomplete scan instead of safe when structured input cannot be serialized", () => {
+    const input: Record<string, unknown> = { command: "rm -rf synthetic-fixture" };
+    input.self = input;
+    expect(inspectGuardInput(input, "circular")).toMatchObject({
+      risk: "review",
+      scannedBytes: 0,
+      findings: [{ code: "scan_unavailable", severity: "medium" }],
+    });
+    expect(inspectGuardInput({ value: 1n }, "bigint").risk).toBe("review");
+    // An ordinary string resembling the diagnostic is still ordinary input.
+    expect(inspectGuardInput("[unserializable input]", "text").risk).toBe("safe");
+  });
+
+  test("keeps serialization failures visible in real event audit receipts without retaining input", async () => {
+    const { context, panels } = await fixture();
+    const args: Record<string, unknown> = { token: "synthetic-circular-secret" };
+    args.self = args;
+    context.emit("pi/session-event", { type: "tool_execution_start", toolName: "fixture", args } as never);
+    const snapshot = await panels.snapshot();
+    expect(snapshot).toMatchObject([{ data: { events: 1, safe: 0, review: 1, latest: { findings: [{ code: "scan_unavailable" }] } } }]);
+    expect(JSON.stringify(snapshot)).not.toContain("synthetic-circular-secret");
+  });
+
+  test("does not publish audit receipts for cancelled or disposed scans", async () => {
+    const { context, tool, panels } = await fixture();
+    const params = { text: "harmless fixture" };
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(tool.execute("aborted", params, aborted.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    const queued = new AbortController();
+    const pending = tool.execute("queued", params, queued.signal, undefined, {} as never);
+    queued.abort();
+    await expect(pending).rejects.toThrow(/cancelled/iu);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ events: 0, latest: null });
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", params, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+  });
+
+  test("does not publish if cancellation occurs while inspecting input", async () => {
+    const { tool, panels } = await fixture();
+    const abort = new AbortController();
+    const params = {
+      get text() {
+        abort.abort();
+        return "rm -rf fixture";
+      },
+    };
+    await expect(tool.execute("inspect", params, abort.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    expect((await panels.snapshot())[0]!.data).toMatchObject({ events: 0, latest: null });
+  });
+
   test("classifies dangerous input, bounds receipts, and exposes strict metadata", async () => {
     const { tool, panels } = await fixture();
     expect(tool.executionMode).toBe("sequential");
@@ -35,6 +86,10 @@ describe("HOL guard", () => {
       {} as never,
     );
     expect(result.details).toMatchObject({ risk: "blocked", source: "shell" });
+    const visible = result.content[0];
+    expect(visible?.type).toBe("text");
+    if (visible?.type !== "text") throw new Error("Expected model-visible report");
+    expect(JSON.parse(visible.text)).toEqual(result.details);
     expect((result.details as { findings: unknown[] }).findings.length).toBeGreaterThan(0);
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { events: 1, blocked: 1, receipts: [{ risk: "blocked" }] } }]);
   });

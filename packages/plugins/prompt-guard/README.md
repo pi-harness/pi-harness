@@ -27,3 +27,5 @@ This is a passive heuristic audit, not an execution gate. It listens to user and
 On-demand scans reject inputs above 128 KiB. Oversized user messages are reported for review without a scan. Tool results scan only the first 128 KiB at a UTF-8 boundary; reports include `scannedBytes`, `scannedChars` (UTF-16 code units), `truncated`, and an `input_truncated` finding. Unscanned content never receives a safe verdict.
 
 The panel retains only structured findings and caller-supplied source labels, not scanned input text. It highlights the highest risk in the current session and clears state on session changes. Cancelled or disposed tool calls do not publish results.
+
+`prompt_guard_scan` returns the complete structured report as model-visible JSON as well as tool details: source label, risk, score, scanned byte/character counts, truncation flag and every finding's code, severity and explanation. It does not echo the scanned input. The panel displays all five detection categories plus the incomplete-scan warning when present.

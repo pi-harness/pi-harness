@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
+import assert from "node:assert/strict";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import { buildSkillInjection } from "../src/index.js";
 import reverseSkillPlugin from "../src/index.js";
@@ -75,6 +76,12 @@ test("explicit review refusal overrides the configured default and snapshots are
       {} as never,
     );
     expect(result.details).toMatchObject({ risk: "review", content: null });
+    expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining('"code":"remote_payload"') as unknown });
+    const summary: unknown = JSON.parse((result.content[0] as { text: string }).text);
+    expect(summary).toMatchObject({ name: "review", risk: "review", contentIncluded: false });
+    assert(summary !== null && typeof summary === "object" && "findings" in summary);
+    expect(summary.findings).toEqual((result.details as { findings: unknown }).findings);
+    expect(JSON.stringify(summary)).not.toContain("example.invalid");
     (result.details as { findings: Array<{ message: string }> }).findings[0]!.message = "mutated";
     const first = (await f.panels.snapshot())[0]!.data as { latest: { findings: Array<{ message: string }> } };
     expect(first.latest.findings[0]!.message).not.toBe("mutated");
