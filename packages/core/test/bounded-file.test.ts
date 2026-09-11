@@ -71,4 +71,15 @@ describe("bounded file reads", () => {
 
     await expect(readBoundedTextFile(path, 5, "Input file")).rejects.toThrow(/valid UTF-8/iu);
   });
+
+  test("honors an already-aborted signal before opening the file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-bounded-file-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "input.txt");
+    await writeFile(path, "hello", "utf8");
+    const controller = new AbortController();
+    controller.abort(new Error("bounded read cancelled"));
+
+    await expect(readBoundedFile(path, 5, "Input file", controller.signal)).rejects.toThrow(/bounded read cancelled/iu);
+  });
 });

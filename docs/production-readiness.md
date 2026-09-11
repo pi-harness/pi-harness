@@ -6,6 +6,12 @@ This is the running evidence log for the plugin functional verification audit, k
 
 The audit is incomplete. The current count is 53 of 75 plugins with partial real runtime or browser evidence and 22 pending; partial evidence for a plugin is not acceptance of that plugin. Entries are appended over time, so a later dated observation supersedes an earlier one, including any numeric checkpoint.
 
+### Session Compare cancellation during bounded file reads (2026-09-12)
+
+- Added a bounded-file regression proving an already-aborted signal is honored before opening a session file; the prior helper ignored the signal argument and still read the file.
+- Bounded binary and text readers now accept an optional `AbortSignal` and check it before opening, after metadata/read boundaries, and between chunks. Session Compare passes its active caller/lifecycle signal into both parallel session reads, so large files stop promptly between filesystem chunks after cancellation without publishing a report.
+- Bounded-file and Session Compare tests passed 14/14; plugin-api and session-compare builds/typechecks, scoped ESLint, formatter and whitespace checks passed. This is deterministic filesystem evidence, not headed fault-injection or atomic concurrent-edit acceptance; the overall audit remains incomplete.
+
 ### Browser Fetch cleanup-error preservation (2026-09-12)
 
 - Added a regression for a textual MIME rejection whose response body's `cancel()` rejects. Before the fix, the cleanup exception (`cleanup failed`) replaced the actionable `unsupported content type: application/octet-stream` diagnostic.
