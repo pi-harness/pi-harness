@@ -14,7 +14,7 @@ describe("pih-local launcher", () => {
     try {
       rmSync(fakeBin, { recursive: true, force: true });
       mkdirSync(fakeBin);
-      writeFileSync(fakeNpm, "#!/bin/sh\nprintf build > \"$PIH_LOCAL_MARKER.build\"\n");
+      writeFileSync(fakeNpm, '#!/bin/sh\nprintf build > "$PIH_LOCAL_MARKER.build"\n');
       writeFileSync(
         fakeEveryApi,
         `#!/usr/bin/env node
