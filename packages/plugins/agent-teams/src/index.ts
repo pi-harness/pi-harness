@@ -941,14 +941,11 @@ export default {
             if (action === "add_member") {
               if (state.members.length >= maxTeamMembers) throw new Error(`Agent teams can contain at most ${maxTeamMembers} members`);
               const name = memberName(params.name);
-              const id = teamId(
-                params.id?.trim() ||
-                  name
-                    .toLowerCase()
-                    .replace(/[^a-z0-9]+/gu, "-")
-                    .replace(/^-+|-+$/gu, ""),
-                "member",
-              );
+              const generatedId = name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/gu, "-")
+                .replace(/^-+|-+$/gu, "");
+              const id = teamId(params.id?.trim() || generatedId || nextSequentialId(state.members, "member", maxTeamMembers), "member");
               const status = memberStatus(params.status);
               if (status === "working") throw new Error("A working team member requires an in-progress task");
               const member = {
