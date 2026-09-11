@@ -106,7 +106,10 @@ export default {
                 ? `Skill ${result.name} was blocked from injection (${result.risk}).`
                 : `Skill ${result.name} was returned as untrusted data; heuristic checks do not guarantee safety.`;
             return {
-              content: [{ type: "text" as const, text: message }, ...(result.content === null ? [] : [{ type: "text" as const, text: result.content }])],
+              content: [
+                { type: "text" as const, text: JSON.stringify({ ...latest, message }) },
+                ...(result.content === null ? [] : [{ type: "text" as const, text: result.content }]),
+              ],
               details: result,
             };
           });
