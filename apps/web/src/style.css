@@ -1207,6 +1207,9 @@ button:disabled {
   @apply [width:100%] [max-width:none] [margin:0] [padding:32px_24px];
   container-type: inline-size;
 }
+.plugin-detail-content > .grid > * {
+  @apply [min-width:0];
+}
 .plugin-detail-actions {
   @apply [display:flex] [flex-wrap:wrap] [gap:8px];
 }
@@ -1998,6 +2001,12 @@ button:disabled {
 .action-error-summary {
   @apply [display:flex] [gap:8px] [align-items:baseline];
 }
+.provider-auth-notice {
+  @apply [display:flex] [align-items:center] [gap:8px] [margin-bottom:8px] [padding:9px_11px] [border:1px_solid_rgba(236,_19,_19,_0.16)] [border-radius:9px] [background:var(--color-red-soft)] [color:var(--color-red)] [font-size:11.5px];
+}
+.provider-auth-notice .action-error-summary {
+  @apply [flex:1] [min-width:0] [flex-wrap:wrap];
+}
 .action-error-summary strong {
   @apply [flex:none] [font-size:11.5px] [color:var(--color-red)];
 }
@@ -2598,9 +2607,6 @@ body {
   .workspace-row code,
   .workspace-row small {
     @apply [display:block] [max-width:100%] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap];
-  }
-  .plugin-detail-content > .grid > * {
-    @apply [min-width:0];
   }
   .config-sections {
     @apply [grid-template-columns:minmax(0,_1fr)];
