@@ -59,9 +59,11 @@ const maxManagedServers = 128;
 const maxStderrBytes = 8192;
 const requestTimeoutMs = 30_000;
 const maxPanelItems = 20;
+const maxInventoryTextBytes = 64 * 1024;
 const clientVersion = packageMetadata.version;
 const disposedMessage = "MCP client plugin disposed";
 const connectionParameterNames = new Set(["command", "serverId"]);
+const inventoryParameterNames = new Set(["command", "serverId", "name", "offset", "limit"]);
 const callParameterNames = new Set(["command", "serverId", "name", "arguments"]);
 const stopParameterNames = new Set(["serverId"]);
 const readResourceParameterNames = new Set(["command", "serverId", "uri"]);
@@ -303,6 +305,58 @@ function paginationCursor(value: unknown): string | undefined {
   return value;
 }
 
+type InventoryOptions = { name?: string; offset: number; limit: number };
+function inventoryOptions(raw: JsonObject): InventoryOptions {
+  const name = optionalString(raw.name, "inventory name");
+  if (name !== undefined) {
+    boundedInput(name, "inventory name", 512);
+    if (name === "") throw new Error("MCP inventory name is required");
+    if (raw.offset !== undefined || raw.limit !== undefined) throw new Error("MCP inventory name cannot be combined with offset or limit");
+  }
+  const offset = raw.offset === undefined ? 0 : raw.offset,
+    limit = raw.limit === undefined ? 20 : raw.limit;
+  if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > maxInventoryItems)
+    throw new Error(`MCP inventory offset must be an integer from 0 to ${maxInventoryItems}`);
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100)
+    throw new Error("MCP inventory limit must be an integer from 1 to 100");
+  return { ...(name === undefined ? {} : { name }), offset, limit };
+}
+
+function inventoryModelText(field: "tools" | "prompts", items: Array<{ name: string; description?: string }>, options: InventoryOptions): string {
+  const toolName = field === "tools" ? "mcp_list_tools" : "mcp_list_prompts";
+  if (options.name !== undefined) {
+    const selected = items.find((item) => item.name === options.name);
+    if (selected === undefined) throw new Error(`MCP inventory item was not found: ${options.name}`);
+    const text = JSON.stringify({ total: items.length, shown: 1, nextOffset: null, truncated: false, [field]: [selected] });
+    if (Buffer.byteLength(text, "utf8") > maxResponseBytes) throw new Error("MCP selected descriptor exceeds the 1 MiB model output limit");
+    return text;
+  }
+  const visible: Array<{ name: string; description?: string; descriptorOmitted?: boolean }> = [];
+  const start = Math.min(options.offset, items.length);
+  const encode = (values: typeof visible) => {
+    const next = start + values.length;
+    return JSON.stringify({
+      total: items.length,
+      offset: start,
+      shown: values.length,
+      nextOffset: next < items.length ? next : null,
+      truncated: next < items.length || values.some((item) => item.descriptorOmitted === true),
+      usage: `Continue with offset=nextOffset. Use ${toolName} with name (without offset/limit) for one complete descriptor.`,
+      [field]: values,
+    });
+  };
+  for (const item of items.slice(start, start + options.limit)) {
+    // A large descriptor remains discoverable by name; its schema is never silently clipped.
+    const candidate =
+      Buffer.byteLength(encode([item]), "utf8") > maxInventoryTextBytes
+        ? { name: item.name, ...(item.description === undefined ? {} : { description: item.description.slice(0, 256) }), descriptorOmitted: true }
+        : item;
+    if (Buffer.byteLength(encode([...visible, candidate]), "utf8") > maxInventoryTextBytes) break;
+    visible.push(candidate);
+  }
+  return encode(visible);
+}
+
 async function paginatedInventory<T>(
   method: string,
   field: string,
@@ -380,6 +434,12 @@ function toolResultContent(result: McpCallResult): AgentContent[] {
     }
     throw new Error("MCP server returned invalid MCP tool result content");
   });
+  if (result.structuredContent !== undefined) {
+    if (result.structuredContent === null || typeof result.structuredContent !== "object" || Array.isArray(result.structuredContent))
+      throw new Error("MCP server returned invalid structured tool content");
+    const text = JSON.stringify(result.structuredContent);
+    if (!content.some((item) => item.type === "text" && item.text === text)) content.push({ type: "text", text });
+  }
   if (result.isError === true) {
     const message = content
       .flatMap((item) => (item.type === "text" ? [item.text] : []))
@@ -1115,25 +1175,28 @@ export default {
       defineTool({
         name: "mcp_list_tools",
         label: "MCP list tools",
-        description: "Start an MCP stdio server and list its available tools.",
+        description:
+          "Discover MCP tools with their input schemas. Results are byte-bounded pages; use offset/limit to navigate or name for one complete descriptor.",
         promptSnippet: "discover tools exposed by an MCP stdio server",
         parameters: Type.Object(
           {
             command: Type.Optional(Type.Array(Type.String(), { description: "MCP server executable and arguments; shell wrappers are rejected" })),
             serverId: Type.Optional(Type.String({ description: "A configured or running MCP server id" })),
+            name: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+            offset: Type.Optional(Type.Integer({ minimum: 0, maximum: maxInventoryItems })),
+            limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
           },
           { additionalProperties: false },
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ server: string; tools: McpTool[] }>> {
           const op = operation(signal);
-          const raw = inspectParameters(params, connectionParameterNames);
+          const raw = inspectParameters(params, inventoryParameterNames);
+          const options = inventoryOptions(raw);
           const result = await list(optionalCommand(raw.command), serverIdValue(raw.serverId), op);
           op.assertCurrent();
           return {
-            content: [
-              { type: "text", text: result.tools.map((tool) => `${tool.name}: ${tool.description ?? ""}`).join("\n") || "MCP server returned no tools." },
-            ],
+            content: [{ type: "text", text: inventoryModelText("tools", result.tools, options) }],
             details: result,
           };
         },
@@ -1308,17 +1371,27 @@ export default {
       defineTool({
         name: "mcp_list_prompts",
         label: "MCP list prompts",
-        description: "List prompt templates exposed by an MCP server.",
+        description: "Discover MCP prompt templates with argument definitions. Use offset/limit for byte-bounded pages or name for one complete descriptor.",
         promptSnippet: "list prompt templates exposed by an MCP server",
-        parameters: Type.Object({ command: Type.Optional(Type.Array(Type.String())), serverId: Type.Optional(Type.String()) }, { additionalProperties: false }),
+        parameters: Type.Object(
+          {
+            command: Type.Optional(Type.Array(Type.String())),
+            serverId: Type.Optional(Type.String()),
+            name: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+            offset: Type.Optional(Type.Integer({ minimum: 0, maximum: maxInventoryItems })),
+            limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+          },
+          { additionalProperties: false },
+        ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<{ prompts: McpPrompt[] }>> {
           const op = operation(signal);
-          const raw = inspectParameters(params, connectionParameterNames);
+          const raw = inspectParameters(params, inventoryParameterNames);
+          const options = inventoryOptions(raw);
           const items = await prompts(optionalCommand(raw.command), serverIdValue(raw.serverId), op);
           op.assertCurrent();
           return {
-            content: [{ type: "text", text: items.map((item) => `${item.name}: ${item.description ?? ""}`).join("\n") || "MCP server returned no prompts." }],
+            content: [{ type: "text", text: inventoryModelText("prompts", items, options) }],
             details: { prompts: items },
           };
         },
