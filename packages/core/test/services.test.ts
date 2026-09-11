@@ -2730,6 +2730,7 @@ describe("Pi domain plugins", () => {
 
   test("creates and advances a plan through the plan-execute plugin", async () => {
     const { context } = await createContext();
+    await context.plugin(sessionPlugin, { storage: "memory" });
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     context.provide("piTools", tools);
@@ -4987,7 +4988,12 @@ describe("Pi domain plugins", () => {
       undefined,
       {} as never,
     );
-    expect(await readFile(patchPath, "utf8")).toContain("mcp-search");
+    const mergedPatch = await readFile(patchPath, "utf8");
+    expect(mergedPatch.match(/@pi-harness\/plugin-mcp-client/gu)).toHaveLength(1);
+    expect(mergedPatch).toContain('id: "docs"');
+    expect(mergedPatch).toContain('id: "search"');
+    expect(mergedPatch).toContain('"server.js"');
+    expect(mergedPatch).toContain('"search.js"');
     expect(await readFile(`${patchPath}.bak`, "utf8")).toContain("mcp-docs");
     expect((await panels.snapshot())[0]).toMatchObject({ id: "mcp-panel", data: { servers: [{ id: "docs", toolCount: 1 }] } });
   });

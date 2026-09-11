@@ -6,10 +6,19 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { atomicWriteFile, readBoundedTextFile, type PiMcpServerSnapshot } from "@pi-harness/plugin-api";
 import { validateCommand as validateServerCommand } from "@pi-harness/plugin-mcp-client";
+import { isSeq, parseDocument } from "yaml";
 
 type McpPanelServer = Omit<PiMcpServerSnapshot, "command"> & { executable: string; toolCount: number | null; statusSource: "runtime" };
 type McpPanelHealth = { serverId: string; status: string; severity: "ok" | "warning"; suggestions: string[] };
 const maxPatchBytes = 2 * 1024 * 1024;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((part: unknown) => typeof part === "string");
+}
 
 export interface McpPanelPluginConfig {
   patchPath?: string;
@@ -53,9 +62,64 @@ function patchFragment(serverId: string, command: readonly string[], autoStart: 
   ].join("\n");
 }
 
+function mergePatch(existing: string, fragment: string, serverId: string): string {
+  if (existing.trim() === "") return fragment;
+  const document = parseDocument(existing);
+  if (document.errors.length > 0 || document.warnings.length > 0) throw new Error("MCP profile patch must contain valid plain YAML");
+  const rows: unknown = document.toJS({ maxAliasCount: 0 });
+  if (!Array.isArray(rows) || !isSeq(document.contents)) throw new Error("MCP profile patch must be a standalone list of MCP client entries");
+  const ids = new Set<string>();
+  for (const row of rows as unknown[]) {
+    if (
+      !isRecord(row) ||
+      row.name !== "@pi-harness/plugin-mcp-client" ||
+      typeof row.id !== "string" ||
+      row.id.trim() === "" ||
+      Object.keys(row).some((key) => !["id", "name", "config"].includes(key))
+    )
+      throw new Error("MCP profile patch may contain only standalone MCP client entries");
+    const config = row.config;
+    if (!isRecord(config) || !Array.isArray(config.servers) || Object.keys(config).some((key) => key !== "servers"))
+      throw new Error("MCP profile patch has invalid client configuration");
+    for (const server of config.servers as unknown[]) {
+      if (
+        !isRecord(server) ||
+        typeof server.id !== "string" ||
+        !isStringArray(server.command) ||
+        (server.autoStart !== undefined && typeof server.autoStart !== "boolean") ||
+        Object.keys(server).some((key) => !["id", "command", "autoStart"].includes(key))
+      )
+        throw new Error("MCP profile patch has an invalid server definition");
+      const id = validateServerId(server.id);
+      if (id !== server.id || ids.has(id)) throw new Error("MCP profile patch contains invalid or duplicate server IDs");
+      validateCommand(server.command);
+      ids.add(id);
+    }
+  }
+  if (ids.has(serverId)) throw new Error(`MCP server patch already exists: ${serverId}`);
+  if (ids.size >= 128) throw new Error("MCP profile patch cannot exceed 128 servers");
+  const incoming = parseDocument(fragment);
+  if (!isSeq(incoming.contents)) throw new Error("Invalid generated MCP profile patch");
+  if (rows.length === 0) {
+    document.contents.add(incoming.contents.items[0]!);
+  } else {
+    const servers = document.getIn([0, "config", "servers"], true);
+    if (!isSeq(servers)) throw new Error("MCP profile patch has invalid server entries");
+    // Consolidate legacy fragments into one service instance, retaining server nodes/comments.
+    for (let index = 1; index < rows.length; index++) {
+      const additional = document.getIn([index, "config", "servers"], true);
+      if (!isSeq(additional)) throw new Error("MCP profile patch has invalid server entries");
+      for (const item of additional.items) servers.add(item);
+    }
+    servers.add(incoming.getIn([0, "config", "servers", 0], true));
+    for (let index = rows.length - 1; index > 0; index--) document.deleteIn([index]);
+  }
+  return document.toString();
+}
+
 export default {
   name: "pi-mcp-panel",
-  inject: ["piHarnessLaunch", "piMcp", "piPluginUi", "piTools"],
+  inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: McpPanelPluginConfig) {
     const configuredPatchPath = config.patchPath?.trim() ?? "";
@@ -67,8 +131,14 @@ export default {
           : resolve(context.piHarnessLaunch.agentDir, configuredPatchPath);
     const lifecycle = new AbortController();
     const inventories = new Map<string, { startedAt: number; count: number }>();
+    let inventoryService = context.get("piMcp");
     const snapshot = (): McpPanelServer[] => {
-      return context.piMcp.snapshot().servers.map((server) => ({
+      const service = context.get("piMcp");
+      if (service !== inventoryService) {
+        inventories.clear();
+        inventoryService = service;
+      }
+      return (service?.snapshot().servers ?? []).map((server) => ({
         id: server.id,
         status: server.status,
         startedAt: server.startedAt,
@@ -95,9 +165,7 @@ export default {
         if (metadata !== undefined) {
           existing = await readBoundedTextFile(patchTarget, maxPatchBytes, "MCP profile patch");
         }
-        const rowPattern = new RegExp(`^- id: mcp-${serverId}\\s*$`, "mu");
-        if (rowPattern.test(existing)) throw new Error(`MCP server patch already exists: ${serverId}`);
-        const next = `${existing.trimEnd()}${existing.trimEnd() === "" ? "" : "\n"}${fragment}`;
+        const next = mergePatch(existing, fragment, serverId);
         if (Buffer.byteLength(next, "utf8") > maxPatchBytes) throw new Error("MCP profile patch exceeds the 2 MiB output limit");
         const backup = `${patchTarget}.bak`;
         signal.throwIfAborted();
@@ -132,6 +200,7 @@ export default {
           await Promise.resolve();
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           operationSignal.throwIfAborted();
+          const service = context.get("piMcp");
           const servers = snapshot();
           if (params.action === "status") {
             return {
@@ -139,12 +208,14 @@ export default {
                 {
                   type: "text",
                   text:
-                    servers
-                      .map((server) => `${server.id}: ${server.status} · ${server.toolCount === null ? "tools not queried" : `${server.toolCount} tools`}`)
-                      .join("\n") || "No MCP servers configured.",
+                    service === undefined
+                      ? "MCP service is unavailable; enable the MCP client to inspect runtime servers."
+                      : servers
+                          .map((server) => `${server.id}: ${server.status} · ${server.toolCount === null ? "tools not queried" : `${server.toolCount} tools`}`)
+                          .join("\n") || "No MCP servers configured.",
                 },
               ],
-              details: { action: "status", servers },
+              details: { action: "status", available: service !== undefined, servers },
             };
           }
           if (params.serverId === undefined || params.serverId.trim() === "") throw new Error(`action ${params.action} requires serverId`);
@@ -161,10 +232,11 @@ export default {
               details: { action: "apply", serverId, path, backup: `${path}.bak` },
             };
           }
+          if (service === undefined) throw new Error("MCP service is unavailable; enable the MCP client first");
           const server = servers.find((item) => item.id === params.serverId);
           if (params.action === "health") {
             const health = healthFor(server);
-            return { content: [{ type: "text", text: `${health.serverId}: ${health.status} (${health.severity})` }], details: { action: "health", ...health } };
+            return { content: [{ type: "text", text: JSON.stringify(health) }], details: { action: "health", ...health } };
           }
           if (server === undefined) throw new Error(`MCP server was not found: ${params.serverId}`);
           const listTool = context.piTools.snapshot().customTools.find((tool) => tool.name === "mcp_list_tools");
@@ -172,11 +244,12 @@ export default {
           const result = await listTool.execute(toolCallId, { serverId: server.id }, operationSignal, onUpdate, toolContext);
           operationSignal.throwIfAborted();
           const tools = structuredClone((result.details as { tools: Array<{ name: string; description?: string }> }).tools);
-          const current = context.piMcp.snapshot().servers.find((item) => item.id === server.id);
+          if (context.get("piMcp") !== service) throw new Error("MCP service changed during tool discovery");
+          const current = service.snapshot().servers.find((item) => item.id === server.id);
           if (current?.status === "running" && current.startedAt === server.startedAt)
             inventories.set(server.id, { startedAt: server.startedAt, count: tools.length });
           return {
-            content: [{ type: "text", text: tools.map((tool) => `${tool.name}: ${tool.description ?? ""}`).join("\n") || "No MCP tools." }],
+            content: structuredClone(result.content),
             details: { action: "tools", serverId: server.id, tools },
           };
         },
@@ -190,7 +263,13 @@ export default {
         title: "MCP Console",
         description: "查看 MCP 服务器状态、工具和健康建议。",
         icon: "⌘",
-        read: () => ({ servers: snapshot(), statusSource: "runtime", writesEnabled: patchTarget !== undefined, patchPath: patchTarget ?? null }),
+        read: () => ({
+          servers: snapshot(),
+          available: context.get("piMcp") !== undefined,
+          statusSource: "runtime",
+          writesEnabled: patchTarget !== undefined,
+          patchPath: patchTarget ?? null,
+        }),
       });
     } catch (error) {
       unregister();
