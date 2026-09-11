@@ -20,6 +20,57 @@ function canvasTool(tools: PiToolRegistry) {
 }
 
 describe("canvas-draw", () => {
+  test("rolls back tool registration when the panel conflicts", async () => {
+    const context = new Context();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    const removeExisting = panels.register({ id: "canvas-draw-panel", pluginId: "existing", title: "Existing", read: () => ({ retained: true }) });
+    try {
+      expect(() => canvasDrawPlugin.apply(context)).toThrow(/already registered/iu);
+      expect(tools.snapshot().customTools).toEqual([]);
+      expect(await panels.snapshot()).toMatchObject([{ pluginId: "existing", data: { retained: true } }]);
+      removeExisting();
+      canvasDrawPlugin.apply(context);
+      expect(canvasTool(tools).name).toBe("canvas_draw");
+    } finally {
+      removeExisting();
+      await context.fiber.dispose();
+    }
+    expect(tools.snapshot().customTools).toEqual([]);
+    expect(await panels.snapshot()).toEqual([]);
+  });
+
+  test.each(["before", "queued"])("does not replace the last diagram when cancelled %s execution", async (timing) => {
+    const { context, panels, tools } = await createCanvas();
+    try {
+      const draw = canvasTool(tools);
+      await draw.execute("original", { nodes: [{ id: "a", label: "Original" }], edges: [] }, undefined, undefined, {} as never);
+      const previous = await panels.snapshot();
+      const controller = new AbortController();
+      if (timing === "before") controller.abort();
+      const pending = draw.execute("cancelled", { nodes: [{ id: "b", label: "Cancelled" }], edges: [] }, controller.signal, undefined, {} as never);
+      controller.abort();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      expect(await panels.snapshot()).toEqual(previous);
+      await expect(draw.execute("recover", { nodes: [{ id: "c", label: "Recovered" }], edges: [] }, undefined, undefined, {} as never))
+        .resolves.toMatchObject({ details: { nodes: [{ id: "c", label: "Recovered" }] } });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("rejects a retained tool after plugin disposal", async () => {
+    const { context, panels, tools } = await createCanvas();
+    const draw = canvasTool(tools);
+    await context.fiber.dispose();
+    await expect(draw.execute("disposed", { nodes: [{ id: "a", label: "A" }], edges: [] }, undefined, undefined, {} as never))
+      .rejects.toThrow(/disposed/iu);
+    expect(tools.snapshot().customTools).toEqual([]);
+    expect(await panels.snapshot()).toEqual([]);
+  });
+
   test("declares all node, edge, id, and label bounds in the tool schema", async () => {
     const { context, tools } = await createCanvas();
     try {

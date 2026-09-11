@@ -2,6 +2,8 @@
 
 Canvas Draw — Generate validated, bounded Mermaid flowchart source from structured nodes and edges in the workspace UI.
 
+The tool and panel return Mermaid source, not a rendered drawing. Invalid or cancelled requests preserve the last successful diagram. The diagram is kept in memory across session switches until the plugin is unloaded; calls retained after unloading are rejected. Failed panel registration rolls back the tool registration so the plugin can be enabled again after the conflict is resolved.
+
 ## Install
 
 ```sh
