@@ -8,6 +8,15 @@ import { describe, expect, test } from "vitest";
 import { auditText, auditWorkspace, summarizeAudit } from "../src/index.js";
 
 describe("secure audit", () => {
+  test("detects delete flags immediately before shell control operators without pooling later commands", () => {
+    for (const separator of [";", "&&", "||", "|", "&"]) {
+      const source = `rm -r ./audit-not-executed -f${separator}echo static`;
+      expect(auditText("fixture.txt", source), separator).toMatchObject([{ kind: "destructive-command" }]);
+      expect(auditText("fixture.txt", `rm -r ./audit-not-executed${separator}echo -f`), separator).toEqual([]);
+    }
+    expect(auditText("fixture.txt", "rm --recursive ./audit-not-executed --force; echo static")).toMatchObject([{ kind: "destructive-command" }]);
+  });
+
   test("detects secrets without returning their values", () => {
     const findings = auditText("config.env", "API_KEY=sk-live-example\nnormal=true\n");
     expect(findings).toEqual([expect.objectContaining({ severity: "critical", kind: "credential", line: 1 })]);
