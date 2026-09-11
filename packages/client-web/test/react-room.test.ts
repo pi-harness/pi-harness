@@ -482,6 +482,42 @@ test("shows navigator Git status without requiring a tree first", () => {
   expect(html).toContain("/workspace/current");
 });
 
+test("shows Agent Teams ids and wraps boundary-length operational values", () => {
+  const memberId = `member-${"m".repeat(57)}`;
+  const taskId = `task-${"t".repeat(59)}`;
+  const assignee = `owner-${"a".repeat(58)}`;
+  const dependency = `dependency-${"d".repeat(53)}`;
+  const memberName = "N".repeat(200);
+  const memberRole = "R".repeat(200);
+  const taskTitle = "T".repeat(200);
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "agent-teams-panel",
+        pluginId: "@pi-harness/plugin-agent-teams",
+        title: "Agent Team Board",
+        data: {
+          members: [{ id: memberId, name: memberName, role: memberRole, status: "idle" }],
+          tasks: [{ id: taskId, title: taskTitle, assignee, status: "in_progress", dependsOn: [dependency] }],
+          messages: [],
+          readyTasks: [],
+          dependencyCycle: null,
+        },
+      },
+    }),
+  );
+
+  expect(html).toContain('class="grid grid-cols-2 gap-2 xl:grid-cols-4"');
+  expect(html).toContain(`class="min-w-0 break-words text-[11px] font-semibold text-[var(--color-ink)]">${memberName}</span>`);
+  expect(html).toContain(`class="mt-1 block break-all text-[9px] text-[var(--color-blue)]">${memberId}</code>`);
+  expect(html).toContain(`class="mt-1 block break-words text-[10px] leading-4 text-[var(--color-faint)]">${memberRole}</span>`);
+  expect(html).toContain(`class="block break-words text-[11px] leading-4 text-[var(--color-ink)]">${taskTitle}</span>`);
+  expect(html).toContain(`class="mt-1 block break-all text-[9px] text-[var(--color-blue)]">${taskId}</code>`);
+  expect(html).toContain(`class="mt-1 block break-all text-[9px] text-[var(--color-faint)]">${assignee}</code>`);
+  expect(html).toContain('class="mt-1 block break-all font-mono text-[9px] leading-4 text-[var(--color-faint)]"');
+  expect(html).toContain(dependency);
+});
+
 test("shows incomplete workspace searches even when no matches were collected", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {
