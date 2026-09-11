@@ -38,6 +38,12 @@ The `scripts/verify-*.py` verifiers named throughout are not in this repository.
 - Response-body reads now race each `reader.read()` with the active signal, cancel the underlying reader on abort, normalize non-Error read failures, and preserve the existing request timeout/cancellation classification. The browser-fetch README documents that cancellation covers a stalled body.
 - Focused browser-fetch/rebinding tests passed 37/37; plugin-api dependency build, browser-fetch build/typecheck, scoped ESLint, formatter and whitespace checks passed. Redirect, body-size, encoding and live model-workflow gates remain separate; overall audit remains incomplete.
 
+### Browser Fetch oversized-body cleanup failure (2026-09-12)
+
+- Added a regression with a textual response larger than the 512 KiB cap whose stream `cancel()` rejects. Before the fix, the cleanup exception (`cleanup failed`) replaced the documented successful truncated result.
+- Oversized response cleanup is now best effort, preserving the bounded `truncated: true` result and its byte/text limits even when the underlying stream refuses cancellation. The browser-fetch README records this contract.
+- Focused browser-fetch/rebinding tests passed 38/38; plugin-api dependency build, browser-fetch build/typecheck, scoped ESLint, formatter and whitespace checks passed. Redirect, encoding and live model-workflow gates remain separate; overall audit remains incomplete.
+
 ## Observation corrections (2026-09-10)
 
 ### Taskboard actual-model workspace isolation

@@ -704,6 +704,42 @@ describe("browser-fetch", () => {
     }
   });
 
+  test("preserves the truncated result when oversized-body cleanup fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-browser-fetch-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    fetchMock.override = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(512 * 1024 + 1));
+            },
+            cancel() {
+              return Promise.reject(new Error("cleanup failed"));
+            },
+          }),
+          { headers: { "content-type": "text/plain" } },
+        ),
+      );
+    try {
+      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(browserFetchPlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "browser_fetch");
+      if (tool === undefined) throw new Error("browser_fetch was not registered");
+
+      await expect(tool.execute("oversized-cleanup", { url: "https://1.1.1.1/archive" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { bytes: 512 * 1024, truncated: true },
+      });
+    } finally {
+      fetchMock.override = undefined;
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("rejects text responses with invalid UTF-8 instead of replacing bytes", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-browser-fetch-"));
     const context = new Context();
