@@ -1,12 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
+import { assertKnownConfigKeys, runBoundedCommand } from "@pi-harness/plugin-api";
 
-const execFileAsync = promisify(execFile);
 const maxFiles = 512;
 const maxFindings = 100;
 const defaultTimeoutMs = 15_000;
@@ -62,9 +59,9 @@ async function git(cwd: string, args: readonly string[], maxBuffer: number, time
   ])
     delete env[name];
   // core.quotepath=false keeps non-ASCII paths as literal UTF-8 instead of octal escapes; it does nothing for the ASCII bytes git always escapes, which is why the diff headers still have to be unquoted below.
-  const result = await execFileAsync(
-    "git",
+  const result = await runBoundedCommand(
     [
+      "git",
       "--no-optional-locks",
       "-c",
       "core.fsmonitor=false",
@@ -79,7 +76,7 @@ async function git(cwd: string, args: readonly string[], maxBuffer: number, time
       "--src-prefix=a/",
       "--dst-prefix=b/",
     ],
-    { cwd, env, maxBuffer, timeout: timeoutMs, signal },
+    cwd, timeoutMs, maxBuffer, signal, { env },
   );
   return result.stdout;
 }
@@ -166,6 +163,8 @@ export default {
       if (signal.aborted) throw new Error("Git review was cancelled");
     };
     let latest: ReviewReport | undefined;
+    let status: "idle" | "running" | "completed" | "failed" | "cancelled" = "idle";
+    let lastError: string | null = null;
     const readScope = () => {
       const session = context.get("piRuntime")?.session;
       return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() ?? context.piHarnessLaunch.cwd };
@@ -176,6 +175,8 @@ export default {
       if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
         scope = next;
         latest = undefined;
+        status = "idle";
+        lastError = null;
       }
       return scope;
     };
@@ -195,14 +196,21 @@ export default {
           if (warning >= 0) findings[warning] = item;
         }
       };
+      const collection = new AbortController();
+      const collectionSignal = AbortSignal.any([signal, collection.signal]);
       try {
         [diff, names] = await Promise.all([
-          git(cwd, ["diff", "HEAD", "--no-ext-diff", "--unified=0"], maxDiffBytes, timeoutMs, signal),
+          git(cwd, ["diff", "HEAD", "--no-ext-diff", "--unified=0"], maxDiffBytes, timeoutMs, collectionSignal),
           // -z is the only --name-only form git never quotes, so the listing always carries the same literal paths the decoded diff headers do.
-          git(cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff", "-z"], maxDiffBytes, timeoutMs, signal),
+          git(cwd, ["diff", "HEAD", "--name-only", "--no-ext-diff", "-z"], maxDiffBytes, timeoutMs, collectionSignal),
         ]);
       } catch (error) {
+        // Promise.all observes both rejections but does not stop the other read.
+        // Abort only this collection and preserve the original failure below.
+        collection.abort(error);
         checkCancelled(signal);
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+          throw new Error(`Git review diff output exceeded ${maxDiffBytes} bytes; review is incomplete`, { cause: error });
         const timedOut = typeof error === "object" && error !== null && "killed" in error && (error as { killed?: unknown }).killed === true;
         throw new Error(
           timedOut
@@ -307,9 +315,21 @@ export default {
             checkCancelled(signal);
             if (refreshScope() !== operationScope) throw new Error("Git review workspace changed during inspection");
           };
-          const report = await review(operationScope.cwd, signal, assertCurrent);
-          assertCurrent();
+          status = "running";
+          lastError = null;
+          let report: ReviewReport;
+          try {
+            report = await review(operationScope.cwd, signal, assertCurrent);
+            assertCurrent();
+          } catch (error) {
+            if (refreshScope() === operationScope) {
+              status = signal.aborted ? "cancelled" : "failed";
+              lastError = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+            }
+            throw error;
+          }
           latest = structuredClone(report);
+          status = "completed";
           return {
             content: [
               {
@@ -332,7 +352,7 @@ export default {
         icon: "✓",
         read: () => {
           refreshScope();
-          return { latest: latest === undefined ? null : structuredClone(latest), maxDiffBytes, timeoutMs };
+          return { latest: latest === undefined ? null : structuredClone(latest), status, lastError, latestStale: latest !== undefined && status !== "completed", maxDiffBytes, timeoutMs };
         },
       });
     } catch (error) {
