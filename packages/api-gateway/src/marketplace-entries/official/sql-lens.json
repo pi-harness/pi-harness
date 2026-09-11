@@ -1,7 +1,7 @@
 {
   "id": "sql-lens",
   "packageName": "@pi-harness/plugin-sql-lens",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "SQL Lens",
   "description": "查看工作区内的 SQLite 数据库：一次一条只读语句，结果有上限，检查符号链接与文件替换，超时和取消都会收尾。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-reverse-skill",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Inspect untrusted Skill text and inject it only through an explicit bounded data boundary.",
   "keywords": [
     "cordis",

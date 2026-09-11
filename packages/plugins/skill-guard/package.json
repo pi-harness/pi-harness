@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-skill-guard",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Audit each loaded Skill entry Markdown file with bounded heuristics for instruction override, secret exfiltration, destructive commands, and obfuscation; it reports risk labels and does not disable loaded Skills.",
   "keywords": [
     "cordis",

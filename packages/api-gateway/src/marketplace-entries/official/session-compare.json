@@ -1,7 +1,7 @@
 {
   "id": "session-compare",
   "packageName": "@pi-harness/plugin-session-compare",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Session Compare",
   "description": "按角色和文本比较两个已保存的 Pi 会话，不修改任何会话文件。",
   "author": "Pi Harness",

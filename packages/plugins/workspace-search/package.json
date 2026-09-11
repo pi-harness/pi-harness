@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-workspace-search",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Search bounded text files in the active workspace with ignored directories and binary content excluded.",
   "keywords": [
     "cordis",

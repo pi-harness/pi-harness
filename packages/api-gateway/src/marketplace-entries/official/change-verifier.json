@@ -1,7 +1,7 @@
 {
   "id": "change-verifier",
   "packageName": "@pi-harness/plugin-change-verifier",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Change Verifier",
   "description": "交接前把项目测试和 Git 变更评审合成一道显式的验收关卡。",
   "author": "Pi Harness",

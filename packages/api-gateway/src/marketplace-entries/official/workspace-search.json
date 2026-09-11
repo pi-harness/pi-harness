@@ -1,7 +1,7 @@
 {
   "id": "workspace-search",
   "packageName": "@pi-harness/plugin-workspace-search",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Workspace Search",
   "description": "在当前工作区的文本文件里搜索，自动跳过忽略目录和二进制内容。",
   "author": "Pi Harness",

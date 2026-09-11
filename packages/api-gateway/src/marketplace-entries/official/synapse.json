@@ -1,7 +1,7 @@
 {
   "id": "synapse",
   "packageName": "@pi-harness/plugin-synapse",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Synapse",
   "description": "把会话之间的关联和相关工作项画出来，不改动对话记录。",
   "author": "Pi Harness",

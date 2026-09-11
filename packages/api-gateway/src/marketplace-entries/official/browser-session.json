@@ -1,7 +1,7 @@
 {
   "id": "browser-session",
   "packageName": "@pi-harness/plugin-browser-session",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Browser Session",
   "description": "通过 Chrome DevTools 协议控制一个仅限本机回环的浏览器会话，命令受限、可取消，截图元数据会被清理。",
   "author": "Pi Harness",

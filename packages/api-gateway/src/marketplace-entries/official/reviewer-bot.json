@@ -1,7 +1,7 @@
 {
   "id": "reviewer-bot",
   "packageName": "@pi-harness/plugin-reviewer-bot",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Reviewer Bot",
   "description": "只读检查相对 HEAD 的已跟踪 Git 改动中的空白错误、疑似凭据和 TODO/FIXME 标记；不含未跟踪文件，不执行测试，也不代替语义代码审查。",
   "author": "Pi Harness",

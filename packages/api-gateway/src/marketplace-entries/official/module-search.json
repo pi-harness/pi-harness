@@ -1,7 +1,7 @@
 {
   "id": "module-search",
   "packageName": "@pi-harness/plugin-module-search",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Module Search",
   "description": "在工作区源码里查找 import、export 和已声明的符号，只读不改。",
   "author": "Pi Harness",
