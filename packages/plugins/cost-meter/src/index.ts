@@ -456,8 +456,18 @@ export default {
           throwIfCancelled(operationSignal);
           if (params.refresh) await record(currentStats(), operationSignal);
           const report = await readReport(operationSignal);
+          const { entries: reportEntries, ...summary } = report;
           return {
-            content: [{ type: "text", text: `Today cost $${report.todayCost.toFixed(4)}; current session $${report.sessionCost.toFixed(4)}.` }],
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  ...summary,
+                  entryCount: reportEntries.length,
+                  scope: "SDK-reported USD costs, not a provider invoice. Daily budget is monitoring only; it does not stop runs.",
+                }),
+              },
+            ],
             details: report,
           };
         },
