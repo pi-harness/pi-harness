@@ -214,6 +214,9 @@ button:disabled {
 }
 .session-row-more {
   @apply [position:absolute] [right:6px] [display:block] [width:24px] [height:24px] [opacity:0] [pointer-events:none] [border-radius:6px] [background:var(--color-surface)] [color:var(--color-muted)] [font-size:14px];
+  /* The session row is itself a full-width button. Keep the action control
+     above it so the visible affordance is actually clickable. */
+  z-index: 1;
 }
 .session-row-wrap:hover .session-row-more,
 .session-row-wrap:focus-within .session-row-more,
