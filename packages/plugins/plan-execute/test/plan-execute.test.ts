@@ -1,4 +1,5 @@
 import { Context } from "@deepseek-ai/cordis";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
 import planExecutePlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
@@ -11,6 +12,7 @@ async function fixture() {
   const panels = new PiPluginUiRegistry();
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
+  context.provide("piSession", { manager: SessionManager.inMemory("/plan-test") });
   await context.plugin(planExecutePlugin);
   contexts.push(context);
   const find = (name: string) => {
@@ -26,6 +28,44 @@ afterEach(async () => {
 });
 
 describe("plan execute", () => {
+  test("retrieves an existing plan without advancing or replacing it", async () => {
+    const { create, advance, tools, panels, context } = await fixture();
+    const get = tools.snapshot().customTools.find((tool) => tool.name === "plan_get");
+    expect(get, "plan_get must provide read-only recovery of current progress").toBeDefined();
+    expect(get!.parameters).toMatchObject({ type: "object", additionalProperties: false, properties: {} });
+    expect(get!.executionMode).toBe("sequential");
+    await expect(get!.execute("empty", {}, undefined, undefined, {} as never)).rejects.toThrow(/No plan/);
+    await create.execute("create", { title: "Recover", steps: ["Test", "Ship"], dependencies: [{ step: 2, dependsOn: [1] }] }, undefined, undefined, {} as never);
+    const advanced = await advance.execute("done", { step: 1, status: "done" }, undefined, undefined, {} as never);
+    const before = await panels.snapshot();
+    const result = await get!.execute("get", {}, undefined, undefined, {} as never);
+    expect(result).toEqual(advanced);
+    (result.details as { steps: Array<{ status: string }> }).steps[0]!.status = "mutated";
+    expect(await panels.snapshot()).toEqual(before);
+    const abort = new AbortController();
+    const pending = get!.execute("cancel", {}, abort.signal, undefined, {} as never);
+    abort.abort();
+    await expect(pending).rejects.toThrow();
+    expect(await panels.snapshot()).toEqual(before);
+    await context.fiber.dispose();
+    await expect(get!.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow(/disposed/);
+    expect(tools.snapshot().customTools).toHaveLength(0);
+  });
+
+  test("returns the complete plan to the model on creation and advancement", async () => {
+    const { create, advance } = await fixture();
+    const created = await create.execute("create", {
+      title: "发布😀", steps: ["验证", "上线"], dependencies: [{ step: 2, dependsOn: [1] }],
+    }, undefined, undefined, {} as never);
+    expect(created.content).toEqual([{ type: "text", text: JSON.stringify(created.details) }]);
+    const advanced = await advance.execute("done", { step: 1, status: "done" }, undefined, undefined, {} as never);
+    expect(advanced.content).toEqual([{ type: "text", text: JSON.stringify(advanced.details) }]);
+    expect(advanced.details).toMatchObject({ title: "发布😀", steps: [
+      { id: 1, title: "验证", status: "done" },
+      { id: 2, title: "上线", status: "pending", dependsOn: [1] },
+    ] });
+  });
+
   test("creates and advances a bounded plan with strict sequential tools", async () => {
     const { create, advance, panels } = await fixture();
     for (const tool of [create, advance]) {
@@ -61,6 +101,7 @@ describe("plan execute", () => {
     const context = new Context();
     context.provide("piTools", new PiToolRegistry());
     context.provide("piPluginUi", new PiPluginUiRegistry());
+    context.provide("piSession", { manager: SessionManager.inMemory("/plan-test") });
     let error: unknown;
     try {
       await context.plugin(planExecutePlugin, { unexpected: true });

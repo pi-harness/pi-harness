@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-plan-execute",
   "version": "0.1.29",
   "name": "Plan Execute",
-  "description": "在当前会话里跟踪一份多步执行计划：进度、依赖和完成状态。",
+  "description": "按会话保存多步执行计划、进度和依赖；切回或重新打开会话可恢复，不执行计划中的命令。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["read-only"],
+  "capabilities": ["session-data", "writes-files"],
   "hooks": ["会话状态", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-plan-execute",

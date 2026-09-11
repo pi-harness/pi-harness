@@ -1,13 +1,16 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { assertKnownConfigKeys } from "@pi-harness/plugin-api";
 
 type PlanStatus = "pending" | "in_progress" | "done" | "skipped";
 type PlanStep = { id: number; title: string; status: PlanStatus; dependsOn?: number[] };
 type Plan = { title: string; steps: PlanStep[] };
 const maxTextLength = 500;
+const customType = "pi-harness/plan-execute";
+const failedManagers = new WeakMap<SessionManager, object | null>();
+const writeFailureMessage = "Plan write failed; reopen the session from disk before using Plan Execute again";
 
 export const Config = z.object({});
 
@@ -52,15 +55,73 @@ function validateProgress(steps: PlanStep[]): void {
   }
 }
 
+function savedRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid saved plan record");
+  return value as Record<string, unknown>;
+}
+
+function savedText(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.length > maxTextLength) throw new Error("Invalid saved plan text");
+  return value;
+}
+
+function readPlan(manager: SessionManager): Plan | undefined {
+  if (failedManagers.has(manager)) {
+    if (failedManagers.get(manager) === manager.getHeader()) throw new Error(writeFailureMessage);
+    failedManagers.delete(manager);
+  }
+  const entry = manager.getBranch().reverse().find((item) => item.type === "custom" && item.customType === customType);
+  if (!entry || entry.type !== "custom") return undefined;
+  const value = savedRecord(entry.data);
+  const title = savedText(value.title);
+  if (!Array.isArray(value.steps) || value.steps.length < 1 || value.steps.length > 50) throw new Error("Invalid saved plan steps");
+  const dependencies: { step: number; dependsOn: number[] }[] = [];
+  const steps = Array.from(value.steps, (raw, index): PlanStep => {
+    const item = savedRecord(raw);
+    if (item.id !== index + 1) throw new Error("Invalid saved plan step ID");
+    if (!["pending", "in_progress", "done", "skipped"].includes(item.status as string)) throw new Error("Invalid saved plan status");
+    if (item.dependsOn !== undefined) dependencies.push({ step: index + 1, dependsOn: item.dependsOn as number[] });
+    return { id: index + 1, title: savedText(item.title), status: item.status as PlanStatus };
+  });
+  applyDependencies(steps, dependencies);
+  validateProgress(steps);
+  return { title, steps };
+}
+
+function persistPlan(manager: SessionManager, plan: Plan): void {
+  try {
+    manager.appendCustomEntry(customType, structuredClone(plan));
+  } catch (error) {
+    failedManagers.set(manager, manager.getHeader());
+    throw new Error(writeFailureMessage, { cause: error });
+  }
+}
+
 export default {
   name: "pi-plan-execute",
-  inject: ["piPluginUi", "piTools"],
+  inject: ["piSession", "piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: unknown) {
     assertKnownConfigKeys("plan-execute", config, []);
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort(new Error("Plan Execute plugin disposed")));
-    let plan: Plan | undefined;
+    const currentManager = () => context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
+    const capture = (signal?: AbortSignal) => {
+      lifecycle.signal.throwIfAborted();
+      signal?.throwIfAborted();
+      const manager = currentManager();
+      const header = manager.getHeader();
+      const leaf = manager.getLeafId();
+      return {
+        manager,
+        check(this: void) {
+          lifecycle.signal.throwIfAborted();
+          signal?.throwIfAborted();
+          if (currentManager() !== manager || manager.getHeader() !== header) throw new Error("Plan session changed before execution");
+          if (manager.getLeafId() !== leaf) throw new Error("Plan branch changed before execution");
+        },
+      };
+    };
     const create = context.piTools.register(
       defineTool({
         name: "plan_create",
@@ -84,10 +145,11 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, params, signal): Promise<AgentToolResult<Plan>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<Plan>> {
+          const { manager, check } = capture(signal);
           return Promise.resolve().then(() => {
-            lifecycle.signal.throwIfAborted();
-            signal?.throwIfAborted();
+            check();
+            readPlan(manager);
             const title = params.title.trim();
             const steps = params.steps.map((step) => step.trim());
             if (!title || title.length > maxTextLength) throw new Error(`Plan title must contain 1-${maxTextLength} characters`);
@@ -95,8 +157,8 @@ export default {
               throw new Error(`Plan must contain 1-50 non-empty steps of at most ${maxTextLength} characters`);
             const next: Plan = { title, steps: steps.map((step, index) => ({ id: index + 1, title: step, status: "pending" })) };
             applyDependencies(next.steps, params.dependencies ?? []);
-            plan = next;
-            return { content: [{ type: "text" as const, text: `Plan created: ${title} (${steps.length} steps)` }], details: structuredClone(plan) };
+            persistPlan(manager, next);
+            return { content: [{ type: "text" as const, text: JSON.stringify(next) }], details: structuredClone(next) };
           });
         },
       }),
@@ -116,11 +178,11 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, params, signal): Promise<AgentToolResult<Plan>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<Plan>> {
+          const { manager, check } = capture(signal);
           return Promise.resolve().then(() => {
-            lifecycle.signal.throwIfAborted();
-            signal?.throwIfAborted();
-            const current = requirePlan(plan);
+            check();
+            const current = requirePlan(readPlan(manager));
             if (!Number.isInteger(params.step)) throw new Error(`Invalid plan step: ${params.step}`);
             if (!["pending", "in_progress", "done", "skipped"].includes(params.status)) throw new Error("Invalid plan status");
             const index = params.step - 1;
@@ -128,12 +190,32 @@ export default {
             const nextSteps = current.steps.map((step, position) => (position === index ? { ...step, status: params.status } : step));
             validateProgress(nextSteps);
             current.steps = nextSteps;
-            return { content: [{ type: "text" as const, text: `Step ${params.step} is now ${params.status}` }], details: structuredClone(current) };
+            persistPlan(manager, current);
+            return { content: [{ type: "text" as const, text: JSON.stringify(current) }], details: structuredClone(current) };
           });
         },
       }),
     );
     context.effect(() => advance);
+    const get = context.piTools.register(
+      defineTool({
+        name: "plan_get",
+        label: "Get plan",
+        description: "Read the current execution plan, including step IDs, titles, statuses and dependencies, without changing it. Fails if no plan exists.",
+        promptSnippet: "retrieve the current plan before resuming work or reporting progress",
+        parameters: Type.Object({}, { additionalProperties: false }),
+        executionMode: "sequential",
+        async execute(_toolCallId, _params, signal): Promise<AgentToolResult<Plan>> {
+          const { manager, check } = capture(signal);
+          return Promise.resolve().then(() => {
+            check();
+            const current = requirePlan(readPlan(manager));
+            return { content: [{ type: "text" as const, text: JSON.stringify(current) }], details: structuredClone(current) };
+          });
+        },
+      }),
+    );
+    context.effect(() => get);
     let disposePanel: () => void;
     try {
       disposePanel = context.piPluginUi.register({
@@ -143,6 +225,7 @@ export default {
         description: "把复杂任务拆成可追踪步骤，并实时推进执行状态。",
         icon: "☷",
         read: () => {
+          const plan = readPlan(currentManager());
           const steps = plan?.steps ?? [];
           return {
             title: plan?.title ?? null,
@@ -155,11 +238,13 @@ export default {
     } catch (error) {
       create();
       advance();
+      get();
       throw error;
     }
     context.effect(() => () => {
       create();
       advance();
+      get();
       disposePanel();
     });
   },
