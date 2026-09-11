@@ -1,4 +1,5 @@
 import type { Context } from "@deepseek-ai/cordis";
+import { opendir } from "node:fs/promises";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, SessionManager, type AgentToolResult, type SessionInfo } from "@earendil-works/pi-coding-agent";
@@ -129,6 +130,16 @@ export default {
       };
       check();
       const ticket = ++generation;
+      // The SDK silently turns directory errors into an empty inventory.
+      // Surface an unavailable/mistyped directory before asking it to list.
+      // A missing directory is normal before the first persisted session.
+      try {
+        const directory = await opendir(scope.directory);
+        await directory.close();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      check();
       const sessions = await SessionManager.list(scope.cwd, scope.directory);
       check();
       if (ticket !== generation) throw new Error("Synapse scan was superseded");

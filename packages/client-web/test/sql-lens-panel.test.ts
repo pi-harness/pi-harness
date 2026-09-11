@@ -37,6 +37,14 @@ const valid = {
 };
 
 describe("SQL Lens panel", () => {
+  test("shows Unicode column names and queries without active format controls", () => {
+    const column = "note\u200d\u202e\u2028\u007f";
+    const html = renderPanel({ ...valid, latest: { ...valid.latest, query: `SELECT 1 AS "${column}"`, columns: [column], rows: [{ [column]: 1 }] } });
+    expect(html).toContain("1 rows");
+    expect(html).toContain("note\\u200d\\u202e\\u2028\\u007f");
+    expect(html).not.toMatch(/[\u007f\p{Cf}\u2028]/u);
+    expect(html).not.toContain("SQL Lens 面板数据异常");
+  });
   test("renders a validated result and limits", () => {
     const html = renderPanel(valid);
     for (const expected of ["已完成", "/workspace", "data.db", "1 rows", "Ada", "timeout:5000ms", "rows:100", "result:1024KiB"])

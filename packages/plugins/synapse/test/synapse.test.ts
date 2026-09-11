@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rename, stat, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -167,7 +167,7 @@ test("keeps maps tied to active native managers and returns detached model-visib
 test("rejects scans that outlive their native session and does not commit cancelled work", async () => {
   const manager = SessionManager.inMemory("/workspace");
   let finish!: (value: never[]) => void;
-  vi.spyOn(SessionManager, "list").mockImplementation(
+  const list = vi.spyOn(SessionManager, "list").mockImplementation(
     () =>
       new Promise((resolve) => {
         finish = resolve;
@@ -184,15 +184,18 @@ test("rejects scans that outlive their native session and does not commit cancel
   const tool = tools.snapshot().customTools[0]!;
   const pending = tool.execute("map", {}, undefined, undefined, {} as never);
   const panel = context.piPluginUi.snapshot();
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
   finish([]);
   await expect(pending).resolves.toMatchObject({ details: { nodes: [] } });
   await expect(panel).resolves.toMatchObject([{ data: { nodes: [] } }]);
   const stale = tool.execute("stale", {}, undefined, undefined, {} as never);
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   manager.newSession();
   finish([]);
   await expect(stale).rejects.toThrow(/context changed/i);
   const abort = new AbortController();
   const cancelled = tool.execute("map", {}, abort.signal, undefined, {} as never);
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(3));
   abort.abort();
   finish([]);
   await expect(cancelled).rejects.toThrow(/cancel/i);
@@ -231,6 +234,45 @@ test("maps real persisted native forks without modifying journals and reports tr
     const graph = buildSynapseGraph(await SessionManager.list(root, manager.getSessionDir()), childFile);
     expect(graph).toMatchObject({ activeSessionId: childId, edges: [{ from: parentId, to: childId, kind: "fork" }] });
     expect(await Promise.all([readFile(parentFile), readFile(childFile)])).toEqual(before);
+  } finally {
+    await context.fiber.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reports an unavailable session directory instead of a successful empty map", async () => {
+  const root = await mkdtemp(join(tmpdir(), "synapse-unavailable-"));
+  const directory = join(root, "sessions");
+  const manager = SessionManager.create(root, directory);
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  try {
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piSession", { manager } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(synapsePlugin, {});
+    await rename(directory, directory + "-saved");
+    await writeFile(directory, "not a session directory");
+    const tool = tools.snapshot().customTools[0]!;
+    await expect(tool.execute("unavailable", {}, undefined, undefined, {} as never)).rejects.toThrow(/ENOTDIR|directory/iu);
+    expect(await readFile(directory, "utf8")).toBe("not a session directory");
+    await rm(directory);
+    await rename(directory + "-saved", directory);
+    await expect(tool.execute("recovered", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 0, nodes: [] } });
+    await rename(directory, directory + "-saved");
+    await expect(tool.execute("not-created-yet", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 0, nodes: [] } });
+    await rename(directory + "-saved", directory);
+    if (process.platform !== "win32" && process.getuid?.() !== 0) {
+      const mode = (await stat(directory)).mode & 0o777;
+      await chmod(directory, 0o000);
+      try {
+        await expect(tool.execute("unreadable", {}, undefined, undefined, {} as never)).rejects.toThrow(/EACCES|permission/iu);
+      } finally {
+        await chmod(directory, mode);
+      }
+      await expect(tool.execute("readable-again", {}, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { total: 0 } });
+    }
   } finally {
     await context.fiber.dispose();
     await rm(root, { recursive: true, force: true });
