@@ -47,9 +47,18 @@ export interface PluginRadarReport {
 }
 
 function normalizeApiUrl(url: string | undefined): string {
-  const value = (url ?? defaultApiUrl).trim().replace(/\/+$/u, "");
-  if (!/^https:\/\//iu.test(value)) throw new Error("GitHub API URL must use HTTPS");
-  return value;
+  const raw = (url ?? defaultApiUrl).trim();
+  if (raw.includes("?") || raw.includes("#")) throw new Error("GitHub API URL must not include a query or fragment");
+  let value: URL;
+  try {
+    value = new URL(raw);
+  } catch {
+    throw new Error("GitHub API URL must be a valid HTTPS URL");
+  }
+  if (value.protocol !== "https:") throw new Error("GitHub API URL must use HTTPS");
+  if (value.username !== "" || value.password !== "") throw new Error("GitHub API URL must not include credentials");
+  if (value.search !== "" || value.hash !== "") throw new Error("GitHub API URL must not include a query or fragment");
+  return `${value.origin}${value.pathname.replace(/\/+$/u, "")}`;
 }
 
 function normalizeQuery(value: string): string {
@@ -158,23 +167,77 @@ function parseResults(payload: unknown): { results: PluginRadarResult[]; truncat
   return { results, truncated: root.total_count > items.length || root.incomplete_results === true };
 }
 
-async function readJson(response: Response): Promise<unknown> {
+function cancelResponseBody(response: Response): void {
+  try {
+    void Promise.resolve(response.body?.cancel?.()).catch(() => undefined);
+  } catch {
+    // Cleanup is best effort and must not hide the primary response error.
+  }
+}
+
+function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+  try {
+    void Promise.resolve(reader.cancel()).catch(() => undefined);
+  } catch {
+    // Cleanup is best effort and must not hide cancellation.
+  }
+}
+
+async function readJson(response: Response, signal?: AbortSignal): Promise<unknown> {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxResponseBytes) {
-    await response.body?.cancel?.();
+    cancelResponseBody(response);
     throw new Error("GitHub plugin radar response exceeded 1 MiB limit");
   }
   if (response.body === null) throw new Error("GitHub plugin radar returned an empty response");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
+  const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (signal?.aborted === true) {
+      cancelReader(reader);
+      throw new Error("Plugin radar response read was cancelled", { cause: signal.reason });
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        cancelReader(reader);
+        reject(new Error("Plugin radar response read was cancelled", { cause: signal?.reason }));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) {
+        onAbort();
+        return;
+      }
+      void Promise.resolve()
+        .then(() => reader.read())
+        .then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error instanceof Error ? error : new Error("Plugin radar response read failed", { cause: error }));
+          },
+        );
+    });
+  };
   try {
     while (true) {
-      const next = await reader.read();
+      const next = await readChunk();
       if (next.done) break;
       bytes += next.value.byteLength;
       if (bytes > maxResponseBytes) {
-        await reader.cancel();
+        cancelReader(reader);
         throw new Error("GitHub plugin radar response exceeded 1 MiB limit");
       }
       chunks.push(next.value);
@@ -222,8 +285,11 @@ async function searchPlugins(apiUrl: string, limit: number, timeoutMs: number, r
           headers: { accept: "application/vnd.github+json", "user-agent": "pi-harness-plugin-radar", "x-github-api-version": "2022-11-28" },
           signal: controller.signal,
         });
-        if (!response.ok) throw new Error(`GitHub plugin radar returned HTTP ${response.status}`);
-        return parseResults(await readJson(response));
+        if (!response.ok) {
+          cancelResponseBody(response);
+          throw new Error(`GitHub plugin radar returned HTTP ${response.status}`);
+        }
+        return parseResults(await readJson(response, controller.signal));
       }),
     );
   } catch (error) {
