@@ -18,7 +18,16 @@ export const Config: z<AnchoredStandardPluginConfig> = z.object({
 });
 type AnchorStatus = "idle" | "anchored" | "violated";
 type Violation = { code: "orphan_tool" | "nested_run" | "tool_budget" | "orphan_end" | "disallowed_tool"; message: string };
-type AnchorReport = { status: AnchorStatus; events: number; toolCalls: number; maxToolCalls: number; allowedTools: string[]; violations: Violation[] };
+type AnchorReport = {
+  status: AnchorStatus;
+  auditOnly: true;
+  scope: "since-plugin-load";
+  events: number;
+  toolCalls: number;
+  maxToolCalls: number;
+  allowedTools: string[];
+  violations: Violation[];
+};
 
 export default {
   name: "pi-anchored-standard",
@@ -55,12 +64,16 @@ export default {
         if (!active) record({ code: "orphan_tool", message: "工具调用发生在 Agent 运行锚点之外。" });
         if (toolCalls > maxToolCalls) record({ code: "tool_budget", message: `单次运行工具调用超过 ${maxToolCalls} 次上限。` });
         const toolName = typeof event.toolName === "string" ? event.toolName.trim() : "";
-        if (allowedToolSet.size > 0 && !allowedToolSet.has(toolName))
-          record({ code: "disallowed_tool", message: `工具 ${toolName || "<unknown>"} 不在当前运行的允许列表中。` });
+        if (allowedToolSet.size > 0 && !allowedToolSet.has(toolName)) {
+          const displayName = toolName.length > maxToolNameLength ? `${toolName.slice(0, maxToolNameLength - 1)}…` : toolName;
+          record({ code: "disallowed_tool", message: `工具 ${displayName || "<unknown>"} 不在当前运行的允许列表中。` });
+        }
       }
     };
     const report = (): AnchorReport => ({
       status: violations.length > 0 ? "violated" : active ? "anchored" : "idle",
+      auditOnly: true,
+      scope: "since-plugin-load",
       events,
       toolCalls,
       maxToolCalls,
@@ -72,8 +85,9 @@ export default {
       defineTool({
         name: "trajectory_anchor_check",
         label: "Trajectory anchor check",
-        description: "Audit Agent lifecycle and tool-call ordering against the anchored execution standard.",
-        promptSnippet: "audit the current agent trajectory for lifecycle violations",
+        description:
+          "Read-only audit of Agent lifecycle and tool-call ordering. Never blocks tools. Events and first violation per code accumulate across sessions since plugin load; toolCalls counts the current or last run. Reloading the plugin clears history. Returns the full JSON report, including configured limits and allowed tools.",
+        promptSnippet: "audit lifecycle violations accumulated since plugin load (not enforcement)",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
         execute(): Promise<AgentToolResult<AnchorReport>> {
@@ -83,7 +97,7 @@ export default {
               content: [
                 {
                   type: "text" as const,
-                  text: `${result.status}: ${result.events} events, ${result.toolCalls} tool calls, ${result.violations.length} violation(s).`,
+                  text: JSON.stringify(result),
                 },
               ],
               details: result,
