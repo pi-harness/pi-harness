@@ -60,7 +60,7 @@ export default {
     ): Promise<SyncResult> => {
       assertCurrent();
       if (configuredVault === "") throw new Error("Obsidian sync requires vaultPath in the plugin configuration");
-      if (!confirm) throw new Error("Obsidian sync requires confirm=true before writing a note");
+      if (confirm !== true) throw new Error("Obsidian sync requires confirm=true before writing a note");
       if (
         isAbsolute(relativePath) ||
         win32.isAbsolute(relativePath) ||
@@ -113,6 +113,7 @@ export default {
           };
           const { relativePath, content, confirm } = params;
           assertCurrent();
+          if (confirm !== true) throw new Error("Obsidian sync requires confirm=true before writing a note");
           const result = await enqueue(() => sync(relativePath, content, confirm, executionSignal, operationScope, assertCurrent));
           assertCurrent();
           return { content: [{ type: "text", text: `Obsidian note written: ${result.relativePath}` }], details: result };

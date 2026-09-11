@@ -101,6 +101,33 @@ describe("Obsidian sync", () => {
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
   });
+
+  test.each(["false", "true", 1, {}, []].map((confirm) => ({ confirm })))(
+    "requires literal true before replacing an existing note, invalid confirmation=%j",
+    async ({ confirm }) => {
+      const { vault, tool, panels } = await fixture();
+      const path = join(vault, "protected.md");
+      await mkdir(vault);
+      await writeFile(path, "original note", { mode: 0o640 });
+      await expect(
+        tool.execute(
+          "unconfirmed",
+          {
+            relativePath: "protected.md",
+            content: "must not overwrite",
+            confirm,
+          },
+          undefined,
+          undefined,
+          {} as never,
+        ),
+      ).rejects.toThrow(/confirm=true/iu);
+      expect(await readFile(path, "utf8")).toBe("original note");
+      expect((await stat(path)).mode & 0o777).toBe(0o640);
+      expect(await readdir(vault)).toEqual(["protected.md"]);
+      expect((await panels.snapshot())[0]!.data).toMatchObject({ last: null });
+    },
+  );
   test("rejects a linked parent before creating directories outside the vault", async () => {
     const { root, vault, tool } = await fixture();
     const outside = join(root, "outside");
