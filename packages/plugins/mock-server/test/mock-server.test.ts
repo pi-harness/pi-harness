@@ -51,6 +51,17 @@ afterEach(async () => {
 });
 
 describe("mock server", () => {
+  test("exposes complete server diagnostics in model-visible tool content", async () => {
+    const { start, status } = await fixture();
+    const started = await start.execute("start", {}, undefined, undefined, {} as never);
+    expect(started.content).toEqual([{ type: "text", text: JSON.stringify(started.details) }]);
+    const url = (started.details as { url: string }).url;
+    await get(`${url}/hello`);
+    const current = await status.execute("status", {}, undefined, undefined, {} as never);
+    expect(current.details).toMatchObject({ routes: 1, lastRequest: "GET /hello", lastError: null });
+    expect(current.content).toEqual([{ type: "text", text: JSON.stringify(current.details) }]);
+  });
+
   test("rejects cancelled starts and retained tools after disposal", async () => {
     const { context, start, status } = await fixture();
     const controller = new AbortController();
