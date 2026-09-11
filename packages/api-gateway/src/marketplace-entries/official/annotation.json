@@ -1,7 +1,7 @@
 {
   "id": "annotation",
   "packageName": "@pi-harness/plugin-annotation",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Annotations",
   "description": "把对话里选中的片段和批注存下来，作为后续对话的上下文。",
   "author": "Pi Harness",
