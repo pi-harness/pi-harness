@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-genui",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Render bounded structured cards with text, badge, and decimal progress blocks while displaying HTML and scripts as plain text.",
   "keywords": [
     "cordis",

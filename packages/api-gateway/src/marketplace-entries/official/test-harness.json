@@ -1,7 +1,7 @@
 {
   "id": "test-harness",
   "packageName": "@pi-harness/plugin-test-harness",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Test Harness",
   "description": "运行工作区里五个固定名字的 npm 脚本，返回真实状态和清理过的 12 KiB 输出尾部；超时可配置，取消时清理整棵进程树。",
   "author": "Pi Harness",

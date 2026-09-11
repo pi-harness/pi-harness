@@ -1,7 +1,7 @@
 {
   "id": "undo-savepoint",
   "packageName": "@pi-harness/plugin-undo-savepoint",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Undo Savepoints",
   "description": "在 agent 改动前建立可查看的存档点，之后可以安全还原工作区。",
   "author": "Pi Harness",

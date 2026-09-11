@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-code2skill",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Package selected workspace source files into a bounded local Pi skill with a generated SKILL.md manifest and preserved references.",
   "keywords": [
     "cordis",

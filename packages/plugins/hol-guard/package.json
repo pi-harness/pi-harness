@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-hol-guard",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Audit tool arguments and preflight text for destructive commands, sensitive paths, credentials, and remote exfiltration. Advisory only: reports risk, does not block execution.",
   "keywords": [
     "cordis",

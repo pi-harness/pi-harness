@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-cli-notifier",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Send local desktop notifications when an agent turn completes, fails, or is aborted, and when context compaction fails.",
   "keywords": [
     "cordis",

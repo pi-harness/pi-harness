@@ -1,7 +1,7 @@
 {
   "id": "plugin-radar",
   "packageName": "@pi-harness/plugin-plugin-radar",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Plugin Radar",
   "description": "只读搜索 GitHub 上带 Pi Harness Topic 的仓库，按 Star 排序；候选仓库未验证可安装性，不会安装或执行代码。",
   "author": "Pi Harness",
