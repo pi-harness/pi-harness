@@ -27,6 +27,153 @@ afterEach(async () => {
 });
 
 describe("git time capsule restore", () => {
+  test("reports default caller cancellation without an unknown-error diagnostic", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-default-abort-"));
+    temporaryDirectories.push(workspace);
+    const context = new Context(),
+      tools = new PiToolRegistry(),
+      panels = new PiPluginUiRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(gitTimeCapsulePlugin);
+      const controller = new AbortController();
+      controller.abort();
+      const snapshot = tools.snapshot().customTools.find((tool) => tool.name === "git_snapshot")!;
+      await expect(snapshot.execute("default-abort", {}, controller.signal, undefined, {} as never)).rejects.toThrow("operation was cancelled");
+      const panel = (await panels.snapshot())[0]!.data as { latest: { error: string } };
+      expect(panel.latest.error).toContain("operation was cancelled");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test.each(["capture", "restore"])("rejects %s when timed-out Git exits zero", async (action) => {
+    if (process.platform === "win32") return;
+    const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-timeout-zero-"));
+    temporaryDirectories.push(workspace);
+    const bin = join(workspace, "bin");
+    const agentDir = join(workspace, "agent");
+    const capsule = join(workspace, "input.patch");
+    await mkdir(bin);
+    await writeFile(capsule, "owned synthetic patch\n");
+    await writeFile(
+      join(bin, "git"),
+      `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args.includes('rev-parse')) { process.stdout.write('true\\n'); process.exit(0); }
+if (args.includes('--numstat')) { process.stdout.write('1\\t1\\ttracked.txt\\n'); process.exit(0); }
+if (args.includes('--check')) process.exit(0);
+process.stdout.write('owned synthetic patch\\n');
+process.on('SIGTERM', () => process.exit(0));
+setTimeout(() => process.exit(9), 8000);
+`,
+    );
+    await chmod(join(bin, "git"), 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(gitTimeCapsulePlugin, { timeoutMs: 500 });
+      const operation =
+        action === "restore"
+          ? applyCapsule(workspace, capsule, 500)
+          : tools
+              .snapshot()
+              .customTools.find((tool) => tool.name === "git_snapshot")!
+              .execute("timeout-zero", {}, undefined, undefined, {} as never);
+      await expect(operation).rejects.toThrow("timed out after 500 ms");
+      if (action === "restore") await expect(operation).rejects.toThrow("Inspect the workspace before retrying");
+      if (action === "capture") {
+        await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: { status: "failed" } } }]);
+        expect(await readdir(join(agentDir, "capsules")).catch(() => [])).toEqual([]);
+      }
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      await context.fiber.dispose();
+    }
+  });
+
+  test("warns after cancelling a started restore and reaps its ignored-signal worker", async () => {
+    if (process.platform === "win32") return;
+    const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-partial-cancel-"));
+    temporaryDirectories.push(workspace);
+    const bin = join(workspace, "bin");
+    const agentDir = join(workspace, "agent");
+    const started = join(workspace, "worker");
+    const changed = join(workspace, "changed.txt");
+    await mkdir(bin);
+    await mkdir(join(agentDir, "capsules"), { recursive: true });
+    await writeFile(join(agentDir, "capsules", "owned.patch"), "synthetic patch\n");
+    const worker = `process.on('SIGTERM',()=>{});require('node:fs').writeFileSync(${JSON.stringify(changed)},'partial write');require('node:fs').writeFileSync(${JSON.stringify(started)},String(process.pid));setTimeout(()=>process.exit(9),8000);`;
+    await writeFile(
+      join(bin, "git"),
+      `#!${process.execPath}
+const args=process.argv.slice(2);
+if(args.includes('--numstat')){process.stdout.write('1\\t1\\tchanged.txt\\n');process.exit(0);}
+if(args.includes('--check'))process.exit(0);
+require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:'ignore'});
+`,
+    );
+    await chmod(join(bin, "git"), 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    const controller = new AbortController();
+    let pid: number | undefined;
+    const alive = () => {
+      try {
+        if (pid === undefined) return false;
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      await context.plugin(gitTimeCapsulePlugin);
+      const restore = tools.snapshot().customTools.find((tool) => tool.name === "git_restore")!;
+      const pending = restore.execute("partial-cancel", { name: "owned.patch", confirm: true }, controller.signal, undefined, {} as never);
+      void pending.catch(() => undefined);
+      pid = Number(await waitForFile(started, "restore worker ready"));
+      expect(pid).toBeGreaterThan(0);
+      controller.abort(new Error("caller stopped restore"));
+      await expect.poll(alive, { timeout: 3000, interval: 20 }).toBe(false);
+      expect(await readFile(changed, "utf8")).toBe("partial write");
+      await expect(pending).rejects.toThrow("Inspect the workspace before retrying");
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        {
+          data: {
+            latest: {
+              action: "restore",
+              status: "cancelled",
+            },
+          },
+        },
+      ]);
+      const panel = (await panels.snapshot())[0]!.data as { latest: { error: string } };
+      expect(panel.latest.error).toContain("Inspect the workspace before retrying");
+    } finally {
+      controller.abort();
+      if (pid !== undefined && alive()) process.kill(pid, "SIGKILL");
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      await context.fiber.dispose();
+    }
+  });
+
   test.each(["no-prefix", "custom-prefix"])("round-trips capsules with %s diff configuration", async (mode) => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-prefix-workspace-"));
     const agentDir = await mkdtemp(join(tmpdir(), "pi-capsule-prefix-agent-"));
@@ -1422,7 +1569,45 @@ describe("git time capsule restore", () => {
     }
   });
 
-  test("round-trips patches containing non-UTF-8 Git path bytes", async () => {
+  test("round-trips non-UTF-8 file contents through real Git", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-real-bytes-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-capsule-real-bytes-agent-"));
+    temporaryDirectories.push(workspace, agentDir);
+    const before = Buffer.from([0xff, 0x80, 0x61, 0x0a]);
+    const after = Buffer.from([0xfe, 0x81, 0x62, 0x0a]);
+    const path = join(workspace, "tracked.txt");
+    await execFileAsync("git", ["init", "-q"], { cwd: workspace });
+    await writeFile(path, before);
+    await execFileAsync("git", ["add", "tracked.txt"], { cwd: workspace });
+    await writeFile(path, after);
+    const { stdout: patch } = await execFileAsync("git", ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"], {
+      cwd: workspace,
+      encoding: "buffer",
+    });
+    expect(patch.includes(before)).toBe(true);
+    expect(patch.includes(after)).toBe(true);
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    try {
+      await context.plugin(gitTimeCapsulePlugin);
+      const result = await tools
+        .snapshot()
+        .customTools.find((tool) => tool.name === "git_snapshot")!
+        .execute("real-bytes", {}, undefined, undefined, {} as never);
+      const { name } = result.details as { name: string };
+      const capsule = join(agentDir, "capsules", name);
+      expect(await readFile(capsule)).toEqual(patch);
+      await applyCapsule(workspace, capsule);
+      expect(await readFile(path)).toEqual(before);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("preserves controlled non-UTF-8 Git output bytes in a capsule", async () => {
     if (process.platform === "win32") return;
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-path-bytes-workspace-"));
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-capsule-path-bytes-agent-"));

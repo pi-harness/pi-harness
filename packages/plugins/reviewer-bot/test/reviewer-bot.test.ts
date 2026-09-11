@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, chmod, access, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, chmod, access, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import reviewerBotPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 const contexts: Context[] = [];
 const roots: string[] = [];
 
-async function fixture(maxDiffBytes = 64 * 1024) {
+async function fixture(maxDiffBytes = 64 * 1024, timeoutMs = 5000) {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-reviewer-"));
   roots.push(root);
   await execFileAsync("git", ["init", "-q"], { cwd: root });
@@ -27,7 +27,7 @@ async function fixture(maxDiffBytes = 64 * 1024) {
   provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
-  await context.plugin(reviewerBotPlugin, { maxDiffBytes, timeoutMs: 5_000 });
+  await context.plugin(reviewerBotPlugin, { maxDiffBytes, timeoutMs });
   contexts.push(context);
   const tool = tools.snapshot().customTools.find((item) => item.name === "review_changes");
   if (tool === undefined) throw new Error("review_changes was not registered");
@@ -40,6 +40,85 @@ afterEach(async () => {
 });
 
 describe("reviewer bot", () => {
+  test.skipIf(process.platform === "win32")(
+    "stops the sibling Git read when parallel collection fails",
+    async () => {
+      const { root, tool } = await fixture(64 * 1024, 15000);
+      const bin = join(root, "fixture-bin"),
+        ready = join(root, "ready");
+      const originalPath = process.env.PATH;
+      let pid: number | undefined;
+      try {
+        await mkdir(bin);
+        const script = `#!${process.execPath}\nconst fs=require("node:fs");if(process.argv.includes("--name-only")){setInterval(()=>{if(fs.existsSync(${JSON.stringify(ready)})){process.stderr.write("synthetic listing failure");process.exit(7)}},20)}else{process.on("SIGTERM",()=>{});fs.writeFileSync(${JSON.stringify(ready)},String(process.pid))}setTimeout(()=>process.exit(9),8000);\n`;
+        await writeFile(join(bin, "git"), script);
+        await chmod(join(bin, "git"), 0o700);
+        process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+        await expect(tool.execute("parallel", {}, undefined, undefined, {} as never)).rejects.toThrow("synthetic listing failure");
+        pid = Number(await readFile(ready, "utf8"));
+        expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+        await vi.waitFor(() => expect(() => process.kill(pid!, 0)).toThrow(), { timeout: 3000, interval: 20 });
+      } finally {
+        process.env.PATH = originalPath;
+        if (pid !== undefined && Number.isSafeInteger(pid) && pid > 0) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            /* Owned fixture exited. */
+          }
+        }
+      }
+    },
+    12000,
+  );
+
+  test("marks the retained report stale after failure and clears failure on recovery", async () => {
+    const { root, tool, panels } = await fixture(16 * 1024);
+    await tool.execute("first", {}, undefined, undefined, {} as never);
+    await writeFile(join(root, "file.txt"), "large changed line ".repeat(3000));
+    await expect(tool.execute("large", {}, undefined, undefined, {} as never)).rejects.toThrow();
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          status: "failed",
+          latestStale: true,
+          latest: { status: "pass" },
+          lastError: "Git review diff output exceeded 16384 bytes; review is incomplete",
+        },
+      },
+    ]);
+    await writeFile(join(root, "file.txt"), "small change\n");
+    await tool.execute("recovery", {}, undefined, undefined, {} as never);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { status: "completed", latestStale: false, lastError: null } }]);
+  });
+
+  test("reports oversized real Git diff as incomplete rather than an unreadable repository", async () => {
+    const { root, tool } = await fixture(16 * 1024);
+    await writeFile(join(root, "file.txt"), "large changed line ".repeat(3000));
+    await expect(tool.execute("large", {}, undefined, undefined, {} as never)).rejects.toThrow(
+      "Git review diff output exceeded 16384 bytes; review is incomplete",
+    );
+  });
+
+  test.skipIf(process.platform === "win32").each(["diff", "check"])("refuses a false pass when %s times out then exits zero", async (phase) => {
+    const { root, tool, panels } = await fixture(64 * 1024, 1000);
+    const bin = join(root, "fixture-bin");
+    const originalPath = process.env.PATH;
+    try {
+      await mkdir(bin);
+      await writeFile(
+        join(bin, "git"),
+        `#!${process.execPath}\nif(${phase === "check"}&&!process.argv.includes("--check"))process.exit(0);process.on("SIGTERM",()=>process.exit(0));setTimeout(()=>process.exit(9),5000);\n`,
+      );
+      await chmod(join(bin, "git"), 0o700);
+      process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+      await expect(tool.execute("timeout", {}, undefined, undefined, {} as never)).rejects.toThrow("Git review timed out after 1000 ms");
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
   test("reviews a clean diff and reports changed files", async () => {
     const { root, tool, panels } = await fixture();
     await writeFile(join(root, "file.txt"), "changed\n");

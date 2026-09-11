@@ -4,8 +4,9 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Context } from "@deepseek-ai/cordis";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import autoModePlugin from "../src/index.js";
+import { runBoundedCommand as runCommand } from "@pi-harness/plugin-api";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const execFileAsync = promisify(execFile);
@@ -51,7 +52,9 @@ async function seedRepository(root: string, attributes: string, configKey: strin
   await writeFile(join(root, ".gitattributes"), attributes, "utf8");
   await writeFile(join(root, "payload.sh"), payload, "utf8");
   await chmod(join(root, "payload.sh"), 0o700);
-  await execFileAsync("git", ["config", configKey, "./payload.sh"], { cwd: root });
+  await execFileAsync("git", ["config", configKey, "./payload.sh"], {
+    cwd: root,
+  });
   await execFileAsync("git", ["add", "-A"], { cwd: root });
   await execFileAsync("git", [...commitIdentity, "commit", "--quiet", "-m", "seed"], { cwd: root });
   await rm(join(root, "pwned.txt"), { force: true });
@@ -72,7 +75,9 @@ async function seedSignedRepository(root: string, configKey: string): Promise<vo
   const rewritten = (await execFileAsync("git", ["hash-object", "-t", "commit", "-w", "signed-commit"], { cwd: root })).stdout.trim();
   await rm(join(root, "signed-commit"), { force: true });
   await execFileAsync("git", ["update-ref", "HEAD", rewritten], { cwd: root });
-  await execFileAsync("git", ["config", configKey, "./payload.sh"], { cwd: root });
+  await execFileAsync("git", ["config", configKey, "./payload.sh"], {
+    cwd: root,
+  });
   await rm(join(root, "pwned.txt"), { force: true });
 }
 
@@ -94,7 +99,9 @@ async function seedSubmoduleRepository(root: string): Promise<string> {
   const payload = join(superproject, "payload.sh");
   await writeFile(payload, `#!/bin/sh\nprintf owned > ${join(superproject, "pwned.txt")}\ncat\n`, "utf8");
   await chmod(payload, 0o700);
-  await execFileAsync("git", ["config", "filter.evil.clean", payload], { cwd: join(superproject, "sub") });
+  await execFileAsync("git", ["config", "filter.evil.clean", payload], {
+    cwd: join(superproject, "sub"),
+  });
   await writeFile(join(superproject, "sub", ".gitattributes"), "*.txt filter=evil\n", "utf8");
   // Rewriting identical content leaves the file stat-dirty, so git has to run the clean filter to decide whether it changed.
   await writeFile(join(superproject, "sub", "a.txt"), "inner\n", "utf8");
@@ -129,7 +136,12 @@ describe("auto-mode", () => {
     try {
       await writeFile(join(root, "sample.magic"), "0 string SAMPLE sample format\n");
       await writeFile(join(root, "sample.txt"), "SAMPLE payload\n");
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       const tools = new PiToolRegistry();
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
@@ -143,10 +155,14 @@ describe("auto-mode", () => {
       }
       await expect(
         tool.execute("inspect", { command: ["file", "--brief", "--mime-type", "--", "sample.txt"] }, undefined, undefined, {} as never),
-      ).resolves.toMatchObject({ details: { exitCode: 0, confirmed: false } });
+      ).resolves.toMatchObject({
+        details: { exitCode: 0, confirmed: false },
+      });
       await expect(
         tool.execute("confirmed", { command: ["file", "-C", "-m", "sample.magic"], confirm: true }, undefined, undefined, {} as never),
-      ).resolves.toMatchObject({ details: { exitCode: 0, confirmed: true } });
+      ).resolves.toMatchObject({
+        details: { exitCode: 0, confirmed: true },
+      });
       await expect(access(join(root, "sample.magic.mgc"))).resolves.toBeUndefined();
     } finally {
       await context.fiber.dispose();
@@ -164,7 +180,12 @@ describe("auto-mode", () => {
       const marker = join(root, "marker.txt");
       await writeFile(executable, "#!/bin/sh\nprintf changed > marker.txt\n", "utf8");
       await chmod(executable, 0o700);
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -186,14 +207,26 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin);
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec");
 
       expect(tool?.parameters).toMatchObject({
-        properties: { command: { type: "array", minItems: 1, maxItems: 32, items: { type: "string", minLength: 1, maxLength: 4096 } } },
+        properties: {
+          command: {
+            type: "array",
+            minItems: 1,
+            maxItems: 32,
+            items: { type: "string", minLength: 1, maxLength: 4096 },
+          },
+        },
       });
     } finally {
       await context.fiber.dispose();
@@ -206,7 +239,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin);
@@ -226,10 +264,18 @@ describe("auto-mode", () => {
     const context = new Context();
     const panels = new PiPluginUiRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", new PiToolRegistry());
       context.provide("piPluginUi", panels);
-      await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: Number.NaN });
+      await context.plugin(autoModePlugin, {
+        mode: "safe",
+        timeoutMs: Number.NaN,
+      });
 
       await expect(panels.snapshot()).resolves.toMatchObject([{ id: "auto-mode-panel", data: { timeoutMs: 30_000 } }]);
     } finally {
@@ -244,7 +290,12 @@ describe("auto-mode", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -256,7 +307,12 @@ describe("auto-mode", () => {
       details.command[0] = "mutated";
       details.stdout = "mutated";
 
-      await expect(panels.snapshot()).resolves.toMatchObject([{ id: "auto-mode-panel", data: { last: { command: ["printf", "ok"], stdout: "ok" } } }]);
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        {
+          id: "auto-mode-panel",
+          data: { last: { command: ["printf", "ok"], stdout: "ok" } },
+        },
+      ]);
     } finally {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
@@ -269,7 +325,12 @@ describe("auto-mode", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -281,7 +342,12 @@ describe("auto-mode", () => {
 
       (firstPanel.data as { last: { command: string[] } }).last.command[0] = "mutated";
 
-      await expect(panels.snapshot()).resolves.toMatchObject([{ id: "auto-mode-panel", data: { last: { command: ["printf", "ok"], stdout: "ok" } } }]);
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        {
+          id: "auto-mode-panel",
+          data: { last: { command: ["printf", "ok"], stdout: "ok" } },
+        },
+      ]);
     } finally {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
@@ -293,7 +359,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 10_000 });
@@ -303,14 +374,242 @@ describe("auto-mode", () => {
       const release = join(root, "release");
       const script =
         "const fs=require('node:fs');fs.writeFileSync('ready','');const expiry=setTimeout(()=>process.exit(2),5000);const timer=setInterval(()=>{if(fs.existsSync('release')){clearInterval(timer);clearTimeout(expiry);process.stdout.write('done')}},10)";
-      const params = { command: [process.execPath, "-e", script], confirm: true };
+      const params = {
+        command: [process.execPath, "-e", script],
+        confirm: true,
+      };
 
       const execution = tool.execute("execute", params, undefined, undefined, {} as never);
       await waitForFile(ready);
       params.command[0] = "mutated-after-start";
       await writeFile(release, "release", "utf8");
 
-      await expect(execution).resolves.toMatchObject({ details: { command: [process.execPath, "-e", script], stdout: "done" } });
+      await expect(execution).resolves.toMatchObject({
+        details: { command: [process.execPath, "-e", script], stdout: "done" },
+      });
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "cancellation terminates descendants after the direct parent exits",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-tree-"));
+      const context = new Context();
+      const tools = new PiToolRegistry();
+      let descendantPid: number | undefined;
+      try {
+        provideLaunchContext(context, {
+          cwd: root,
+          agentDir: root,
+          args: [],
+          requestExit() {},
+        });
+        context.provide("piTools", tools);
+        context.provide("piPluginUi", new PiPluginUiRegistry());
+        await context.plugin(autoModePlugin, {
+          mode: "safe",
+          timeoutMs: 30000,
+        });
+        const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec")!;
+        const worker =
+          'process.on("SIGTERM",()=>{});require("node:fs").writeFileSync("descendant",String(process.pid));setInterval(()=>{},100);setTimeout(()=>process.exit(9),8000)';
+        const script = `require("node:child_process").spawn(process.execPath,["-e",${JSON.stringify(worker)}],{stdio:"ignore"})`;
+        const caller = new AbortController();
+        const pending = tool.execute("tree", { command: [process.execPath, "-e", script], confirm: true }, caller.signal, undefined, {} as never);
+        const rejected = expect(pending).rejects.toThrow("cancelled by test");
+        await waitForFile(join(root, "descendant"));
+        descendantPid = Number(await readFile(join(root, "descendant"), "utf8"));
+        expect(Number.isSafeInteger(descendantPid) && descendantPid > 0).toBe(true);
+        caller.abort(new Error("cancelled by test"));
+        await rejected;
+        await vi.waitFor(() => expect(() => process.kill(descendantPid!, 0)).toThrow(), { timeout: 3000, interval: 20 });
+      } finally {
+        await context.fiber.dispose();
+        if (descendantPid !== undefined && Number.isSafeInteger(descendantPid) && descendantPid > 0) {
+          try {
+            process.kill(descendantPid, "SIGKILL");
+          } catch {
+            /* Owned fixture already exited. */
+          }
+        }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    12000,
+  );
+
+  test.skipIf(process.platform === "win32").each(["cancel", "timeout"])(
+    "%s settles despite escaped descendants holding output pipes",
+    async (mode) => {
+      const root = await mkdtemp(join(tmpdir(), "pi-auto-escaped-"));
+      let pid: number | undefined;
+      const caller = new AbortController();
+      try {
+        const worker = 'require("node:fs").writeFileSync("ready",String(process.pid));setTimeout(()=>process.exit(0),8000)';
+        const parent = `require("node:child_process").spawn(process.execPath,["-e",${JSON.stringify(worker)}],{detached:true,stdio:"inherit"});setInterval(()=>{},100)`;
+        let settled = false;
+        const pending = runCommand([process.execPath, "-e", parent], root, mode === "timeout" ? 1000 : 30000, 4096, caller.signal);
+        const observed = pending.catch((error: unknown) => {
+          settled = true;
+          return error;
+        });
+        await waitForFile(join(root, "ready"));
+        pid = Number(await readFile(join(root, "ready"), "utf8"));
+        expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+        if (mode === "cancel") caller.abort(new Error("test cancellation"));
+        await vi.waitFor(() => expect(settled).toBe(true), {
+          timeout: 3000,
+          interval: 20,
+        });
+        const failure: unknown = await observed;
+        expect(failure).toBeInstanceOf(Error);
+        if (!(failure instanceof Error)) throw new Error("Expected command failure");
+        expect(failure.message).toContain(mode === "cancel" ? "cancelled" : "timed out");
+        // Escaped groups are not contained; returning is not a claim of cleanup.
+        expect(() => process.kill(pid!, 0)).not.toThrow();
+      } finally {
+        caller.abort();
+        if (pid !== undefined && Number.isSafeInteger(pid) && pid > 0) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            /* Owned fixture exited. */
+          }
+        }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    12000,
+  );
+
+  test("reaps a SIGTERM-ignoring command after caller cancellation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-hard-cancel-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    try {
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 30000 });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec")!;
+      const script =
+        'process.on("SIGTERM",()=>{});require("node:fs").writeFileSync("ready",String(process.pid));setInterval(()=>{},100);setTimeout(()=>process.exit(9),5000)';
+      const caller = new AbortController();
+      const pending = tool.execute("cancel", { command: [process.execPath, "-e", script], confirm: true }, caller.signal, undefined, {} as never);
+      const rejected = expect(pending).rejects.toThrow("cancelled by test");
+      await waitForFile(join(root, "ready"));
+      const pid = Number(await readFile(join(root, "ready"), "utf8"));
+      expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+      caller.abort(new Error("cancelled by test"));
+      await rejected;
+      await vi.waitFor(
+        () => {
+          expect(() => process.kill(pid, 0)).toThrow();
+        },
+        { timeout: 3000, interval: 20 },
+      );
+      await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 10000);
+
+  test("enforces timeout when the command ignores SIGTERM", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-ignore-term-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    try {
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 1000 });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec")!;
+      const script = 'process.on("SIGTERM",()=>{});setInterval(()=>{},100);setTimeout(()=>process.exit(9),5000)';
+      const started = Date.now();
+      const result = await tool.execute("ignore-term", { command: [process.execPath, "-e", script], confirm: true }, undefined, undefined, {} as never);
+      expect(Date.now() - started).toBeLessThan(4000);
+      const details = result.details as { exitCode: number; stderr: string };
+      expect(details.exitCode).not.toBe(0);
+      expect(details.stderr).toContain("timed out after 1000 ms");
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 10000);
+
+  test("closes unused stdin so noninteractive commands can reach EOF", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-stdin-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    try {
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 1000 });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec")!;
+      const result = await tool.execute(
+        "stdin",
+        {
+          command: [process.execPath, "-e", 'const data=require("node:fs").readFileSync(0);console.log("EOF_BYTES="+data.length)'],
+          confirm: true,
+        },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(result.details).toMatchObject({
+        exitCode: 0,
+        stdout: "EOF_BYTES=0\n",
+        stderr: "",
+      });
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not report success when a timed-out command handles SIGTERM with exit zero", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-timeout-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    try {
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", panels);
+      await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 1000 });
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec")!;
+      const script = 'process.on("SIGTERM",()=>process.exit(0));setInterval(()=>{},100);setTimeout(()=>process.exit(9),5000)';
+      const result = await tool.execute("timeout", { command: [process.execPath, "-e", script], confirm: true }, undefined, undefined, {} as never);
+      const details = result.details as { exitCode: number; stderr: string };
+      expect(details.exitCode).not.toBe(0);
+      expect(details.stderr).toContain("timed out after 1000 ms");
+      expect(((await panels.snapshot())[0]?.data as { last: unknown }).last).toEqual(result.details);
     } finally {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
@@ -322,7 +621,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -351,7 +655,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -380,10 +689,18 @@ describe("auto-mode", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
-      await context.plugin(autoModePlugin, { mode: "confirm", timeoutMs: 5_000 });
+      await context.plugin(autoModePlugin, {
+        mode: "confirm",
+        timeoutMs: 5_000,
+      });
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "auto_mode_exec");
       if (tool === undefined) throw new Error("auto_mode_exec was not registered");
 
@@ -403,7 +720,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin);
@@ -427,7 +749,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -437,12 +764,23 @@ describe("auto-mode", () => {
       await expect(
         tool.execute(
           "failure",
-          { command: [process.execPath, "-e", "process.stderr.write('failed');process.exit(7)"], confirm: true },
+          {
+            command: [process.execPath, "-e", "process.stderr.write('failed');process.exit(7)"],
+            confirm: true,
+          },
           undefined,
           undefined,
           {} as never,
         ),
-      ).resolves.toMatchObject({ details: { allowed: true, confirmed: true, exitCode: 7, stdout: "", stderr: "failed" } });
+      ).resolves.toMatchObject({
+        details: {
+          allowed: true,
+          confirmed: true,
+          exitCode: 7,
+          stdout: "",
+          stderr: "failed",
+        },
+      });
     } finally {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
@@ -455,7 +793,12 @@ describe("auto-mode", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -468,7 +811,10 @@ describe("auto-mode", () => {
       await expect(
         tool.execute(
           "cancelled",
-          { command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker.txt','changed')"], confirm: true },
+          {
+            command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker.txt','changed')"],
+            confirm: true,
+          },
           caller.signal,
           undefined,
           {} as never,
@@ -488,12 +834,22 @@ describe("auto-mode", () => {
     const tools = new PiToolRegistry();
     const panels = new PiPluginUiRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", panels);
       await context.plugin(autoModePlugin);
       expect(tools.snapshot().customTools.map((tool) => tool.name)).toEqual(["auto_mode_exec"]);
-      await expect(panels.snapshot()).resolves.toMatchObject([{ id: "auto-mode-panel", data: { mode: "safe", blocked: 0, last: null } }]);
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        {
+          id: "auto-mode-panel",
+          data: { mode: "safe", blocked: 0, last: null },
+        },
+      ]);
 
       await context.fiber.dispose();
 
@@ -510,7 +866,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -531,7 +892,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -539,7 +905,16 @@ describe("auto-mode", () => {
       if (tool === undefined) throw new Error("auto_mode_exec was not registered");
 
       await expect(
-        tool.execute("execute", { command: ["C:\\Windows\\System32\\cmd.exe", "/c", "echo unsafe"], confirm: true }, undefined, undefined, {} as never),
+        tool.execute(
+          "execute",
+          {
+            command: ["C:\\Windows\\System32\\cmd.exe", "/c", "echo unsafe"],
+            confirm: true,
+          },
+          undefined,
+          undefined,
+          {} as never,
+        ),
       ).rejects.toThrow(/shell wrapper/iu);
     } finally {
       await context.fiber.dispose();
@@ -552,7 +927,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -573,7 +953,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -582,7 +967,16 @@ describe("auto-mode", () => {
 
       for (const launcher of ["sudo", "su", "nice", "nohup", "time", "timeout", "stdbuf", "xargs"]) {
         await expect(
-          tool.execute("execute", { command: [`C:\\tools\\${launcher}.exe`, "sh", "-c", "echo unsafe"], confirm: true }, undefined, undefined, {} as never),
+          tool.execute(
+            "execute",
+            {
+              command: [`C:\\tools\\${launcher}.exe`, "sh", "-c", "echo unsafe"],
+              confirm: true,
+            },
+            undefined,
+            undefined,
+            {} as never,
+          ),
         ).rejects.toThrow(/shell wrapper/iu);
       }
     } finally {
@@ -596,7 +990,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -607,7 +1006,9 @@ describe("auto-mode", () => {
       await expect(
         tool.execute(
           "execute",
-          { command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker.txt', 'changed')"] },
+          {
+            command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker.txt', 'changed')"],
+          },
           undefined,
           undefined,
           {} as never,
@@ -625,7 +1026,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -649,7 +1055,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -672,7 +1083,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -695,7 +1111,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -742,7 +1163,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -785,7 +1211,12 @@ describe("auto-mode", () => {
       const marker = join(root, "pwned.txt");
       await writeFile(payload, "#!/bin/sh\nprintf owned > pwned.txt\n", "utf8");
       await chmod(payload, 0o700);
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -808,7 +1239,9 @@ describe("auto-mode", () => {
       }
 
       // The guard is the only thing stopping these: the same argv run directly executes the payload.
-      await execFileAsync("git", ["grep", "-iO./payload.sh", "needle"], { cwd: root }).catch(() => undefined);
+      await execFileAsync("git", ["grep", "-iO./payload.sh", "needle"], {
+        cwd: root,
+      }).catch(() => undefined);
       await expect(readFile(marker, "utf8")).resolves.toBe("owned");
       await rm(marker, { force: true });
 
@@ -845,9 +1278,16 @@ describe("auto-mode", () => {
       await writeFile(payload, '#!/bin/sh\nprintf owned > pwned.txt\ncat "$1"\n', "utf8");
       await chmod(payload, 0o700);
       await execFileAsync("git", ["config", "diff.evil.textconv", "./payload.sh"], { cwd: root });
-      await execFileAsync("git", ["add", "file.txt", ".gitattributes"], { cwd: root });
+      await execFileAsync("git", ["add", "file.txt", ".gitattributes"], {
+        cwd: root,
+      });
       await execFileAsync("git", ["-c", "user.email=pi@example.invalid", "-c", "user.name=pi", "commit", "--quiet", "-m", "seed"], { cwd: root });
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -874,7 +1314,9 @@ describe("auto-mode", () => {
       }
 
       // The guard is the only thing stopping the first entry: the same argv run directly executes the payload.
-      await execFileAsync("git", ["cat-file", "--text", "HEAD:file.txt"], { cwd: root });
+      await execFileAsync("git", ["cat-file", "--text", "HEAD:file.txt"], {
+        cwd: root,
+      });
       await expect(readFile(marker, "utf8")).resolves.toBe("owned");
     } finally {
       await context.fiber.dispose();
@@ -891,7 +1333,12 @@ describe("auto-mode", () => {
       await seedRepository(root, "*.txt diff=evil\n", "diff.evil.textconv", '#!/bin/sh\nprintf owned > pwned.txt\ncat "$1"\n');
       await writeFile(join(root, "file.txt"), "needle here\nmodified\n", "utf8");
       const marker = join(root, "pwned.txt");
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -931,7 +1378,12 @@ describe("auto-mode", () => {
       // Rewriting the identical content leaves the file stat-dirty, so git has to re-run the clean filter to decide whether it changed.
       await writeFile(join(root, "file.txt"), "needle here\n", "utf8");
       const marker = join(root, "pwned.txt");
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -965,7 +1417,12 @@ describe("auto-mode", () => {
       await writeFile(join(root, "file.txt"), "needle here\n", "utf8");
       await execFileAsync("git", ["add", "-A"], { cwd: root });
       await execFileAsync("git", ["-c", "user.email=pi@example.invalid", "-c", "user.name=pi", "commit", "--quiet", "-m", "seed"], { cwd: root });
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -984,10 +1441,15 @@ describe("auto-mode", () => {
 
       // The diff-family subcommands additionally run with the repository's diff drivers switched off, and the recorded argv is the one that ran.
       await expect(tool.execute("execute", { command: ["git", "log", "--oneline"] }, undefined, undefined, {} as never)).resolves.toMatchObject({
-        details: { command: ["git", "log", "--no-textconv", "--no-ext-diff", "--oneline"] },
+        details: {
+          command: ["git", "log", "--no-textconv", "--no-ext-diff", "--oneline"],
+        },
       });
       await expect(tool.execute("execute", { command: ["git", "grep", "needle"] }, undefined, undefined, {} as never)).resolves.toMatchObject({
-        details: { command: ["git", "grep", "--no-textconv", "needle"], exitCode: 0 },
+        details: {
+          command: ["git", "grep", "--no-textconv", "needle"],
+          exitCode: 0,
+        },
       });
       await expect(tool.execute("execute", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never)).resolves.toMatchObject({
         details: { command: ["git", "status", "--short"] },
@@ -1006,7 +1468,12 @@ describe("auto-mode", () => {
     try {
       await seedSignedRepository(root, "gpg.program");
       const marker = join(root, "pwned.txt");
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1044,7 +1511,12 @@ describe("auto-mode", () => {
     try {
       await seedSignedRepository(root, "gpg.openpgp.program");
       const marker = join(root, "pwned.txt");
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1075,7 +1547,12 @@ describe("auto-mode", () => {
       await expect(
         execFileAsync("git", ["config", "--get-regexp", "^(diff|filter)\\..*\\.(clean|command|process|smudge|textconv)$"], { cwd: superproject }),
       ).rejects.toMatchObject({ code: 1 });
-      provideLaunchContext(context, { cwd: superproject, agentDir: superproject, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: superproject,
+        agentDir: superproject,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 10_000 });
@@ -1143,7 +1620,9 @@ describe("auto-mode", () => {
       }
 
       // The guard is the only thing stopping this: git status covers the whole repository from any directory inside it, so the same argv run here executes the payload.
-      await execFileAsync("git", ["status"], { cwd: join(superproject, "src") });
+      await execFileAsync("git", ["status"], {
+        cwd: join(superproject, "src"),
+      });
       await expect(readFile(marker, "utf8")).resolves.toBe("owned");
     } finally {
       await context.fiber.dispose();
@@ -1160,7 +1639,12 @@ describe("auto-mode", () => {
       // A repository that is risky by every measure the probe applies: a textconv driver, a hooks directory and a submodule.
       const superproject = await seedSubmoduleRepository(root);
       await execFileAsync("git", ["config", "diff.evil.textconv", join(superproject, "payload.sh")], { cwd: superproject });
-      provideLaunchContext(context, { cwd: superproject, agentDir: superproject, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: superproject,
+        agentDir: superproject,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 10_000 });
@@ -1204,7 +1688,12 @@ describe("auto-mode", () => {
       const repository = join(root, "repository");
       await mkdir(repository, { recursive: true });
       await seedOrdinaryRepository(repository);
-      provideLaunchContext(context, { cwd: repository, agentDir: repository, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: repository,
+        agentDir: repository,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1226,7 +1715,9 @@ describe("auto-mode", () => {
       // The same key written into the repository's own configuration is still risky, and so is one written into worktree scope.
       await execFileAsync("git", ["config", "filter.evil.clean", "./payload.sh"], { cwd: repository });
       await expect(tool.execute("execute", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/iu);
-      await execFileAsync("git", ["config", "--unset", "filter.evil.clean"], { cwd: repository });
+      await execFileAsync("git", ["config", "--unset", "filter.evil.clean"], {
+        cwd: repository,
+      });
       await execFileAsync("git", ["config", "extensions.worktreeConfig", "true"], { cwd: repository });
       await execFileAsync("git", ["config", "--worktree", "diff.evil.textconv", "./payload.sh"], { cwd: repository });
       await expect(tool.execute("execute", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/iu);
@@ -1248,7 +1739,12 @@ describe("auto-mode", () => {
       // An include is the obvious way to try to launder a repository key into another scope; git reports the included key as local all the same.
       await writeFile(join(root, "included.cfg"), '[diff "evil"]\n\ttextconv = ./payload.sh\n', "utf8");
       await execFileAsync("git", ["config", "include.path", "../included.cfg"], { cwd: root });
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1262,6 +1758,9 @@ describe("auto-mode", () => {
     }
   });
 
+  // Real hook fixtures and thirteen serial Git policy probes exceed the default
+  // five-second suite watchdog under full-repository contention. Each operation
+  // is still awaited and each allowed command retains its five-second limit.
   test("keeps running read-only Git commands in a repository that only sets a hooks directory", async () => {
     if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
@@ -1271,8 +1770,15 @@ describe("auto-mode", () => {
       // What husky v9 writes into every repository it is installed in.
       await seedOrdinaryRepository(root);
       await mkdir(join(root, ".husky", "_"), { recursive: true });
-      await execFileAsync("git", ["config", "core.hooksPath", ".husky/_"], { cwd: root });
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      await execFileAsync("git", ["config", "core.hooksPath", ".husky/_"], {
+        cwd: root,
+      });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1326,8 +1832,9 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
+  // As above, this is a multi-process integration scenario, not a timing assertion.
   test("requires confirmation in a repository that ships an executable hook in the default hooks directory", async () => {
     if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
@@ -1336,7 +1843,12 @@ describe("auto-mode", () => {
     try {
       // No core.hooksPath and no other configuration: the hook sits where git looks for it by default, so the configuration probe has nothing to report.
       await seedOrdinaryRepository(root);
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1386,7 +1898,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("keeps running read-only Git commands in a repository whose default hooks directory holds only samples and a pre-commit hook", async () => {
     if (process.platform === "win32") return;
@@ -1398,7 +1910,12 @@ describe("auto-mode", () => {
       await seedOrdinaryRepository(root);
       await writeFile(join(root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 0\n", "utf8");
       await chmod(join(root, ".git", "hooks", "pre-commit"), 0o700);
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1423,6 +1940,8 @@ describe("auto-mode", () => {
     }
   });
 
+  // Seventeen serial Git invocations plus repository setup need a scenario-level
+  // watchdog independent of each command's timeout; all safety probes stay real.
   test("does not require confirmation for the keys no allowlisted subcommand was able to reach", async () => {
     if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "pi-harness-auto-mode-"));
@@ -1437,7 +1956,12 @@ describe("auto-mode", () => {
       for (const key of ["core.sshCommand", "sequence.editor", "uploadpack.packObjectsHook"]) {
         await execFileAsync("git", ["config", key, payload], { cwd: root });
       }
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1475,7 +1999,7 @@ describe("auto-mode", () => {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("runs read-only Git commands unconfirmed outside a repository", async () => {
     if (process.platform === "win32") return;
@@ -1483,7 +2007,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1509,7 +2038,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1539,7 +2073,12 @@ describe("auto-mode", () => {
     const context = new Context();
     const tools = new PiToolRegistry();
     try {
-      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      provideLaunchContext(context, {
+        cwd: root,
+        agentDir: root,
+        args: [],
+        requestExit() {},
+      });
       context.provide("piTools", tools);
       context.provide("piPluginUi", new PiPluginUiRegistry());
       await context.plugin(autoModePlugin, { mode: "safe", timeoutMs: 5_000 });
@@ -1570,8 +2109,15 @@ test("checks and executes in the current native workspace and rejects obsolete p
   try {
     await mkdir(active);
     await execFileAsync("git", ["init", "-q"], { cwd: active });
-    await execFileAsync("git", ["config", "filter.test.clean", "./filter.sh"], { cwd: active });
-    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    await execFileAsync("git", ["config", "filter.test.clean", "./filter.sh"], {
+      cwd: active,
+    });
+    provideLaunchContext(context, {
+      cwd: root,
+      agentDir: root,
+      args: [],
+      requestExit() {},
+    });
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
     context.provide("piRuntime", {
@@ -1592,7 +2138,10 @@ test("checks and executes in the current native workspace and rejects obsolete p
     await expect(tool.execute("risky", { command: ["git", "status", "--short"] }, undefined, undefined, {} as never)).rejects.toThrow(/risky command/iu);
     const result = await tool.execute(
       "write",
-      { command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker', 'active')"], confirm: true },
+      {
+        command: [process.execPath, "-e", "require('node:fs').writeFileSync('marker', 'active')"],
+        confirm: true,
+      },
       undefined,
       undefined,
       {} as never,
@@ -1615,7 +2164,10 @@ test("checks and executes in the current native workspace and rejects obsolete p
     for (const exitCode of [0, 7]) {
       const running = tool.execute(
         "running",
-        { command: [process.execPath, "-e", `process.exit(${exitCode})`], confirm: true },
+        {
+          command: [process.execPath, "-e", `process.exit(${exitCode})`],
+          confirm: true,
+        },
         undefined,
         undefined,
         {} as never,

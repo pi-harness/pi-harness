@@ -6,7 +6,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { runBoundedCommand as runCommand } from "@pi-harness/plugin-api";
 
 const execFileAsync = promisify(execFile);
 const maxArgs = 32;
@@ -448,12 +448,7 @@ export default {
       const started = Date.now();
       let completed: AutoModeResult;
       try {
-        const result = await execFileAsync(argv[0]!, argv.slice(1), {
-          cwd: operationScope.cwd,
-          timeout: timeoutMs,
-          maxBuffer: maxOutputBytes,
-          signal,
-        });
+        const result = await runCommand(argv, operationScope.cwd, timeoutMs, maxOutputBytes, signal);
         completed = {
           command: argv,
           allowed: true,
@@ -465,14 +460,20 @@ export default {
         };
       } catch (error) {
         signal?.throwIfAborted();
-        const failure = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
+        const failure = error as { code?: number | string; killed?: boolean; stdout?: string; stderr?: string; message?: string };
+        const diagnostic =
+          failure.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+            ? `Auto mode command output exceeded ${maxOutputBytes} bytes; output is incomplete`
+            : failure.killed === true
+              ? `Auto mode command timed out after ${timeoutMs} ms`
+              : undefined;
         completed = {
           command: argv,
           allowed: true,
           confirmed: confirm,
-          exitCode: typeof failure.code === "number" ? failure.code : 1,
+          exitCode: typeof failure.code === "number" && failure.code !== 0 && failure.killed !== true ? failure.code : 1,
           stdout: (failure.stdout ?? "").slice(-maxOutputBytes),
-          stderr: (failure.stderr ?? failure.message ?? "").slice(-maxOutputBytes),
+          stderr: (diagnostic === undefined ? failure.stderr || failure.message || "" : `${failure.stderr ?? ""}\n${diagnostic}`).slice(-maxOutputBytes),
           durationMs: Date.now() - started,
         };
       }

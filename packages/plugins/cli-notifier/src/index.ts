@@ -1,12 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { runBoundedCommand } from "@pi-harness/plugin-api";
 
-const execFileAsync = promisify(execFile);
 const maxMessageLength = 2048;
 const maxTitleLength = 256;
 const maxReasonLength = 1024;
@@ -16,6 +13,8 @@ const maxCommandOutputBytes = 256 * 1024;
 const windowsNotificationScript =
   "$message = [System.Security.SecurityElement]::Escape([string]$env:PI_HARNESS_NOTIFICATION_MESSAGE); $title = [System.Security.SecurityElement]::Escape([string]$env:PI_HARNESS_NOTIFICATION_TITLE); [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $xml = New-Object Windows.Data.Xml.Dom.XmlDocument; $xml.LoadXml(\"<toast><visual><binding template='ToastText02'><text id='1'>$message</text><text id='2'>$title</text></binding></visual></toast>\"); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Pi Harness').Show([Windows.UI.Notifications.ToastNotification]::new($xml))";
 type Notification = { time: string; title: string; message: string; delivered: boolean; reason?: string };
+// `delivered` is retained for compatibility: it means command submission succeeded,
+// not that the operating system displayed the notification or the user read it.
 type NotificationResult = { title: string; message: string; delivered: boolean; platform: NodeJS.Platform; reason?: string };
 
 export interface CliNotifierPluginConfig {
@@ -65,19 +64,21 @@ function boundedReason(value: unknown): string {
 
 async function deliver(title: string, message: string, timeoutMs: number, signal: AbortSignal): Promise<NotificationResult> {
   const platform = process.platform;
-  const options = { timeout: timeoutMs, maxBuffer: maxCommandOutputBytes, signal };
+  const run = (argv: string[], env?: NodeJS.ProcessEnv) =>
+    runBoundedCommand(argv, process.cwd(), timeoutMs, maxCommandOutputBytes, signal, env === undefined ? {} : { env });
   if (platform === "darwin") {
-    await execFileAsync("osascript", ["-e", `display notification ${appleScriptString(message)} with title ${appleScriptString(title)}`], options);
+    await run(["osascript", "-e", `display notification ${appleScriptString(message)} with title ${appleScriptString(title)}`]);
     return { title, message, delivered: true, platform };
   }
   if (platform === "linux") {
-    await execFileAsync("notify-send", ["--", title, message], options);
+    await run(["notify-send", "--", title, message]);
     return { title, message, delivered: true, platform };
   }
   if (platform === "win32") {
-    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", windowsNotificationScript], {
-      ...options,
-      env: { ...process.env, PI_HARNESS_NOTIFICATION_MESSAGE: message, PI_HARNESS_NOTIFICATION_TITLE: title },
+    await run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", windowsNotificationScript], {
+      ...process.env,
+      PI_HARNESS_NOTIFICATION_MESSAGE: message,
+      PI_HARNESS_NOTIFICATION_TITLE: title,
     });
     return { title, message, delivered: true, platform };
   }
@@ -124,7 +125,27 @@ export default {
         () => undefined,
         () => undefined,
       );
-      return operation;
+      // Keep the queue chained to actual work, not the caller-facing abort race.
+      // A queued cancellation must return immediately without allowing later
+      // notifications to overtake the still-running platform command.
+      return new Promise<NotificationResult>((resolve, reject) => {
+        const onAbort = () => {
+          signal.removeEventListener("abort", onAbort);
+          reject(signal.reason instanceof Error ? signal.reason : new Error("Desktop notification was cancelled", { cause: signal.reason }));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+        operation.then(
+          (result) => {
+            signal.removeEventListener("abort", onAbort);
+            resolve(result);
+          },
+          (error: unknown) => {
+            signal.removeEventListener("abort", onAbort);
+            reject(error instanceof Error ? error : new Error("Desktop notification failed", { cause: error }));
+          },
+        );
+      });
     };
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -146,7 +167,12 @@ export default {
           const result = await notify(record.message, record.title ?? defaultTitle, actionSignal);
           return {
             content: [
-              { type: "text", text: result.delivered ? "Desktop notification sent." : `Desktop notification not sent: ${result.reason ?? "unknown reason"}` },
+              {
+                type: "text",
+                text: result.delivered
+                  ? "Desktop notification submitted to the system. Display and read status are not verified."
+                  : `Desktop notification not submitted: ${result.reason ?? "unknown reason"}`,
+              },
             ],
             details: structuredClone(result),
           };
