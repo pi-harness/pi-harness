@@ -5,11 +5,11 @@ import anchoredStandardPlugin from "../src/index.js";
 
 const contexts: Context[] = [];
 
-async function fixture() {
+async function fixture(allowedTools = ["read"]) {
   const context = new Context();
   context.provide("piTools", new PiToolRegistry());
   context.provide("piPluginUi", new PiPluginUiRegistry());
-  await context.plugin(anchoredStandardPlugin, { maxToolCalls: 2, allowedTools: ["read"] });
+  await context.plugin(anchoredStandardPlugin, { maxToolCalls: 2, allowedTools });
   contexts.push(context);
   const tool = context.piTools.snapshot().customTools.find((item) => item.name === "trajectory_anchor_check");
   if (tool === undefined) throw new Error("trajectory_anchor_check was not registered");
@@ -21,6 +21,49 @@ afterEach(async () => {
 });
 
 describe("anchored standard", () => {
+  test("exposes complete audit findings and their lifetime scope to the model", async () => {
+    const { context, tool } = await fixture();
+    context.emit("pi/session-event", { type: "tool_execution_start", toolName: "bash" } as never);
+    const result = await tool.execute("check", {}, undefined, undefined, {} as never);
+    const text = result.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toBe(JSON.stringify(result.details));
+    expect(result.details).toMatchObject({ auditOnly: true, scope: "since-plugin-load", maxToolCalls: 2, allowedTools: ["read"] });
+  });
+
+  test("bounds diagnostic tool names without allowing an overlong allowed-name prefix", async () => {
+    const allowedName = `read${"X".repeat(124)}`;
+    const { context, tool } = await fixture([allowedName]);
+    context.emit("pi/session-event", { type: "tool_execution_start", toolName: `${allowedName}${"Y".repeat(100_000)}` } as never);
+    const result = await tool.execute("check", {}, undefined, undefined, {} as never);
+    const findings = (result.details as { violations: Array<{ code: string; message: string }> }).violations;
+    const disallowed = findings.find((item) => item.code === "disallowed_tool");
+    expect(disallowed).toBeDefined();
+    expect(disallowed!.message).toContain("read");
+    expect(disallowed!.message.length).toBeLessThan(200);
+    expect(disallowed!.message).toContain("…");
+  });
+
+  test("keeps a complete worst-case escaped allowlist within 512 KiB", async () => {
+    const context = new Context();
+    contexts.push(context);
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    const allowedTools = Array.from({ length: 512 }, (_, index) => `${index.toString().padStart(3, "0")}${"\u0000".repeat(125)}`);
+    await context.plugin(anchoredStandardPlugin, { allowedTools });
+    const tool = context.piTools.snapshot().customTools[0]!;
+    const result = await tool.execute("check", {}, undefined, undefined, {} as never);
+    const text = result.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toBe(JSON.stringify(result.details));
+    expect(result.details).toMatchObject({ allowedTools });
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(512 * 1024);
+  });
+
   test("keeps recorded violations immutable across tool and panel consumers", async () => {
     const { context, tool, panels } = await fixture();
     context.emit("pi/session-event", { type: "tool_execution_start", toolName: "read" } as never);
