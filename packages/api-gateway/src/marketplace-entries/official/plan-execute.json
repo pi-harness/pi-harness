@@ -1,7 +1,7 @@
 {
   "id": "plan-execute",
   "packageName": "@pi-harness/plugin-plan-execute",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Plan Execute",
   "description": "按会话保存多步执行计划、进度和依赖；切回或重新打开会话可恢复，不执行计划中的命令。",
   "author": "Pi Harness",

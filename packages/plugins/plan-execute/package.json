@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-plan-execute",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Track an explicit multi-step execution plan with progress, dependencies, and completion state in the current session.",
   "keywords": [
     "cordis",
