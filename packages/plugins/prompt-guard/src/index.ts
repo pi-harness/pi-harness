@@ -202,7 +202,7 @@ export default {
             const report = inspect(parsed.text, parsed.source);
             record(report);
             return {
-              content: [{ type: "text" as const, text: `${report.risk}: ${report.findings.length} finding(s), score ${report.score}.` }],
+              content: [{ type: "text" as const, text: JSON.stringify(report) }],
               details: structuredClone(report),
             };
           });
