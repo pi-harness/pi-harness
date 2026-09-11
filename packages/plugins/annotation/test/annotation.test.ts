@@ -1,4 +1,5 @@
 import { Context } from "@deepseek-ai/cordis";
+import assert from "node:assert/strict";
 import { afterEach, describe, expect, test } from "vitest";
 import annotationPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
@@ -23,6 +24,72 @@ afterEach(async () => {
 });
 
 describe("annotation", () => {
+  test("lists readable annotation bodies and notes with continuation metadata", async () => {
+    const { tool } = await fixture();
+    for (const quote of ["First passage", "Second passage"])
+      await tool.execute("add", { action: "add", quote, note: "Keep the detail" }, undefined, undefined, {} as never);
+    const result = await tool.execute("list", { action: "list", offset: 1, limit: 1 }, undefined, undefined, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("Second passage");
+    expect(JSON.parse(text)).toMatchObject({
+      count: 2,
+      offset: 1,
+      returned: 1,
+      nextOffset: null,
+      truncated: false,
+      annotations: [{ id: 2, note: "Keep the detail" }],
+    });
+    expect(result.details).toMatchObject({ count: 2, annotations: [{ id: 1 }, { id: 2 }] });
+  });
+
+  test("keeps model-visible pages within 64 KiB without losing any full annotation", async () => {
+    const { tool } = await fixture();
+    const quote = "\u0001".repeat(4_000),
+      note = "\u0002".repeat(1_000);
+    for (let n = 0; n < 5; n++) await tool.execute("add", { action: "add", quote, note }, undefined, undefined, {} as never);
+    const ids: number[] = [];
+    let offset: number | null = 0;
+    while (offset !== null) {
+      const result = await tool.execute("page", { action: "list", offset, limit: 5 }, undefined, undefined, {} as never);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('"annotations":');
+      expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(64 * 1024);
+      const page: unknown = JSON.parse(text);
+      assert(page !== null && typeof page === "object");
+      assert("returned" in page && typeof page.returned === "number");
+      assert("annotations" in page && Array.isArray(page.annotations));
+      assert("nextOffset" in page && (page.nextOffset === null || typeof page.nextOffset === "number"));
+      expect(page.returned).toBeGreaterThan(0);
+      expect(page.returned).toBe(page.annotations.length);
+      for (const item of page.annotations as unknown[]) {
+        assert(item !== null && typeof item === "object" && "quote" in item && "note" in item && "id" in item);
+        assert(typeof item.id === "number" && Number.isInteger(item.id));
+        expect(item.quote).toBe(quote);
+        expect(item.note).toBe(note);
+        ids.push(item.id);
+      }
+      expect(page.nextOffset === null || page.nextOffset > offset).toBe(true);
+      offset = page.nextOffset;
+    }
+    expect(ids).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test.each([{ offset: -1 }, { offset: null }, { limit: 0 }, { limit: 1.5 }, { offset: 51 }])("rejects invalid list pagination %#", async (pagination) => {
+    const { tool } = await fixture();
+    await expect(tool.execute("bad", { action: "list", ...pagination }, undefined, undefined, {} as never)).rejects.toThrow(/offset|limit/iu);
+  });
+
+  test("does not mutate annotations after cancellation or disposal", async () => {
+    const { context, tool, panels } = await fixture();
+    const controller = new AbortController();
+    const pending = tool.execute("cancel", { action: "add", quote: "must not appear" }, controller.signal, undefined, {} as never);
+    controller.abort();
+    await expect(pending).rejects.toThrow(/cancel/iu);
+    expect((await panels.snapshot())[0]?.data).toMatchObject({ count: 0 });
+    await context.fiber.dispose();
+    await expect(tool.execute("stale", { action: "add", quote: "stale" }, undefined, undefined, {} as never)).rejects.toThrow(/cancel|disposed/iu);
+  });
+
   test("collects, lists, renders, removes, and clears annotations", async () => {
     const { tool, panels } = await fixture();
     expect(tool.executionMode).toBe("sequential");
