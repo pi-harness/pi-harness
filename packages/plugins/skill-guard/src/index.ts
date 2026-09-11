@@ -56,8 +56,11 @@ const patterns: readonly Pattern[] = [
     severity: "high",
     score: 6,
     message: "检测到可能破坏工作区或磁盘的命令。",
+    // Independent lookaheads check the flag cluster once for each letter.
+    // Overlapping stars around r/f cause catastrophic backtracking on long
+    // clusters containing only one letter, blocking both scan and cancellation.
     pattern:
-      /\b(?:rm\s+(?:-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*|--recursive\s+--force|--force\s+--recursive)\b|git\s+reset\s+--hard\b|git\s+clean\s+-[a-z]*f|mkfs(?:\.[a-z0-9]+)?\b|dd\s+if=)/iu,
+      /\b(?:rm\s+(?:-(?=[a-z]*r)(?=[a-z]*f)[a-z]+|--recursive\s+--force|--force\s+--recursive)\b|git\s+reset\s+--hard\b|git\s+clean\s+-[a-z]*f|mkfs(?:\.[a-z0-9]+)?\b|dd\s+if=)/iu,
   },
   {
     code: "obfuscated_payload",
@@ -185,12 +188,15 @@ function selectSkills(loaded: unknown, query: string): SkillSelection {
 
 async function scanLoadedSkills(context: Context, signal: AbortSignal, query = ""): Promise<SkillScan> {
   throwIfCancelled(signal);
-  const loader = context.piResources.resourceLoader;
+  // Runtime sessions can replace their resources when switching workspaces.
+  // Startup scans still work before the optional runtime service is available.
+  const currentLoader = () => context.get("piRuntime")?.session.resourceLoader ?? context.piResources.resourceLoader;
+  const loader = currentLoader();
   const selection = selectSkills(loader.getSkills(), query);
   const fingerprint = JSON.stringify(selection);
   const assertCurrent = (): void => {
     throwIfCancelled(signal);
-    if (context.piResources.resourceLoader !== loader || JSON.stringify(selectSkills(loader.getSkills(), query)) !== fingerprint)
+    if (currentLoader() !== loader || JSON.stringify(selectSkills(loader.getSkills(), query)) !== fingerprint)
       throw new Error("Loaded skill metadata changed during scan");
   };
   const reports: ScannedSkillReport[] = [];
