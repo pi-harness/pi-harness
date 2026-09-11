@@ -67,7 +67,9 @@ describe("workspace search", () => {
       await Promise.all(Array.from({ length: 100 }, (_, index) => symlink("missing", join(root, "links", `link-${batch}-${index}`))));
     const result = await tool.execute("links", { query: "missing", path: "links" }, undefined, undefined, {} as never);
     expect(result.details).toMatchObject({ matchCount: 0, scannedEntries: 4096, truncated: true });
-  });
+    // Keep all 4,200 real symlinks: filesystem setup can exceed the default
+    // deadline on a busy disk; the traversal bound remains the assertion.
+  }, 30_000);
 
   test("stops at the total read budget without claiming a complete no-match result", async () => {
     const { root, tool } = await fixture();
@@ -76,7 +78,9 @@ describe("workspace search", () => {
     for (let index = 0; index < 33; index += 1) await writeFile(join(root, "budget", `file-${String(index).padStart(2, "0")}.txt`), bytes);
     const result = await tool.execute("budget", { query: "missing", path: "budget" }, undefined, undefined, {} as never);
     expect(result.details).toMatchObject({ matchCount: 0, scannedFiles: 32, readBytes: 64 * 1024 * 1024, truncated: true });
-  });
+    // This writes 66 MiB and reads the full 64 MiB budget on the real disk.
+    // Assert the byte cap independently of filesystem throughput.
+  }, 30_000);
 
   test("rejects Windows paths outside the workspace using native path semantics", () => {
     expect(isWorkspaceSearchPathInside("C:\\repo", "C:\\outside", win32)).toBe(false);
@@ -139,7 +143,9 @@ describe("workspace search", () => {
     await expect(tool.execute("limit", { query: "not-present" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { matchCount: 0, scannedFiles: 2_000, truncated: true },
     });
-  }, 15_000);
+    // Creating and reading 2,001 real files is an I/O-bound correctness test,
+    // not a 15-second performance budget. Retain the complete scan fixture.
+  }, 60_000);
 
   test("clips an oversize matched line before it reaches the agent content", async () => {
     const { root, tool } = await fixture();
