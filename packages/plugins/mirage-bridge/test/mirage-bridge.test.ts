@@ -1,8 +1,8 @@
-import { access, chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 import mirageBridgePlugin from "../src/index.js";
 
@@ -62,6 +62,111 @@ afterEach(async () => {
 });
 
 describe("mirage bridge", () => {
+  test.skipIf(process.platform === "win32").each([
+    ["cancel", false], ["timeout", false], ["cancel", true], ["timeout", true],
+  ] as const)("%s reaps SIGTERM-ignoring local CLI processes (tree=%s)", async (mode, tree) => {
+    const { context, directory, execute, panels } = await longRunningFixture(mode === "timeout" ? 2000 : 30000);
+    const caller = new AbortController();
+    let pid: number | undefined;
+    try {
+      const worker = 'process.on("SIGTERM",()=>{});require("node:fs").writeFileSync("ready",String(process.pid));setTimeout(()=>process.exit(9),8000)';
+      const script = tree ? `require("node:child_process").spawn(process.execPath,["-e",${JSON.stringify(worker)}],{stdio:"ignore"})` : worker;
+      await writeFile(join(directory, "mirage-stub.mjs"), `#!/usr/bin/env node\nimport {createRequire} from "node:module";const require=createRequire(import.meta.url);${script}\n`);
+      let settled = false;
+      const pending = execute.execute("reap", { command: "inert local fixture" }, caller.signal, undefined, {} as never);
+      const observed = pending.then((result) => { settled = true; return result; }, (error: unknown) => { settled = true; return error; });
+      await waitForFile(join(directory, "ready"));
+      pid = Number(await readFile(join(directory, "ready"), "utf8"));
+      expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+      if (mode === "cancel") caller.abort(new Error("cancelled by fixture"));
+      await vi.waitFor(() => expect(() => process.kill(pid!, 0)).toThrow(), { timeout: 4500, interval: 20 });
+      expect(settled).toBe(true);
+      const result: unknown = await observed;
+      if (mode === "cancel") {
+        expect(result).toBeInstanceOf(Error);
+        expect(((await panels.snapshot())[0]?.data as { lastRun: unknown }).lastRun).toBeNull();
+      } else {
+        expect(result).toMatchObject({ details: { exitCode: null } });
+      }
+    } finally {
+      caller.abort();
+      if (pid !== undefined && Number.isSafeInteger(pid) && pid > 0) {
+        try { process.kill(pid, "SIGKILL"); } catch { /* Owned fixture already exited. */ }
+      }
+      await context.fiber.dispose();
+    }
+  }, 12000);
+
+  test.each([131072, 131073])("handles the exact combined-output boundary of %i bytes", async (size) => {
+    const { context, directory, execute } = await longRunningFixture();
+    await writeFile(
+      join(directory, "mirage-stub.mjs"),
+      `#!/usr/bin/env node\nprocess.stdout.write("x".repeat(65536));process.stderr.write("y".repeat(${size - 65536}));\n`,
+    );
+    try {
+      const result = await execute.execute("boundary", { command: "inert fixture" }, undefined, undefined, {} as never);
+      const output = (result.details as { output: string }).output;
+      expect(Buffer.byteLength(output)).toBeLessThanOrEqual(131072);
+      expect(output.includes("output truncated")).toBe(size > 131072);
+      if (size === 131072) expect(output).toBe("x".repeat(65536) + "y".repeat(65536));
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("bounds combined Unicode output in bytes and makes truncation explicit", async () => {
+    const { context, directory, execute } = await longRunningFixture();
+    await writeFile(
+      join(directory, "mirage-stub.mjs"),
+      '#!/usr/bin/env node\nprocess.stdout.write("中文😀".repeat(8000));process.stderr.write("中文😀".repeat(8000)+"FINAL_SENTINEL");\n',
+    );
+    try {
+      const result = await execute.execute("unicode", { command: "inert fixture" }, undefined, undefined, {} as never);
+      const output = (result.details as { output: string }).output;
+      expect(result.details).toMatchObject({ exitCode: 0 });
+      expect(Buffer.byteLength(output)).toBeLessThanOrEqual(128 * 1024);
+      expect(output).toContain("output truncated");
+      expect(output).toContain("FINAL_SENTINEL");
+      expect(output).not.toContain("\uFFFD");
+      const content = result.content[0];
+      expect(content?.type).toBe("text");
+      if (content?.type === "text") expect(content.text).toContain("output truncated");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("keeps buffer-limit termination distinct from timeout and exposes its diagnostic", async () => {
+    const { context, directory, execute, panels } = await longRunningFixture();
+    await writeFile(join(directory, "mirage-stub.mjs"), '#!/usr/bin/env node\nprocess.stdout.write("x".repeat(256 * 1024));\n');
+    try {
+      const result = await execute.execute("buffer", { command: "inert fixture" }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ exitCode: null });
+      expect((result.details as { output: string }).output).toContain("output is incomplete");
+      expect((result.details as { output: string }).output).not.toContain("timed out");
+      expect(((await panels.snapshot())[0]?.data as { lastError: string }).lastError).toContain("output exceeded");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("reports timeout even when the terminated child exits zero without stderr", async () => {
+    const { context, execute, panels } = await longRunningFixture(1000);
+    try {
+      const result = await execute.execute("timeout", { command: "inert fixture" }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ exitCode: null });
+      expect((result.details as { output: string }).output).toContain("timed out after 1000 ms");
+      const content = result.content[0];
+      expect(content?.type).toBe("text");
+      if (content?.type === "text") expect(content.text).toContain("timed out after 1000 ms");
+      const lastRun = ((await panels.snapshot())[0]?.data as { lastRun: { exitCode: number | null; output: string } }).lastRun;
+      expect(lastRun.exitCode).toBeNull();
+      expect(lastRun.output).toContain("timed out");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("closes stdin for the CLI non-interactive execute contract", async () => {
     const { context, directory, execute } = await longRunningFixture(1000);
     await writeFile(

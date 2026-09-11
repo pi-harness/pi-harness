@@ -1,12 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { runBoundedCommand } from "@pi-harness/plugin-api";
 
-const execFileAsync = promisify(execFile);
 const defaultExecutable = "mirage";
 const defaultTimeoutMs = 60_000;
 const maxCommandLength = 4_000;
@@ -66,6 +63,16 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+function boundedOutput(value: string): string {
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.length <= maxOutputBytes) return value;
+  const notice = "… Mirage output truncated; showing the final portion.\n";
+  let start = bytes.length - maxOutputBytes + Buffer.byteLength(notice);
+  // A UTF-8 tail must start at a code point, never a continuation byte.
+  while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start += 1;
+  return notice + bytes.subarray(start).toString("utf8");
+}
+
 export default {
   name: "pi-mirage-bridge",
   inject: ["piHarnessLaunch", "piPluginUi", "piTools"],
@@ -106,21 +113,15 @@ export default {
     const doctor = async ({ signal, cwd, assertCurrent }: ReturnType<typeof operation>): Promise<MirageBridgeState> => {
       assertCurrent();
       try {
-        const execution = execFileAsync(executable, ["--version"], {
-          cwd,
-          timeout: Math.min(timeoutMs, 10_000),
-          maxBuffer: maxOutputBytes,
-          signal,
-        });
-        execution.child.stdin?.end();
-        const result = await execution;
+        const result = await runBoundedCommand([executable, "--version"], cwd, Math.min(timeoutMs, 10_000), maxOutputBytes, signal);
         assertCurrent();
         const version = `${result.stdout}${result.stderr}`.trim().split(/\r?\n/u)[0]?.slice(0, 256) || "Mirage CLI detected";
         state = { ...state, available: true, version, lastError: null };
       } catch (error) {
         // A cancelled probe says nothing about availability, so surface the abort instead of recording the CLI as missing.
         assertCurrent();
-        state = { ...state, available: false, version: null, lastError: errorMessage(error).slice(0, 1_000) };
+        const diagnostic = (error as { killed?: boolean }).killed === true ? `Mirage CLI check timed out after ${Math.min(timeoutMs, 10_000)} ms` : errorMessage(error);
+        state = { ...state, available: false, version: null, lastError: diagnostic.slice(0, 1_000) };
       }
       return structuredClone(state);
     };
@@ -131,36 +132,35 @@ export default {
       assertCurrent();
       const startedAt = Date.now();
       try {
-        const execution = execFileAsync(executable, ["execute", "--workspace_id", workspaceId, "--command", command], {
-          cwd,
-          timeout: timeoutMs,
-          maxBuffer: maxOutputBytes,
-          signal,
-        });
-        // The official CLI consumes stdin before issuing non-interactive execute requests. Close the unused pipe so it reaches EOF.
-        execution.child.stdin?.end();
-        const result = await execution;
+        // The bounded runner gives the non-interactive CLI immediate stdin EOF.
+        const result = await runBoundedCommand([executable, "execute", "--workspace_id", workspaceId, "--command", command], cwd, timeoutMs, maxOutputBytes, signal);
         assertCurrent();
         state = {
           ...state,
           available: true,
           lastError: null,
-          lastRun: { workspaceId, command, exitCode: 0, durationMs: Date.now() - startedAt, output: `${result.stdout}${result.stderr}`.slice(-maxOutputBytes) },
+          lastRun: { workspaceId, command, exitCode: 0, durationMs: Date.now() - startedAt, output: boundedOutput(`${result.stdout}${result.stderr}`) },
         };
       } catch (error) {
         // The signal kills the child; a cancelled run must not be recorded as a Mirage result, especially after the plugin has been disposed.
         assertCurrent();
-        const failure = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
+        const failure = error as { code?: number | string; killed?: boolean; stdout?: string; stderr?: string; message?: string };
         const unavailable = failure.code === "ENOENT";
-        const output = `${failure.stdout ?? ""}${failure.stderr ?? failure.message ?? ""}`.slice(-maxOutputBytes);
+        const diagnostic =
+          failure.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+            ? `Mirage command output exceeded ${maxOutputBytes} bytes; output is incomplete`
+            : failure.killed === true
+              ? `Mirage command timed out after ${timeoutMs} ms`
+              : errorMessage(error);
+        const output = boundedOutput(`${failure.stdout ?? ""}${failure.stderr ?? ""}\n${diagnostic}`);
         state = {
           ...state,
           available: unavailable ? false : state.available,
-          lastError: unavailable ? output : null,
+          lastError: diagnostic.slice(0, 1_000),
           lastRun: {
             workspaceId,
             command,
-            exitCode: typeof failure.code === "number" ? failure.code : null,
+            exitCode: typeof failure.code === "number" && failure.code !== 0 && failure.killed !== true ? failure.code : null,
             durationMs: Date.now() - startedAt,
             output,
           },
