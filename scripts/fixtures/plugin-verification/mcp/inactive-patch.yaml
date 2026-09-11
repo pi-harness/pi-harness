@@ -1,0 +1,7 @@
+- id: mcp-inspection-fixture
+  name: "@pi-harness/plugin-mcp-client"
+  config:
+    servers:
+      - id: inspection-fixture
+        command: ["node", "never-start-inspection-fixture.mjs"]
+        autoStart: false

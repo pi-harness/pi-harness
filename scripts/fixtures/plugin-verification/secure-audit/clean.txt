@@ -1,0 +1,2 @@
+This is a synthetic read-only audit fixture.
+There are no commands or credentials in this file.

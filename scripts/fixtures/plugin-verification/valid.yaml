@@ -1,0 +1,5 @@
+name: plugin-verification
+enabled: true
+items:
+  - one
+  - two

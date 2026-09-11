@@ -1,0 +1,11 @@
+{
+  "name": "plugin-verification-fixture",
+  "private": true,
+  "dependencies": {
+    "react": "^19.0.0",
+    "pih-verification-deliberately-missing": "1.0.0"
+  },
+  "devDependencies": {
+    "react": "^18.0.0"
+  }
+}
