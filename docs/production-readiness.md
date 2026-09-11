@@ -48,7 +48,7 @@ The `scripts/verify-*.py` verifiers named throughout are not in this repository.
 
 - Added a regression with npm-registry headers available but a body reader that never settles. Before the fix, cancelling `plugin_search` left the call pending because `readBoundedJson()` read directly from the stream without observing the request signal; the red test returned `Plugin search remained pending` after 500 ms.
 - Registry response reads now observe the active signal, cancel the underlying reader on abort, and normalize non-Error stream failures. The plugin README documents cancellation coverage for stalled bodies.
-- Plugin Finder tests passed 14/14; plugin build/typecheck, scoped ESLint, formatter and whitespace checks remain to be run for this checkpoint. Live npm registry rate-limit, timeout and full model workflow gates remain separate; overall audit remains incomplete.
+- Plugin Finder tests passed 14/14; plugin build/typecheck, scoped ESLint, formatter and whitespace checks also passed for this checkpoint. Live npm registry rate-limit, timeout and full model workflow gates remain separate; overall audit remains incomplete.
 
 ## Observation corrections (2026-09-10)
 
