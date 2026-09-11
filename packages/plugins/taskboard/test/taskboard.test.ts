@@ -1,6 +1,7 @@
 import { mkdtemp, rm, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
@@ -132,4 +133,27 @@ test("rolls back invalid dependency writes and preserves workspace isolation in 
   const pending = create.execute("stale", { title: "Stale" }, undefined, undefined, {} as never);
   runtime.session.sessionManager = SessionManager.inMemory("/other-workspace");
   await expect(pending).rejects.toThrow(/context changed/);
+});
+
+test.each(["ABORT", "ROLLBACK"])("preserves the original SQLite %s failure, rolls back fields and dependencies, and recovers", async (mode) => {
+  const { root, create, list, update, panels } = await fixture();
+  await create.execute("a", { title: "Prerequisite" }, undefined, undefined, {} as never);
+  await create.execute("b", { title: "Dependent", dependsOn: ["TST-1"] }, undefined, undefined, {} as never);
+  const before = (await list.execute("before", {}, undefined, undefined, {} as never)).details;
+  const panelBefore = (await panels.snapshot())[0]!.data;
+  const database = new DatabaseSync(join(root, "tasks.sqlite"));
+  try {
+    database.exec(`CREATE TRIGGER owned_write_failure BEFORE DELETE ON task_dependencies BEGIN SELECT RAISE(${mode}, 'Owned SQLite write failure'); END`);
+    await expect(update.execute("fail", { key: "TST-2", title: "Must roll back", dependsOn: [] }, undefined, undefined, {} as never)).rejects.toThrow(
+      "Owned SQLite write failure",
+    );
+    expect((await list.execute("after", {}, undefined, undefined, {} as never)).details).toEqual(before);
+    expect((await panels.snapshot())[0]!.data).toEqual(panelBefore);
+    database.exec("DROP TRIGGER owned_write_failure");
+    await expect(update.execute("recover", { key: "TST-2", title: "Recovered", dependsOn: [] }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { title: "Recovered", dependsOn: [], version: 2 },
+    });
+  } finally {
+    database.close();
+  }
 });
