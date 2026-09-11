@@ -74,6 +74,34 @@ async function setup(
 }
 
 describe("cost meter production boundaries", () => {
+  test("exposes budget, UTC basis and precise cumulative costs to the model without dumping the ledger", async () => {
+    const { tool } = await setup(stats({ cost: 0.000007 }), { dailyBudget: 0.000005 });
+    const result = await tool.execute("report", { refresh: true }, undefined, undefined, {} as never);
+    const text = result.content.find((block) => block.type === "text")?.text ?? "";
+    expect(text).toContain('"budget":');
+    expect(JSON.parse(text)).toMatchObject({
+      sessionCost: 0.000007,
+      todayCost: 0.000007,
+      lifetimeCost: 0.000007,
+      budget: 0.000005,
+      budgetPercent: 140,
+      dayBasis: "UTC",
+      entryLimit: 365,
+      entryCount: 1,
+      lastError: null,
+    });
+    expect(JSON.parse(text)).not.toHaveProperty("entries");
+    expect(result.details).toMatchObject({ entries: [{ sessionId: "session-1", cost: 0.000007 }] });
+  });
+
+  test("distinguishes an unset budget from a zero-percent budget in model-visible content", async () => {
+    const { tool } = await setup();
+    const result = await tool.execute("report", {}, undefined, undefined, {} as never);
+    const text = result.content.find((block) => block.type === "text")?.text ?? "";
+    expect(text).toContain('"budget":null');
+    expect(JSON.parse(text)).toMatchObject({ budget: null, budgetPercent: null, entryCount: 0 });
+  });
+
   test.each([
     ["empty file name", { fileName: "" }],
     ["nested file name", { fileName: "../costs.json" }],
