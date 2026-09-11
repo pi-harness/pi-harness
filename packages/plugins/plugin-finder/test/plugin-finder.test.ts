@@ -1,4 +1,5 @@
 import { Context } from "@deepseek-ai/cordis";
+import { createServer } from "node:http";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
 import pluginFinder from "../src/index.js";
@@ -12,17 +13,52 @@ afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
 });
 
-async function searchTool(): Promise<ToolDefinition> {
+async function searchTool(registryUrl = "https://registry.example"): Promise<ToolDefinition> {
   const context = new Context();
   contexts.push(context);
   await context.plugin(toolsPlugin, { names: [] });
-  await context.plugin(pluginFinder, { registryUrl: "https://registry.example" });
+  await context.plugin(pluginFinder, { registryUrl });
   const tool = context.piTools.snapshot().customTools.find((candidate) => candidate.name === "plugin_search");
   if (tool === undefined) throw new Error("plugin finder did not register plugin_search");
   return tool;
 }
 
 describe("plugin finder network boundaries", () => {
+  test("rejects queries whose registry text would exceed npm's 64-character limit before networking", async () => {
+    let requests = 0;
+    globalThis.fetch = () => {
+      requests += 1;
+      return Promise.resolve(Response.json({ objects: [], total: 0 }));
+    };
+    const tool = await searchTool();
+    await expect(tool.execute("too-long", { query: "x".repeat(100) }, undefined, undefined, {} as never)).rejects.toThrow(/registry.*64|query.*characters/iu);
+    expect(requests).toBe(0);
+  });
+
+  test("returns complete model-visible search metadata from a real registry response", async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ total: 20, objects: Array.from({ length: 12 }, (_, i) => ({
+        package: { name: `pi-example-${i}`, version: "1.0.0", description: "Example capability 测试😀", links: { npm: `https://www.npmjs.com/package/pi-example-${i}` } },
+        score: { final: 0.75 },
+      })) }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string") throw new Error("Missing fixture address");
+      const tool = await searchTool(`http://127.0.0.1:${address.port}`);
+      const result = await tool.execute("metadata", { query: "example" }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ total: 12, registryTotal: 20, truncated: true });
+      const content = result.content[0];
+      if (content?.type !== "text") throw new Error("Missing text result");
+      expect(content.text).toBe(JSON.stringify(result.details));
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
   test("rejects a registry response larger than one MiB", async () => {
     globalThis.fetch = () =>
       Promise.resolve(
