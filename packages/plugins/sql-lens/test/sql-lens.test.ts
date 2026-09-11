@@ -8,6 +8,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import sqlLensPlugin, { Config } from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
+import { sqlLensPanelView } from "../../../client-web/src/sql-lens-view.js";
 
 // Only the plugin holds a reference to the process it spawns, so recording the real children is the only way to assert that an abandoned query is gone from the operating system.
 const spawnedChildren = vi.hoisted(() => [] as ChildProcess.ChildProcess[]);
@@ -180,6 +181,10 @@ describe("SQL Lens production boundaries", () => {
       const row = (large.details as { rows: Array<{ content: string; payload: unknown }> }).rows[0];
       expect(row?.content).toBe("x".repeat(16_384) + "…");
       expect(row?.payload).toMatchObject({ type: "blob", bytes: 70_000, truncated: true });
+      const panel = sqlLensPanelView((await fixture.panels.snapshot())[0]?.data);
+      expect(panel.malformed).toBe(false);
+      expect(panel.latest?.rows[0]?.content).toBe(row?.content);
+      expect(panel.latest?.rowInventory.truncated).toBe(true);
 
       const many = await fixture.tool.execute(
         "many",
@@ -340,12 +345,51 @@ test("queries the active workspace, returns model-visible rows and rejects a ses
   }
 });
 
+test("keeps real SQLite control and format characters available to the panel", async () => {
+  const fixture = await createFixture();
+  try {
+    const result = await fixture.tool.execute("text", {
+      query: "SELECT 'A' || char(0, 127, 8205, 8238, 8232) || '😀' AS note",
+    }, undefined, undefined, {} as never);
+    const note = "A\u0000\u007f\u200d\u202e\u2028😀";
+    expect(result.details).toMatchObject({ rows: [{ note }], truncated: false });
+    const panel = sqlLensPanelView((await fixture.panels.snapshot())[0]?.data);
+    expect(panel.malformed).toBe(false);
+    expect(panel.latest?.rows).toEqual([{ note }]);
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});
+
 test("preserves Unicode scalar boundaries when truncating real SQLite text", async () => {
   const fixture = await createFixture();
   try {
     const text = "x".repeat(16383) + "😀".repeat(10);
     const result = await fixture.tool.execute("unicode", { query: `SELECT '${text}' AS note` }, undefined, undefined, {} as never);
     expect(result.details).toMatchObject({ rows: [{ note: "x".repeat(16383) + "…" }], truncated: true });
+  } finally {
+    await fixture.context.fiber.dispose();
+  }
+});
+
+test("renders real SQLite Unicode column names and query aliases", async () => {
+  const fixture = await createFixture();
+  const column = "note\u200d\u202e\u2028\u007f";
+  try {
+    const database = new DatabaseSync(fixture.databasePath);
+    try {
+      database.exec(`CREATE TABLE unusual("${column}" TEXT); INSERT INTO unusual VALUES ('retained');`);
+    } finally {
+      database.close();
+    }
+    for (const query of ["SELECT * FROM unusual", `SELECT '${column}' AS "${column}"`]) {
+      const result = await fixture.tool.execute("columns", { query }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ columns: [column], truncated: false });
+      const panel = sqlLensPanelView((await fixture.panels.snapshot())[0]?.data);
+      expect(panel.malformed).toBe(false);
+      expect(panel.latest?.columns).toEqual([column]);
+      expect(panel.latest?.query).toBe(query);
+    }
   } finally {
     await fixture.context.fiber.dispose();
   }
