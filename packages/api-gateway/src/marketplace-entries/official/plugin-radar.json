@@ -3,7 +3,7 @@
   "packageName": "@pi-harness/plugin-plugin-radar",
   "version": "0.1.30",
   "name": "Plugin Radar",
-  "description": "查看已安装和已配置的插件，包括生命周期状态与来源。",
+  "description": "只读搜索 GitHub 上带 Pi Harness Topic 的仓库，按 Star 排序；候选仓库未验证可安装性，不会安装或执行代码。",
   "author": "Pi Harness",
   "repository": "https://github.com/pi-harness/pi-harness",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "label": "发现与生态"
   },
   "capabilities": ["network-access"],
-  "hooks": ["上下文生命周期", "插件面板"],
+  "hooks": ["GitHub Topic 搜索", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-plugin-radar",
     "config": {}

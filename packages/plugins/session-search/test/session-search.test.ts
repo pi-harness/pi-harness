@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, writeFile, truncate, symlink, rm } from "node:fs/promises";
+import { mkdtemp, opendir, readFile, writeFile, truncate, symlink, rm } from "node:fs/promises";
+import { Dir } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import plugin, { searchSessionEntries, type SessionSearchReport } from "../src/index.js";
 
 describe("session search", () => {
@@ -28,10 +29,24 @@ describe("session search", () => {
     expect(() => searchSessionEntries([], "x".repeat(121))).toThrow("Session search query must contain 1-120 characters");
   });
 
+  test("applies the query limit before Unicode lowercase expansion", () => {
+    const query = "İ".repeat(120);
+    const result = searchSessionEntries([{ type: "message", message: { role: "user", content: query } }], query);
+    expect(result).toEqual({ total: 1, hits: [{ role: "user", text: query }] });
+    expect(() => searchSessionEntries([], query + "İ")).toThrow(/1-120/);
+  });
+
   test("centers long previews around the matching text", () => {
     const result = searchSessionEntries([{ type: "message", message: { role: "user", content: `${"x".repeat(700)}needle${"y".repeat(700)}` } }], "needle");
     expect(result.hits[0]?.text).toContain("needle");
     expect(result.hits[0]?.text).toHaveLength(500);
+  });
+  test("does not split emoji at long preview boundaries", () => {
+    const result = searchSessionEntries([{ type: "message", message: { role: "user", content: `${"😀".repeat(350)}needle${"😀".repeat(350)}` } }], "needle");
+    const preview = result.hits[0]!.text;
+    expect(preview).toContain("needle");
+    expect(preview.length).toBeLessThanOrEqual(500);
+    expect(Buffer.from(preview, "utf8").toString("utf8")).toBe(preview);
   });
   test("excludes tool output and limits matching previews", () => {
     const entries = [
@@ -47,6 +62,7 @@ const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  vi.restoreAllMocks();
 });
 
 async function fixture() {
@@ -96,6 +112,18 @@ test("searches real active-workspace journals and reports skipped files without 
   expect(JSON.stringify(await panels.snapshot())).not.toContain("MUTATED");
 });
 
+test("searches a valid Unicode query in a real journal without rejecting expanded lowercase text", async () => {
+  const { manager, search } = await fixture();
+  const query = "İ".repeat(120);
+  const file = manager.getSessionFile()!;
+  const contents = (await readFile(file, "utf8")).replaceAll("needle", query);
+  await writeFile(file, contents);
+  const report = (await search(query)).details;
+  expect(report).toMatchObject({ query, total: 1, scanned: 1, nextCursor: null, items: [{ totalHits: 2 }] });
+  expect(report.items[0]!.hits.every((hit) => hit.text.includes(query))).toBe(true);
+  expect(await readFile(file, "utf8")).toBe(contents);
+});
+
 test("rejects cancellation, session changes, disposal and malformed parameters before publishing", async () => {
   const { manager, context, panels, tool, search } = await fixture();
   await search();
@@ -128,14 +156,150 @@ test("rejects cancellation, session changes, disposal and malformed parameters b
 });
 
 test("bounds candidate and result counts independently and keeps full matching-message totals", async () => {
-  const { directory, manager, search } = await fixture();
+  const { directory, manager, search, tool } = await fixture();
   const original = await readFile(manager.getSessionFile()!, "utf8");
   for (let index = 0; index < 205; index += 1)
     await writeFile(join(directory, `copy-${index}.jsonl`), original.replaceAll(manager.getSessionId(), `copy-${index}`));
   const result = await search();
-  expect(result.details).toMatchObject({ scanned: 200, skipped: 0, total: 200, truncated: true });
+  expect(result.details).toMatchObject({ scanned: 100, skipped: 0, total: 100, truncated: true });
   expect(result.details.items).toHaveLength(100);
   expect(result.details.items.every((item) => item.totalHits === 2)).toBe(true);
+  const paths = result.details.items.map((item) => item.path);
+  let cursor = (result.details as SessionSearchReport & { nextCursor: string | null }).nextCursor;
+  for (let page = 0; cursor !== null && page < 5; page += 1) {
+    const next = (await tool.execute("next", { query: "needle", cursor }, undefined, undefined, {} as never)) as AgentToolResult<
+      SessionSearchReport & { nextCursor: string | null }
+    >;
+    expect(next.details.items.length).toBeLessThanOrEqual(100);
+    expect(next.details.items.every((item) => item.totalHits === 2)).toBe(true);
+    paths.push(...next.details.items.map((item) => item.path));
+    cursor = next.details.nextCursor;
+  }
+  expect(cursor).toBeNull();
+  expect(paths).toHaveLength(206);
+  expect(new Set(paths).size).toBe(206);
+});
+
+test("provides continuation when the only matching journal is beyond the candidate budget", async () => {
+  const { directory, manager, tool } = await fixture();
+  const original = await readFile(manager.getSessionFile()!, "utf8");
+  for (let index = 0; index < 205; index += 1)
+    await writeFile(join(directory, `continuation-${index}.jsonl`), original.replaceAll(manager.getSessionId(), `continuation-${index}`));
+  // Discover actual filesystem order, rather than assuming filename order.
+  const names: string[] = [];
+  for await (const entry of await opendir(directory)) if (entry.isFile() && entry.name.endsWith(".jsonl")) names.push(entry.name);
+  const target = join(directory, names[205]!);
+  const marker = "unique-beyond-candidate-budget";
+  await writeFile(target, (await readFile(target, "utf8")).replaceAll("needle", marker));
+  const before = await readFile(target);
+  const result = (await tool.execute("continuation", { query: marker }, undefined, undefined, {} as never)) as AgentToolResult<SessionSearchReport>;
+  expect(result.details).toMatchObject({ scanned: 200, total: 0, truncated: true });
+  expect(await readFile(target)).toEqual(before);
+  // A partial no-hit result must offer a way to search the remaining journals.
+  expect(result.details).toHaveProperty("nextCursor", expect.any(String));
+  const cursor = (result.details as SessionSearchReport & { nextCursor: string }).nextCursor;
+  const next = (await tool.execute("next", { query: marker, cursor }, undefined, undefined, {} as never)) as AgentToolResult<SessionSearchReport>;
+  expect(next.details).toMatchObject({ scanned: 6, total: 1, nextCursor: null, items: [{ path: target }] });
+  expect(await readFile(target)).toEqual(before);
+  await expect(tool.execute("stale", { query: marker, cursor }, undefined, undefined, {} as never)).rejects.toThrow(/cursor/i);
+});
+
+test("invalidates cursors on replacement, native navigation, expiry and cancellation", async () => {
+  const { directory, manager, panels, search, tool, context } = await fixture();
+  // Observe the actual native close calls; no stub or replacement filesystem.
+  const close = vi.spyOn(Dir.prototype, "close");
+  // Node's promise overload internally calls close(callback) again.
+  const requestedCloses = () => close.mock.calls.filter((args: readonly unknown[]) => args.length === 0).length;
+  const original = await readFile(manager.getSessionFile()!, "utf8");
+  for (let index = 0; index < 101; index += 1)
+    await writeFile(join(directory, `lifecycle-${index}.jsonl`), original.replaceAll(manager.getSessionId(), `lifecycle-${index}`));
+  const next = (cursor: string, query = "needle", signal?: AbortSignal) => tool.execute("next", { query, cursor }, signal, undefined, {} as never);
+  const first = (await search()).details.nextCursor!;
+  await expect(next(first, "another query")).rejects.toThrow(/cursor/);
+  // A mistaken query must not consume the valid continuation.
+  expect((await next(first)).details).toMatchObject({ total: 2, nextCursor: null });
+  expect(requestedCloses()).toBe(1);
+  const replaced = (await search()).details.nextCursor!;
+  const current = (await search()).details.nextCursor!;
+  await expect(next(replaced)).rejects.toThrow(/cursor/);
+  expect(requestedCloses()).toBe(2);
+  const abort = new AbortController();
+  const pending = next(current, "needle", abort.signal);
+  abort.abort();
+  await expect(pending).rejects.toThrow(/cancelled/);
+  await expect(next(current)).rejects.toThrow(/cursor/);
+  expect(requestedCloses()).toBe(3);
+  const navigated = (await search()).details.nextCursor!;
+  manager.newSession();
+  await panels.snapshot();
+  await expect(next(navigated)).rejects.toThrow(/cursor/);
+  expect(requestedCloses()).toBe(4);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const expired = (await search()).details.nextCursor!;
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await expect(next(expired)).rejects.toThrow(/cursor/);
+    expect(requestedCloses()).toBe(5);
+  } finally {
+    vi.useRealTimers();
+  }
+  await search();
+  await context.fiber.dispose();
+  expect(requestedCloses()).toBe(6);
+  await Promise.all(close.mock.results.map((result): unknown => result.value));
+});
+
+test("rejects overlapping searches without interrupting the active scan", async () => {
+  const { search } = await fixture();
+  const first = search();
+  await expect(search()).rejects.toThrow(/already running/);
+  expect((await first).details).toMatchObject({ total: 1, nextCursor: null });
+});
+
+test("keeps the active scan when parameter inspection reenters the tool", async () => {
+  const { tool, search } = await fixture();
+  let nested: Promise<unknown> | undefined;
+  const params = new Proxy(
+    { query: "needle" },
+    {
+      ownKeys(target) {
+        nested = search().catch((error: unknown) => error);
+        return Reflect.ownKeys(target);
+      },
+    },
+  );
+  await expect(tool.execute("outer", params, undefined, undefined, {} as never)).rejects.toThrow(/already running/);
+  expect(await nested).toMatchObject({ details: { total: 1, nextCursor: null } });
+});
+
+test("continues after byte-budget exhaustion without losing valid next-page files", async () => {
+  const { directory, manager, search, tool } = await fixture();
+  const original = await readFile(manager.getSessionFile()!, "utf8");
+  // Nine individually valid 3.7 MiB journals exceed the 32 MiB page budget.
+  const padding = JSON.stringify({ type: "custom", data: "x".repeat(3_900_000) });
+  for (let index = 0; index < 9; index += 1)
+    await writeFile(join(directory, `budget-${index}.jsonl`), original.replaceAll(manager.getSessionId(), `budget-${index}`) + padding + "\n");
+  const first = (await search()).details;
+  expect(first.nextCursor).toEqual(expect.any(String));
+  expect(first.skipped).toBe(0);
+  expect(first.byteBudgetUsed).toBeLessThanOrEqual(32 * 1024 * 1024);
+  const second = (await tool.execute("next", { query: "needle", cursor: first.nextCursor! }, undefined, undefined, {} as never)).details as SessionSearchReport;
+  expect(second).toMatchObject({ nextCursor: null, skipped: 0 });
+  const paths = [...first.items, ...second.items].map((item) => item.path);
+  expect(paths).toHaveLength(10);
+  expect(new Set(paths).size).toBe(10);
+});
+
+test("continues directory enumeration beyond 4096 entries", async () => {
+  const { directory, search, tool } = await fixture();
+  for (let start = 0; start < 4100; start += 32) {
+    await Promise.all(Array.from({ length: Math.min(32, 4100 - start) }, (_, offset) => writeFile(join(directory, `inert-${start + offset}.txt`), "")));
+  }
+  const first = (await search()).details;
+  expect(first).toMatchObject({ directoryEntries: 4096, nextCursor: expect.any(String) as unknown });
+  const second = (await tool.execute("next", { query: "needle", cursor: first.nextCursor! }, undefined, undefined, {} as never)).details as SessionSearchReport;
+  expect(second).toMatchObject({ directoryEntries: 5, nextCursor: null });
+  expect(first.total + second.total).toBe(1);
 });
 
 test("rejects oversized files and directory errors without claiming complete coverage", async () => {

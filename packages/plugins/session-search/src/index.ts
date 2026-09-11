@@ -1,4 +1,6 @@
 import { opendir } from "node:fs/promises";
+import type { Dir, Dirent } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
@@ -13,6 +15,16 @@ const maxHitsPerSession = 10;
 const maxDirectoryEntries = 4096;
 const maxTotalBytes = 32 * 1024 * 1024;
 const maxSessionFileBytes = 4 * 1024 * 1024;
+const cursorTtlMs = 5 * 60 * 1000;
+
+interface SearchScan {
+  query: string;
+  cursor: string;
+  dir?: Dir;
+  pending?: Dirent;
+  invalid: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+}
 
 export type SessionSearchHit = { role: string; text: string };
 export type SessionSearchItem = { id: string; name: string; path: string; modified: string; hits: SessionSearchHit[]; totalHits: number };
@@ -44,13 +56,20 @@ function matchingPreview(text: string, normalizedQuery: string): string {
     matchIndex += character.length;
   }
   const idealStart = matchIndex - Math.floor((maxPreviewLength - normalizedQuery.length) / 2);
-  const start = Math.max(0, Math.min(idealStart, text.length - maxPreviewLength));
-  return text.slice(start, start + maxPreviewLength);
+  let start = Math.max(0, Math.min(idealStart, text.length - maxPreviewLength));
+  let end = Math.min(text.length, start + maxPreviewLength);
+  // Keep the existing UTF-16 length bound without cutting a surrogate pair.
+  const low = (at: number) => text.charCodeAt(at) >= 0xdc00 && text.charCodeAt(at) <= 0xdfff;
+  const high = (at: number) => text.charCodeAt(at) >= 0xd800 && text.charCodeAt(at) <= 0xdbff;
+  if (start > 0 && low(start) && high(start - 1)) start += 1;
+  if (end < text.length && high(end - 1) && low(end)) end -= 1;
+  return text.slice(start, end);
 }
 
 export function searchSessionEntries(entries: readonly unknown[], query: string): { total: number; hits: SessionSearchHit[] } {
-  const normalized = query.trim().toLowerCase();
-  if (normalized.length < 1 || normalized.length > maxQueryLength) throw new Error("Session search query must contain 1-120 characters");
+  const trimmed = query.trim();
+  if (trimmed.length < 1 || trimmed.length > maxQueryLength) throw new Error("Session search query must contain 1-120 characters");
+  const normalized = trimmed.toLowerCase();
   const hits: SessionSearchHit[] = [];
   let total = 0;
   for (const entry of entries) {
@@ -76,13 +95,15 @@ export interface SessionSearchReport {
   directoryEntries: number;
   byteBudgetUsed: number;
   truncated: boolean;
+  nextCursor: string | null;
   scope: string;
 }
 
 const scope =
-  "User and assistant text in persisted native journals, including historical branches. Images, thinking and tool output are excluded. Directory order; up to 200 files / 4096 entries / 32 MiB read budget (failed reads charge their allowance) / 4 MiB per file. Up to 100 matching sessions, 10 previews per session, 500 characters each. This is a read-only search, not an atomic snapshot.";
+  "User and assistant text in persisted native journals, including historical branches. Images, thinking and tool output are excluded. Per page: directory order, up to 200 files / 4096 entries / 32 MiB read budget (failed reads charge their allowance) / 4 MiB per file / 100 matching sessions. Counts describe this page only. Use nextCursor with the same query until null, even after a page with no hits. One cursor per native session; expires after five idle minutes or a new search. Up to 10 previews per session, 500 characters each. Read-only, not an atomic snapshot; skipped files and clipped previews are not recovered by continuation.";
 
-async function searchSessions(directory: string, cwd: string, query: string, check: () => void): Promise<SessionSearchReport> {
+async function searchSessions(directory: string, cwd: string, scan: SearchScan, check: () => void): Promise<SessionSearchReport> {
+  const query = scan.query;
   const report: SessionSearchReport = {
     query,
     total: 0,
@@ -94,21 +115,35 @@ async function searchSessions(directory: string, cwd: string, query: string, che
     directoryEntries: 0,
     byteBudgetUsed: 0,
     truncated: false,
+    nextCursor: null,
     scope,
   };
   check();
-  let dir: Awaited<ReturnType<typeof opendir>>;
   try {
-    dir = await opendir(directory);
+    scan.dir ??= await opendir(directory);
   } catch (error) {
     check();
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return report;
     throw error;
   }
-  for await (const entry of dir) {
+  while (true) {
     check();
-    if (report.directoryEntries >= maxDirectoryEntries || report.scanned + report.skipped >= maxSessions || report.byteBudgetUsed >= maxTotalBytes) {
+    const entry = scan.pending ?? (await scan.dir.read());
+    delete scan.pending;
+    check();
+    if (entry === null) break;
+    // Keep the lookahead entry for the next page; never consume a result that
+    // cannot fit. Reserve a full file allowance so a valid file near the byte
+    // boundary is deferred instead of incorrectly classified as oversized.
+    if (
+      report.directoryEntries >= maxDirectoryEntries ||
+      report.scanned + report.skipped >= maxSessions ||
+      report.byteBudgetUsed > maxTotalBytes - maxSessionFileBytes ||
+      report.items.length >= maxItems
+    ) {
+      scan.pending = entry;
       report.truncated = true;
+      report.nextCursor = randomUUID();
       break;
     }
     report.directoryEntries += 1;
@@ -144,10 +179,6 @@ async function searchSessions(directory: string, cwd: string, query: string, che
     const found = searchSessionEntries(entries, query);
     if (found.total === 0) continue;
     report.total += 1;
-    if (report.items.length >= maxItems) {
-      report.truncated = true;
-      continue;
-    }
     const firstUser = entries.map(record).find((item) => item?.type === "message" && record(item.message)?.role === "user");
     let name = contentText(record(firstUser?.message)?.content).slice(0, 256) || header.id;
     let modified = typeof header.timestamp === "string" ? header.timestamp.slice(0, 64) : "";
@@ -169,8 +200,28 @@ export default {
   Config: EmptyConfig,
   apply(context: Context) {
     let latest: SessionSearchReport | undefined;
+    let activeScan: SearchScan | undefined;
+    let busy = false;
+    const release = async (scan: SearchScan) => {
+      scan.invalid = true;
+      clearTimeout(scan.timer);
+      if (activeScan === scan) activeScan = undefined;
+      const dir = scan.dir;
+      delete scan.dir;
+      if (dir) await dir.close();
+    };
+    const invalidate = () => {
+      if (!activeScan) return;
+      activeScan.invalid = true;
+      clearTimeout(activeScan.timer);
+      // An executing read owns cleanup in its finally block.
+      if (!busy) void release(activeScan).catch(() => {});
+    };
     const lifecycle = new AbortController();
-    context.effect(() => () => lifecycle.abort());
+    context.effect(() => () => {
+      lifecycle.abort();
+      invalidate();
+    });
     const readContext = () => {
       const session = context.get("piRuntime")?.session;
       const manager = session?.sessionManager ?? context.piSession.manager;
@@ -188,6 +239,7 @@ export default {
       ) {
         currentContext = next;
         latest = undefined;
+        invalidate();
       }
       return currentContext;
     };
@@ -196,11 +248,21 @@ export default {
       defineTool({
         name: "session_search",
         label: "Search sessions",
-        description: "Search persisted Pi JSONL sessions for a bounded text query without modifying session files.",
+        description:
+          "Search persisted Pi JSONL sessions without modifying files. Results are paged: pass nextCursor as cursor with the same query until nextCursor is null, including after zero-hit pages.",
         promptSnippet: "search previous Pi sessions for a phrase",
-        parameters: Type.Object({ query: Type.String({ description: "Text to search for, 1-120 characters" }) }, { additionalProperties: false }),
+        parameters: Type.Object(
+          {
+            query: Type.String({ description: "Text to search for, 1-120 characters" }),
+            cursor: Type.Optional(
+              Type.String({ minLength: 36, maxLength: 36, description: "nextCursor from the previous page of this query; omit to start over" }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<SessionSearchReport>> {
+          if (busy) throw new Error("Session search is already running");
           const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           if (combined.aborted) throw new Error("Session search was cancelled");
           const operationContext = refreshContext();
@@ -210,14 +272,49 @@ export default {
           };
           if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Session search parameters must be an object");
           const descriptors = Object.getOwnPropertyDescriptors(params);
-          if (Reflect.ownKeys(descriptors).some((key) => key !== "query")) throw new Error("Unknown session search parameter");
+          if (Reflect.ownKeys(descriptors).some((key) => key !== "query" && key !== "cursor")) throw new Error("Unknown session search parameter");
           const query: unknown = descriptors.query?.value;
           if (typeof query !== "string" || query.length > maxQueryLength || query.trim() === "" || query.includes("\0"))
             throw new Error("Session search query must contain 1-120 characters");
-          const report = await searchSessions(operationContext.directory, operationContext.cwd, query.trim(), check);
           check();
-          latest = structuredClone(report);
-          return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+          const cursor: unknown = descriptors.cursor?.value;
+          if (descriptors.cursor && (!Object.hasOwn(descriptors.cursor, "value") || typeof cursor !== "string" || !/^[0-9a-f-]{36}$/.test(cursor)))
+            throw new Error("Invalid session search cursor");
+          if (cursor !== undefined && (!activeScan || activeScan.invalid || activeScan.cursor !== cursor || activeScan.query !== query.trim()))
+            throw new Error("Session search cursor is stale or belongs to another query; restart without cursor");
+          // Descriptor inspection can invoke Proxy traps that start another
+          // search. Recheck ownership before replacing its live directory.
+          if (busy) throw new Error("Session search is already running");
+          busy = true;
+          let scan: SearchScan | undefined;
+          try {
+            if (cursor === undefined) {
+              if (activeScan) await release(activeScan);
+              check();
+              activeScan = { query: query.trim(), cursor: "", invalid: false };
+            }
+            scan = activeScan!;
+            clearTimeout(scan.timer);
+            const report = await searchSessions(operationContext.directory, operationContext.cwd, scan, () => {
+              check();
+              if (scan!.invalid) throw new Error("Session search cursor was invalidated");
+            });
+            check();
+            if (report.nextCursor === null) await release(scan);
+            else {
+              scan.cursor = report.nextCursor;
+              scan.timer = setTimeout(invalidate, cursorTtlMs);
+              scan.timer.unref();
+            }
+            check();
+            latest = structuredClone(report);
+            return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+          } catch (error) {
+            if (scan) await release(scan);
+            throw error;
+          } finally {
+            busy = false;
+          }
         },
       }),
     );

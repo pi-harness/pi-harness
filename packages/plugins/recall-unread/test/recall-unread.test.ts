@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
+import assert from "node:assert/strict";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
@@ -56,6 +57,133 @@ async function loadPlugin(sessionDir: string, active: { id: string; path?: strin
 }
 
 describe("recall unread", () => {
+  test("returns model-visible source identities and incomplete-scan metadata", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-model-fields-"));
+    temporaryDirectories.push(sessionDir);
+    await writeSession(join(sessionDir, "one.jsonl"), "one", [{ role: "user", text: "pending one" }], "Same title");
+    await writeSession(join(sessionDir, "two.jsonl"), "two", [{ role: "user", text: "pending two" }], "Same title");
+    const { context, tools } = await loadPlugin(sessionDir, { id: "active" }, 1);
+    try {
+      const tool = tools.snapshot().customTools.find((item) => item.name === "session_recall_unread")!;
+      const result = await tool.execute("fields", {}, undefined, undefined, {} as never);
+      expect(result.content[0]?.type).toBe("text");
+      const text = (result.content[0] as { text: string }).text;
+      expect(JSON.parse(text)).toEqual(result.details);
+      expect(JSON.parse(text)).toMatchObject({
+        total: 1,
+        offset: 0,
+        returned: 1,
+        nextOffset: null,
+        previewCharacters: 500,
+        items: [{ id: expect.any(String) as unknown, path: expect.stringContaining(sessionDir) as unknown, cwd: "/workspace" }],
+        inventory: { scanned: 1, scanTruncated: true, truncated: true },
+      });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("pages same-time matches deterministically without narrowing cached inventory", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-pages-"));
+    temporaryDirectories.push(sessionDir);
+    for (const id of ["c", "a", "b"]) {
+      const path = join(sessionDir, `${id}.jsonl`);
+      await writeSession(path, id, [{ role: "user", text: "same query" }]);
+      await utimes(path, 100, 100);
+    }
+    const { context, tools, panels } = await loadPlugin(sessionDir, { id: "active" });
+    try {
+      const tool = tools.snapshot().customTools.find((item) => item.name === "session_recall_unread")!;
+      for (let offset = 0; offset < 3; offset += 1) {
+        const result = await tool.execute("page", { query: "same", offset, limit: 1 }, undefined, undefined, {} as never);
+        expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(result.details);
+        expect(result.details).toMatchObject({
+          total: 3,
+          offset,
+          returned: 1,
+          nextOffset: offset === 2 ? null : offset + 1,
+          items: [{ id: ["a", "b", "c"][offset] }],
+          inventory: { shown: 1, resultTruncated: true },
+        });
+      }
+      const beyond = await tool.execute("beyond", { offset: 500 }, undefined, undefined, {} as never);
+      expect(beyond.details).toMatchObject({ total: 3, items: [], offset: 500, returned: 0, nextOffset: null });
+      const noMatch = await tool.execute("empty", { query: "missing" }, undefined, undefined, {} as never);
+      expect(JSON.parse((noMatch.content[0] as { text: string }).text)).toMatchObject({ total: 0, items: [], nextOffset: null });
+      expect((await panels.snapshot())[0]?.data).toMatchObject({ total: 3, inventory: { unread: 3, shown: 3 } });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("bounds actual escaped JSON bytes while keeping complete entries reachable", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-byte-pages-"));
+    temporaryDirectories.push(sessionDir);
+    const message = "\u0001".repeat(500);
+    const name = "\u0002".repeat(256);
+    await Promise.all(
+      Array.from({ length: 80 }, (_, index) => writeSession(join(sessionDir, `${index}.jsonl`), `byte-${index}`, [{ role: "user", text: message }], name)),
+    );
+    const { context, tools } = await loadPlugin(sessionDir, { id: "active" });
+    try {
+      const tool = tools.snapshot().customTools.find((item) => item.name === "session_recall_unread")!;
+      const seen = new Set<string>();
+      let offset: number | null = 0;
+      let pages = 0;
+      while (offset !== null) {
+        const result = await tool.execute("bytes", { offset }, undefined, undefined, {} as never);
+        const text = (result.content[0] as { text: string }).text;
+        expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(128 * 1024);
+        const page: unknown = JSON.parse(text);
+        expect(page).toEqual(result.details);
+        assert(page !== null && typeof page === "object" && "total" in page);
+        assert("returned" in page && typeof page.returned === "number");
+        assert("items" in page && Array.isArray(page.items));
+        assert("nextOffset" in page && (page.nextOffset === null || typeof page.nextOffset === "number"));
+        expect(page.total).toBe(80);
+        expect(page.returned).toBeGreaterThan(0);
+        expect(page.returned).toBe(page.items.length);
+        for (const item of page.items as unknown[]) {
+          assert(item !== null && typeof item === "object" && "id" in item && typeof item.id === "string");
+          assert("message" in item && "name" in item);
+          expect(item.message).toBe(message);
+          expect(item.name).toBe(name);
+          expect(seen.has(item.id)).toBe(false);
+          seen.add(item.id);
+        }
+        if (page.nextOffset !== null) expect(page.nextOffset).toBe(offset + page.returned);
+        offset = page.nextOffset;
+        expect(++pages).toBeLessThanOrEqual(80);
+      }
+      expect(seen.size).toBe(80);
+      expect(pages).toBeGreaterThan(1);
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("validates page offsets and limits before starting another scan", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-page-params-"));
+    temporaryDirectories.push(sessionDir);
+    const { context, tools, panels } = await loadPlugin(sessionDir, { id: "active" });
+    try {
+      const tool = tools.snapshot().customTools.find((item) => item.name === "session_recall_unread")!;
+      expect(tool.parameters).toMatchObject({
+        properties: {
+          offset: { type: "integer", minimum: 0, maximum: 500 },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+        },
+      });
+      for (const offset of [-1, 501, 0.5, "1", null, NaN, Infinity])
+        await expect(tool.execute("bad-offset", { offset }, undefined, undefined, {} as never)).rejects.toThrow(/offset.*integer/iu);
+      for (const limit of [0, 101, 0.5, "1", null, NaN, Infinity])
+        await expect(tool.execute("bad-limit", { limit }, undefined, undefined, {} as never)).rejects.toThrow(/limit.*integer/iu);
+      expect((await panels.snapshot())[0]?.data).toMatchObject({ scans: 1 });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("returns the latest user message only when no later assistant message exists", () => {
     expect(
       unreadUserMessage([
