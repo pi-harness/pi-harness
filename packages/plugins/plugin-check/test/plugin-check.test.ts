@@ -9,7 +9,7 @@ import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-ha
 const contexts: Context[] = [];
 const directories: string[] = [];
 
-async function fixture() {
+async function fixture(config: { scanLimit?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-plugin-check-"));
   directories.push(root);
   const context = new Context();
@@ -18,7 +18,7 @@ async function fixture() {
   context.provide("piTools", tools);
   const panels = new PiPluginUiRegistry();
   context.provide("piPluginUi", panels);
-  await context.plugin(pluginCheckPlugin, {});
+  await context.plugin(pluginCheckPlugin, config);
   contexts.push(context);
   const tool = tools.snapshot().customTools.find((item) => item.name === "plugin_check");
   if (tool === undefined) throw new Error("plugin_check was not registered");
@@ -45,6 +45,37 @@ describe("plugin repository discovery", () => {
 });
 
 describe("plugin source checks", () => {
+  test("returns actionable diagnostics and schema definitions to the model", async () => {
+    const { tool } = await fixture();
+    for (const action of ["check", "schema"]) {
+      const result = await tool.execute(action, { action }, undefined, undefined, {} as never);
+      const text = result.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      expect(() => {
+        JSON.parse(text);
+      }).not.toThrow();
+      expect(JSON.parse(text)).toEqual(result.details);
+    }
+  });
+
+  test("exposes repository identities and scan truncation in model-visible content", async () => {
+    const { root, tool } = await fixture({ scanLimit: 1 });
+    await mkdir(join(root, "pi-first"));
+    await mkdir(join(root, "pi-second"));
+    const result = await tool.execute("scan", { action: "scan" }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ scanned: 1, truncated: true });
+    const text = result.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(() => {
+      JSON.parse(text);
+    }).not.toThrow();
+    expect(JSON.parse(text)).toEqual(result.details);
+  });
+
   test("accepts relative imports that already carry their emitted extension", () => {
     expect(hasExtensionlessRelativeImport('import { a } from "./a.js";\nimport b from "../nested/b.json";\n')).toBe(false);
     expect(hasExtensionlessRelativeImport('export { c } from "./c.mjs";\n')).toBe(false);
