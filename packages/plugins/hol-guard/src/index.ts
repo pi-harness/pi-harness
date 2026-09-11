@@ -81,18 +81,27 @@ function ownData(value: unknown, key: PropertyKey): unknown {
   }
 }
 
-function serializeInput(input: unknown): string {
+function serializeInput(input: unknown): string | undefined {
   if (typeof input === "string") return input;
   try {
-    return JSON.stringify(input) ?? String(input);
+    return JSON.stringify(input);
   } catch {
-    return "[unserializable input]";
+    return undefined;
   }
 }
 
 export function inspectGuardInput(input: unknown, source: string, maxScanBytes = defaultMaxScanBytes): GuardReport {
   const serialized = serializeInput(input);
   const sourceLabel = source.trim().slice(0, 64) || "unknown";
+  if (serialized === undefined) {
+    return {
+      source: sourceLabel,
+      risk: "review",
+      score: 1,
+      scannedBytes: 0,
+      findings: [{ code: "scan_unavailable", severity: "medium", message: "输入无法序列化，未完成风险扫描，需要人工复核。" }],
+    };
+  }
   const totalBytes = Buffer.byteLength(serialized, "utf8");
   const scanText = totalBytes > maxScanBytes ? Buffer.from(serialized, "utf8").subarray(0, maxScanBytes).toString("utf8") : serialized;
   const findings = patterns.filter((item) => item.pattern.test(scanText)).map(({ code, severity, message }) => ({ code, severity, message }));
@@ -111,6 +120,7 @@ export default {
     assertKnownConfigKeys("pi-hol-guard", config, ["maxReceipts", "maxScanBytes"]);
     const maxReceipts = Math.max(1, Math.min(maxAllowedReceipts, Math.trunc(config.maxReceipts ?? defaultMaxReceipts)));
     const maxScanBytes = Math.max(1024, Math.min(maxAllowedScanBytes, Math.trunc(config.maxScanBytes ?? defaultMaxScanBytes)));
+    const lifecycle = new AbortController();
     let events = 0;
     let blocked = 0;
     let review = 0;
@@ -142,12 +152,19 @@ export default {
         promptSnippet: "scan a command or tool payload through the local security guard",
         parameters: Type.Object({ text: Type.String(), source: Type.Optional(Type.String()) }, { additionalProperties: false }),
         executionMode: "sequential",
-        execute(_toolCallId, params): Promise<AgentToolResult<GuardReport>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<GuardReport>> {
+          const combined = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          const check = () => {
+            if (combined.aborted) throw new Error("HOL Guard scan was cancelled");
+          };
+          check();
           return Promise.resolve().then(() => {
+            check();
             const report = inspectGuardInput(params.text, params.source ?? "tool", maxScanBytes);
+            check();
             record(report);
             return {
-              content: [{ type: "text" as const, text: `${report.risk}: ${report.findings.length} finding(s), score ${report.score}.` }],
+              content: [{ type: "text" as const, text: JSON.stringify(report) }],
               details: report,
             };
           });
@@ -170,6 +187,7 @@ export default {
       throw error;
     }
     context.effect(() => () => {
+      lifecycle.abort();
       unsubscribe();
       unregisterTool();
       disposePanel();
