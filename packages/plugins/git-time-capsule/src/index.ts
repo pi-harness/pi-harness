@@ -1,16 +1,13 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { link, lstat, mkdir, mkdtemp, opendir, rm, writeFile } from "node:fs/promises";
-import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { assertKnownConfigKeys, readBoundedFile } from "@pi-harness/plugin-api";
+import { assertKnownConfigKeys, readBoundedFile, runBoundedCommand } from "@pi-harness/plugin-api";
 
-const execFileAsync = promisify(execFile);
 const capsuleDirectory = "capsules";
 const maxCapsuleBytes = 8 * 1024 * 1024;
 const defaultTimeoutMs = 15_000;
@@ -18,6 +15,7 @@ const maxCapsuleInventory = 256;
 const maxCapsuleDirectoryEntries = 4096;
 const maxErrorLength = 2_000;
 const recentCapsuleLimit = 20;
+const restoreUncertainWarning = "Git restore may have changed workspace files; failure or cancellation does not roll back changes. Inspect the workspace before retrying. ";
 
 type CapsuleActivity = {
   action: "capture" | "restore";
@@ -36,7 +34,10 @@ function normalizeTimeout(value: number | undefined): number {
 
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
-  throw signal.reason instanceof Error ? signal.reason : new Error("Git time capsule operation was cancelled", { cause: signal.reason });
+  // Native AbortController uses a DOMException whose message is inherited.
+  // Keep caller Errors with safe own messages; do not invoke arbitrary getters.
+  if (signal.reason instanceof Error && boundedError(signal.reason) !== "Unknown Git time capsule error") throw signal.reason;
+  throw new Error("Git time capsule operation was cancelled", { cause: signal.reason });
 }
 
 function rejectionError(error: unknown, message: string): Error {
@@ -97,6 +98,11 @@ function publicOperationError(error: unknown, cwd: string, agentDir: string): Er
   return new Error(boundedError(error, [cwd, agentDir]), { cause: error });
 }
 
+function uncertainRestoreError(error: unknown): Error {
+  const message = boundedError(error);
+  return new Error(message.startsWith(restoreUncertainWarning) ? message : (restoreUncertainWarning + message).slice(0, maxErrorLength), { cause: error });
+}
+
 function gitEnvironment(): NodeJS.ProcessEnv {
   const environment = { ...process.env };
   for (const name of [
@@ -116,19 +122,16 @@ function gitEnvironment(): NodeJS.ProcessEnv {
 async function git(cwd: string, args: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<Buffer> {
   if (signal !== undefined) throwIfAborted(signal);
   try {
-    const result = await execFileAsync("git", [...args], {
-      cwd,
-      encoding: "buffer",
-      env: gitEnvironment(),
-      maxBuffer: 8 * 1024 * 1024,
-      timeout: timeoutMs,
-      signal,
+    const result = await runBoundedCommand(["git", ...args], cwd, timeoutMs, maxCapsuleBytes, signal, {
+      encoding: "buffer", env: gitEnvironment(),
     });
-    return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout);
+    return result.stdout;
   } catch (error) {
     if (signal?.aborted === true) throwIfAborted(signal);
     const timedOut = typeof error === "object" && error !== null && "killed" in error && (error as { killed?: unknown }).killed === true;
     if (timedOut) throw new Error(`Git command timed out after ${timeoutMs} ms`, { cause: error });
+    if (error instanceof Error && "stderr" in error && Buffer.isBuffer(error.stderr) && error.stderr.length > 0)
+      throw new Error(`${error.message}: ${boundedError(error.stderr.toString("utf8"), [cwd])}`, { cause: error });
     throw error;
   }
 }
@@ -165,26 +168,34 @@ async function applyCapsuleWithMetadata(
   const capsule = await readBoundedFile(capsulePath, maxCapsuleBytes, "Git capsule");
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-harness-capsule-"));
   const verifiedPath = join(temporaryDirectory, "capsule.patch");
+  let writeStarted = false;
   try {
-    await writeFile(verifiedPath, capsule, { mode: 0o600, flag: "wx" });
-    const files = await patchFileCount(cwd, verifiedPath, normalizedTimeoutMs, signal);
     try {
-      await git(
-        cwd,
-        ["-c", "apply.ignoreWhitespace=false", "apply", "--reverse", "--check", "--binary", "--whitespace=nowarn", verifiedPath],
-        normalizedTimeoutMs,
-        signal,
-      );
-    } catch (cause) {
-      if (signal?.aborted === true) throwIfAborted(signal);
-      if (cause instanceof Error && /timed out after/iu.test(cause.message)) throw cause;
-      throw new Error("Git capsule does not apply cleanly", { cause });
+      await writeFile(verifiedPath, capsule, { mode: 0o600, flag: "wx" });
+      const files = await patchFileCount(cwd, verifiedPath, normalizedTimeoutMs, signal);
+      try {
+        await git(
+          cwd,
+          ["-c", "apply.ignoreWhitespace=false", "apply", "--reverse", "--check", "--binary", "--whitespace=nowarn", verifiedPath],
+          normalizedTimeoutMs,
+          signal,
+        );
+      } catch (cause) {
+        if (signal?.aborted === true) throwIfAborted(signal);
+        if (cause instanceof Error && /timed out after/iu.test(cause.message)) throw cause;
+        throw new Error("Git capsule does not apply cleanly", { cause });
+      }
+      beforeApply?.();
+      if (signal !== undefined) throwIfAborted(signal);
+      writeStarted = true;
+      await git(cwd, ["-c", "apply.ignoreWhitespace=false", "apply", "--reverse", "--binary", "--whitespace=nowarn", verifiedPath], normalizedTimeoutMs, signal);
+      return { bytes: capsule.length, files };
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+      if (writeStarted && signal !== undefined) throwIfAborted(signal);
     }
-    beforeApply?.();
-    await git(cwd, ["-c", "apply.ignoreWhitespace=false", "apply", "--reverse", "--binary", "--whitespace=nowarn", verifiedPath], normalizedTimeoutMs, signal);
-    return { bytes: capsule.length, files };
-  } finally {
-    await rm(temporaryDirectory, { recursive: true, force: true });
+  } catch (error) {
+    throw writeStarted ? uncertainRestoreError(error) : error;
   }
 }
 
@@ -436,7 +447,11 @@ export default {
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
           throwIfAborted(lifecycle.signal);
           const operationScope = refreshScope();
-          const assertCurrent = () => assertScope(operationScope);
+          const assertCurrent = () => {
+            throwIfAborted(operationSignal);
+            assertScope(operationScope);
+          };
+          let restoreStarted = false;
           try {
             const params = restoreParameters(rawParams);
             throwIfAborted(operationSignal);
@@ -447,7 +462,10 @@ export default {
               const name = restoreCapsuleName(params.name);
               const path = join(directory, name);
               await inspectCapsuleDirectory(directory, false);
-              const applied = await applyCapsuleWithMetadata(operationScope.cwd, path, timeoutMs, operationSignal, assertCurrent);
+              const applied = await applyCapsuleWithMetadata(operationScope.cwd, path, timeoutMs, operationSignal, () => {
+                assertCurrent();
+                restoreStarted = true;
+              });
               assertCurrent();
               latest = {
                 action: "restore",
@@ -461,7 +479,7 @@ export default {
               return { content: [{ type: "text", text: `Git undo capsule restored: ${name}` }], details: { name, restored: true } };
             }, operationSignal);
           } catch (error) {
-            const failure = publicOperationError(error, operationScope.cwd, agentDir);
+            const failure = publicOperationError(restoreStarted ? uncertainRestoreError(error) : error, operationScope.cwd, agentDir);
             if (!lifecycle.signal.aborted && refreshScope() === operationScope)
               latest = {
                 action: "restore",
