@@ -195,12 +195,16 @@ function hasRecursiveForceDelete(lineText: string): boolean {
       const tokenStart = index;
       while (index < scanEnd && !isTokenSeparator(lineText[index]!)) index += 1;
       if (index === tokenStart) break;
-      const token = lineText.slice(tokenStart, index);
+      const rawToken = lineText.slice(tokenStart, index);
+      const separator = rawToken.search(commandSeparator);
+      const token = separator < 0 ? rawToken : rawToken.slice(0, separator);
       tokens += 1;
-      // A bare `--` ends the options, so `rm -- -rf` removes a file named `-rf` and is not a recursive force delete; a token carrying a shell separator ends the command itself, so flags from `rm -r a && chmod -f b` must not be pooled; and a token opening a comment ends the line as far as the shell is concerned.
-      if (token === "--" || token.startsWith("#") || commandSeparator.test(token)) break;
+      // Inspect the word before a control operator, even without whitespace
+      // (`-f;`), but never pool flags from the following command.
+      if (token === "--" || token.startsWith("#")) break;
       applyDeleteFlagToken(token, flags);
       if (flags.recursive && flags.force) return true;
+      if (separator >= 0) break;
     }
   }
   return false;
