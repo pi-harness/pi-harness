@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-taskboard",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Track agent tasks, statuses, and dependencies in a durable project board.",
   "keywords": [
     "cordis",

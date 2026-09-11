@@ -1,7 +1,7 @@
 {
   "id": "session-export",
   "packageName": "@pi-harness/plugin-session-export",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Session Export",
   "description": "把当前 Pi 对话导出成工作区内的 Markdown 文件，不改动会话历史。",
   "author": "Pi Harness",
