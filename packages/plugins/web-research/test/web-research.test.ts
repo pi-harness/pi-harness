@@ -119,6 +119,61 @@ describe("web research", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  test("cancels a provider response body that stalls after headers arrive", async () => {
+    let cancelCalled = false;
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<{ done: true; value?: undefined }>((resolve) => {
+      releaseRead = () => resolve({ done: true });
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              read: () => pendingRead,
+              cancel() {
+                cancelCalled = true;
+                releaseRead();
+                return Promise.resolve();
+              },
+              releaseLock() {},
+            };
+          },
+        },
+      }),
+    );
+    const { search } = await fixture();
+    const caller = new AbortController();
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    let execution: Promise<unknown> | undefined;
+    try {
+      execution = search.execute("stalled-body", { query: "pi harness" }, caller.signal, undefined, {} as never);
+      await Promise.resolve();
+      caller.abort(new Error("cancel stalled provider body"));
+      const outcome = await Promise.race([
+        execution.then(
+          () => new Error("Web search unexpectedly succeeded"),
+          (error: unknown) => error,
+        ),
+        new Promise<string>((resolve) => {
+          fallback = setTimeout(() => resolve("Web search remained pending"), 500);
+        }),
+      ]);
+
+      expect(outcome).toBeInstanceOf(Error);
+      expect(String(outcome)).toMatch(/cancelled/iu);
+      expect(cancelCalled).toBe(true);
+    } finally {
+      if (fallback !== undefined) clearTimeout(fallback);
+      releaseRead();
+      await execution?.catch(() => undefined);
+    }
+  });
+
   test("rejects unknown search parameters before network access", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"success":true,"data":{"web":[]}}')));
     const { search } = await fixture();
