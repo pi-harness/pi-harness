@@ -7,6 +7,7 @@ const maxQuoteLength = 4_000;
 const maxNoteLength = 1_000;
 const maxQuestionLength = 4_000;
 const maxAnnotations = 50;
+const maxListBytes = 64 * 1024;
 
 export interface Annotation {
   id: number;
@@ -34,11 +35,36 @@ function formatPrompt(annotations: readonly Annotation[], question: string): str
   return `I annotated the following ${annotations.length} passage(s):\n\n${body}\n\nPlease respond to each annotation using ${instruction}.\n\nAsk:\n${ask}`;
 }
 
+function renderList(annotations: readonly Annotation[], rawOffset: unknown, rawLimit: unknown): string {
+  const offset = rawOffset === undefined ? 0 : rawOffset;
+  const limit = rawLimit === undefined ? 10 : rawLimit;
+  if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > maxAnnotations)
+    throw new Error(`Annotation offset must be an integer from 0 to ${maxAnnotations}`);
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > maxAnnotations)
+    throw new Error(`Annotation limit must be an integer from 1 to ${maxAnnotations}`);
+  const items: Annotation[] = [];
+  const text = () => {
+    const nextOffset = offset + items.length < annotations.length ? offset + items.length : null;
+    return JSON.stringify({ count: annotations.length, annotations: items, offset, returned: items.length, nextOffset, truncated: nextOffset !== null });
+  };
+  for (const annotation of annotations.slice(offset, offset + limit)) {
+    items.push(annotation);
+    if (Buffer.byteLength(text(), "utf8") > maxListBytes) {
+      items.pop();
+      if (items.length === 0) throw new Error("Annotation exceeds the model-visible page limit");
+      break;
+    }
+  }
+  return text();
+}
+
 export default {
   name: "pi-annotation",
   inject: ["piPluginUi", "piTools"],
   Config: EmptyConfig,
   apply(context: Context) {
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
     let annotations: Annotation[] = [];
     let lastPrompt: string | undefined;
     const report = (): AnnotationReport => ({ count: annotations.length, annotations: annotations.map((annotation) => ({ ...annotation })) });
@@ -46,7 +72,8 @@ export default {
       defineTool({
         name: "annotation_manage",
         label: "Manage annotations",
-        description: "Collect numbered passage annotations and render them into a model-ready prompt block.",
+        description:
+          "Collect numbered passage annotations, read full quotes/notes in bounded list pages (follow nextOffset), and render a model-ready prompt block.",
         promptSnippet: "collect a passage annotation and prepare it for the next question",
         parameters: Type.Object(
           {
@@ -55,12 +82,20 @@ export default {
             note: Type.Optional(Type.String({ maxLength: maxNoteLength })),
             id: Type.Optional(Type.Integer({ minimum: 1 })),
             question: Type.Optional(Type.String({ maxLength: maxQuestionLength })),
+            offset: Type.Optional(
+              Type.Integer({ minimum: 0, maximum: maxAnnotations, description: "List page offset; follow nextOffset for remaining annotations" }),
+            ),
+            limit: Type.Optional(
+              Type.Integer({ minimum: 1, maximum: maxAnnotations, description: "Maximum list entries, default 10; pages also have a 64 KiB byte limit" }),
+            ),
           },
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        async execute(_toolCallId, params): Promise<AgentToolResult<AnnotationReport | Annotation | { prompt: string }>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<AnnotationReport | Annotation | { prompt: string }>> {
+          if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Annotation request was cancelled or plugin disposed");
           await Promise.resolve();
+          if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Annotation request was cancelled or plugin disposed");
           if (params.action === "add") {
             if (annotations.length >= maxAnnotations) throw new Error(`At most ${maxAnnotations} annotations can be collected`);
             const quote = requiredText(params.quote ?? "", "Annotation quote", maxQuoteLength);
@@ -96,7 +131,7 @@ export default {
             lastPrompt = prompt;
             return { content: [{ type: "text", text: prompt }], details: { prompt } };
           }
-          if (params.action === "list") return { content: [{ type: "text", text: `${annotations.length} annotation(s) collected.` }], details: report() };
+          if (params.action === "list") return { content: [{ type: "text", text: renderList(annotations, params.offset, params.limit) }], details: report() };
           throw new Error("Unknown annotation action");
         },
       }),
