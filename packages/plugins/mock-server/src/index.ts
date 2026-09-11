@@ -179,7 +179,7 @@ export default {
           async execute(_toolCallId, params, signal): Promise<AgentToolResult<MockServerState>> {
             const currentSignal = executionSignal(signal);
             const result = await enqueue(() => start(params.port, currentSignal), currentSignal);
-            return { content: [{ type: "text", text: `Mock server listening at ${result.url}` }], details: result };
+            return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
           },
         }),
       );
@@ -208,7 +208,8 @@ export default {
           async execute(_toolCallId, _params, signal): Promise<AgentToolResult<MockServerState>> {
             await Promise.resolve();
             executionSignal(signal).throwIfAborted();
-            return { content: [{ type: "text", text: `${state.running ? "running" : "stopped"} ${state.url ?? ""}`.trim() }], details: { ...state } };
+            const report = { ...state };
+            return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
           },
         }),
       );
