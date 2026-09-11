@@ -19,6 +19,21 @@ async function fixture(limit = 5) {
   return { context, tools, panels, tool };
 }
 
+async function settleWithin<T>(promise: Promise<T>, message: string): Promise<T> {
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error(message)), 500);
+        deadline.unref();
+      }),
+    ]);
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
 afterEach(async () => {
   vi.unstubAllGlobals();
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
@@ -165,6 +180,31 @@ describe("plugin radar", () => {
     await expect(panels.snapshot()).resolves.toHaveLength(0);
   });
 
+  test("returns the HTTP status when discarded-body cleanup never settles", async () => {
+    let cancellations = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              cancel: () => {
+                cancellations += 1;
+                return new Promise(() => undefined);
+              },
+            }),
+            { status: 429 },
+          ),
+        ),
+      ),
+    );
+    const { tool } = await fixture();
+    await expect(
+      settleWithin(tool.execute("rate-limited", {}, undefined, undefined, {} as never), "HTTP status remained pending behind cleanup"),
+    ).rejects.toThrow(/HTTP 429/iu);
+    expect(cancellations).toBe(2);
+  });
+
   test("rejects invalid UTF-8 upstream payloads", async () => {
     vi.stubGlobal(
       "fetch",
@@ -188,6 +228,39 @@ describe("plugin radar", () => {
     await expect(tool.execute("search-accessor", params, undefined, undefined, {} as never)).rejects.toThrow(/data properties|plain object/iu);
     await expect(tool.execute("search-unknown", { query: "x", extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/unknown/iu);
     expect(accessed).toBe(false);
+  });
+
+  test("rejects ambiguous or credential-bearing API URLs before networking", async () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+    for (const apiUrl of [
+      "https://user:secret@api.github.com",
+      "https://api.github.com?token=secret",
+      "https://api.github.com#search",
+      "https://api.github.com?",
+      "https://api.github.com#",
+    ]) {
+      const context = new Context();
+      context.provide("piTools", new PiToolRegistry());
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      contexts.push(context);
+      let failure: unknown;
+      try {
+        await context.plugin(pluginRadarPlugin, { apiUrl });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toMatch(/credentials|query|fragment/iu);
+    }
+    const context = new Context();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", panels);
+    contexts.push(context);
+    await context.plugin(pluginRadarPlugin, { apiUrl: "https://github.enterprise.example/api/v3/" });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { apiUrl: "https://github.enterprise.example/api/v3" } }]);
+    expect(request).not.toHaveBeenCalled();
   });
   test("rejects malformed response structures instead of reporting no repositories", async () => {
     const { tool } = await fixture();
@@ -279,5 +352,135 @@ describe("plugin radar", () => {
     );
     await expect(tool.execute("cancel", { query: "after" }, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
     expect((await panels.snapshot())[0]?.data).toMatchObject({ query: "before" });
+  });
+
+  test("cancels stalled response body reads when the caller aborts", async () => {
+    let pulls = 0;
+    let cancellations = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              pull: () => {
+                pulls += 1;
+                return new Promise(() => undefined);
+              },
+              cancel: () => {
+                cancellations += 1;
+              },
+            }),
+          ),
+        ),
+      ),
+    );
+    const { tool } = await fixture();
+    const controller = new AbortController();
+    const pending = tool.execute("stalled", {}, controller.signal, undefined, {} as never);
+    await vi.waitFor(() => expect(pulls).toBe(2));
+    controller.abort(new Error("stop"));
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      deadline = setTimeout(() => reject(new Error("Plugin radar cancellation remained pending")), 500);
+      deadline.unref();
+    });
+    try {
+      await expect(Promise.race([pending, timeout])).rejects.toThrow(/cancelled/iu);
+    } finally {
+      clearTimeout(deadline);
+    }
+    expect(cancellations).toBe(2);
+  });
+
+  test("cancels both response bodies when abort arrives before the first read", async () => {
+    let cancellations = 0;
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        const response = new Response(
+          new ReadableStream({
+            cancel: () => {
+              cancellations += 1;
+            },
+          }),
+        );
+        return Promise.resolve(response).then((resolved) => {
+          controller.abort(new Error("stop before read"));
+          return resolved;
+        });
+      }),
+    );
+    const { tool } = await fixture();
+    await expect(tool.execute("early-abort", {}, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    expect(cancellations).toBe(2);
+  });
+
+  test("returns the declared-size diagnostic when body cleanup never settles", async () => {
+    let cancellations = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              cancel: () => {
+                cancellations += 1;
+                return new Promise(() => undefined);
+              },
+            }),
+            { headers: { "content-length": String(1024 * 1024 + 1) } },
+          ),
+        ),
+      ),
+    );
+    const { tool } = await fixture();
+    await expect(
+      settleWithin(tool.execute("oversized", {}, undefined, undefined, {} as never), "Declared-size diagnostic remained pending behind cleanup"),
+    ).rejects.toThrow(/exceeded 1 MiB limit/iu);
+    expect(cancellations).toBe(2);
+  });
+
+  test("returns the streamed-size diagnostic when reader cleanup never settles", async () => {
+    let cancellations = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start: (stream) => stream.enqueue(new Uint8Array(1024 * 1024 + 1)),
+              cancel: () => {
+                cancellations += 1;
+                return new Promise(() => undefined);
+              },
+            }),
+          ),
+        ),
+      ),
+    );
+    const { tool } = await fixture();
+    await expect(
+      settleWithin(tool.execute("streamed-oversized", {}, undefined, undefined, {} as never), "Streamed-size diagnostic remained pending behind cleanup"),
+    ).rejects.toThrow(/exceeded 1 MiB limit/iu);
+    expect(cancellations).toBe(2);
+  });
+
+  test("normalizes non-Error response stream failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start: (stream) => stream.error("stream broke"),
+            }),
+          ),
+        ),
+      ),
+    );
+    const { tool } = await fixture();
+    await expect(tool.execute("stream-error", {}, undefined, undefined, {} as never)).rejects.toThrow(/response read failed/iu);
   });
 });
