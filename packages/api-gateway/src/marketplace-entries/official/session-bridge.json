@@ -13,7 +13,7 @@
     "id": "workflow",
     "label": "工作流"
   },
-  "capabilities": ["read-only", "session-data"],
+  "capabilities": ["session-data", "writes-files"],
   "hooks": ["会话桥接工具", "当前会话管理器", "自定义上下文消息", "插件面板"],
   "profile": {
     "name": "@pi-harness/plugin-session-bridge",

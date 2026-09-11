@@ -155,13 +155,13 @@ function extractKeyFiles(messages: readonly BridgeMessage[]): string[] {
 export function buildHandoffPreview(packageValue: BridgePackage): HandoffPreview {
   const userMessages = packageValue.messages.filter((message) => message.role === "user" && message.text.trim() !== "");
   const assistantMessages = packageValue.messages.filter((message) => message.role === "assistant" && message.text.trim() !== "");
-  const goal = boundedPreviewText(userMessages[0]?.text ?? "No explicit goal was found in the source session.");
-  const currentState = boundedPreviewText(assistantMessages.at(-1)?.text ?? "No assistant progress message was found.");
+  const goal = boundedPreviewText(userMessages[0]?.text ?? "");
+  const currentState = boundedPreviewText(assistantMessages.at(-1)?.text ?? "");
   const decisions = userMessages
     .filter((message) => /(?:\b(?:fix|keep|use|avoid|must|should|decide|preserve)\b|不要|保持|使用|改|修复|决定)/iu.test(message.text))
     .slice(0, previewListLimit)
     .map((message) => boundedPreviewText(message.text));
-  const nextStep = boundedPreviewText(userMessages.at(-1)?.text ?? "Continue from the current state after reviewing this preview.");
+  const nextStep = boundedPreviewText(userMessages.at(-1)?.text ?? "");
   return { goal, currentState, decisions, keyFiles: extractKeyFiles(packageValue.messages), nextStep };
 }
 

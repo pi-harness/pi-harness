@@ -222,6 +222,35 @@ describe("session bridge", () => {
     for (const fixture of invalid) expect(() => parseBridgePackage(JSON.stringify(fixture.value)), fixture.label).toThrow();
   });
 
+  test("leaves absent handoff content empty instead of inventing English session content", () => {
+    const source = { sessionId: "empty-preview", cwd: "/workspace" };
+    for (const messages of [[], [{ role: "user", content: " \n " }, { role: "assistant", content: "\t" }]]) {
+      const packageValue = buildBridgePackage(source, messages);
+      const before = JSON.stringify(packageValue);
+      expect(buildHandoffPreview(packageValue)).toEqual({ goal: "", currentState: "", nextStep: "", decisions: [], keyFiles: [] });
+      expect(JSON.stringify(packageValue)).toBe(before);
+    }
+    expect(buildHandoffPreview(buildBridgePackage(source, [{ role: "user", content: "检查导入" }]))).toMatchObject({
+      goal: "检查导入", currentState: "", nextStep: "检查导入",
+    });
+    expect(buildHandoffPreview(buildBridgePackage(source, [{ role: "assistant", content: "已检查" }]))).toMatchObject({
+      goal: "", currentState: "已检查", nextStep: "",
+    });
+  });
+
+  test("preserves real messages even when they equal previous empty-preview placeholders", () => {
+    const preview = buildHandoffPreview(buildBridgePackage({ sessionId: "literal-preview", cwd: "/workspace" }, [
+      { role: "user", content: "No explicit goal was found in the source session." },
+      { role: "assistant", content: "No assistant progress message was found." },
+      { role: "user", content: "Continue from the current state after reviewing this preview." },
+    ]));
+    expect(preview).toMatchObject({
+      goal: "No explicit goal was found in the source session.",
+      currentState: "No assistant progress message was found.",
+      nextStep: "Continue from the current state after reviewing this preview.",
+    });
+  });
+
   test("builds a bounded five-part preview without changing the source package", () => {
     const packageValue = buildBridgePackage({ sessionId: "session-123", cwd: "/workspace/app" }, [
       { role: "user", content: "Fix src/app.ts and keep the API stable." },
