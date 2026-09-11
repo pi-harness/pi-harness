@@ -41,6 +41,8 @@ export default {
 
 The bare `import type {} from "@pi-harness/plugin-api"` is what applies the `Context` augmentation; without it `context.piTools` does not exist as far as TypeScript is concerned.
 
+Plugin panel `visible` and `read` callbacks may accept an optional `AbortSignal`. The registry evaluates different panels concurrently, limits awaited panel work to two seconds and reuses one terminal result across overlapping browser polls. A timeout becomes an isolated panel error, so one broken extension cannot hide healthy panels or hold the control room on its connection screen. Callbacks should return control to the event loop promptly, observe the signal and release their own resources; JavaScript cannot preempt a callback that blocks the server thread synchronously.
+
 `examples/plugin-hello` in the repository is this plugin with its tests.
 
 ## Test a plugin against a real runtime
