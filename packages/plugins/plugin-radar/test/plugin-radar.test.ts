@@ -1,17 +1,18 @@
 import { Context } from "@deepseek-ai/cordis";
+import assert from "node:assert/strict";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import pluginRadarPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 
-async function fixture() {
+async function fixture(limit = 5) {
   const context = new Context();
   const tools = new PiToolRegistry();
   const panels = new PiPluginUiRegistry();
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
-  await context.plugin(pluginRadarPlugin, { apiUrl: "https://api.github.com", limit: 5, timeoutMs: 2_000 });
+  await context.plugin(pluginRadarPlugin, { apiUrl: "https://api.github.com", limit, timeoutMs: 2_000 });
   contexts.push(context);
   const tool = tools.snapshot().customTools.find((item) => item.name === "plugin_radar_search");
   if (tool === undefined) throw new Error("plugin_radar_search was not registered");
@@ -24,6 +25,94 @@ afterEach(async () => {
 });
 
 describe("plugin radar", () => {
+  test("accounts for JSON escaping when limiting returned repositories", async () => {
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        Response.json({
+          total_count: 25,
+          items: Array.from({ length: 25 }, (_, i) => ({
+            name: `entry-${i}`,
+            full_name: `acme/entry-${i}`,
+            html_url: `https://github.com/acme/entry-${i}`,
+            description: "\u0000".repeat(4_000),
+            stargazers_count: 25 - i,
+          })),
+        }),
+      ),
+    );
+    const { tool } = await fixture(25);
+    const result = await tool.execute("escaping", {}, undefined, undefined, {} as never);
+    const content = result.content[0];
+    if (content?.type !== "text") throw new Error("Missing text result");
+    expect(Buffer.byteLength(content.text, "utf8")).toBeLessThanOrEqual(128 * 1024);
+    const report: unknown = JSON.parse(content.text);
+    assert(report !== null && typeof report === "object" && "results" in report && Array.isArray(report.results) && "total" in report);
+    expect(report.total).toBe(report.results.length);
+    expect(report.results.length).toBeGreaterThan(0);
+    expect(report.results.length).toBeLessThan(25);
+    expect(report).toMatchObject({ metadataTruncated: true, truncated: true });
+  });
+
+  test("bounds model JSON for two large topic responses without losing repository identities", async () => {
+    let request = 0;
+    vi.stubGlobal("fetch", () => {
+      const index = request++;
+      return Promise.resolve(
+        Response.json({
+          total_count: 1,
+          items: [
+            {
+              name: `large-${index}`,
+              full_name: `acme/large-${index}`,
+              html_url: `https://github.com/acme/large-${index}`,
+              description: "界".repeat(300_000),
+              stargazers_count: 10 - index,
+            },
+          ],
+        }),
+      );
+    });
+    const { tool } = await fixture();
+    const result = await tool.execute("large", {}, undefined, undefined, {} as never);
+    const content = result.content[0];
+    if (content?.type !== "text") throw new Error("Missing text result");
+    expect(Buffer.byteLength(content.text, "utf8")).toBeLessThanOrEqual(128 * 1024);
+    const report: unknown = JSON.parse(content.text);
+    expect(report).toMatchObject({ total: 2, truncated: true, metadataTruncated: true });
+    expect(report).toMatchObject({ results: [{ fullName: "acme/large-0" }, { fullName: "acme/large-1" }] });
+    expect(content.text).not.toContain("�");
+    expect((result.details as { results: { description: string }[] }).results[0]!.description).toBe("界".repeat(300_000));
+  });
+
+  test("exposes repository metadata and incomplete search status to the model", async () => {
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        Response.json({
+          total_count: 20,
+          incomplete_results: true,
+          items: [
+            {
+              name: "memory",
+              full_name: "acme/memory",
+              html_url: "https://github.com/acme/memory",
+              description: "Persistent memory 测试😀",
+              stargazers_count: 12,
+              language: "TypeScript",
+              updated_at: "2026-09-09T00:00:00Z",
+              topics: ["pi-harness-plugin"],
+            },
+          ],
+        }),
+      ),
+    );
+    const { tool } = await fixture();
+    const result = await tool.execute("metadata", {}, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ total: 1, truncated: true, results: [{ description: "Persistent memory 测试😀" }] });
+    const content = result.content[0];
+    if (content?.type !== "text") throw new Error("Missing text result");
+    expect(content.text).toBe(JSON.stringify(result.details));
+  });
+
   test("searches only Pi Harness topics, deduplicates, and exposes strict metadata", async () => {
     const calls: string[] = [];
     vi.stubGlobal(

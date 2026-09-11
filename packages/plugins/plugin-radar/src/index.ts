@@ -10,6 +10,7 @@ const defaultTimeoutMs = 15_000;
 const maxLimit = 25;
 const maxQueryLength = 80;
 const maxResponseBytes = 1024 * 1024;
+const maxModelBytes = 128 * 1024;
 const radarTopics = ["topic:pi-harness", "topic:pi-harness-plugin"];
 const queryParameterNames = new Set(["query"]);
 
@@ -95,6 +96,31 @@ function asNonNegativeInteger(value: unknown): number {
 
 function asTopics(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string").slice(0, 12) : [];
+}
+
+function modelText(report: PluginRadarReport): string {
+  const complete = JSON.stringify(report);
+  if (Buffer.byteLength(complete, "utf8") <= maxModelBytes) return complete;
+  const bounded = (value: string, maximum: number): string => {
+    const bytes = Buffer.from(value, "utf8");
+    if (bytes.length <= maximum) return value;
+    let end = maximum;
+    while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+    return bytes.subarray(0, end).toString("utf8");
+  };
+  const results = report.results.map((item) => ({
+    ...item,
+    name: bounded(item.name, 256),
+    fullName: bounded(item.fullName, 512),
+    url: bounded(item.url, 2_048),
+    description: bounded(item.description, 4_096),
+    language: item.language === null ? null : bounded(item.language, 128),
+    updatedAt: bounded(item.updatedAt, 128),
+    topics: item.topics.map((topic) => bounded(topic, 128)),
+  }));
+  const text = () => JSON.stringify({ ...report, total: results.length, results, truncated: true, metadataTruncated: true });
+  while (Buffer.byteLength(text(), "utf8") > maxModelBytes && results.length > 0) results.pop();
+  return text();
 }
 
 function parseResults(payload: unknown): { results: PluginRadarResult[]; truncated: boolean } {
@@ -260,10 +286,7 @@ export default {
           const report = await searchPlugins(apiUrl, limit, timeoutMs, queryParameter(params), combined);
           if (combined.aborted) throw new Error("Plugin radar request was cancelled", { cause: combined.reason });
           latest = report;
-          const text =
-            latest.results.length === 0
-              ? "No matching Pi Harness repositories found."
-              : latest.results.map((item) => `${item.fullName} (${item.stars} stars)`).join("\n");
+          const text = modelText(latest);
           return { content: [{ type: "text", text }], details: structuredClone(latest) };
         },
       }),
