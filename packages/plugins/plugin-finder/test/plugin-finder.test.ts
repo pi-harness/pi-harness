@@ -186,6 +186,56 @@ describe("plugin finder network boundaries", () => {
     expect(received?.aborted).toBe(true);
     await rejection;
   });
+
+  test("cancels a registry response body that stalls after headers arrive", async () => {
+    let cancelCalled = false;
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<{ done: true; value?: undefined }>((resolve) => {
+      releaseRead = () => resolve({ done: true });
+    });
+    globalThis.fetch = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              read: () => pendingRead,
+              cancel() {
+                cancelCalled = true;
+                releaseRead();
+                return Promise.resolve();
+              },
+              releaseLock() {},
+            };
+          },
+        },
+      } as unknown as Response);
+    const tool = await searchTool();
+    const caller = new AbortController();
+    let execution: Promise<unknown> | undefined;
+    try {
+      execution = tool.execute("stalled-body", { query: "logger" }, caller.signal, undefined, {} as never);
+      await Promise.resolve();
+      caller.abort(new Error("cancel stalled registry body"));
+      const outcome = await Promise.race([
+        execution.then(
+          () => new Error("Plugin search unexpectedly succeeded"),
+          (error: unknown) => error,
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve("Plugin search remained pending"), 500)),
+      ]);
+
+      expect(outcome).toBeInstanceOf(Error);
+      expect(String(outcome)).toMatch(/cancelled/iu);
+      expect(cancelCalled).toBe(true);
+    } finally {
+      releaseRead();
+      await execution?.catch(() => undefined);
+    }
+  });
+
   test("filters registry candidates before limiting results and prioritizes name matches", async () => {
     globalThis.fetch = () =>
       Promise.resolve(
