@@ -112,6 +112,8 @@ function optimizePng(source: Buffer): Buffer {
     if (end > source.length) throw new Error("PNG chunk exceeds the input file");
     const type = source.subarray(offset + 4, offset + 8).toString("ascii");
     if (!/^[A-Za-z]{4}$/.test(type)) throw new Error("PNG contains an invalid chunk type");
+    if (source.readUInt32BE(end - 4) !== crc32(source.subarray(offset + 4, end - 4)))
+      throw new Error(`PNG ${type} chunk has an invalid CRC`);
     chunks.push({ type, data: source.subarray(offset + 8, offset + 8 + length) });
     offset = end;
     if (type === "IEND") break;
