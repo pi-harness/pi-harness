@@ -267,11 +267,15 @@ export default {
           const report = await search(params.query, params.path, params.kind ?? "all", params.maxResults, current.cwd, assertCurrent);
           assertCurrent();
           latest = report;
+          const matchesText = report.matches.map((match) => `${match.path}:${match.line} ${match.kind} ${match.name}`).join("\n") || "No module matches found.";
+          const incomplete = report.truncated || report.skippedFiles > 0;
           return {
             content: [
               {
                 type: "text",
-                text: report.matches.map((match) => `${match.path}:${match.line} ${match.kind} ${match.name}`).join("\n") || "No module matches found.",
+                text: incomplete
+                  ? `Incomplete search: scan/result limits or skipped files may hide additional matches. Scanned ${report.scannedFiles} file(s), skipped ${report.skippedFiles}.\n${matchesText}`
+                  : matchesText,
               },
             ],
             details: structuredClone(report),

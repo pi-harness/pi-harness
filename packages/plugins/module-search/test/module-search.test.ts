@@ -115,6 +115,7 @@ describe("module search", () => {
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "module_search");
       await expect(tool!.execute("call-1", { query: "read", kind: "export", maxResults: 1 }, undefined, undefined, {} as never)).resolves.toMatchObject({
         details: { matches: [{ name: "readOne" }], truncated: true },
+        content: [{ type: "text", text: expect.stringContaining("Incomplete search") as unknown }],
       });
     } finally {
       await context.fiber.dispose();
@@ -135,6 +136,7 @@ describe("module search", () => {
       const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "module_search");
       await expect(tool!.execute("call-1", { query: "read", path: "huge.ts" }, undefined, undefined, {} as never)).resolves.toMatchObject({
         details: { matches: [], scannedFiles: 0, skippedFiles: 1 },
+        content: [{ type: "text", text: expect.stringContaining("Incomplete search") as unknown }],
       });
     } finally {
       await context.fiber.dispose();
