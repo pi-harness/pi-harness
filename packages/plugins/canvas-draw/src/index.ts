@@ -54,6 +54,8 @@ export default {
   inject: ["piPluginUi", "piTools"],
   Config: EmptyConfig,
   apply(context: Context) {
+    const lifecycle = new AbortController();
+    context.effect(() => () => lifecycle.abort());
     let latest: CanvasReport | undefined;
     const unregisterTool = context.piTools.register(
       defineTool({
@@ -83,8 +85,9 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, params): Promise<AgentToolResult<CanvasReport>> {
+        execute(_toolCallId, params, signal): Promise<AgentToolResult<CanvasReport>> {
           return Promise.resolve().then(() => {
+            if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Canvas request was cancelled or plugin disposed");
             const input = typeof params === "object" && params !== null ? (params as Record<string, unknown>) : {};
             const rawNodes = input.nodes;
             const rawEdges = input.edges;
@@ -129,14 +132,21 @@ export default {
         },
       }),
     );
-    const disposePanel = context.piPluginUi.register({
-      id: "canvas-draw-panel",
-      pluginId: "@pi-harness/plugin-canvas-draw",
-      title: "Canvas Draw",
-      description: "将结构化节点和边转换为可复制的 Mermaid 流程图源码。",
-      icon: "⌘",
-      read: () => ({ latest: latest === undefined ? null : structuredClone(latest), nodeCount: latest?.nodeCount ?? 0, edgeCount: latest?.edgeCount ?? 0 }),
-    });
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "canvas-draw-panel",
+        pluginId: "@pi-harness/plugin-canvas-draw",
+        title: "Canvas Draw",
+        description: "将结构化节点和边转换为可复制的 Mermaid 流程图源码。",
+        icon: "⌘",
+        read: () => ({ latest: latest === undefined ? null : structuredClone(latest), nodeCount: latest?.nodeCount ?? 0, edgeCount: latest?.edgeCount ?? 0 }),
+      });
+    } catch (error) {
+      lifecycle.abort();
+      unregisterTool();
+      throw error;
+    }
     context.effect(() => () => {
       unregisterTool();
       disposePanel();

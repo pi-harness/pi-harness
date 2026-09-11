@@ -202,6 +202,10 @@ describe("undo savepoint", () => {
     await expect(stat(join(root, "savepoints"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  // This exercises the actual 8,192-entry filesystem boundary, not a mocked
+  // traversal. Creating and scanning that fixture can exceed the default 5 s
+  // under concurrent workspace builds; keep a bounded watchdog without sleeps
+  // or reducing the number of entries covered by the regression.
   test("counts skipped symlinks toward the traversal bound", async () => {
     const { root, tool } = await fixture({
       config: { trackedPaths: ["links"] },
@@ -214,7 +218,7 @@ describe("undo savepoint", () => {
     const result = await tool.execute("bounded", { action: "save" }, undefined, undefined, {} as never);
     expect(result.details).toMatchObject({ fileCount: 0, truncated: true });
     expect((await readdir(join(root, "links"))).length).toBe(8_192);
-  });
+  }, 30_000);
 
   test("never overwrites files in its own store during restoration", async () => {
     const { root, tool } = await fixture();

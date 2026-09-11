@@ -2,6 +2,8 @@
 
 Docker Sandbox — Run descriptor-safe argv commands with local-only Docker images, no container network, a read-only workspace by default, fixed CPU, memory, and PID limits, sanitized output, strict panel reporting, and cancellation cleanup.
 
+Returned sanitized output is limited to 12,000 UTF-8 bytes. When it exceeds that budget, the tool and panel include an explicit tail-only truncation notice within the same budget. Unicode characters are not split. The panel may shorten this returned preview further and separately indicates that display truncation.
+
 ## Install
 
 ```sh
@@ -27,3 +29,7 @@ The Pi Harness plugin marketplace installs and enables this package for you; the
 A session change prevents a pending container from starting and discards results from an older scope. It does not immediately interrupt an already-started container; existing run timeouts and caller/disposal cancellation cleanup still apply, and completed writes cannot be rolled back. Writable mounts continue to require both `write=true` and `confirmWrite=true`.
 
 If Docker auto-removal races explicit cleanup, the plugin waits up to 10 additional seconds for Docker to confirm the container is absent. Permission errors, other inspection failures, and removal timeouts remain cleanup errors.
+
+The 120-second run timeout force-terminates the local Docker client before forcibly removing its owned container. A container process ignoring SIGTERM cannot extend the run until its normal completion. Cleanup time is additional to the run deadline; a failed cleanup is reported rather than hidden.
+
+Image inspection distinguishes a missing local image from daemon connection, permission, or other Docker failures. Other inspection failures retain Docker's bounded, sanitized diagnostic instead of advising that the image is missing. Inspection never pulls an image or starts a container.

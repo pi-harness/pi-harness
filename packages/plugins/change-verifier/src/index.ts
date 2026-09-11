@@ -15,6 +15,9 @@ type GateReport = {
 
 function detailsOf(result: unknown): Record<string, unknown> {
   if (result === null || typeof result !== "object") return {};
+  // Provider errors may retain diagnostic details shaped like a prior success.
+  // Never use those fields as evidence that this verification passed.
+  if ((result as { isError?: unknown }).isError === true) return {};
   const details = (result as { details?: unknown }).details;
   return details !== null && typeof details === "object" ? (details as Record<string, unknown>) : {};
 }
@@ -40,6 +43,24 @@ export default {
     const lifecycle = new AbortController();
     let runs = 0;
     let latest: GateReport | undefined;
+    let attemptStatus: "idle" | "running" | "completed" | "failed" | "cancelled" = "idle";
+    let lastError: string | null = null;
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, manager: session?.sessionManager, id: session?.sessionId, cwd: session?.sessionManager.getCwd() };
+    };
+    let scope = readScope();
+    const refreshScope = () => {
+      const next = readScope();
+      if (next.session !== scope.session || next.manager !== scope.manager || next.id !== scope.id || next.cwd !== scope.cwd) {
+        scope = next;
+        latest = undefined;
+        runs = 0;
+        attemptStatus = "idle";
+        lastError = null;
+      }
+      return scope;
+    };
     const unregisterTool = context.piTools.register(
       defineTool({
         name: "verify_change_gate",
@@ -55,34 +76,66 @@ export default {
         executionMode: "sequential",
         async execute(toolCallId, params, signal, _onUpdate, toolContext): Promise<AgentToolResult<GateReport>> {
           const actionSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
-          if (actionSignal.aborted)
-            throw actionSignal.reason instanceof Error ? actionSignal.reason : new Error("Change verification was cancelled", { cause: actionSignal.reason });
+          const checkCancelled = (): void => {
+            if (actionSignal.aborted)
+              throw actionSignal.reason instanceof Error ? actionSignal.reason : new Error("Change verification was cancelled", { cause: actionSignal.reason });
+          };
+          checkCancelled();
+          const operationScope = refreshScope();
+          const checkCurrent = () => {
+            checkCancelled();
+            if (refreshScope() !== operationScope) throw new Error("Session or workspace changed during change verification");
+          };
           const script = scriptName(params?.script);
-          const reviewTool = requiredTool(context, "review_changes");
-          const testTool = requiredTool(context, "run_project_tests");
-          const reviewResult = await reviewTool.execute(`${toolCallId}:review`, {}, actionSignal, undefined, toolContext);
-          const testResult = await testTool.execute(`${toolCallId}:tests`, { script }, actionSignal, undefined, toolContext);
-          const review = detailsOf(reviewResult);
-          const tests = detailsOf(testResult);
-          const exitCode =
-            typeof tests.exitCode === "number" && Number.isInteger(tests.exitCode) && tests.exitCode >= 0 && tests.exitCode <= 255 ? tests.exitCode : 1;
-          const durationMs =
-            typeof tests.durationMs === "number" && Number.isFinite(tests.durationMs) && tests.durationMs >= 0 ? Math.trunc(tests.durationMs) : 0;
-          const reviewStatus = review.status === "pass" || review.status === "warning" || review.status === "error" ? review.status : "error";
-          const findings = Array.isArray(review.findings) ? review.findings.length : 0;
-          const status: GateStatus = exitCode !== 0 || reviewStatus === "error" ? "fail" : reviewStatus === "warning" ? "warning" : "pass";
-          latest = {
-            status,
-            script,
-            tests: { exitCode, durationMs },
-            review: { status: reviewStatus, findings },
-            checkedAt: new Date().toISOString(),
-          };
-          runs += 1;
-          return {
-            content: [{ type: "text", text: `${status}: tests exit ${exitCode}; review ${reviewStatus} with ${findings} finding(s).` }],
-            details: structuredClone(latest),
-          };
+          latest = undefined;
+          attemptStatus = "running";
+          lastError = null;
+          try {
+            const reviewTool = requiredTool(context, "review_changes");
+            const testTool = requiredTool(context, "run_project_tests");
+            const reviewResult = await reviewTool.execute(`${toolCallId}:review`, {}, actionSignal, undefined, toolContext);
+            checkCurrent();
+            const testResult = await testTool.execute(`${toolCallId}:tests`, { script }, actionSignal, undefined, toolContext);
+            checkCurrent();
+            const review = detailsOf(reviewResult);
+            const tests = detailsOf(testResult);
+            const exitCode =
+              typeof tests.exitCode === "number" && Number.isInteger(tests.exitCode) && tests.exitCode >= 0 && tests.exitCode <= 255 ? tests.exitCode : 1;
+            const durationMs =
+              typeof tests.durationMs === "number" && Number.isFinite(tests.durationMs) && tests.durationMs >= 0 ? Math.trunc(tests.durationMs) : 0;
+            const reviewStatus = review.status === "pass" || review.status === "warning" || review.status === "error" ? review.status : "error";
+            const findings = Array.isArray(review.findings) ? review.findings.length : 0;
+            const status: GateStatus = exitCode !== 0 || reviewStatus === "error" ? "fail" : reviewStatus === "warning" ? "warning" : "pass";
+            latest = {
+              status,
+              script,
+              tests: { exitCode, durationMs },
+              review: { status: reviewStatus, findings },
+              checkedAt: new Date().toISOString(),
+            };
+            runs += 1;
+            attemptStatus = "completed";
+            return {
+              content: [{ type: "text", text: `${status}: tests exit ${exitCode}; review ${reviewStatus} with ${findings} finding(s).` }],
+              details: structuredClone(latest),
+            };
+          } catch (error) {
+            if (!lifecycle.signal.aborted && refreshScope() === operationScope) {
+              attemptStatus = actionSignal.aborted ? "cancelled" : "failed";
+              let message = actionSignal.aborted ? "Change verification was cancelled" : "Change verification failed";
+              if (error instanceof Error) {
+                const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+                if (descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string") message = descriptor.value;
+              }
+              if (operationScope.cwd) message = message.replaceAll(operationScope.cwd, "[workspace]");
+              lastError =
+                message
+                  .replaceAll(/[\p{Cc}\p{Cf}]+/gu, " ")
+                  .trim()
+                  .slice(0, 1000) || "Change verification failed";
+            }
+            throw error;
+          }
         },
       }),
     );
@@ -92,7 +145,10 @@ export default {
       title: "Change Verifier",
       description: "复用真实测试和代码审查工具，形成统一发布门禁。",
       icon: "✓",
-      read: () => ({ runs, latest: latest === undefined ? null : structuredClone(latest) }),
+      read: () => {
+        refreshScope();
+        return { runs, latest: latest === undefined ? null : structuredClone(latest), status: attemptStatus, lastError };
+      },
     });
     context.effect(() => () => {
       lifecycle.abort(new Error("Change Verifier plugin disposed"));

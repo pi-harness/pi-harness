@@ -205,7 +205,8 @@ function runNpmScript(cwd: string, script: TestScript, timeoutMs: number, signal
         child.stdout?.destroy();
         child.stderr?.destroy();
       }, terminationGraceMs);
-      killTimer.unref();
+      // A short-lived CLI host must stay alive until hard cleanup runs, even
+      // when the npm leader has exited and descendants closed their pipes.
     };
     const onAbort = () => stop("cancelled");
     signal.addEventListener("abort", onAbort, { once: true });

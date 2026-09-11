@@ -55,6 +55,29 @@ afterEach(async () => {
 });
 
 describe("image compressor", () => {
+  test.each(["IHDR", "IDAT", "IEND"])("rejects a corrupted %s CRC without overwriting output or the last receipt", async (type) => {
+    const { root, tool, panels } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    await tool.execute("valid", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+    const previousOutput = await readFile(join(root, "input.min.png"));
+    const previousPanel = await panels.snapshot();
+    const damaged = Buffer.from(onePixelPng);
+    let offset = 8;
+    while (damaged.subarray(offset + 4, offset + 8).toString("ascii") !== type) {
+      offset += 12 + damaged.readUInt32BE(offset);
+    }
+    const crcOffset = offset + 8 + damaged.readUInt32BE(offset);
+    damaged[crcOffset] = damaged[crcOffset]! ^ 1;
+    await writeFile(join(root, "corrupt.png"), damaged);
+    await expect(
+      tool.execute("corrupt", { path: "corrupt.png", outputPath: "input.min.png", confirm: true }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/CRC/iu);
+    expect(await readFile(join(root, "input.min.png"))).toEqual(previousOutput);
+    expect(await readFile(join(root, "corrupt.png"))).toEqual(damaged);
+    expect(await panels.snapshot()).toEqual(previousPanel);
+    expect((await readdir(root)).sort()).toEqual(["corrupt.png", "input.min.png", "input.png"]);
+  });
+
   test("rejects Windows paths outside the workspace using native path semantics", () => {
     expect(isImageCompressorPathInside("C:\\repo", "C:\\outside", win32)).toBe(false);
     expect(isImageCompressorPathInside("C:\\repo", "C:\\repo\\asset.png", win32)).toBe(true);

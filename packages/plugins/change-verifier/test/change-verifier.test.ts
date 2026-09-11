@@ -5,7 +5,15 @@ import { describe, expect, test } from "vitest";
 import changeVerifierPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
-async function createVerifier(options?: { reviewStatus?: unknown; testDurationMs?: unknown; testExitCode?: unknown }): Promise<{
+async function createVerifier(options?: {
+  reviewError?: boolean;
+  testError?: boolean;
+  reviewStatus?: unknown;
+  testDurationMs?: unknown;
+  testExitCode?: unknown;
+  afterReview?: () => void;
+  afterTests?: () => void;
+}): Promise<{
   context: Context;
   panels: PiPluginUiRegistry;
   testScripts: string[];
@@ -22,8 +30,10 @@ async function createVerifier(options?: { reviewStatus?: unknown; testDurationMs
       description: "Review fixture",
       parameters: Type.Object({}),
       execute() {
+        options?.afterReview?.();
         return Promise.resolve({
           content: [{ type: "text" as const, text: "reviewed" }],
+          isError: options?.reviewError,
           details: { status: options?.reviewStatus ?? "pass", findings: [] },
         });
       },
@@ -37,8 +47,10 @@ async function createVerifier(options?: { reviewStatus?: unknown; testDurationMs
       parameters: Type.Object({ script: Type.Optional(Type.String()) }),
       execute(_toolCallId, params) {
         testScripts.push(params.script ?? "test");
+        options?.afterTests?.();
         return Promise.resolve({
           content: [{ type: "text" as const, text: "tested" }],
+          isError: options?.testError,
           details: { exitCode: options?.testExitCode ?? 0, durationMs: options?.testDurationMs ?? 10 },
         });
       },
@@ -57,6 +69,97 @@ function verifierTool(tools: PiToolRegistry) {
 }
 
 describe("change-verifier", () => {
+  test("clears old success while a new provider call is running", async () => {
+    let observed: ReturnType<PiPluginUiRegistry["snapshot"]> | undefined;
+    const { context, panels, tools } = await createVerifier({
+      afterReview: () => {
+        observed = panels.snapshot();
+      },
+    });
+    try {
+      const verify = verifierTool(tools);
+      await verify.execute("first", {}, undefined, undefined, {} as never);
+      await verify.execute("second", {}, undefined, undefined, {} as never);
+      expect((await observed)?.[0]?.data).toMatchObject({ status: "running", latest: null, lastError: null, runs: 1 });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test.each(["review", "tests"] as const)("clears prior pass when the next %s provider throws and recovers", async (stage) => {
+    let fail = false;
+    const reject = () => {
+      if (fail) throw new Error("Synthetic provider failed");
+    };
+    const { context, tools, panels } = await createVerifier(stage === "review" ? { afterReview: reject } : { afterTests: reject });
+    try {
+      const verify = verifierTool(tools);
+      await verify.execute("pass", {}, undefined, undefined, {} as never);
+      fail = true;
+      await expect(verify.execute("fail", {}, undefined, undefined, {} as never)).rejects.toThrow("Synthetic provider failed");
+      expect((await panels.snapshot())[0]?.data).toMatchObject({ runs: 1, latest: null, status: "failed", lastError: "Synthetic provider failed" });
+      fail = false;
+      await verify.execute("recovery", {}, undefined, undefined, {} as never);
+      expect((await panels.snapshot())[0]?.data).toMatchObject({ runs: 2, latest: { status: "pass" }, status: "completed", lastError: null });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test.each(["review", "tests"] as const)("does not pass an explicit %s tool error with success-shaped details", async (stage) => {
+    const { context, tools, panels } = await createVerifier(stage === "review" ? { reviewError: true } : { testError: true });
+    try {
+      const result = await verifierTool(tools).execute("provider-error", {}, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ status: "fail" });
+      expect((await panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "fail" } });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+  test.each(["review", "tests"] as const)("rejects session replacement after %s before publishing a gate", async (stage) => {
+    const session = (id: string) => ({ sessionId: id, sessionManager: { getCwd: () => `/synthetic/${id}` } });
+    const runtime = { session: session("a") };
+    const replace = () => {
+      runtime.session = session("b");
+    };
+    const { context, panels, tools, testScripts } = await createVerifier(stage === "review" ? { afterReview: replace } : { afterTests: replace });
+    context.provide("piRuntime", runtime as never);
+    try {
+      await expect(verifierTool(tools).execute("switch", {}, undefined, undefined, {} as never)).rejects.toThrow("Session or workspace changed");
+      expect(testScripts).toEqual(stage === "review" ? [] : ["test"]);
+      expect((await panels.snapshot())[0]?.data).toEqual({ runs: 0, latest: null, status: "idle", lastError: null });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("clears gate state when the active session changes", async () => {
+    const { context, panels, tools } = await createVerifier();
+    const session = (id: string) => ({ sessionId: id, sessionManager: { getCwd: () => `/synthetic/${id}` } });
+    const runtime = { session: session("a") };
+    context.provide("piRuntime", runtime as never);
+    try {
+      await verifierTool(tools).execute("a", {}, undefined, undefined, {} as never);
+      runtime.session = session("b");
+      expect((await panels.snapshot())[0]?.data).toEqual({ runs: 0, latest: null, status: "idle", lastError: null });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test.each(["review", "tests"] as const)("rejects cancellation after %s without publishing a successful gate", async (stage) => {
+    const controller = new AbortController();
+    const abort = () => controller.abort(new Error("User cancelled verification"));
+    const { context, panels, tools, testScripts } = await createVerifier(stage === "review" ? { afterReview: abort } : { afterTests: abort });
+    try {
+      await expect(verifierTool(tools).execute("cancelled", {}, controller.signal, undefined, {} as never)).rejects.toThrow("User cancelled verification");
+      expect(testScripts).toEqual(stage === "review" ? [] : ["test"]);
+      expect((await panels.snapshot())[0]?.data).toEqual({ runs: 0, latest: null, status: "cancelled", lastError: "User cancelled verification" });
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("declares the verification script length bounds", async () => {
     const { context, tools } = await createVerifier();
     try {
