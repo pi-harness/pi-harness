@@ -22,6 +22,8 @@ The Pi Harness plugin marketplace installs and enables this package for you; the
 
 ## Native workspace and publication
 
+Input chunk CRCs are checked before recompression or output preparation. A corrupt chunk rejects the operation instead of silently repairing its checksum; existing output files and the last successful receipt are preserved.
+
 `image_compress` binds input and output paths to the current native session workspace, using the launch directory before a native session is available. Replacing the session, changing its ID, or changing its workspace clears the receipt and invalidates pending work. Reads, final atomic publication, and returned receipts recheck that scope; cancellation and disposal also prevent pending publication.
 
 The atomic writer validates scope after the staged file is synced and closed, immediately before linking or renaming it into place. A rejected check removes staging and preserves an existing target. Once the filesystem commit has been submitted it cannot be rolled back; a later session change discards the receipt. Empty output parent directories may remain after an interrupted preparation. Default output names never overwrite an existing file; explicit output paths retain their confirmed replacement behavior.
