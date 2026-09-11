@@ -7,6 +7,31 @@ import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-ha
 import sessionExportPlugin, { renderSessionMarkdown } from "../src/index.js";
 
 describe("session export", () => {
+  test("preserves code indentation and boundary whitespace in string messages", () => {
+    const text = "    if ready:\n        run()\n\n";
+    expect(renderSessionMarkdown([{ role: "user", content: text }])).toBe(`# Pi Harness Session\n\n## User\n\n${text}\n`);
+  });
+
+  test("preserves Markdown hard breaks and indentation in separate text blocks", () => {
+    const parts = ["first line  ", "second line\n\n", "    code()\n"];
+    expect(renderSessionMarkdown([{ role: "assistant", content: parts.map((text) => ({ type: "text", text })) }])).toBe(
+      `# Pi Harness Session\n\n## Assistant\n\n${parts.join("\n")}\n`,
+    );
+  });
+
+  test("still omits messages containing only whitespace", () => {
+    expect(
+      renderSessionMarkdown([
+        { role: "user", content: " \n\t" },
+        { role: "assistant", content: [{ type: "text", text: "  \n" }] },
+      ]),
+    ).toBe("# Pi Harness Session\n\n");
+  });
+
+  test("counts preserved whitespace toward the output byte limit", () => {
+    expect(() => renderSessionMarkdown([{ role: "user", content: " ".repeat(1024 * 1024) + "code" }])).toThrow(/1 MiB/);
+  });
+
   test("renders user, assistant, and tool messages as readable Markdown", () => {
     const markdown = renderSessionMarkdown([
       { role: "user", content: "请解释这个函数" },

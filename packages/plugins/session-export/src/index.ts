@@ -13,12 +13,12 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function contentText(value: unknown): string {
-  if (typeof value === "string") return value.trim();
+  if (typeof value === "string") return value;
   if (!Array.isArray(value)) return "";
   return value
     .flatMap((part) => {
       const item = record(part);
-      return item?.type === "text" && typeof item.text === "string" ? [item.text.trim()] : [];
+      return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
     })
     .filter(Boolean)
     .join("\n");
@@ -36,7 +36,7 @@ function renderSession(messages: readonly unknown[]): { markdown: string; messag
     const item = record(message);
     if (item === undefined || typeof item.role !== "string") continue;
     const text = contentText(item.content);
-    if (text === "") continue;
+    if (text.trim() === "") continue;
     const section = `${heading(item.role, typeof item.toolName === "string" ? item.toolName : undefined)}\n\n${text}`;
     bytes += Buffer.byteLength(section, "utf8") + (sections.length === 0 ? 1 : 2);
     if (bytes > maxOutputBytes) throw new Error("Session export exceeds the 1 MiB output limit");

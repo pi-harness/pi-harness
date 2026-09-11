@@ -137,7 +137,11 @@ function withTransaction<T>(database: DatabaseSync, operation: () => T): T {
     database.exec("COMMIT");
     return result;
   } catch (error) {
-    database.exec("ROLLBACK");
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // SQLite may already have rolled back after a write error. Preserve that original diagnostic; withDatabase always closes this connection next.
+    }
     throw error;
   }
 }
