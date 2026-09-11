@@ -30,6 +30,7 @@ export interface PluginStarsReport {
   source: string;
   generatedAt: string;
   total: number;
+  truncated: boolean;
   query: string;
   results: PluginStarsEntry[];
   fetchedAt: string;
@@ -90,6 +91,20 @@ function entryTopics(value: unknown, index: number): string[] {
   return value.map((topic, topicIndex) => entryText(topic, index, `topic ${topicIndex + 1}`, 64, true));
 }
 
+function entryHomepage(value: unknown, index: number): string {
+  const normalized = entryText(value, index, "homepage", 4_096);
+  if (normalized === "") return "";
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error(`Plugin stars plugin ${index} homepage must be a valid HTTP or HTTPS URL`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(`Plugin stars plugin ${index} homepage must use HTTP or HTTPS`);
+  if (url.username !== "" || url.password !== "") throw new Error(`Plugin stars plugin ${index} homepage must not contain credentials`);
+  return url.toString();
+}
+
 function isIsoTimestamp(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u.test(value)) return false;
   const parsed = new Date(value);
@@ -127,7 +142,7 @@ function normalizedEntry(value: unknown, index: number): PluginStarsEntry {
   const stars = item.stars;
   const updatedAt = entryText(item.updatedAt, index, "updatedAt", 64, true);
   if (!isIsoTimestamp(updatedAt)) throw new Error(`Plugin stars plugin ${index} updatedAt must be an ISO timestamp`);
-  const homepage = item.homepage === undefined ? "" : entryText(item.homepage, index, "homepage", 4_096);
+  const homepage = item.homepage === undefined ? "" : entryHomepage(item.homepage, index);
   const npmName = item.npmName === undefined ? "" : entryText(item.npmName, index, "npmName", 256);
   const license = item.license === undefined ? "" : entryText(item.license, index, "license", 64);
   return {
@@ -201,7 +216,7 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
+async function readBoundedJson(response: Response, signal?: AbortSignal): Promise<unknown> {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxResponseBytes) {
     await cancelResponseBody(response);
@@ -211,13 +226,54 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
+  const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (signal?.aborted === true) throw new Error("Plugin stars response read was cancelled", { cause: signal.reason });
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        void Promise.resolve()
+          .then(() => reader.cancel())
+          .catch(() => undefined);
+        reject(new Error("Plugin stars response read was cancelled", { cause: signal?.reason }));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) {
+        onAbort();
+        return;
+      }
+      void Promise.resolve()
+        .then(() => reader.read())
+        .then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error instanceof Error ? error : new Error("Plugin stars response read failed", { cause: error }));
+          },
+        );
+    });
+  };
   try {
     while (true) {
-      const next = await reader.read();
+      const next = await readChunk();
       if (next.done) break;
       bytes += next.value.byteLength;
       if (bytes > maxResponseBytes) {
-        await reader.cancel();
+        try {
+          await reader.cancel();
+        } catch {
+          // Cleanup is best effort; preserve the response-size diagnostic.
+        }
         throw new Error("Plugin stars source exceeded the 2 MiB limit");
       }
       chunks.push(next.value);
@@ -263,7 +319,9 @@ async function fetchReport(
       await cancelResponseBody(response);
       throw new Error(`Plugin stars source returned HTTP ${response.status}`);
     }
-    return parsePluginStarsPayload(await readBoundedJson(response));
+    const payload = parsePluginStarsPayload(await readBoundedJson(response, controller.signal));
+    controller.signal.throwIfAborted();
+    return payload;
   } catch (error) {
     if (timedOut) throw new Error(`Plugin stars request timed out after ${timeoutMs} ms`, { cause: error });
     if (controller.signal.aborted) throw new Error("Plugin stars request was cancelled", { cause: error });
@@ -322,16 +380,17 @@ export default {
             if (combined.aborted) throw new Error("Plugin stars request was cancelled", { cause: combined.reason });
             const matches = searchPluginStars(payload, query);
             const results = matches.slice(0, limit);
-            latest = { source: payload.source, generatedAt: payload.generatedAt, total: matches.length, query, results, fetchedAt: new Date().toISOString() };
+            latest = {
+              source: payload.source,
+              generatedAt: payload.generatedAt,
+              total: matches.length,
+              truncated: matches.length > results.length,
+              query,
+              results,
+              fetchedAt: new Date().toISOString(),
+            };
             return {
-              content: [
-                {
-                  type: "text",
-                  text:
-                    results.map((entry, index) => `${index + 1}. ${entry.fullName} · ${entry.stars} stars\n${entry.htmlUrl}`).join("\n\n") ||
-                    "No ranked plugins matched.",
-                },
-              ],
+              content: [{ type: "text", text: JSON.stringify(latest) }],
               details: structuredClone(latest),
             };
           },
@@ -345,11 +404,22 @@ export default {
         icon: "★",
         read: () => {
           const panelResults = structuredClone(latest?.results.slice(0, maxPanelItems) ?? []);
+          const panelLatest =
+            latest === undefined
+              ? null
+              : {
+                  source: latest.source,
+                  generatedAt: latest.generatedAt,
+                  total: latest.total,
+                  query: latest.query,
+                  results: panelResults,
+                  fetchedAt: latest.fetchedAt,
+                };
           return {
             source,
             limit,
             timeoutMs,
-            latest: latest === undefined ? null : { ...structuredClone(latest), results: panelResults },
+            latest: panelLatest,
             inventory: {
               total: latest?.total ?? 0,
               shown: panelResults.length,
