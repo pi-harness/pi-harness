@@ -1,7 +1,7 @@
 {
   "id": "agent-teams",
   "packageName": "@pi-harness/plugin-agent-teams",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "name": "Agent Team Board",
   "description": "在当前会话内维护一份角色、任务依赖与留言板，不会额外启动 agent，也不会对外发消息。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-agent-teams",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Maintain a bounded, session-local collaboration ledger of named roles, dependency-aware tasks, and mailbox notes without spawning agents or sending external messages.",
   "keywords": [
     "cordis",
