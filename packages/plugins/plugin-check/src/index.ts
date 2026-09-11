@@ -361,13 +361,7 @@ export default {
             params.strict === true,
             signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]),
           );
-          const text =
-            action === "schema"
-              ? schemaChecks.length + " plugin health checks available."
-              : action === "scan"
-                ? "Scanned " + (details as PluginCheckScanReport).scanned + " plugin repositories."
-                : (details as PluginCheckReport).repo + ": " + (details as PluginCheckReport).verdict;
-          return { content: [{ type: "text", text }], details };
+          return { content: [{ type: "text", text: JSON.stringify(details) }], details };
         },
       }),
     );

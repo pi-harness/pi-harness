@@ -25,3 +25,5 @@ The checker recognizes independently published Cordis npm plugins by package key
 Directory scans inspect at most 2,000 entries and return at most 50 repositories (configurable via `scanLimit`), with a `truncated` flag when the scan stops early. Source reads are bounded and stay inside each repository. Checks do not import, build, or execute plugin code. Import-extension diagnostics are regex heuristics, not a complete syntax or security audit.
 
 Checks use the current native session workspace. Session replacement clears the previous report, and results from an inspection whose workspace changed are rejected. Before a native runtime exists, checks use the launch workspace.
+
+All actions return their bounded structured report as JSON in model-visible text as well as details: `check` includes diagnostic codes, messages and suggestions; `scan` includes repository identities, their reports and truncation status; `schema` includes check definitions. The panel distinguishes definitions from completed inspections and warns when the scan or displayed repository list is incomplete.
