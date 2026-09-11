@@ -71,7 +71,7 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
-async function readBoundedJson(response: Response): Promise<{ total?: unknown; objects?: unknown }> {
+async function readBoundedJson(response: Response, signal?: AbortSignal): Promise<{ total?: unknown; objects?: unknown }> {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxResponseBytes) {
     await cancelResponseBody(response);
@@ -81,9 +81,46 @@ async function readBoundedJson(response: Response): Promise<{ total?: unknown; o
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
+  const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (signal?.aborted === true) throw new Error("Plugin registry response read was cancelled", { cause: signal.reason });
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        void Promise.resolve()
+          .then(() => reader.cancel())
+          .catch(() => undefined);
+        reject(new Error("Plugin registry response read was cancelled", { cause: signal?.reason }));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) {
+        onAbort();
+        return;
+      }
+      void Promise.resolve()
+        .then(() => reader.read())
+        .then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error instanceof Error ? error : new Error("Plugin registry response read failed", { cause: error }));
+          },
+        );
+    });
+  };
   try {
     while (true) {
-      const next = await reader.read();
+      const next = await readChunk();
       if (next.done) break;
       bytes += next.value.byteLength;
       if (bytes > maxResponseBytes) {
@@ -134,7 +171,7 @@ async function searchRegistry(url: string, timeoutMs: number, signal?: AbortSign
       await cancelResponseBody(response);
       throw new Error(`Plugin registry returned HTTP ${response.status}`);
     }
-    const payload = await readBoundedJson(response);
+    const payload = await readBoundedJson(response, controller.signal);
     controller.signal.throwIfAborted();
     return payload;
   } catch (error) {
