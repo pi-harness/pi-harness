@@ -19,3 +19,7 @@ Add the entry to the Cordis profile the harness starts from:
 ```
 
 The Pi Harness plugin marketplace installs and enables this package for you; the steps above are the manual equivalent.
+
+## Attempt state
+
+Starting a valid verification clears the previous gate result. The panel distinguishes running, completed, failed and cancelled attempts and includes a bounded provider error when execution fails. A failed attempt cannot reuse an earlier green pass; the completed-run count increases only when both providers return and a gate report is computed. Session/workspace replacement clears this state, and obsolete operations cannot publish into the new scope. Rejected script parameters do not start a verification or replace the last result.
