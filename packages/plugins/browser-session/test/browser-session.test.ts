@@ -1163,6 +1163,7 @@ describe("browser session boundaries", () => {
       expect(body.length).toBe(prefix.length);
       expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(128 * 1024);
       expect(result.details).toMatchObject({ truncated: true });
+      expect((result.content[0] as { text: string }).text.split("\n")[0]).toContain("Page text is incomplete: truncated to the 128 KiB limit.");
       expect((result.details as { text: string }).text).toBe(body);
     } finally {
       globalThis.fetch = originalFetch;
