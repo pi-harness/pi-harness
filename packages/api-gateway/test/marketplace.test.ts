@@ -12,6 +12,28 @@ import {
 } from "../src/marketplace.js";
 
 describe("plugin marketplace registry", () => {
+  test("describes reverse skill as text inspection without file loading or activation", () => {
+    const plugin = MARKETPLACE_PLUGINS.find((item) => item.id === "reverse-skill");
+    expect(plugin?.capabilities).toEqual(["read-only"]);
+    expect(plugin?.description).toContain("不读取文件");
+    expect(plugin?.description).toContain("不自动激活");
+  });
+
+  test("describes the tracked diff reviewer without claiming large-file detection", () => {
+    const description = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "reviewer-bot")?.description;
+    expect(description).toContain("HEAD");
+    expect(description).toContain("已跟踪");
+    expect(description).toContain("空白");
+    expect(description).toContain("TODO/FIXME");
+    expect(description).not.toContain("超大文件");
+  });
+
+  test("discloses command execution for the composed change gate", () => {
+    const gate = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "change-verifier");
+    expect(gate?.capabilities).toContain("runs-commands");
+    expect(gate?.capabilities).not.toContain("read-only");
+  });
+
   test.each(MARKETPLACE_PLUGINS)(
     "imports $id from its published package entry point",
     async (plugin) => {
@@ -37,11 +59,10 @@ describe("plugin marketplace registry", () => {
     const official = new Map(MARKETPLACE_PLUGINS.filter((plugin) => plugin.source === "official").map((plugin) => [plugin.id, plugin]));
     expect(official.get("agent-teams")?.category.id).toBe("workflow");
     expect(official.get("plugin-stars")?.category.id).toBe("discovery");
-    expect(official.get("plugin-stars")?.description).toMatch(/raw\.githubusercontent\.com.*输入受限.*校验严格.*可取消.*失败即关闭/u);
+    expect(official.get("plugin-stars")?.description).toMatch(/显式配置.*raw\.githubusercontent\.com.*失败保留/u);
     expect(official.get("plugin-stars")?.capabilities).toEqual(["network-access"]);
     expect(official.get("plugin-stars")?.hooks).toEqual(["榜单搜索工具", "GitHub 原始快照", "插件面板"]);
     expect(official.get("plugin-stars")?.profile.config).toEqual({
-      sourceUrl: "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json",
       limit: 10,
       timeoutMs: 15_000,
     });
@@ -51,8 +72,11 @@ describe("plugin marketplace registry", () => {
     expect(official.get("vision-toolkit")?.hooks).toEqual(["图像元数据工具", "工作区访问", "插件面板"]);
     expect(official.get("vision-toolkit")?.profile.config).toEqual({});
     expect(official.get("session-bridge")?.category.id).toBe("workflow");
+    expect(official.get("plugin-radar")?.description).toContain("GitHub");
+    expect(official.get("plugin-radar")?.description).toContain("未验证可安装性");
+    expect(official.get("plugin-radar")?.hooks).toEqual(["GitHub Topic 搜索", "插件面板"]);
     expect(official.get("session-bridge")?.description).toMatch(/预览.*导出.*导入需要确认.*严格校验.*防重复注入/u);
-    expect(official.get("session-bridge")?.capabilities).toEqual(["read-only", "session-data"]);
+    expect(official.get("session-bridge")?.capabilities).toEqual(["session-data", "writes-files"]);
     expect(official.get("session-bridge")?.hooks).toEqual(["会话桥接工具", "当前会话管理器", "自定义上下文消息", "插件面板"]);
     expect(official.get("session-bridge")?.profile.config).toEqual({});
     expect(official.get("skill-guard")?.category.id).toBe("security");
@@ -106,6 +130,8 @@ describe("plugin marketplace registry", () => {
     expect(official.get("reviewer-bot")?.category.id).toBe("workflow");
     expect(official.get("auto-mode")?.category.id).toBe("security");
     expect(official.get("plan-execute")?.category.id).toBe("workflow");
+    expect(official.get("plan-execute")?.capabilities).toEqual(["session-data", "writes-files"]);
+    expect(official.get("plan-execute")?.description).toMatch(/保存.*恢复/u);
     expect(official.get("canvas-draw")?.category.id).toBe("multimodal");
     expect(official.get("canvas-draw")?.description).toMatch(/Mermaid 流程图源码/u);
     expect(official.get("canvas-draw")?.hooks).toEqual(["插件面板"]);
@@ -182,6 +208,8 @@ describe("plugin marketplace registry", () => {
     expect(official.get("fail-logger")?.hooks).toEqual(["插件错误", "运行结束", "压缩结束", "插件面板"]);
     expect(official.get("genui")?.description).toMatch(/文本、标签和进度条.*纯文本/u);
     expect(official.get("genui")?.capabilities).toEqual(["read-only"]);
+    expect(official.get("telemetry-blocker")?.description).toContain("不拦截网络流量");
+    expect(official.get("telemetry-blocker")?.hooks).toEqual(["本地遥测服务", "事件总线观察", "插件面板"]);
     expect(official.get("genui")?.hooks).toEqual(["GenUI 渲染工具", "插件面板"]);
     expect(official.get("plugin-dev")?.category.id).toBe("developer");
     expect(official.get("plugin-dev")?.description).toMatch(/推迟.*agent 空闲.*只允许一个重载.*本机开发/u);
