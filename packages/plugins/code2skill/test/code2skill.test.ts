@@ -50,6 +50,25 @@ async function dispose(fixture: Awaited<ReturnType<typeof createCode2Skill>>): P
 }
 
 describe("code2skill", () => {
+  test("returns the actual output directory and source inventory to the model", async () => {
+    const fixture = await createCode2Skill();
+    try {
+      const source = "export const greeting = '测试😀';\n";
+      await writeFile(join(fixture.cwd, "source.ts"), source, "utf8");
+      const result = await fixture.tool.execute("report", {
+        name: "Audit Pack", description: "Explicit test fixture", files: ["source.ts"],
+      }, undefined, undefined, {} as never);
+      expect(result.details).toEqual({
+        slug: "audit-pack", directory: join(".pi", "skills", "audit-pack"),
+        files: [{ path: "source.ts", bytes: Buffer.byteLength(source) }], bytes: Buffer.byteLength(source),
+      });
+      expect(await readFile(join(fixture.cwd, ".pi", "skills", "audit-pack", "references", "source.ts"), "utf8")).toBe(source);
+      expect(result.content).toEqual([{ type: "text", text: JSON.stringify(result.details) }]);
+    } finally {
+      await dispose(fixture);
+    }
+  });
+
   test("declares complete skill input bounds", async () => {
     const fixture = await createCode2Skill();
     try {
