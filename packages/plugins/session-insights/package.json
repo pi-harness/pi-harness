@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-session-insights",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Publish descriptor-safe validated cached session statistics and run only confirmed settled-session compaction with explicit model usage and cost guidance plus cancellable lifecycle handling.",
   "keywords": [
     "cordis",
