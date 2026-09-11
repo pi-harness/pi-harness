@@ -609,6 +609,39 @@ describe("browser-fetch", () => {
     }
   });
 
+  test("preserves the unsupported-content error when response cleanup fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-browser-fetch-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    fetchMock.override = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            cancel() {
+              return Promise.reject(new Error("cleanup failed"));
+            },
+          }),
+          { headers: { "content-type": "application/octet-stream" } },
+        ),
+      );
+    try {
+      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(browserFetchPlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "browser_fetch");
+      if (tool === undefined) throw new Error("browser_fetch was not registered");
+
+      await expect(tool.execute("binary-cleanup", { url: "https://1.1.1.1/archive" }, undefined, undefined, {} as never)).rejects.toThrow(
+        /unsupported content type.*application\/octet-stream/iu,
+      );
+    } finally {
+      fetchMock.override = undefined;
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("rejects text responses with invalid UTF-8 instead of replacing bytes", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-browser-fetch-"));
     const context = new Context();

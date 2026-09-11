@@ -200,6 +200,14 @@ function contentType(response: UndiciResponse): string {
   return (response.headers.get("content-type") ?? "text/plain").split(";", 1)[0]!.trim().toLowerCase();
 }
 
+async function cancelResponseBody(response: UndiciResponse): Promise<void> {
+  try {
+    await response.body?.cancel?.();
+  } catch {
+    // Body cleanup is best effort; preserve the protocol/content error that caused the response to be discarded.
+  }
+}
+
 function textualContentType(value: string): boolean {
   return value.startsWith("text/") || value.endsWith("+json") || value.endsWith("+xml") || value === "image/svg+xml" || textualApplicationTypes.has(value);
 }
@@ -260,7 +268,7 @@ async function fetchPage(rawUrl: unknown, allowPrivate: boolean, timeoutMs: numb
         // The pinned Agent above belongs to the standalone undici package, and a dispatcher is only honoured by the fetch implementation from the same undici build. Node's bundled fetch rejects a foreign Agent ("invalid onRequestStart method"), so the request must go through undici's own fetch rather than globalThis.fetch regardless of whether another plugin has installed undici globally.
         const response = await undiciFetch(current.url, requestInit);
         if (redirectStatuses.has(response.status)) {
-          await response.body?.cancel?.();
+          await cancelResponseBody(response);
           const location = response.headers.get("location");
           if (location === null) throw new Error(`Browser redirect ${response.status} has no Location header`);
           if (redirect === maxRedirects) throw new Error(`Browser fetch exceeded the ${maxRedirects}-redirect limit`);
@@ -269,7 +277,7 @@ async function fetchPage(rawUrl: unknown, allowPrivate: boolean, timeoutMs: numb
         }
         const responseContentType = contentType(response);
         if (!textualContentType(responseContentType)) {
-          await response.body?.cancel?.();
+          await cancelResponseBody(response);
           throw new Error(`Browser fetch rejected unsupported content type: ${responseContentType}`);
         }
         const body = await readBody(response);
