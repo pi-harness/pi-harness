@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-browser-session",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Control a loopback-only Chrome DevTools session with descriptor-safe commands, bounded discovery, cancellable operations, screenshot metadata protection, and validated fail-closed panel previews.",
   "keywords": [
     "cordis",
