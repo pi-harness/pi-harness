@@ -47,6 +47,41 @@ async function fixture() {
 }
 
 describe("prompt library", () => {
+  test("retrieves a single complete prompt for the model without changing the journal", async () => {
+    const f = await fixture();
+    try {
+      const saved = await f.call({ action: "save", title: "Review", prompt: "Review every changed branch.\nInclude tests.", tags: ["code"] });
+      const selected = (saved.details as { selected: { id: string; prompt: string } }).selected;
+      await f.call({ action: "save", title: "Other", prompt: "Unrelated template body" });
+      const entries = structuredClone(f.entries());
+      const result = await f.call({ action: "get", id: selected.id });
+      expect(result.content).toEqual([{ type: "text", text: selected.prompt }]);
+      expect(result.details).toMatchObject({ selected, templates: [{ id: selected.id }] });
+      expect((result.details as { templates: unknown[] }).templates).toHaveLength(1);
+      expect(f.entries()).toEqual(entries);
+      (result.details as { selected: { prompt: string } }).selected.prompt = "mutated";
+      expect((await f.call({ action: "get", id: selected.id })).content).toEqual([{ type: "text", text: selected.prompt }]);
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+
+  test("validates get IDs and isolates retrieval across sessions", async () => {
+    const f = await fixture();
+    try {
+      await expect(f.call({ action: "get" })).rejects.toThrow("id is required");
+      await expect(f.call({ action: "get", id: "missing" })).rejects.toThrow("Prompt was not found");
+      await expect(f.call({ action: "get", id: "missing", query: "x" })).rejects.toThrow("Unknown property");
+      const saved = await f.call({ action: "save", title: "Private", prompt: "Session scoped" });
+      const id = (saved.details as { selected: { id: string } }).selected.id;
+      f.switchSession();
+      await expect(f.call({ action: "get", id })).rejects.toThrow("Prompt was not found");
+      expect(f.entries()).toHaveLength(0);
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+
   test("normalizes a bounded prompt template", () => {
     expect(
       createPromptTemplate({ title: "  Review API  ", prompt: "  Check error handling.  ", tags: ["api", "review"] }, "prompt-1", "2026-09-03T00:00:00.000Z"),

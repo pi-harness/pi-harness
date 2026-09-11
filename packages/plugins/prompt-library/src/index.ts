@@ -79,10 +79,10 @@ function ownRecord(value: unknown): Record<string, unknown> {
   return output;
 }
 
-type Parameters = { action: "save" | "list" | "delete"; id?: string; title?: string; prompt?: string; tags?: string[]; query?: string };
+type Parameters = { action: "save" | "list" | "get" | "delete"; id?: string; title?: string; prompt?: string; tags?: string[]; query?: string };
 function parameters(value: unknown): Parameters {
   const item = ownRecord(value);
-  if (item.action !== "save" && item.action !== "list" && item.action !== "delete") throw new Error("Unknown prompt library action");
+  if (item.action !== "save" && item.action !== "list" && item.action !== "get" && item.action !== "delete") throw new Error("Unknown prompt library action");
   const allowed = item.action === "save" ? ["action", "id", "title", "prompt", "tags"] : item.action === "list" ? ["action", "query"] : ["action", "id"];
   if (Object.keys(item).some((key) => !allowed.includes(key))) throw new Error("Unknown property for prompt library action");
   for (const key of ["id", "title", "prompt", "query"] as const) {
@@ -157,11 +157,12 @@ export default {
       defineTool({
         name: "prompt_library",
         label: "Prompt library",
-        description: "Save, search, update, and delete reusable prompt templates in the current Pi session.",
+        description:
+          "Save, search, retrieve, update, and delete reusable prompt templates in the current Pi session. Use list to find IDs, then get with an id to read the full template text.",
         promptSnippet: "manage reusable prompts for the current project",
         parameters: Type.Object(
           {
-            action: Type.Union([Type.Literal("save"), Type.Literal("list"), Type.Literal("delete")]),
+            action: Type.Union([Type.Literal("save"), Type.Literal("list"), Type.Literal("get"), Type.Literal("delete")]),
             id: Type.Optional(Type.String()),
             title: Type.Optional(Type.String()),
             prompt: Type.Optional(Type.String()),
@@ -180,6 +181,15 @@ export default {
             if (currentManager(context) !== manager || manager.getHeader() !== header) throw new Error("Prompt library session changed before execution");
             const params = parameters(rawParams);
             const state = readState(context);
+            if (params.action === "get") {
+              if (!params.id) throw new Error("id is required when action is get");
+              const selected = state.templates.find((template) => template.id === params.id);
+              if (!selected) throw new Error(`Prompt was not found: ${params.id}`);
+              return {
+                content: [{ type: "text" as const, text: selected.prompt }],
+                details: structuredClone({ templates: [selected], selected }),
+              };
+            }
             if (params.action === "save") {
               const now = new Date().toISOString();
               const existing = params.id?.trim() ? state.templates.find((template) => template.id === params.id?.trim()) : undefined;
