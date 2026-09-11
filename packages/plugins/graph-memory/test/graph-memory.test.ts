@@ -2,11 +2,22 @@ import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
+import assert from "node:assert/strict";
 import { afterEach, describe, expect, test } from "vitest";
 import graphMemoryPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 const temporaryDirectories: string[] = [];
+
+function nodeId(value: unknown): string {
+  if (value === null || typeof value !== "object" || !("id" in value) || typeof value.id !== "string") throw new Error("Expected graph node with a string id");
+  return value.id;
+}
+
+function firstNodeId(value: unknown): string {
+  if (value === null || typeof value !== "object" || !("nodes" in value) || !Array.isArray(value.nodes)) throw new Error("Expected graph search nodes");
+  return nodeId(value.nodes[0]);
+}
 
 async function waitForPath(path: string, description: string, timeoutMs = 5_000): Promise<void> {
   const startedAt = Date.now();
@@ -36,6 +47,172 @@ async function createFixture(config?: { fileName?: string; maxNodes?: number; ma
 }
 
 describe("graph memory production boundaries", () => {
+  test("keeps the node page stable when relation cursor digit count changes at its byte boundary", async () => {
+    const fixture = await createFixture();
+    try {
+      const now = new Date().toISOString();
+      const nodes = ["audit large", "audit small"].map((label, index) => ({
+        id: `node-${index}`,
+        kind: "task",
+        label,
+        summary: index === 0 ? "x" + "\u0001".repeat(16 * 1024 - 1) : "a",
+        createdAt: now,
+        updatedAt: now,
+      }));
+      const boundary = {
+        query: "audit",
+        total: 2,
+        nodes,
+        relations: [],
+        offset: 0,
+        nextOffset: null,
+        nodesTruncated: false,
+        relationsOffset: 0,
+        relationsTotal: 0,
+        nextRelationsOffset: null,
+        relationsTruncated: false,
+      };
+      const padding = 112 * 1024 - Buffer.byteLength(JSON.stringify(boundary), "utf8") + 1;
+      expect(padding).toBeGreaterThan(0);
+      expect(padding).toBeLessThanOrEqual(16 * 1024);
+      nodes[1]!.summary = "a".repeat(padding);
+      await writeFile(join(fixture.agentDir, "graph-memory.json"), JSON.stringify({ version: 1, nodes, relations: [] }));
+      const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search")!;
+      const first = await search.execute("first", { query: "audit" }, undefined, undefined, {} as never);
+      const next = await search.execute("next", { query: "audit", relationsOffset: 100 }, undefined, undefined, {} as never);
+      expect((next.details as { nodes: unknown[] }).nodes.length).toBe((first.details as { nodes: unknown[] }).nodes.length);
+      expect((next.details as { nodes: { id: string }[] }).nodes.map((node) => node.id)).toEqual(
+        (first.details as { nodes: { id: string }[] }).nodes.map((node) => node.id),
+      );
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("continues incident relations for the same node page", async () => {
+    const fixture = await createFixture();
+    try {
+      const now = new Date().toISOString();
+      const nodes = ["hub", "a", "b", "c", "d", "e"].map((id) => ({ id, kind: "task", label: id, summary: id, createdAt: now, updatedAt: now }));
+      const relations = nodes.slice(1).map((node) => ({ id: `edge-${node.id}`, from: "hub", to: node.id, relation: "RELATED_TO", createdAt: now }));
+      await writeFile(join(fixture.agentDir, "graph-memory.json"), JSON.stringify({ version: 1, nodes, relations }));
+      const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search")!;
+      const first = await search.execute("first", { query: "hub", limit: 1 }, undefined, undefined, {} as never);
+      expect(first.details).toMatchObject({ nodes: [{ id: "hub" }], relationsTotal: 5, nextRelationsOffset: 4, relationsTruncated: true });
+      const next = await search.execute("next", { query: "hub", limit: 1, relationsOffset: 4 }, undefined, undefined, {} as never);
+      expect(next.details).toMatchObject({ nodes: [{ id: "hub" }], relations: [{ id: "edge-e" }], nextRelationsOffset: null, relationsTotal: 5 });
+      const empty = await search.execute("empty", { query: "missing" }, undefined, undefined, {} as never);
+      expect(JSON.parse((empty.content[0] as { text: string }).text)).toMatchObject({
+        total: 0,
+        nodes: [],
+        relations: [],
+        nextOffset: null,
+        nextRelationsOffset: null,
+        nodesTruncated: false,
+        relationsTruncated: false,
+      });
+      for (const [key, maximum] of [
+        ["offset", 2000],
+        ["relationsOffset", 5000],
+      ] as const) {
+        for (const value of [null, -1, 0.5, "1", NaN, Infinity, maximum + 1]) {
+          await expect(search.execute("invalid", { query: "hub", [key]: value }, undefined, undefined, {} as never)).rejects.toThrow(/integer/iu);
+        }
+      }
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("returns model-visible provenance, relations and node continuation", async () => {
+    const fixture = await createFixture();
+    const tool = (name: string) => fixture.tools.snapshot().customTools.find((item) => item.name === name)!;
+    try {
+      const first = await tool("graph_memory_record").execute(
+        "a",
+        { kind: "task", label: "audit first", summary: "first", source: "audit://first" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      const second = await tool("graph_memory_record").execute(
+        "b",
+        { kind: "skill", label: "audit second", summary: "second", source: "audit://second" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      await tool("graph_memory_link").execute(
+        "link",
+        { from: nodeId(first.details), to: nodeId(second.details), relation: "USED_SKILL" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      const page = await tool("graph_memory_search").execute("search", { query: "audit", limit: 1 }, undefined, undefined, {} as never);
+      const text = page.content[0]!;
+      expect(text.type).toBe("text");
+      const report: unknown = JSON.parse((text as { text: string }).text);
+      expect(report).toMatchObject({
+        total: 2,
+        offset: 0,
+        nextOffset: 1,
+        nodesTruncated: true,
+        relationsTotal: 1,
+        relationsTruncated: false,
+        nodes: [{ source: expect.stringMatching(/^audit:\/\//u) as unknown }],
+        relations: [{ from: nodeId(first.details), to: nodeId(second.details), relation: "USED_SKILL" }],
+      });
+      assert(report !== null && typeof report === "object" && "nextOffset" in report && typeof report.nextOffset === "number");
+      expect(page.details).toEqual(report);
+      const next = await tool("graph_memory_search").execute(
+        "next",
+        { query: "audit", limit: 1, offset: report.nextOffset },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(next.details).toMatchObject({ offset: 1, nextOffset: null });
+      expect(firstNodeId(next.details)).not.toBe(firstNodeId(report));
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("bounds escaped search JSON without clipping node bodies and supports continuation", async () => {
+    const fixture = await createFixture();
+    try {
+      const record = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_record")!;
+      const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search")!;
+      const summary = "x" + "\u0001".repeat(16 * 1024 - 1);
+      for (const label of ["audit a", "audit b"]) await record.execute(label, { kind: "task", label, summary }, undefined, undefined, {} as never);
+      const first = await search.execute("first", { query: "audit", limit: 50 }, undefined, undefined, {} as never);
+      const text = (first.content[0] as { text: string }).text;
+      expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(128 * 1024);
+      expect(first.details).toMatchObject({ nextOffset: 1, nodes: [{ summary }] });
+      const next = await search.execute("next", { query: "audit", limit: 50, offset: 1 }, undefined, undefined, {} as never);
+      expect(next.details).toMatchObject({ nextOffset: null, nodes: [{ summary }] });
+      expect(firstNodeId(next.details)).not.toBe(firstNodeId(first.details));
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("recalls one-character labels without accepting empty queries", async () => {
+    const fixture = await createFixture();
+    try {
+      const record = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_record")!;
+      const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search")!;
+      await record.execute("record", { kind: "skill", label: "锈", summary: "Rust" }, undefined, undefined, {} as never);
+      await expect(search.execute("search", { query: " 锈 " }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { query: "锈", total: 1, nodes: [{ label: "锈" }] },
+      });
+      await expect(search.execute("empty", { query: " " }, undefined, undefined, {} as never)).rejects.toThrow(/query/iu);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("cancels a search queued behind a blocked mutation promptly", async () => {
     const fixture = await createFixture();
     const writer = new AbortController();
