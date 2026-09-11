@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -27,6 +27,111 @@ async function createPlugin(directory: string, name: string, source: string): Pr
 }
 
 describe("bootHarness", () => {
+  test.each(["profile", "group", "include", "dynamic"])("resolves distribution plugins from the launcher anchor (%s)", async (location) => {
+    const profile = await createProfile([]);
+    const distribution = join(profile.directory, "distribution");
+    const packageDirectory = join(distribution, "node_modules", "pih-launcher-only-fixture");
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, "package.json"), JSON.stringify({ type: "module", exports: { import: "./index.js" } }));
+    await writeFile(join(packageDirectory, "index.js"), 'export default function(ctx) { ctx.provide("fixtureDistribution", "launcher"); }');
+    const entry = { id: "distribution-fixture", name: "pih-launcher-only-fixture" };
+    const nestedProfile = join(profile.directory, "nested.json");
+    await writeFile(nestedProfile, JSON.stringify([entry]));
+    const entries =
+      location === "dynamic"
+        ? []
+        : location === "group"
+          ? [{ name: "cordis:group", group: true, config: [entry] }]
+          : location === "include"
+            ? [{ name: "cordis:include", config: { path: pathToFileURL(nestedProfile).href } }]
+            : [entry];
+    await writeFile(profile.profilePath, JSON.stringify(entries));
+    let harness: BootedHarness | undefined;
+    try {
+      const options = { configPath: profile.profilePath, pluginResolutionAnchor: join(distribution, "bin.js") };
+      harness = await bootHarness(options);
+      if (location === "dynamic") await harness.context.loader.create(entry);
+      expect(harness.context.get("fixtureDistribution")).toBe("launcher");
+      expect(await readFile(profile.profilePath, "utf8")).toBe(JSON.stringify(entries));
+      expect(await readFile(nestedProfile, "utf8")).toBe(JSON.stringify([entry]));
+    } finally {
+      await harness?.dispose();
+      await rm(profile.directory, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps profile-installed plugins ahead of the launcher fallback", async () => {
+    const profile = await createProfile([{ name: "pih-resolution-priority-fixture" }]);
+    const distribution = join(profile.directory, "distribution");
+    for (const [root, value] of [
+      [profile.directory, "profile"],
+      [distribution, "launcher"],
+    ] as const) {
+      const packageDirectory = join(root, "node_modules", "pih-resolution-priority-fixture");
+      await mkdir(packageDirectory, { recursive: true });
+      await writeFile(join(packageDirectory, "package.json"), JSON.stringify({ type: "module", exports: { import: "./index.js" } }));
+      await writeFile(join(packageDirectory, "index.js"), `export default function(ctx) { ctx.provide("fixturePriority", ${JSON.stringify(value)}); }`);
+    }
+    let harness: BootedHarness | undefined;
+    try {
+      const options = { configPath: profile.profilePath, pluginResolutionAnchor: join(distribution, "bin.js") };
+      harness = await bootHarness(options);
+      expect(harness.context.get("fixturePriority")).toBe("profile");
+    } finally {
+      await harness?.dispose();
+      await rm(profile.directory, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["profile", "launcher"])("preserves internal-loader import conditions for dual-entry plugins (%s)", async (location) => {
+    const profile = await createProfile([{ name: "pih-dual-entry-fixture" }]);
+    const distribution = join(profile.directory, "distribution");
+    const packageDirectory = join(location === "profile" ? profile.directory : distribution, "node_modules", "pih-dual-entry-fixture");
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(
+      join(packageDirectory, "package.json"),
+      JSON.stringify({ type: "module", exports: { import: "./import.js?generation=2#instance", require: "./require.cjs" } }),
+    );
+    await writeFile(
+      join(packageDirectory, "import.js"),
+      'export default function(ctx) { ctx.provide("fixtureEntryCondition", "import"); ctx.provide("fixtureEntryUrl", import.meta.url); }',
+    );
+    await writeFile(join(packageDirectory, "require.cjs"), 'module.exports = function(ctx) { ctx.provide("fixtureEntryCondition", "require"); };');
+    let harness: BootedHarness | undefined;
+    try {
+      harness = await bootHarness({
+        configPath: profile.profilePath,
+        pluginResolutionAnchor: join(distribution, "bin.js"),
+        prepare(context) {
+          expect(context.loader.internal).toBeDefined();
+        },
+      });
+      expect(harness.context.get("fixtureEntryCondition")).toBe("import");
+      expect(harness.context.get("fixtureEntryUrl")).toContain("?generation=2#instance");
+    } finally {
+      await harness?.dispose();
+      await rm(profile.directory, { recursive: true, force: true });
+    }
+  });
+
+  test("does not hide a broken profile package behind the launcher fallback", async () => {
+    const profile = await createProfile([{ name: "pih-broken-entry-fixture" }]);
+    const distribution = join(profile.directory, "distribution");
+    for (const root of [profile.directory, distribution]) {
+      const packageDirectory = join(root, "node_modules", "pih-broken-entry-fixture");
+      await mkdir(packageDirectory, { recursive: true });
+      await writeFile(join(packageDirectory, "package.json"), JSON.stringify({ type: "module", exports: { import: "./entry.js" } }));
+      if (root === distribution) await writeFile(join(packageDirectory, "entry.js"), "export default function() {}");
+    }
+    try {
+      await expect(bootHarness({ configPath: profile.profilePath, pluginResolutionAnchor: join(distribution, "bin.js") })).rejects.toThrow(
+        /Cannot find module.*entry\.js/u,
+      );
+    } finally {
+      await rm(profile.directory, { recursive: true, force: true });
+    }
+  });
+
   test("loads a profile and activates its plugin", async () => {
     const profile = await createProfile([]);
     const plugin = await createPlugin(

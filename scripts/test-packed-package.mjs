@@ -88,7 +88,9 @@ const collect = (name) => {
 for (const dependency of Object.keys(readManifest("package.json").dependencies ?? {})) collect(dependency);
 if (!workspacesToPack.includes("@pi-harness/core")) throw new Error("The packed launcher no longer depends on @pi-harness/core");
 
+let smokePassed = false;
 try {
+  process.stdout.write("Packing local dependency tarballs...\n");
   const packed = runNpm(
     "pack",
     ...workspacesToPack.flatMap((name) => ["--workspace", name]),
@@ -103,6 +105,7 @@ try {
   if (packed.length !== workspacesToPack.length) throw new Error(`npm pack returned ${packed.length} tarballs for ${workspacesToPack.length} workspaces`);
   // The root is packed with its scripts, unlike the workspaces above: prepack is what builds the web application into the tarball and strips the dependency lists the installation can never resolve, so a root tarball produced without it is not the artifact `npm publish` uploads and would prove nothing about it.
   // prepack writes the build it runs to the same stdout, and --silent only quietens npm itself, so the tarball name is the last thing on it rather than the whole of it.
+  process.stdout.write("Building and packing the release launcher...\n");
   const filename =
     runNpm("pack", "--silent", "--pack-destination", temporaryRoot)
       .split("\n")
@@ -112,6 +115,7 @@ try {
 
   // Reproduce npm's global-install collision: users may already have the Pi CLI
   // installed at a different version when they install Pi Harness.
+  process.stdout.write("Installing release tarballs into the isolated global prefix...\n");
   runNpm(
     "install",
     "--global",
@@ -200,12 +204,14 @@ try {
   const importedResolve = await import(pathToFileURL(join(coreRoot, "dist", "plugin-resolve.js")).href);
   const installedResolve = /** @type {{ resolvePluginEntry: (fromFile: string, name: string) => string | undefined }} */ (importedResolve);
 
-  // The loader imports a profile entry by its bare specifier from its own file, so an entry is reachable wherever npm laid it out along that chain rather than at one fixed path. 0.1.29 shipped a profile naming 45 packages the launcher never depended on, and the harness failed to boot on the first one it could not import.
-  const loaderEntry = join(harnessRoot, "node_modules", "@deepseek-ai", "cordis-plugin-loader", "lib", "index.js");
+  // Bundled entries resolve from the launcher anchor, not the core loader (which
+  // npm may hoist beside the launcher). Profile-installed entries take priority
+  // at runtime. 0.1.29 named 45 packages that its launcher never depended on.
+  const launcherEntry = join(harnessRoot, "apps", "web", "server-dist", "bin.js");
   const shippedProfile = readFileSync(join(harnessRoot, "apps", "web", "profile", "cordis.yml"), "utf8");
   const enabledEntries = [...new Set([...shippedProfile.matchAll(/name: "(@[^"]+)"/gu)].map((match) => match[1] ?? ""))];
   if (enabledEntries.length === 0) throw new Error("The installed profile names no packages, so the checks below would prove nothing");
-  const absent = enabledEntries.filter((name) => installedResolve.resolvePluginEntry(loaderEntry, name) === undefined);
+  const absent = enabledEntries.filter((name) => installedResolve.resolvePluginEntry(launcherEntry, name) === undefined);
   if (absent.length > 0) throw new Error(`The installed profile enables ${absent.length} entr(ies) the install does not contain: ${absent.join(", ")}`);
 
   // The shipped profile is infrastructure only. A pluggable plugin in it would be bundled into every install and switched on before the user ever opened the plugin center, which is the opposite of installing one from there.
@@ -229,7 +235,23 @@ try {
   const entry = installedResolve.resolvePluginEntry(profilePath, marketplacePlugin);
   if (entry === undefined || !existsSync(entry)) throw new Error(`${marketplacePlugin} installed into the harness home but the loader cannot resolve it`);
 
+  // Optional headed acceptance runs against the installed entrypoint, before the
+  // owned prefix is removed. It must not resolve runtime code from this checkout.
+  const browserPython = process.env.PI_HARNESS_PACKED_BROWSER_PYTHON;
+  if (browserPython !== undefined) {
+    execFileSync(browserPython, [join(repositoryRoot, "scripts", "verify-packed-browser.py"), harnessRoot, temporaryRoot], {
+      cwd: temporaryRoot,
+      stdio: "inherit",
+      timeout: 180_000,
+    });
+  }
+
   process.stdout.write(`Packed package smoke test passed (${harnessManifest.name}@${harnessManifest.version})\n`);
+  smokePassed = true;
 } finally {
-  await rm(temporaryRoot, { recursive: true, force: true });
+  if (!smokePassed && process.env.PI_HARNESS_PACKED_BROWSER_PYTHON !== undefined) {
+    process.stderr.write(`Failed headed package installation retained for diagnosis: ${temporaryRoot}\n`);
+  } else {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 }

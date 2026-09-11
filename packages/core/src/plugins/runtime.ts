@@ -92,6 +92,16 @@ export default {
           result.session.dispose();
           throw new Error(`Pi extensions failed to load:\n${result.extensionsResult.errors.map((failure) => `${failure.path}: ${failure.error}`).join("\n")}`);
         }
+        // An abort from a completed message/tool must settle before next-turn preparation.
+        // Otherwise the SDK's lazy provider setup can classify the already-aborted
+        // request as an ordinary error, producing a spurious HTTP 502 and failure log.
+        const shouldStopAfterTurn = result.session.agent.shouldStopAfterTurn;
+        result.session.agent.shouldStopAfterTurn = async (turn, signal) => {
+          signal?.throwIfAborted();
+          const stopped = await shouldStopAfterTurn?.(turn, signal);
+          signal?.throwIfAborted();
+          return stopped ?? false;
+        };
         return { ...result, services, diagnostics: services.diagnostics };
       };
       const sessionRuntime = await createAgentSessionRuntime(createRuntime, {
