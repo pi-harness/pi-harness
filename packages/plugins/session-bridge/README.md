@@ -28,4 +28,6 @@ Duplicate protection covers the most recent 10,000 journal entries and up to 100
 
 Exports are bounded snapshots, not complete archives: at most 100 messages, 16,000 characters per message, 64,000 total text characters and 256 KiB serialized JSON. Images are represented by unresolved markers, not transferred. The five-part preview is a text heuristic, not a model-generated summary; its content is returned in the model-visible tool response.
 
+Missing goal, assistant progress or next-step text is represented by an empty string, not generated instructions. The web panel supplies its localized empty-state label; actual session text is not translated or replaced.
+
 Export, preview and import bind to the native session before parameter inspection and deferred execution. Session replacement clears operation receipts, preview receipts and status. Import rechecks the target before writing and after delivery; stale completions cannot update the replacement session. An already appended or queued handoff cannot be rolled back after a session change. Write-failure quarantine remains attached to the original session header.

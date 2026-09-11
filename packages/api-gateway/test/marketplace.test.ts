@@ -52,7 +52,7 @@ describe("plugin marketplace registry", () => {
     expect(official.get("vision-toolkit")?.profile.config).toEqual({});
     expect(official.get("session-bridge")?.category.id).toBe("workflow");
     expect(official.get("session-bridge")?.description).toMatch(/预览.*导出.*导入需要确认.*严格校验.*防重复注入/u);
-    expect(official.get("session-bridge")?.capabilities).toEqual(["read-only", "session-data"]);
+    expect(official.get("session-bridge")?.capabilities).toEqual(["session-data", "writes-files"]);
     expect(official.get("session-bridge")?.hooks).toEqual(["会话桥接工具", "当前会话管理器", "自定义上下文消息", "插件面板"]);
     expect(official.get("session-bridge")?.profile.config).toEqual({});
     expect(official.get("skill-guard")?.category.id).toBe("security");
