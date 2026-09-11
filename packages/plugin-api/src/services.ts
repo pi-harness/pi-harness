@@ -170,8 +170,8 @@ export interface PiPluginPanel {
   readonly title: string;
   readonly description?: string;
   readonly icon?: string;
-  readonly visible?: () => boolean | Promise<boolean>;
-  readonly read: () => unknown;
+  readonly visible?: (signal?: AbortSignal) => boolean | Promise<boolean>;
+  readonly read: (signal?: AbortSignal) => unknown;
 }
 
 export interface PiPluginPanelSnapshot {
@@ -184,8 +184,41 @@ export interface PiPluginPanelSnapshot {
   readonly error?: string;
 }
 
+const pluginPanelTimeoutMs = 2_000;
+
+interface PendingPluginPanelSnapshot {
+  readonly controller: AbortController;
+  readonly promise: Promise<PiPluginPanelSnapshot | undefined>;
+  readonly abort: (reason: Error) => void;
+}
+
+function pluginPanelFields(panel: PiPluginPanel): Omit<PiPluginPanelSnapshot, "data" | "error"> {
+  return {
+    id: panel.id,
+    pluginId: panel.pluginId,
+    title: panel.title,
+    ...(panel.description === undefined ? {} : { description: panel.description }),
+    ...(panel.icon === undefined ? {} : { icon: panel.icon }),
+  };
+}
+
+function pluginPanelError(panel: PiPluginPanel, error: unknown): PiPluginPanelSnapshot {
+  let message = "Unknown plugin panel error";
+  try {
+    message = error instanceof Error ? error.message : String(error);
+  } catch {
+    // Error normalization must not let one hostile callback reject the full snapshot.
+  }
+  return { ...pluginPanelFields(panel), error: message };
+}
+
+function pluginPanelTimeoutError(): Error {
+  return new Error(`Plugin UI panel timed out after ${pluginPanelTimeoutMs} ms`);
+}
+
 export class PiPluginUiRegistry {
   readonly #panels = new Map<string, PiPluginPanel>();
+  readonly #pendingSnapshots = new Map<PiPluginPanel, PendingPluginPanelSnapshot>();
 
   register(panel: PiPluginPanel): () => void {
     if (panel.id.trim() === "" || panel.pluginId.trim() === "" || panel.title.trim() === "")
@@ -196,36 +229,74 @@ export class PiPluginUiRegistry {
     return () => {
       if (!active) return;
       active = false;
-      if (this.#panels.get(panel.id) === panel) this.#panels.delete(panel.id);
+      if (this.#panels.get(panel.id) !== panel) return;
+      this.#panels.delete(panel.id);
+      const pending = this.#pendingSnapshots.get(panel);
+      if (pending !== undefined) {
+        this.#pendingSnapshots.delete(panel);
+        pending.abort(new Error("Plugin UI panel was unregistered"));
+      }
     };
   }
 
-  async snapshot(): Promise<readonly PiPluginPanelSnapshot[]> {
-    const snapshots: PiPluginPanelSnapshot[] = [];
-    for (const panel of this.#panels.values()) {
+  #startSnapshot(panel: PiPluginPanel): PendingPluginPanelSnapshot {
+    const controller = new AbortController();
+    const startedAt = performance.now();
+    let settled = false;
+    let settle!: (snapshot: PiPluginPanelSnapshot | undefined) => void;
+    const promise = new Promise<PiPluginPanelSnapshot | undefined>((resolve) => {
+      settle = (snapshot) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(snapshot);
+      };
+    });
+    const abort = (reason: Error) => {
+      settle(pluginPanelError(panel, reason));
+      controller.abort(reason);
+    };
+    const pending = { controller, promise, abort };
+    this.#pendingSnapshots.set(panel, pending);
+    const timer = setTimeout(() => abort(pluginPanelTimeoutError()), pluginPanelTimeoutMs);
+
+    const operation = (async (): Promise<PiPluginPanelSnapshot | undefined> => {
       try {
-        if (panel.visible !== undefined && !(await panel.visible())) continue;
-        const data = await panel.read();
-        snapshots.push({
-          id: panel.id,
-          pluginId: panel.pluginId,
-          title: panel.title,
-          ...(panel.description === undefined ? {} : { description: panel.description }),
-          ...(panel.icon === undefined ? {} : { icon: panel.icon }),
-          data: structuredClone(data),
-        });
+        if (controller.signal.aborted) return undefined;
+        if (panel.visible !== undefined) {
+          const visible = await panel.visible(controller.signal);
+          if (controller.signal.aborted || !visible) return undefined;
+        }
+        if (controller.signal.aborted) return undefined;
+        const data = await panel.read(controller.signal);
+        if (controller.signal.aborted) return undefined;
+        return { ...pluginPanelFields(panel), data: structuredClone(data) };
       } catch (error) {
-        snapshots.push({
-          id: panel.id,
-          pluginId: panel.pluginId,
-          title: panel.title,
-          ...(panel.description === undefined ? {} : { description: panel.description }),
-          ...(panel.icon === undefined ? {} : { icon: panel.icon }),
-          error: error instanceof Error ? error.message : String(error),
-        });
+        return pluginPanelError(panel, error);
       }
-    }
-    return snapshots;
+    })();
+    void operation.then(
+      (snapshot) => {
+        if (performance.now() - startedAt >= pluginPanelTimeoutMs) abort(pluginPanelTimeoutError());
+        else settle(snapshot);
+        if (this.#pendingSnapshots.get(panel) === pending) this.#pendingSnapshots.delete(panel);
+      },
+      (error: unknown) => {
+        settle(pluginPanelError(panel, error));
+        if (this.#pendingSnapshots.get(panel) === pending) this.#pendingSnapshots.delete(panel);
+      },
+    );
+    return pending;
+  }
+
+  async #snapshotPanel(panel: PiPluginPanel): Promise<PiPluginPanelSnapshot | undefined> {
+    const pending = this.#pendingSnapshots.get(panel) ?? this.#startSnapshot(panel);
+    return pending.promise;
+  }
+
+  async snapshot(): Promise<readonly PiPluginPanelSnapshot[]> {
+    const snapshots = await Promise.all([...this.#panels.values()].map((panel) => this.#snapshotPanel(panel)));
+    return snapshots.filter((snapshot): snapshot is PiPluginPanelSnapshot => snapshot !== undefined);
   }
 }
 

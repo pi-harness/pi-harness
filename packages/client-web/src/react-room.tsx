@@ -8291,6 +8291,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequenceRef.current.requested;
     const pendingNavigation = pendingSessionNavigationRef.current;
+    const pluginPanels = api.listPluginPanels();
     const requests = [
       api.getStatus(),
       api.getSession(),
@@ -8299,13 +8300,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listModels(),
       api.listProviders(),
       api.listPlugins(),
-      api.listPluginPanels(),
       api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory),
       api.listCommands(),
       api.listWorkspaces(),
     ] as const;
     const allResults = Promise.allSettled(requests);
-    const applyLive = <K extends "status" | "session" | "pluginPanels">(key: K, result: RoomData[K]) => {
+    const applyLive = <K extends "status" | "session">(key: K, result: RoomData[K]) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current[key]) return;
       liveRefreshSequenceRef.current[key] = sequence;
       // Do not advance the full-batch barrier: a fast status read must not
@@ -8321,12 +8321,22 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (result) => applyLive("session", result),
       () => {},
     );
-    void requests[7].then(
-      (result) => applyLive("pluginPanels", result),
-      () => {},
+    const pluginPanelLabel = t("插件面板");
+    const applyPluginPanels = (result: PromiseSettledResult<RoomData["pluginPanels"]>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.pluginPanels) return;
+      liveRefreshSequenceRef.current.pluginPanels = sequence;
+      if (result.status === "fulfilled") setData((current) => ({ ...current, pluginPanels: result.value }));
+      setRefreshIssues((current) => {
+        const withoutPluginPanels = current.filter((label) => label !== pluginPanelLabel);
+        return result.status === "fulfilled" ? withoutPluginPanels : [...withoutPluginPanels, pluginPanelLabel];
+      });
+    };
+    void pluginPanels.then(
+      (value) => applyPluginPanels({ status: "fulfilled", value }),
+      (reason: unknown) => applyPluginPanels({ status: "rejected", reason }),
     );
     const results = await allResults;
-    const [, session, sessions, files, models, providers, plugins, , marketplace, commands, workspaces] = results;
+    const [, session, sessions, files, models, providers, plugins, marketplace, commands, workspaces] = results;
     // Slow older batches must not overwrite a newer applied snapshot. An older
     // result can still render while a newer batch is pending, avoiding starvation.
     if (sequence < refreshSequenceRef.current.applied) return;
@@ -8337,12 +8347,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       pendingSessionNavigationRef.current = undefined;
       setPendingSessionUrlPath(undefined);
     }
-    setRefreshIssues(
-      failedRefreshLabels(
-        [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("模型"), t("提供商"), t("插件"), t("插件面板"), t("插件市场"), t("命令"), t("工作区")],
-        results,
-      ),
+    const failedCoreLabels = failedRefreshLabels(
+      [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("模型"), t("提供商"), t("插件"), t("插件市场"), t("命令"), t("工作区")],
+      results,
     );
+    setRefreshIssues((current) => (current.includes(pluginPanelLabel) ? [...failedCoreLabels, pluginPanelLabel] : failedCoreLabels));
     setInitialRefreshPending(false);
     setData((current) => ({
       // Live fields are applied independently above, including stale guards.
