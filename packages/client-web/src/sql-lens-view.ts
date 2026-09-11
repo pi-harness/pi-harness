@@ -135,10 +135,16 @@ function statusView(value: unknown): SqlLensPanelView["status"] | undefined {
   return undefined;
 }
 
-function cellView(value: unknown): unknown {
+function cellView(value: unknown, truncated: boolean): unknown {
   if (value === null) return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (typeof value === "string") return safeText(value, maxDisplayString, true, true);
+  if (typeof value === "string") {
+    // The worker appends an ellipsis after its bounded UTF-16 preview.
+    const maximum = truncated && value.endsWith("…") ? maxDisplayString + 1 : maxDisplayString;
+    // SQL TEXT is arbitrary data, not an identifier. Escape controls at JSON
+    // rendering time instead of rejecting the whole result or losing bytes.
+    return value.length <= maximum ? value : undefined;
+  }
   const source = ownDataRecord(value, cellKeys);
   if (
     source === undefined ||
@@ -159,7 +165,10 @@ function latestView(value: unknown): SqlLensPanelView["latest"] | undefined {
   if (source === undefined || !hasExactly(source, latestKeys)) return undefined;
   const cwd = safeText(source.cwd, 4_096);
   const database = safeText(source.database, 4_096);
-  const query = safeText(source.query, limitsDefaults.queryLength, false, true);
+  const query =
+    typeof source.query === "string" && source.query.length > 0 && source.query.length <= limitsDefaults.queryLength && !source.query.includes("\0")
+      ? source.query
+      : undefined;
   const columnsRaw = ownDataArray(source.columns, limitsDefaults.columns);
   const rowsRaw = ownDataArray(source.rows, limitsDefaults.panelRows);
   const scannedRows = safeInteger(source.scannedRows, Number.MAX_SAFE_INTEGER);
@@ -178,7 +187,7 @@ function latestView(value: unknown): SqlLensPanelView["latest"] | undefined {
     return undefined;
   const columns: string[] = [];
   for (const value of columnsRaw) {
-    const column = safeText(value, maxColumnName);
+    const column = typeof value === "string" && value.length > 0 && value.length <= maxColumnName ? value : undefined;
     if (column === undefined) return undefined;
     columns.push(column);
   }
@@ -205,7 +214,7 @@ function latestView(value: unknown): SqlLensPanelView["latest"] | undefined {
     if (row === undefined || Object.keys(row).length !== columns.length) return undefined;
     const normalized: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const column of columns) {
-      const cell = cellView(row[column]);
+      const cell = cellView(row[column], source.truncated);
       if (cell === undefined) return undefined;
       normalized[column] = cell;
     }
@@ -241,6 +250,27 @@ function malformedView(): SqlLensPanelView {
     malformed: true,
     limits: { ...limitsDefaults },
   };
+}
+
+export function sqlLensRowsJson(rows: readonly Record<string, unknown>[]): string {
+  // JSON.stringify already escapes C0 controls and lone surrogates. Also expose
+  // C1/format controls and Unicode line separators without changing JSON values.
+  return JSON.stringify(rows, null, 2).replace(/[\u007f-\u009f\p{Cf}\u2028\u2029]/gu, (character) =>
+    character
+      .split("")
+      .map((unit) => "\\u" + unit.charCodeAt(0).toString(16).padStart(4, "0"))
+      .join(""),
+  );
+}
+
+export function sqlLensDisplayText(text: string, multiline = false): string {
+  return text.replace(/[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu, (character) => {
+    if (multiline && (character === "\n" || character === "\r" || character === "\t")) return character;
+    return character
+      .split("")
+      .map((unit) => "\\u" + unit.charCodeAt(0).toString(16).padStart(4, "0"))
+      .join("");
+  });
 }
 
 export function sqlLensPanelView(data: unknown): SqlLensPanelView {

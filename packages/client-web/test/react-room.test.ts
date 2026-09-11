@@ -6,6 +6,7 @@ import type { ClientMarketplacePlugin, ClientPiConfig } from "../src/control-roo
 import type { ConfigStatus } from "../src/react-room.js";
 import {
   PluginPanelCard,
+  ProviderAuthNotice,
   ChatTurnArticle,
   CommandPalette,
   Marketplace,
@@ -19,12 +20,34 @@ import {
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
   subscribeRuntimeEvents,
+  toolArgumentSummary,
+  toolSignature,
   withoutInstalledPackages,
   writeRestartPendingPackages,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
   ({ path: "~/.pi/agent/settings.json", scope: "global", source, settings: { transport: "stdio" } }) as unknown as ClientPiConfig;
+
+describe("provider auth readiness", () => {
+  const provider = { provider: "everyapi", name: "EveryAPI", active: true, auth: { configured: false }, models: [] };
+  const render = (model: string, providers: Parameters<typeof ProviderAuthNotice>[0]["providers"]) =>
+    renderToStaticMarkup(createElement(ProviderAuthNotice, { model, providers, onConfigure: () => {} }));
+
+  test("warns before submit when the selected provider explicitly lacks auth", () => {
+    const html = render("everyapi/model/variant", [provider]);
+    expect(html).toContain("模型尚未配置认证");
+    expect(html).toContain("everyapi use pi-harness");
+    expect(html).toContain("提供商");
+  });
+
+  test("does not confuse missing metadata or another provider with missing auth", () => {
+    expect(render("everyapi/model", [])).toBe("");
+    expect(render("other/model", [provider])).toBe("");
+    expect(render("everyapi/model", [{ ...provider, auth: undefined }])).toBe("");
+    expect(render("everyapi/model", [{ ...provider, auth: { configured: true } }])).toBe("");
+  });
+});
 
 const plugin = (id: string): ClientMarketplacePlugin => ({
   id,
@@ -415,6 +438,23 @@ describe("command palette with an empty registry", () => {
   });
 });
 
+describe("tool transcript rendering", () => {
+  test("memo signature changes when tool arguments or same-length output changes", () => {
+    const tool = { id: "call-1", name: "read", arguments: { path: "a.ts" }, result: "ok", failed: false };
+
+    expect(toolSignature([tool])).not.toBe(toolSignature([{ ...tool, arguments: { path: "b.ts" } }]));
+    expect(toolSignature([tool])).not.toBe(toolSignature([{ ...tool, result: "no" }]));
+  });
+
+  test("summarises circular arguments without crashing the transcript", () => {
+    const argumentsValue: Record<string, unknown> = { path: "a.ts" };
+    argumentsValue.self = argumentsValue;
+
+    expect(() => toolArgumentSummary(argumentsValue)).not.toThrow();
+    expect(toolArgumentSummary(argumentsValue)).toContain("path=a.ts");
+  });
+});
+
 test("shows navigator Git status without requiring a tree first", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {
@@ -469,6 +509,158 @@ test("shows incomplete workspace searches even when no matches were collected", 
   expect(html).toContain("/workspace/current");
   expect(html).toContain("结果不完整");
   expect(html).toContain("needle");
+});
+
+test.each([
+  { truncated: true, skippedFiles: 0 },
+  { truncated: false, skippedFiles: 1 },
+])("warns about incomplete module searches: %j", ({ truncated, skippedFiles }) => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "module-search-panel",
+        pluginId: "@pi-harness/plugin-module-search",
+        title: "Module Search",
+        data: { latest: { query: "needle", matches: [], scannedFiles: 2, skippedFiles, truncated } },
+      },
+    }),
+  );
+  expect(html).toContain("结果不完整");
+});
+
+test.each([
+  { addedTruncated: true, removedTruncated: false },
+  { addedTruncated: false, removedTruncated: true },
+  { addedTruncated: false, removedTruncated: false },
+])("shows both comparison sides and conditional clipping warning: %j", (flags) => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "session-compare-panel",
+        pluginId: "@pi-harness/plugin-session-compare",
+        title: "Session Compare",
+        data: {
+          left: { id: "left", name: "Left" },
+          right: { id: "right", name: "Right" },
+          changed: true,
+          added: [{ role: "assistant", text: "RIGHT_PREVIEW" }],
+          removed: Array.from({ length: 5 }, (_, index) => ({ role: "assistant", text: `LEFT_PREVIEW_${index}` })),
+          ...flags,
+        },
+      },
+    }),
+  );
+  expect(html).toContain("RIGHT_PREVIEW");
+  expect(html).toContain("左侧差异预览（最多显示 4 条）");
+  expect(html).toContain("LEFT_PREVIEW_0");
+  expect(html).toContain("LEFT_PREVIEW_3");
+  expect(html).not.toContain("LEFT_PREVIEW_4");
+  expect(html.includes("工具返回的差异预览已截断；上方计数仍为完整差异数量。")).toBe(flags.addedTruncated || flags.removedTruncated);
+});
+
+test("does not warn when a module search is complete", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "module-search-panel",
+        pluginId: "@pi-harness/plugin-module-search",
+        title: "Module Search",
+        data: { latest: { query: "needle", matches: [], scannedFiles: 2, skippedFiles: 0, truncated: false } },
+      },
+    }),
+  );
+  expect(html).not.toContain("结果不完整");
+});
+
+test.each([
+  { scanned: 1, truncated: true, reports: [{ repo: "one", verdict: "pass" }] },
+  { scanned: 7, truncated: false, reports: Array.from({ length: 7 }, (_, i) => ({ repo: `repo-${i}`, verdict: "pass" })) },
+])("warns when the plugin scan panel omits repositories: %j", (latest) => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: { id: "plugin-check-panel", pluginId: "@pi-harness/plugin-plugin-check", title: "Plugin Check", data: { latest } },
+    }),
+  );
+  expect(html).toContain("结果不完整");
+});
+
+test("renders plugin schema definitions without pretending an inspection ran", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "plugin-check-panel",
+        pluginId: "@pi-harness/plugin-plugin-check",
+        title: "Plugin Check",
+        data: {
+          latest: { verdict: "pass", checks: [{ code: "no-manifest", label: "package.json exists and is valid JSON" }] },
+        },
+      },
+    }),
+  );
+  expect(html).toContain("检查清单：1 项");
+  expect(html).toContain("package.json exists and is valid JSON");
+  expect(html).not.toContain("尚未检查插件");
+  expect(html).not.toContain(">pass<");
+});
+
+test("does not show an unrun placeholder after a clean or empty plugin inspection", () => {
+  for (const latest of [
+    { repo: "clean", verdict: "pass", checks: { passed: 10, failed: 0, warned: 0 }, errors: [], warnings: [] },
+    { scanned: 0, truncated: false, reports: [] },
+  ]) {
+    const html = renderToStaticMarkup(
+      createElement(PluginPanelCard, {
+        panel: { id: "plugin-check-panel", pluginId: "@pi-harness/plugin-plugin-check", title: "Plugin Check", data: { latest } },
+      }),
+    );
+    expect(html).not.toContain("尚未检查插件");
+  }
+});
+
+test("shows unavailable MCP separately from an empty running catalog service", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "skill-catalog-panel",
+        pluginId: "@pi-harness/plugin-skill-catalog",
+        title: "Skills Catalog",
+        data: {
+          skills: [{ name: "review", description: "Review", scope: "project" }],
+          skillCount: 1,
+          mcpAvailable: false,
+          mcpCount: 0,
+          mcpServers: [],
+        },
+      },
+    }),
+  );
+  expect(html).toContain("review");
+  expect(html).toContain("不可用");
+});
+
+test("shows unavailable MCP Console service instead of an empty-server snapshot", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: { id: "mcp-panel", pluginId: "@pi-harness/plugin-mcp-panel", title: "MCP Console", data: { available: false, servers: [] } },
+    }),
+  );
+  expect(html).toContain("不可用");
+});
+
+test("identifies the source session and workspace of the last export", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "session-export-panel",
+        pluginId: "@pi-harness/plugin-session-export",
+        title: "Session Export",
+        data: { latest: { path: "exports/session.md", sessionId: "source-session-123", workspace: "/workspace/export-source", messages: 3, bytes: 100 } },
+      },
+    }),
+  );
+  expect(html).toContain("source-session-123");
+  expect(html).toContain("/workspace/export-source");
+  expect(html).toContain("exports/session.md");
 });
 
 test("shows YAML warning text and the inspected workspace path", () => {

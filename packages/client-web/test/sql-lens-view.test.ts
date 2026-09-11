@@ -1,7 +1,52 @@
 import { describe, expect, test } from "vitest";
-import { sqlLensPanelView } from "../src/sql-lens-view.js";
+import { sqlLensPanelView, sqlLensRowsJson } from "../src/sql-lens-view.js";
 
 describe("SQL Lens panel view", () => {
+  test("renders arbitrary SQL TEXT as reversible JSON without active format controls", () => {
+    const rows = [{ note: "A\u0000\u007f\u0085\u200d\u202e\u2028\u2029😀\n\t\\u202e" }];
+    const text = sqlLensRowsJson(rows);
+    expect(JSON.parse(text)).toEqual(rows);
+    expect(text).not.toMatch(/[\u007f-\u009f\p{Cf}\u2028\u2029]/u);
+    expect(text).toContain("\\u202e");
+    expect(text).toContain("😀");
+    expect(text).toContain("\n");
+  });
+
+  test.each([
+    ["x".repeat(16_384), false, false],
+    ["x".repeat(16_384) + "…", true, false],
+    ["x".repeat(16_384) + "…", false, true],
+    ["x".repeat(16_385), true, true],
+    ["x".repeat(16_385) + "…", true, true],
+  ])("validates bounded TEXT and its optional truncation suffix (%#)", (content, truncated, malformed) => {
+    const view = sqlLensPanelView({
+      status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
+      timeoutMs: 5_000,
+      latest: {
+        cwd: "/workspace",
+        database: "data.db",
+        query: "SELECT content FROM users",
+        columns: ["content"],
+        rows: [{ content }],
+        truncated,
+        scannedRows: 1,
+        rowInventory: { scanned: 1, returned: 1, shown: 1, truncated, displayLimit: 20 },
+      },
+      limits: {
+        queryLength: 65_536,
+        databaseBytes: 268_435_456,
+        rows: 100,
+        columns: 128,
+        stringLength: 16_384,
+        resultBytes: 1_048_576,
+        blobPreviewBytes: 256,
+        panelRows: 20,
+      },
+    });
+    expect(view.malformed).toBe(malformed);
+    if (!malformed) expect(view.latest?.rows[0]?.content).toBe(content);
+  });
+
   test("normalizes query results, status, row inventory, and limits", () => {
     const view = sqlLensPanelView({
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
@@ -168,7 +213,7 @@ describe("SQL Lens panel view", () => {
     expect(view).toMatchObject({ malformed: true, latest: null, status: { state: "unknown", at: null, error: null }, timeoutMs: 5_000 });
   });
 
-  test("keeps line breaks and tabs in TEXT cell values while column and database names stay strict", () => {
+  test("keeps arbitrary TEXT and column names while database paths stay strict", () => {
     const note = "line one\nline two\ttabbed\r\n";
     const payload = {
       status: { state: "completed", at: "2026-09-05T01:00:00.000Z" },
@@ -200,9 +245,18 @@ describe("SQL Lens panel view", () => {
     expect(
       sqlLensPanelView({ ...payload, latest: { ...payload.latest, query: `SELECT '${chinese}' AS note`, rows: [{ id: 1, note: chinese }] } }).malformed,
     ).toBe(false);
-    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rows: [{ id: 1, note: "bad\u0000cell" }] } }).malformed).toBe(true);
-    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, rows: [{ id: 1, note: "bad\u2028cell" }] } }).malformed).toBe(true);
-    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, columns: ["id", "no\nte"], rows: [{ id: 1, "no\nte": note }] } }).malformed).toBe(true);
+    for (const cell of ["text\u0000cell", "text\u2028cell", "text\u{e0001}cell", "lone\ud800"]) {
+      const view = sqlLensPanelView({ ...payload, latest: { ...payload.latest, rows: [{ id: 1, note: cell }] } });
+      expect(view.malformed).toBe(false);
+      expect(view.latest?.rows).toEqual([{ id: 1, note: cell }]);
+      const rendered = sqlLensRowsJson(view.latest!.rows);
+      expect(JSON.parse(rendered)).toEqual([{ id: 1, note: cell }]);
+      expect(rendered).not.toMatch(/[\p{Cf}\p{Cs}\u2028]/u);
+    }
+    expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, columns: ["id", "no\nte"], rows: [{ id: 1, "no\nte": note }] } })).toMatchObject({
+      malformed: false,
+      latest: { columns: ["id", "no\nte"], rows: [{ id: 1, "no\nte": note }] },
+    });
     expect(sqlLensPanelView({ ...payload, latest: { ...payload.latest, database: "data\n.db" } }).malformed).toBe(true);
   });
 

@@ -1,4 +1,12 @@
 {
+  "上次成功结果（非本次审阅）": "Resultado anterior bem-sucedido (não desta revisão)",
+  "已提交系统": "Enviado ao sistema",
+  "未提交系统": "Não enviado",
+  "提交成功不代表通知已显示或已读；请检查系统通知设置。": "O envio bem-sucedido não confirma a exibição nem a leitura. Verifique as configurações de notificações do sistema.",
+  "本页匹配 {v0} 个会话": "{v0} sessões correspondentes nesta página",
+  "还有未扫描的会话。即使本页没有匹配，也可使用相同查询和 nextCursor 继续搜索。": "Ainda há sessões não examinadas. Mesmo que esta página não tenha resultados, continue com a mesma consulta e nextCursor.",
+  "目录扫描已结束；跳过的文件和省略的预览不代表已完整检查。": "A varredura do diretório terminou; arquivos ignorados e prévias omitidas não foram verificados por completo.",
+  "告警自插件加载以来累计，跨会话保留；只读审计，不会阻止工具执行。": "Os alertas se acumulam desde o carregamento do plugin e são mantidos entre sessões. Auditoria somente leitura; não bloqueia a execução de ferramentas.",
   " / {limit} 上限": " / {limit} no máximo",
   " profile patch 写入未配置，apply 会被拒绝。": " A escrita do profile patch não está configurada; apply será recusado.",
   " · 不完整": " · incompleto",
