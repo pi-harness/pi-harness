@@ -1,7 +1,7 @@
 {
   "id": "session-search",
   "packageName": "@pi-harness/plugin-session-search",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Session Search",
   "description": "在已保存的 Pi JSONL 会话里搜索用户或助手的文本，不修改会话文件。",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "skill-guard",
   "packageName": "@pi-harness/plugin-skill-guard",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Skill Guard",
   "description": "用启发式规则审计每个已加载 Skill 的 Markdown：指令覆盖、密钥外传、破坏性命令和混淆。只给风险标签，不会停用 Skill。",
   "author": "Pi Harness",

@@ -1,7 +1,7 @@
 {
   "id": "docker-sandbox",
   "packageName": "@pi-harness/plugin-docker-sandbox",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Docker Sandbox",
   "description": "用本地镜像在 Docker 里执行 argv 命令：容器无网络、工作区默认只读，CPU、内存与进程数固定受限，输出会清理，取消时自动收尾。",
   "author": "Pi Harness",

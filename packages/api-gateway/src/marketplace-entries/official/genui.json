@@ -1,7 +1,7 @@
 {
   "id": "genui",
   "packageName": "@pi-harness/plugin-genui",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "GenUI",
   "description": "把结构化数据渲染成文本、标签和进度条卡片，HTML 与脚本一律按纯文本显示。",
   "author": "Pi Harness",

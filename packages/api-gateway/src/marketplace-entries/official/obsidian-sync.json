@@ -1,7 +1,7 @@
 {
   "id": "obsidian-sync",
   "packageName": "@pi-harness/plugin-obsidian-sync",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Obsidian Sync",
   "description": "把明确指定的会话笔记写进 Obsidian 库的指定路径，不会读取库里其他文件。",
   "author": "Pi Harness",

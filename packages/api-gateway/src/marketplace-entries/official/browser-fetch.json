@@ -1,7 +1,7 @@
 {
   "id": "browser-fetch",
   "packageName": "@pi-harness/plugin-browser-fetch",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Browser Fetch",
   "description": "抓取公网 HTTP/HTTPS 页面并转成有上限的文本，固定 DNS、拦截内网地址、只接受文本类型，可取消且有整体超时。",
   "author": "Pi Harness",

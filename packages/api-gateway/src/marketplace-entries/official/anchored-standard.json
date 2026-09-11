@@ -1,7 +1,7 @@
 {
   "id": "anchored-standard",
   "packageName": "@pi-harness/plugin-anchored-standard",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Anchored Standard",
   "description": "按显式的工具白名单审计 agent 的执行轨迹，标出越界的调用。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-undo-savepoint",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Create inspectable savepoints before agent changes so the workspace can be restored safely.",
   "keywords": [
     "cordis",

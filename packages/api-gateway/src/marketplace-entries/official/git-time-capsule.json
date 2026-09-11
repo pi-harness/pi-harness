@@ -1,7 +1,7 @@
 {
   "id": "git-time-capsule",
   "packageName": "@pi-harness/plugin-git-time-capsule",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Git Time Capsule",
   "description": "把当前未暂存的 Git 改动存成一份逐字节精确的撤销胶囊，确认后才反向应用。",
   "author": "Pi Harness",

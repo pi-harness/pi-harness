@@ -1,7 +1,7 @@
 {
   "id": "cli-notifier",
   "packageName": "@pi-harness/plugin-cli-notifier",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "CLI Notifier",
   "description": "agent 轮次结束、失败、被中断，或上下文压缩失败时，发一条本机桌面通知。",
   "author": "Pi Harness",
