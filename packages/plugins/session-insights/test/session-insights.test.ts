@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import sessionInsightsPlugin from "../src/index.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
+import { PiPluginUiRegistry, PiToolRegistry, tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 
@@ -319,6 +319,26 @@ describe("session-insights", () => {
     context.emit("pi/session-event", { type: "agent_settled" } as never);
     await vi.waitFor(() => expect(compactions).toBe(1));
     await expect.poll(async () => (await panels.snapshot())[0]?.data).toMatchObject({ compaction: { status: "completed" } });
+  });
+
+  test("rejects a compaction already owned by another plugin", async () => {
+    const compact = vi.fn().mockResolvedValue(undefined);
+    const session = { sessionId: "shared", isIdle: true, isCompacting: false, getSessionStats: () => stats(), compact, abortCompaction() {} };
+    const { tool, panels } = await fixture(session);
+    const release = tryAcquireSessionCompaction(session);
+    expect(release).toEqual(expect.any(Function));
+    try {
+      await expect(tool.execute("shared-lock", { compact: true, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/already.*progress/iu);
+      expect(compact).not.toHaveBeenCalled();
+      await expect(panels.snapshot()).resolves.toMatchObject([
+        { data: { compaction: { status: "failed", error: "A session compaction is already in progress" } } },
+      ]);
+    } finally {
+      release?.();
+    }
+    await expect(tool.execute("after-shared-lock", { compact: true, confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { compaction: { status: "completed" } },
+    });
   });
 
   test("cancels queued compaction when its caller aborts or the session changes", async () => {

@@ -1,9 +1,11 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, test, vi } from "vitest";
 import contextDoctorPlugin, { inspectMessages } from "../src/index.js";
-import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
+import { PiPluginUiRegistry, PiToolRegistry, tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
 
 async function createDoctor(session: unknown, config = { warnPercent: 75, maxMessageBytes: 64 * 1024 }) {
+  if (session !== null && typeof session === "object" && !("subscribe" in session))
+    Object.defineProperty(session, "subscribe", { value: () => () => undefined });
   const context = new Context();
   const panels = new PiPluginUiRegistry();
   const tools = new PiToolRegistry();
@@ -461,6 +463,58 @@ describe("context doctor", () => {
     }
   });
 
+  test("reapplies cancellation after the SDK initializes its compaction controller", async () => {
+    let listener: ((event: { type: string }) => void) | undefined;
+    let releaseInitialization!: () => void;
+    const initializationGate = new Promise<void>((resolve) => {
+      releaseInitialization = resolve;
+    });
+    let compactStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      compactStarted = resolve;
+    });
+    let ready = false;
+    let aborted = false;
+    let completed = 0;
+    const unsubscribe = vi.fn();
+    const abortCompaction = vi.fn(() => {
+      if (ready) aborted = true;
+    });
+    const fixture = await createDoctor({
+      messages: [],
+      getContextUsage: () => undefined,
+      isIdle: true,
+      subscribe: (callback: typeof listener) => {
+        listener = callback;
+        return unsubscribe;
+      },
+      compact: async () => {
+        compactStarted();
+        await initializationGate;
+        ready = true;
+        listener?.({ type: "compaction_start" });
+        if (aborted) throw new Error("native compaction cancelled");
+        completed += 1;
+      },
+      abortCompaction,
+    });
+    const controller = new AbortController();
+    const execution = fixture.tool.execute("late-controller", { compact: true, confirm: true }, controller.signal, undefined, {} as never);
+    try {
+      await started;
+      controller.abort(new Error("caller cancelled during initialization"));
+      await expect(execution).rejects.toThrow("caller cancelled during initialization");
+      releaseInitialization();
+      await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(1));
+      expect(abortCompaction).toHaveBeenCalledTimes(2);
+      expect(completed).toBe(0);
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { compaction: { status: "cancelled" } } }]);
+    } finally {
+      releaseInitialization();
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("rolls back the tool when panel registration fails", async () => {
     const context = new Context();
     const panels = new PiPluginUiRegistry();
@@ -621,6 +675,32 @@ describe("context doctor", () => {
     } finally {
       resolvers.forEach((resolve) => resolve());
       await first.catch(() => undefined);
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects a compaction already owned by another plugin", async () => {
+    const compact = vi.fn().mockResolvedValue(undefined);
+    const session = { messages: [], getContextUsage: () => undefined, isIdle: true, isCompacting: false, compact };
+    const fixture = await createDoctor(session);
+    const release = tryAcquireSessionCompaction(session);
+    expect(release).toEqual(expect.any(Function));
+    try {
+      await expect(fixture.tool.execute("shared-lock", { compact: true, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+        /already.*progress/iu,
+      );
+      expect(compact).not.toHaveBeenCalled();
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([
+        { data: { compaction: { status: "failed", error: "A context compaction is already in progress" } } },
+      ]);
+    } finally {
+      release?.();
+    }
+    try {
+      await expect(fixture.tool.execute("after-shared-lock", { compact: true, confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { compaction: { status: "completed" } },
+      });
+    } finally {
       await fixture.context.fiber.dispose();
     }
   });

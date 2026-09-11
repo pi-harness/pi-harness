@@ -2614,6 +2614,7 @@ describe("Pi domain plugins", () => {
           { role: "toolResult", isError: true },
         ],
         getContextUsage: () => ({ tokens: 8_000, contextWindow: 10_000, percent: 80 }),
+        subscribe: () => () => undefined,
         compact: () => {
           compacted += 1;
           return Promise.resolve();

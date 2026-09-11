@@ -2,7 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type {} from "@pi-harness/plugin-api";
+import { tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
 
 type ContextDoctorReport = {
   status: "ok" | "warning";
@@ -332,32 +332,49 @@ export default {
     const details = (compacted: boolean): ContextDoctorToolDetails => ({ ...report(), compacted, compaction: { ...compaction } });
     const startCompaction = (session: NonNullable<ReturnType<typeof runtime>>["session"], signal: AbortSignal, requestedAt: string) => {
       const startedAt = new Date().toISOString();
+      const releaseCompaction = session.isCompacting ? undefined : tryAcquireSessionCompaction(session);
+      if (releaseCompaction === undefined) {
+        const error = new Error("A context compaction is already in progress");
+        compaction = { status: "failed", requestedAt, startedAt, finishedAt: new Date().toISOString(), error: error.message };
+        return Promise.reject(error);
+      }
       compaction = { status: "running", requestedAt, startedAt };
-      const operation = Promise.resolve().then(async () => {
-        throwIfAborted(signal);
-        const cancellableSession = session as typeof session & { abortCompaction?: () => void };
-        const abort = (): void => {
-          cancellableSession.abortCompaction?.();
-        };
-        signal.addEventListener("abort", abort, { once: true });
-        try {
-          await session.compact();
-          compaction = { status: "completed", requestedAt, startedAt, finishedAt: new Date().toISOString() };
-          refreshReport();
-        } catch (error) {
-          compaction = {
-            status: signal.aborted ? "cancelled" : "failed",
-            requestedAt,
-            startedAt,
-            finishedAt: new Date().toISOString(),
-            error: boundedError(error),
+      const operation = Promise.resolve()
+        .then(async () => {
+          throwIfAborted(signal);
+          const cancellableSession = session as typeof session & { abortCompaction?: () => void };
+          const abort = (): void => {
+            try {
+              cancellableSession.abortCompaction?.();
+            } catch {
+              // Caller cancellation remains authoritative while the runtime tears down.
+            }
           };
-          refreshReport();
-          throw error;
-        } finally {
-          signal.removeEventListener("abort", abort);
-        }
-      });
+          let unsubscribeCompaction: (() => void) | undefined;
+          signal.addEventListener("abort", abort, { once: true });
+          try {
+            unsubscribeCompaction = session.subscribe((event) => {
+              if (event.type === "compaction_start" && signal.aborted) abort();
+            });
+            await session.compact();
+            compaction = { status: "completed", requestedAt, startedAt, finishedAt: new Date().toISOString() };
+            refreshReport();
+          } catch (error) {
+            compaction = {
+              status: signal.aborted ? "cancelled" : "failed",
+              requestedAt,
+              startedAt,
+              finishedAt: new Date().toISOString(),
+              error: boundedError(error),
+            };
+            refreshReport();
+            throw error;
+          } finally {
+            signal.removeEventListener("abort", abort);
+            unsubscribeCompaction?.();
+          }
+        })
+        .finally(releaseCompaction);
       active = operation;
       void operation.then(
         () => {
@@ -423,6 +440,7 @@ export default {
           refreshReport();
           if (request.compact) {
             if (active !== undefined || queued !== undefined) throw new Error("A context compaction is already in progress");
+            if (service.session.isCompacting) throw new Error("A context compaction is already in progress");
             const requestedAt = new Date().toISOString();
             if (service.session.isIdle === false) {
               const onAbort = (): void => {
