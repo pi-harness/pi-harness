@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 describe("pih-local launcher", () => {
-  test("builds, prefers the local server entrypoint, and cleans up its shim", () => {
+  test("builds and points the authenticated launcher at the local web assets", () => {
     const directory = mkdtempSync(join(tmpdir(), "pih-local-test-"));
     const fakeBin = join(directory, "bin");
     const marker = join(directory, "marker.json");
@@ -18,9 +18,8 @@ describe("pih-local launcher", () => {
       writeFileSync(
         fakeEveryApi,
         `#!/usr/bin/env node
-import { writeFileSync, existsSync } from "node:fs";
-const path = process.env.PATH.split(":")[0];
-writeFileSync(process.env.PIH_LOCAL_MARKER, JSON.stringify({ localShim: existsSync(path + "/pi-harness"), path }));
+import { writeFileSync } from "node:fs";
+writeFileSync(process.env.PIH_LOCAL_MARKER, JSON.stringify({ webDist: process.env.PI_HARNESS_WEB_DIST, args: process.argv.slice(2) }));
 process.exit(7);
 `,
       );
@@ -38,10 +37,9 @@ process.exit(7);
       });
       expect(result.status).toBe(7);
       expect(readFileSync(`${marker}.build`, "utf8")).toBe("build");
-      const invocation = JSON.parse(readFileSync(marker, "utf8")) as { localShim: boolean; path: string };
-      expect(invocation.localShim).toBe(true);
-      expect(invocation.path).not.toBe(fakeBin);
-      expect(() => readFileSync(join(invocation.path, "pi-harness"))).toThrow();
+      const invocation = JSON.parse(readFileSync(marker, "utf8")) as { webDist?: string; args: string[] };
+      expect(invocation.webDist).toBe(join(process.cwd(), "apps", "web", "dist"));
+      expect(invocation.args).toEqual(["use", "pi-harness", "--"]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
