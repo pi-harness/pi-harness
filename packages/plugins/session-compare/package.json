@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-session-compare",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Compare two persisted Pi sessions by message role and text without modifying either session file.",
   "keywords": [
     "cordis",
