@@ -124,9 +124,10 @@ function cloneRun(run: SandboxRun): SandboxRun {
 function boundedOutput(value: string): string {
   const bytes = Buffer.from(value, "utf8");
   if (bytes.length <= maxOutputBytes) return value;
-  let start = bytes.length - maxOutputBytes;
+  const notice = "[Output truncated: showing tail only.]\n";
+  let start = bytes.length - (maxOutputBytes - Buffer.byteLength(notice, "utf8"));
   while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start += 1;
-  return bytes.subarray(start).toString("utf8");
+  return notice + bytes.subarray(start).toString("utf8");
 }
 
 function safeOutput(value: string): string {
@@ -255,9 +256,11 @@ export default {
               });
             } catch (error) {
               assertCurrent();
-              const failure = error as { code?: number | string };
+              const failure = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
               if (failure.code === "ENOENT") throw new Error("Docker executable is not available on PATH", { cause: error });
-              throw new Error(`Docker image is not available locally: ${image}`, { cause: error });
+              const detail = outputFromFailure(failure);
+              if (/No such image:/iu.test(detail)) throw new Error(`Docker image is not available locally: ${image}`, { cause: error });
+              throw new Error(`Docker image inspection failed: ${detail || "unknown Docker error"}`, { cause: error });
             }
 
             assertCurrent();
@@ -304,6 +307,9 @@ export default {
                 const result = await execFileAsync("docker", args, {
                   cwd: operationScope.cwd,
                   timeout: runTimeoutMs,
+                  // Docker proxies SIGTERM to container PID 1, which can ignore it.
+                  // End the client decisively so the catch path can remove the container.
+                  killSignal: "SIGKILL",
                   maxBuffer: 4 * 1024 * 1024,
                   signal: operationSignal,
                   windowsHide: true,

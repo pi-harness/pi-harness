@@ -51,7 +51,7 @@ async function createFixture() {
   return { ...fixture, tool };
 }
 
-async function installFakeDocker(cwd: string): Promise<string> {
+async function installFakeDocker(cwd: string, output = "界".repeat(5000) + "\u001b[31mBAD\u001b[0m\0"): Promise<string> {
   const bin = join(cwd, "bin");
   const log = join(cwd, "docker.log");
   await mkdir(bin);
@@ -61,7 +61,7 @@ async function installFakeDocker(cwd: string): Promise<string> {
     `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.appendFileSync(process.env.PI_HARNESS_FAKE_DOCKER_LOG, JSON.stringify(process.argv.slice(2)) + "\\n");
-if (process.argv[2] === "run") process.stdout.write("界".repeat(5000) + "\\u001b[31mBAD\\u001b[0m\\0");
+if (process.argv[2] === "run") process.stdout.write(${JSON.stringify(output)});
 `,
     "utf8",
   );
@@ -72,6 +72,43 @@ if (process.argv[2] === "run") process.stdout.write("界".repeat(5000) + "\\u001
 }
 
 describe("Docker sandbox production boundaries", () => {
+  test.each([
+    ["Cannot connect to the Docker daemon", "Docker image inspection failed"],
+    ["permission denied while trying to connect to the Docker daemon socket", "Docker image inspection failed"],
+    ["Error response from daemon: No such image: alpine:3.20", "Docker image is not available locally: alpine:3.20"],
+  ])("reports image-inspection failures accurately: %s", async (diagnostic, expected) => {
+    if (process.platform === "win32") return;
+    const fixture = await createFixture();
+    const log = await installFakeDocker(fixture.cwd);
+    await writeFile(join(fixture.cwd, "bin", "docker"), `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.appendFileSync(process.env.PI_HARNESS_FAKE_DOCKER_LOG, JSON.stringify(process.argv.slice(2)) + "\\n");
+process.stderr.write(${JSON.stringify(diagnostic)});
+process.exit(1);
+`, "utf8");
+    try {
+      await expect(fixture.tool.execute("inspect", { command: ["printf", "ok"] }, undefined, undefined, {} as never)).rejects.toThrow(expected);
+      expect((await readFile(log, "utf8")).trim().split("\n")).toHaveLength(1);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test.each([12_000, 12_001])("discloses output clipping only beyond the byte budget (%i)", async (length) => {
+    if (process.platform === "win32") return;
+    const fixture = await createFixture();
+    await installFakeDocker(fixture.cwd, "x".repeat(length));
+    try {
+      const result = await fixture.tool.execute("boundary", { command: ["printf", "boundary"] }, undefined, undefined, {} as never);
+      const output = (result.details as { output: string }).output;
+      expect(Buffer.byteLength(output)).toBeLessThanOrEqual(12_000);
+      if (length === 12_000) expect(output).toBe("x".repeat(length));
+      else expect(output).toMatch(/^\[Output truncated: showing tail only\.\]\n/u);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("uses the enforced isolation argv and bounds captured output by UTF-8 bytes", async () => {
     if (process.platform === "win32") return;
     const fixture = await createFixture();
@@ -82,6 +119,8 @@ describe("Docker sandbox production boundaries", () => {
       expect(details.status).toBe("completed");
       expect(Buffer.byteLength(details.output, "utf8")).toBeLessThanOrEqual(12_000);
       expect(details.output).toContain("BAD");
+      expect(details.output).toMatch(/^\[Output truncated: showing tail only\.\]\n/u);
+      expect(result.content).toEqual([{ type: "text", text: `Docker sandbox exited with 0.\n${details.output}` }]);
       expect(details.output).not.toContain("\u001b");
       expect(details.output).not.toContain("\u0000");
       const calls = (await readFile(log, "utf8"))
