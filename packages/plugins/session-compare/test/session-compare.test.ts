@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, open, writeFile, rm } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -126,6 +127,77 @@ describe("session compare", () => {
     await expect(compare!.execute("invalid", { left: "left", right: "right", extra: true }, undefined, undefined, {} as never)).rejects.toThrow(/Unknown/);
     await context.fiber.dispose();
     await expect(compare!.execute("disposed", { left: "left", right: "right" }, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/);
+  });
+
+  test("normalizes cancellation that arrives during a bounded session read", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-cancel-cwd-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-cancel-agent-"));
+    directories.push(cwd, agentDir);
+    const sessionDir = join(agentDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    const header = (id: string) => ({ type: "session", version: 3, id, timestamp: "2026-09-03T00:00:00.000Z", cwd });
+    const message = (id: string, text: string) => ({
+      type: "message",
+      id,
+      parentId: null,
+      timestamp: "2026-09-03T00:01:00.000Z",
+      message: { role: "user", content: [{ type: "text", text }] },
+    });
+    await writeFile(join(sessionDir, "left.jsonl"), `${JSON.stringify(header("left"))}\n${JSON.stringify(message("left-1", "same"))}\n`, "utf8");
+    await writeFile(
+      join(sessionDir, "right.jsonl"),
+      `${JSON.stringify(header("right"))}\n${JSON.stringify(message("right-1", "x".repeat(200_000)))}\n`,
+      "utf8",
+    );
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager: { getCwd: () => cwd, getSessionId: () => "active", getSessionDir: () => sessionDir } } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(sessionComparePlugin);
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_compare");
+    if (tool === undefined) throw new Error("session_compare was not registered");
+
+    const probe = await open(join(sessionDir, "right.jsonl"), "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let readCalls = 0;
+    let releaseReads!: () => void;
+    const readsReleased = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (readCalls === 2) markReadStarted();
+      await readsReleased;
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("delayed-cancel", { left: "left", right: "right" }, controller.signal, undefined, {} as never);
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        readStarted,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error("timed out waiting for session read to start")), 5_000);
+        }),
+      ]);
+      if (watchdog !== undefined) clearTimeout(watchdog);
+      controller.abort(new Error("custom reason"));
+      releaseReads();
+      await expect(pending).rejects.toThrow("Session comparison was cancelled");
+      expect(readCalls).toBe(2);
+    } finally {
+      releaseReads();
+      fileHandlePrototype.read = originalRead;
+    }
   });
 });
 

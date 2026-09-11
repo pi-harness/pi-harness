@@ -122,11 +122,16 @@ function side(session: SessionInfo, messages: readonly SessionCompareMessage[]):
   };
 }
 
-async function readMessages(session: SessionInfo): Promise<SessionCompareMessage[]> {
-  const bytes = await readBoundedFile(session.path, maxSessionFileBytes, "Session comparison file");
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  for (const line of text.split("\n")) if (line.trim() !== "") JSON.parse(line);
-  return sessionMessageEntries(parseSessionEntries(text));
+async function readMessages(session: SessionInfo, signal: AbortSignal): Promise<SessionCompareMessage[]> {
+  try {
+    const bytes = await readBoundedFile(session.path, maxSessionFileBytes, "Session comparison file", signal);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    for (const line of text.split("\n")) if (line.trim() !== "") JSON.parse(line);
+    return sessionMessageEntries(parseSessionEntries(text));
+  } catch (error) {
+    if (signal.aborted) throw new Error("Session comparison was cancelled", { cause: error });
+    throw error;
+  }
 }
 
 function findSession(sessions: readonly SessionInfo[], requested: string): SessionInfo {
@@ -137,14 +142,21 @@ function findSession(sessions: readonly SessionInfo[], requested: string): Sessi
   return exact;
 }
 
-async function compareSessions(cwd: string, directory: string, leftId: string, rightId: string, check: () => void): Promise<SessionCompareReport> {
+async function compareSessions(
+  cwd: string,
+  directory: string,
+  leftId: string,
+  rightId: string,
+  signal: AbortSignal,
+  check: () => void,
+): Promise<SessionCompareReport> {
   check();
   const sessions = await SessionManager.list(cwd, directory);
   check();
   const bounded = sessions.slice(0, maxSessions);
   const leftSession = findSession(bounded, leftId);
   const rightSession = findSession(bounded, rightId);
-  const [leftMessages, rightMessages] = await Promise.all([readMessages(leftSession), readMessages(rightSession)]);
+  const [leftMessages, rightMessages] = await Promise.all([readMessages(leftSession, signal), readMessages(rightSession, signal)]);
   check();
   const diff = compareMessageEntries(leftMessages, rightMessages);
   return {
@@ -241,7 +253,7 @@ export default {
               throw new Error(`Invalid session comparison ${key}`);
             return value;
           };
-          const report = await compareSessions(operationContext.cwd, operationContext.directory, parameter("left"), parameter("right"), check);
+          const report = await compareSessions(operationContext.cwd, operationContext.directory, parameter("left"), parameter("right"), combined, check);
           check();
           latest = structuredClone(report);
           return { content: [{ type: "text", text: renderReport(report) }], details: report };
