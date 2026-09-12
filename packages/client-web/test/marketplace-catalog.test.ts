@@ -32,16 +32,22 @@ const page = (items: readonly ClientMarketplacePlugin[], pageNumber: number, tot
 describe("marketplace catalog loading", () => {
   it("loads every page instead of reusing the visible marketplace page", async () => {
     const calls: number[] = [];
+    const locales: string[] = [];
     const pages = [page([plugin("first")], 0, 2, true), page([plugin("second")], 1, 2, false)];
-    const items = await loadMarketplaceCatalog({
-      listMarketplace: (_query, _capability, pageNumber) => {
-        calls.push(pageNumber ?? 0);
-        return Promise.resolve(pages[pageNumber ?? 0]!);
+    const items = await loadMarketplaceCatalog(
+      {
+        listMarketplace: (_query, _capability, pageNumber, _pageSize, _category, locale) => {
+          calls.push(pageNumber ?? 0);
+          locales.push(locale ?? "");
+          return Promise.resolve(pages[pageNumber ?? 0]!);
+        },
       },
-    });
+      "en",
+    );
 
     expect(items.map((item) => item.id)).toEqual(["first", "second"]);
     expect(calls).toEqual([0, 1]);
+    expect(locales).toEqual(["en", "en"]);
   });
 
   it("stops safely if a backend reports another page but returns no items", async () => {
