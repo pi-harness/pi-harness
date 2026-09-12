@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
+import { themePresets } from "../../plugins/theme-studio/src/index.js";
 import { createClientApi, type ClientMarketplacePlugin, type ClientPiConfig } from "../src/control-room.js";
 import type { ConfigStatus } from "../src/react-room.js";
 import {
@@ -930,6 +931,27 @@ test("renders actionable Better Sidebar failures and rejects malformed panel sna
   expect(malformedHtml).not.toContain("session-orders");
   expect(staleHtml).toContain("Better Sidebar 面板数据异常");
   expect(staleHtml).not.toContain("session-orders");
+});
+
+test("does not render a Theme Studio snapshot from another active session", () => {
+  const panel = {
+    id: "theme-studio-panel",
+    pluginId: "@pi-harness/plugin-theme-studio",
+    title: "Theme Studio",
+    data: {
+      ...themePresets.midnight,
+      tokens: { ...themePresets.midnight.tokens },
+      theme: "midnight",
+      sessionId: "previous-session",
+      changed: true,
+      changedAt: "2026-09-12T00:00:00.000Z",
+    },
+  };
+
+  const html = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "active-session", panel }));
+
+  expect(html).toContain("主题数据无效，未应用颜色。");
+  expect(html).not.toContain("previous-session");
 });
 
 test("shows review locations and prioritizes errors in the visible findings", () => {

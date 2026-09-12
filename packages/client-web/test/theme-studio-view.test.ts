@@ -14,6 +14,10 @@ describe("theme studio boundary", () => {
       expect(data.tokens["--color-ink"]).not.toBe("red");
     }
   });
+  test("rejects a snapshot from a different active session", () => {
+    expect(themeStudioView(report(), "session-2")).toBeUndefined();
+    expect(themeStudioView(report(), "session-1")).toMatchObject({ theme: "midnight", sessionId: "session-1" });
+  });
   test("rejects arbitrary variables, CSS payloads, malformed state and accessors", () => {
     const valid = report();
     let reads = 0;

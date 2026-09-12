@@ -43,7 +43,7 @@ function color(value: unknown): value is string {
   const match = /^rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*(0|1|0\.\d{1,3})\)$/u.exec(value);
   return match !== null && match.slice(1, 4).every((part) => Number(part) <= 255);
 }
-export function themeStudioView(data: unknown) {
+export function themeStudioView(data: unknown, activeSessionId?: string) {
   const source = record(data),
     tokens = record(source?.tokens);
   if (!source || !tokens || Object.keys(tokens).length !== tokenKeys.length || !tokenKeys.every((key) => color(tokens[key]))) return undefined;
@@ -53,7 +53,8 @@ export function themeStudioView(data: unknown) {
     !themeIds.includes(theme as (typeof themeIds)[number]) ||
     !boundedText(source.label, 100) ||
     !boundedText(source.description, 300) ||
-    !boundedText(source.sessionId, 128)
+    !boundedText(source.sessionId, 128) ||
+    (activeSessionId !== undefined && source.sessionId !== activeSessionId)
   )
     return undefined;
   if (
