@@ -2,6 +2,8 @@
 
 Context Insights — Inspect context usage and descriptor-safe bounded message composition with cached active-session lifecycle counters and a fixed-limit normalized browser panel.
 
+Cached composition and lifecycle counters are scoped to both the active runtime session object and its session ID. Browser snapshots carry that ID so delayed responses from a previous session are rejected instead of rendering stale context metrics.
+
 ## Install
 
 ```sh

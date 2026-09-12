@@ -4,6 +4,7 @@ export interface ContextInsightsEventView {
 }
 
 export interface ContextInsightsPanelView {
+  readonly sessionId: string;
   readonly tokens: number | null;
   readonly contextWindow: number | null;
   readonly percent: number | null;
@@ -27,6 +28,7 @@ export interface ContextInsightsPanelView {
     readonly displayedEvents: number;
     readonly eventTypeCharacters: number;
   };
+  readonly malformed: boolean;
 }
 
 const limits = {
@@ -37,6 +39,7 @@ const limits = {
 } as const;
 const maxReportedCount = 4_294_967_295;
 const maxDateMilliseconds = 8_640_000_000_000_000;
+const maxSessionIdCharacters = 512;
 
 function dataProperty(value: unknown, key: PropertyKey): unknown {
   if (typeof value !== "object" || value === null) return undefined;
@@ -104,11 +107,37 @@ function normalizedEvents(value: unknown): { events: ContextInsightsEventView[];
   return { events, truncated: rawLength > events.length };
 }
 
-export function contextInsightsPanelView(data: unknown): ContextInsightsPanelView {
+function emptyPanelView(): ContextInsightsPanelView {
+  return {
+    sessionId: "",
+    tokens: null,
+    contextWindow: null,
+    percent: null,
+    messages: 0,
+    scannedMessages: 0,
+    messagesTruncated: false,
+    events: 0,
+    compactions: 0,
+    composition: { user: 0, assistant: 0, toolResult: 0, system: 0, other: 0 },
+    recentEvents: [],
+    recentEventsTruncated: false,
+    limits,
+    malformed: true,
+  };
+}
+
+export function contextInsightsPanelView(data: unknown, activeSessionId?: string | null): ContextInsightsPanelView {
+  const rawSessionId = dataProperty(data, "sessionId");
+  const sessionId =
+    typeof rawSessionId === "string" && rawSessionId.length > 0 && rawSessionId.length <= maxSessionIdCharacters && !/[\0\p{Cc}]/u.test(rawSessionId)
+      ? rawSessionId
+      : "";
+  if (sessionId === "" || (activeSessionId !== undefined && sessionId !== activeSessionId)) return emptyPanelView();
   const messages = count(dataProperty(data, "messages"));
   const scannedMessages = count(dataProperty(data, "scannedMessages"), Math.min(messages, limits.scannedMessages));
   const recent = normalizedEvents(dataProperty(data, "recentEvents"));
   return {
+    sessionId,
     tokens: nullableCount(dataProperty(data, "tokens")),
     contextWindow: nullableCount(dataProperty(data, "contextWindow")),
     percent: percent(dataProperty(data, "percent")),
@@ -121,5 +150,6 @@ export function contextInsightsPanelView(data: unknown): ContextInsightsPanelVie
     recentEvents: recent.events,
     recentEventsTruncated: recent.truncated,
     limits,
+    malformed: false,
   };
 }

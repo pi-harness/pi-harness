@@ -8,6 +8,7 @@ type RuntimeEvent = AgentSessionEvent & { readonly type?: string };
 type MessageRole = "user" | "assistant" | "toolResult" | "system" | "other";
 type ContextComposition = Record<MessageRole, number>;
 type ContextInsightReport = {
+  sessionId: string | null;
   tokens: number | null;
   contextWindow: number | null;
   percent: number | null;
@@ -97,6 +98,7 @@ export default {
     const eventTypes = new Map<string, number>();
     const recentEvents: { type: string; at: number }[] = [];
     let cachedSession: unknown;
+    let cachedSessionId: string | undefined;
     let cachedSnapshot: ContextSessionSnapshot = {
       tokens: null,
       contextWindow: null,
@@ -115,8 +117,10 @@ export default {
     const refreshSnapshot = (): void => {
       const runtime = context.get("piRuntime");
       const session = runtime?.session;
-      if (session !== cachedSession) resetEvents();
+      const sessionId = session?.sessionId;
+      if (session !== cachedSession || sessionId !== cachedSessionId) resetEvents();
       cachedSession = session;
+      cachedSessionId = sessionId;
       let usage: unknown;
       if (session !== undefined) {
         try {
@@ -150,11 +154,13 @@ export default {
       };
     };
     const ensureCurrentSession = (): void => {
-      if (context.get("piRuntime")?.session !== cachedSession) refreshSnapshot();
+      const session = context.get("piRuntime")?.session;
+      if (session !== cachedSession || session?.sessionId !== cachedSessionId) refreshSnapshot();
     };
     const report = (): ContextInsightReport => {
       ensureCurrentSession();
       return {
+        sessionId: cachedSessionId ?? null,
         ...cachedSnapshot,
         composition: { ...cachedSnapshot.composition },
         events: eventCount,
