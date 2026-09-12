@@ -2,6 +2,27 @@ import { describe, expect, test } from "vitest";
 import { contextDoctorPanelView } from "../src/context-doctor-view.js";
 
 describe("Context Doctor panel view", () => {
+  test("fails closed for a snapshot from another active session", () => {
+    const view = contextDoctorPanelView(
+      {
+        sessionId: "previous-session",
+        status: "warning",
+        usagePercent: 92,
+        messageCount: 20,
+        scannedMessages: 20,
+        oversizedMessages: 2,
+        uninspectableMessages: 1,
+        toolErrors: 3,
+        recommendations: ["old recommendation"],
+        compaction: { status: "completed" },
+      },
+      "active-session",
+    );
+
+    expect(view).toMatchObject({ sessionId: "", status: "unknown", usagePercent: null, messageCount: 0, recommendations: [], malformed: true });
+    expect(view.compaction.status).toBe("unknown");
+  });
+
   test("preserves over-capacity usage for warnings", () => {
     expect(contextDoctorPanelView({ usagePercent: 125 })).toMatchObject({ usagePercent: 125 });
   });
@@ -9,6 +30,7 @@ describe("Context Doctor panel view", () => {
   test("normalizes a complete audit and completed compaction", () => {
     expect(
       contextDoctorPanelView({
+        sessionId: "session-1",
         status: "warning",
         usagePercent: 82,
         tokens: 820,
@@ -37,6 +59,7 @@ describe("Context Doctor panel view", () => {
         },
       }),
     ).toEqual({
+      sessionId: "session-1",
       status: "warning",
       usagePercent: 82,
       tokens: 820,
@@ -67,6 +90,7 @@ describe("Context Doctor panel view", () => {
         recommendationCharacters: 500,
         displayRecommendations: 4,
       },
+      malformed: false,
     });
   });
 

@@ -2297,7 +2297,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         </div>
       ) : panel.id === "context-doctor-panel" ? (
         (() => {
-          const view = contextDoctorPanelView(data);
+          const view = contextDoctorPanelView(data, activeSessionId);
+          if (view.malformed) return <p className="mt-3 text-[11px] text-[var(--color-red)]">{t("面板数据不完整或不一致。")}</p>;
           const compactionLabel = {
             idle: t("尚未请求"),
             queued: t("已排队"),

@@ -74,7 +74,7 @@ function compactionView(value: unknown, errorCharacters: number) {
   };
 }
 
-export function contextDoctorPanelView(data: unknown) {
+export function contextDoctorPanelView(data: unknown, activeSessionId?: string) {
   const rawLimits = dataProperty(data, "limits");
   const limits = {
     scannedMessages: limit(dataProperty(rawLimits, "scannedMessages"), defaults.scannedMessages),
@@ -85,6 +85,30 @@ export function contextDoctorPanelView(data: unknown) {
     recommendationCharacters: defaults.recommendationCharacters,
     displayRecommendations: defaults.displayRecommendations,
   };
+  const rawSessionId = dataProperty(data, "sessionId");
+  const sessionId =
+    typeof rawSessionId === "string" && rawSessionId.length > 0 && rawSessionId.length <= 512 && !/[\0\p{Cc}]/u.test(rawSessionId) ? rawSessionId : "";
+  if (activeSessionId !== undefined && sessionId !== activeSessionId)
+    return {
+      sessionId: "",
+      status: "unknown" as const,
+      usagePercent: null,
+      tokens: null,
+      contextWindow: null,
+      messageCount: 0,
+      scannedMessages: 0,
+      messagesTruncated: false,
+      oversizedMessages: 0,
+      uninspectableMessages: 0,
+      toolErrors: 0,
+      warnPercent: defaults.warnPercent,
+      maxMessageBytes: defaults.maxMessageBytes,
+      recommendations: [] as string[],
+      recommendationsTruncated: false,
+      compaction: compactionView(undefined, limits.errorCharacters),
+      limits,
+      malformed: true,
+    };
   const rawStatus = dataProperty(data, "status");
   const status = rawStatus === "ok" || rawStatus === "warning" ? rawStatus : "unknown";
   const rawUsagePercent = dataProperty(data, "usagePercent");
@@ -120,6 +144,7 @@ export function contextDoctorPanelView(data: unknown) {
   }
 
   return {
+    sessionId,
     status,
     usagePercent,
     tokens: nullableCount(dataProperty(data, "tokens")),
@@ -136,5 +161,6 @@ export function contextDoctorPanelView(data: unknown) {
     recommendationsTruncated,
     compaction: compactionView(dataProperty(data, "compaction"), limits.errorCharacters),
     limits,
+    malformed: false,
   };
 }
