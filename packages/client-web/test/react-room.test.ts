@@ -1006,6 +1006,32 @@ test("does not render History Compressor state from another active session", () 
   expect(activeHtml).toContain("92%");
 });
 
+test("does not render Context Doctor findings from another active session", () => {
+  const panel = {
+    id: "context-doctor-panel",
+    pluginId: "@pi-harness/plugin-context-doctor",
+    title: "Context Doctor",
+    data: {
+      sessionId: "previous-session",
+      status: "warning",
+      usagePercent: 92,
+      messageCount: 20,
+      scannedMessages: 20,
+      oversizedMessages: 2,
+      uninspectableMessages: 1,
+      toolErrors: 3,
+      recommendations: ["old recommendation"],
+      compaction: { status: "completed" },
+    },
+  };
+
+  const html = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "active-session", panel }));
+
+  expect(html).toContain("面板数据不完整或不一致。");
+  expect(html).not.toContain("old recommendation");
+  expect(html).not.toContain("92%");
+});
+
 test("shows review locations and prioritizes errors in the visible findings", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {

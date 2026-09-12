@@ -4,8 +4,10 @@ import contextDoctorPlugin, { inspectMessages } from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
 
 async function createDoctor(session: unknown, config = { warnPercent: 75, maxMessageBytes: 64 * 1024 }) {
-  if (session !== null && typeof session === "object" && !("subscribe" in session))
-    Object.defineProperty(session, "subscribe", { value: () => () => undefined });
+  if (session !== null && typeof session === "object") {
+    if (!("sessionId" in session)) Object.defineProperty(session, "sessionId", { configurable: true, value: "session-1", writable: true });
+    if (!("subscribe" in session)) Object.defineProperty(session, "subscribe", { value: () => () => undefined });
+  }
   const context = new Context();
   const panels = new PiPluginUiRegistry();
   const tools = new PiToolRegistry();
@@ -398,6 +400,7 @@ describe("context doctor", () => {
       await fixture.tool.execute("queued", { compact: true, confirm: true }, undefined, undefined, {} as never);
       fixture.context.reflect.set("piRuntime", {
         session: {
+          sessionId: "session-2",
           isIdle: true,
           messages: [],
           getContextUsage: () => undefined,
@@ -409,15 +412,152 @@ describe("context doctor", () => {
         },
       });
       let panel = (await fixture.panels.snapshot())[0]?.data as { compaction: { status: string; error: string } };
-      expect(panel.compaction.status).toBe("cancelled");
-      expect(panel.compaction.error).toMatch(/session.*changed/iu);
+      expect(panel.compaction.status).toBe("idle");
       fixture.context.emit("pi/session-event", { type: "agent_settled" });
-      await expect.poll(async () => ((await fixture.panels.snapshot())[0]?.data as { compaction: { status: string } }).compaction.status).toBe("cancelled");
+      await expect.poll(async () => ((await fixture.panels.snapshot())[0]?.data as { compaction: { status: string } }).compaction.status).toBe("idle");
       panel = (await fixture.panels.snapshot())[0]?.data as { compaction: { status: string; error: string } };
-      expect(panel.compaction.error).toMatch(/session.*changed/iu);
+      expect(panel.compaction.error).toBeUndefined();
       expect(oldCompactions).toBe(0);
       expect(replacementCompactions).toBe(0);
     } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("keeps audit and compaction state scoped to the active session", async () => {
+    const first = {
+      sessionId: "session-1",
+      isIdle: true,
+      messages: [{ role: "user", content: "first" }],
+      getContextUsage: () => ({ percent: 80, tokens: 80, contextWindow: 100 }),
+      compact: () => Promise.resolve(),
+      abortCompaction: () => undefined,
+    };
+    const fixture = await createDoctor(first);
+    try {
+      await fixture.tool.execute("compact-first", { compact: true, confirm: true }, undefined, undefined, {} as never);
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([
+        { data: { sessionId: "session-1", messageCount: 1, compaction: { status: "completed" } } },
+      ]);
+
+      const second = {
+        sessionId: "session-2",
+        isIdle: true,
+        messages: [],
+        getContextUsage: () => ({ percent: 0, tokens: 0, contextWindow: 100 }),
+        compact: () => Promise.resolve(),
+        abortCompaction: () => undefined,
+        subscribe: () => () => undefined,
+      };
+      fixture.context.reflect.set("piRuntime", { session: second });
+
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", messageCount: 0, compaction: { status: "idle" } } }]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("cancels queued compaction when one runtime object receives a new session ID", async () => {
+    let compactions = 0;
+    const session = {
+      sessionId: "session-1",
+      isIdle: false,
+      messages: [],
+      getContextUsage: () => undefined,
+      compact: () => {
+        compactions += 1;
+        return Promise.resolve();
+      },
+      abortCompaction: () => undefined,
+    };
+    const fixture = await createDoctor(session);
+    try {
+      await fixture.tool.execute("queued", { compact: true, confirm: true }, undefined, undefined, {} as never);
+      session.sessionId = "session-2";
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", messageCount: 0, compaction: { status: "idle" } } }]);
+      session.isIdle = true;
+      fixture.context.emit("pi/session-event", { type: "agent_settled" });
+      await Promise.resolve();
+      expect(compactions).toBe(0);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("cancels an old in-flight compaction without contaminating the replacement session", async () => {
+    let rejectOld!: (error: Error) => void;
+    const oldAbort = vi.fn(() => rejectOld(new Error("old session compaction aborted")));
+    const first = {
+      sessionId: "session-1",
+      isIdle: true,
+      messages: [{ role: "user", content: "first" }],
+      getContextUsage: () => ({ percent: 80 }),
+      compact: () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectOld = reject;
+        }),
+      abortCompaction: oldAbort,
+    };
+    const fixture = await createDoctor(first);
+    const execution = fixture.tool.execute("compact-old", { compact: true, confirm: true }, undefined, undefined, {} as never);
+    try {
+      await vi.waitFor(() => expect(rejectOld).toBeDefined());
+      fixture.context.reflect.set("piRuntime", {
+        session: {
+          sessionId: "session-2",
+          isIdle: true,
+          messages: [],
+          getContextUsage: () => ({ percent: 0 }),
+          compact: () => Promise.resolve(),
+          abortCompaction: () => undefined,
+          subscribe: () => () => undefined,
+        },
+      });
+
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", messageCount: 0, compaction: { status: "idle" } } }]);
+      await expect(execution).rejects.toThrow(/session changed/iu);
+      expect(oldAbort).toHaveBeenCalledTimes(1);
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", messageCount: 0, compaction: { status: "idle" } } }]);
+    } finally {
+      rejectOld?.(new Error("test cleanup"));
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects late success when the session changes without an intermediate panel read", async () => {
+    let resolveOld!: () => void;
+    const first = {
+      sessionId: "session-1",
+      isIdle: true,
+      messages: [],
+      getContextUsage: () => undefined,
+      compact: () =>
+        new Promise<void>((resolve) => {
+          resolveOld = resolve;
+        }),
+      abortCompaction: () => undefined,
+    };
+    const fixture = await createDoctor(first);
+    const execution = fixture.tool.execute("compact-old", { compact: true, confirm: true }, undefined, undefined, {} as never);
+    try {
+      await vi.waitFor(() => expect(resolveOld).toBeDefined());
+      fixture.context.reflect.set("piRuntime", {
+        session: {
+          sessionId: "session-2",
+          isIdle: true,
+          messages: [],
+          getContextUsage: () => undefined,
+          compact: () => Promise.resolve(),
+          abortCompaction: () => undefined,
+          subscribe: () => () => undefined,
+        },
+      });
+      resolveOld();
+
+      await expect(execution).rejects.toThrow(/session changed/iu);
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", compaction: { status: "idle" } } }]);
+    } finally {
+      resolveOld?.();
       await fixture.context.fiber.dispose();
     }
   });
@@ -520,7 +660,7 @@ describe("context doctor", () => {
     const panels = new PiPluginUiRegistry();
     const tools = new PiToolRegistry();
     context.provide("piRuntime", {
-      session: { messages: [], getContextUsage: () => undefined, isIdle: true, compact: () => Promise.resolve() },
+      session: { sessionId: "session-1", messages: [], getContextUsage: () => undefined, isIdle: true, compact: () => Promise.resolve() },
     } as never);
     context.provide("piTools", tools);
     context.provide("piPluginUi", panels);
@@ -535,6 +675,24 @@ describe("context doctor", () => {
       expect(tools.snapshot().customTools).toEqual([]);
     } finally {
       disposeDuplicate();
+      await context.fiber.dispose();
+    }
+  });
+
+  test("rejects unknown configuration keys before registration", async () => {
+    const context = new Context();
+    const panels = new PiPluginUiRegistry();
+    const tools = new PiToolRegistry();
+    context.provide("piRuntime", {
+      session: { sessionId: "session-1", messages: [], getContextUsage: () => undefined, isIdle: true, compact: () => Promise.resolve() },
+    } as never);
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await expect(context.plugin(contextDoctorPlugin, { unexpected: true } as never)).rejects.toThrow(/unknown/iu);
+      expect(tools.snapshot().customTools).toEqual([]);
+      await expect(panels.snapshot()).resolves.toEqual([]);
+    } finally {
       await context.fiber.dispose();
     }
   });

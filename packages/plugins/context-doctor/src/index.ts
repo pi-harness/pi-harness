@@ -2,7 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
+import { assertKnownConfigKeys, tryAcquireSessionCompaction } from "@pi-harness/plugin-api";
 
 type ContextDoctorReport = {
   status: "ok" | "warning";
@@ -29,7 +29,14 @@ type ContextCompactionState = {
 };
 
 type ContextDoctorToolDetails = ContextDoctorReport & {
+  sessionId: string;
   compacted: boolean;
+  compaction: ContextCompactionState;
+};
+
+type ContextDoctorSessionState = {
+  sessionId: string;
+  report: ContextDoctorReport;
   compaction: ContextCompactionState;
 };
 
@@ -277,68 +284,95 @@ export default {
   inject: ["piPluginUi", "piTools"],
   Config,
   apply(context: Context, config: ContextDoctorPluginConfig = {}) {
+    assertKnownConfigKeys("context-doctor", config, ["warnPercent", "maxMessageBytes"]);
     const warnPercent = normalizeWarnPercent(config.warnPercent);
     const maxMessageBytes = Math.max(1024, normalizeMaxMessageBytes(config.maxMessageBytes));
     const lifecycle = new AbortController();
-    let compaction: ContextCompactionState = { status: "idle" };
-    let active: Promise<void> | undefined;
+    const runtime = () => context.get("piRuntime");
+    type RuntimeSession = NonNullable<ReturnType<typeof runtime>>["session"];
+    const states = new WeakMap<RuntimeSession, ContextDoctorSessionState>();
+    let active: { session: RuntimeSession; sessionId: string; controller: AbortController; operation: Promise<void> } | undefined;
     let queued:
       | {
-          session: unknown;
+          session: RuntimeSession;
+          sessionId: string;
+          state: ContextDoctorSessionState;
           signal: AbortSignal;
           requestedAt: string;
           removeAbortListener: () => void;
         }
       | undefined;
-    const runtime = () => context.get("piRuntime");
-    let cachedSession: unknown;
-    let cachedReport = inspectMessages([], undefined, warnPercent, maxMessageBytes);
-    const refreshReport = (): ContextDoctorReport => {
-      const service = runtime();
-      cachedSession = service?.session;
-      let usage: ReturnType<NonNullable<typeof service>["session"]["getContextUsage"]>;
-      if (service !== undefined) {
-        try {
-          usage = service.session.getContextUsage();
-        } catch {
-          usage = undefined;
-        }
+    const sessionIdFor = (session: RuntimeSession): string => {
+      const sessionId = session.sessionId;
+      if (typeof sessionId !== "string" || sessionId.length === 0 || sessionId.length > 512 || /[\0\p{Cc}]/u.test(sessionId))
+        throw new Error("Context Doctor runtime session ID is invalid");
+      return sessionId;
+    };
+    const readReport = (session: RuntimeSession): ContextDoctorReport => {
+      let usage: ReturnType<RuntimeSession["getContextUsage"]>;
+      try {
+        usage = session.getContextUsage();
+      } catch {
+        usage = undefined;
       }
-      cachedReport =
-        service === undefined
-          ? inspectMessages([], undefined, warnPercent, maxMessageBytes)
-          : inspectMessages(service.session.messages, usage, warnPercent, maxMessageBytes);
-      return cloneReport(cachedReport);
+      return inspectMessages(session.messages, usage, warnPercent, maxMessageBytes);
     };
-    const cancelQueuedForSessionChange = (session: unknown): void => {
-      if (queued === undefined || queued.session === session) return;
-      const request = queued;
-      queued = undefined;
-      request.removeAbortListener();
-      compaction = {
-        status: "cancelled",
-        requestedAt: request.requestedAt,
-        finishedAt: new Date().toISOString(),
-        error: "Session changed before the queued context compaction could start",
-      };
+    const stateFor = (session: RuntimeSession): ContextDoctorSessionState => {
+      const sessionId = sessionIdFor(session);
+      const existing = states.get(session);
+      if (existing !== undefined && existing.sessionId === sessionId) return existing;
+      const state: ContextDoctorSessionState = { sessionId, report: readReport(session), compaction: { status: "idle" } };
+      states.set(session, state);
+      return state;
     };
-    const report = (): ContextDoctorReport => {
+    const refreshReport = (session: RuntimeSession): ContextDoctorReport => {
+      const state = stateFor(session);
+      state.report = readReport(session);
+      return cloneReport(state.report);
+    };
+    const cancelForSessionChange = (session: RuntimeSession | undefined): void => {
+      const sessionId = session === undefined ? undefined : sessionIdFor(session);
+      if (queued !== undefined && (queued.session !== session || queued.sessionId !== sessionId)) {
+        const request = queued;
+        queued = undefined;
+        request.removeAbortListener();
+        request.state.compaction = {
+          status: "cancelled",
+          requestedAt: request.requestedAt,
+          finishedAt: new Date().toISOString(),
+          error: "Session changed before the queued context compaction could start",
+        };
+      }
+      if (active !== undefined && (active.session !== session || active.sessionId !== sessionId) && !active.controller.signal.aborted)
+        active.controller.abort(new Error("Session changed while context compaction was running"));
+    };
+    const currentState = (): ContextDoctorSessionState => {
       const service = runtime();
-      cancelQueuedForSessionChange(service?.session);
-      if (service?.session !== cachedSession) return refreshReport();
-      return cloneReport(cachedReport);
+      cancelForSessionChange(service?.session);
+      if (service === undefined) throw new Error("Pi runtime is not ready");
+      return stateFor(service.session);
     };
-    refreshReport();
-    const details = (compacted: boolean): ContextDoctorToolDetails => ({ ...report(), compacted, compaction: { ...compaction } });
-    const startCompaction = (session: NonNullable<ReturnType<typeof runtime>>["session"], signal: AbortSignal, requestedAt: string) => {
+    const details = (state: ContextDoctorSessionState, compacted: boolean): ContextDoctorToolDetails => ({
+      ...cloneReport(state.report),
+      sessionId: state.sessionId,
+      compacted,
+      compaction: { ...state.compaction },
+    });
+    const startCompaction = (session: RuntimeSession, state: ContextDoctorSessionState, callerSignal: AbortSignal, requestedAt: string) => {
       const startedAt = new Date().toISOString();
       const releaseCompaction = session.isCompacting ? undefined : tryAcquireSessionCompaction(session);
       if (releaseCompaction === undefined) {
         const error = new Error("A context compaction is already in progress");
-        compaction = { status: "failed", requestedAt, startedAt, finishedAt: new Date().toISOString(), error: error.message };
+        state.compaction = { status: "failed", requestedAt, startedAt, finishedAt: new Date().toISOString(), error: error.message };
         return Promise.reject(error);
       }
-      compaction = { status: "running", requestedAt, startedAt };
+      const controller = new AbortController();
+      const signal = AbortSignal.any([callerSignal, controller.signal]);
+      const scopeChanged = (): boolean => {
+        const service = runtime();
+        return service === undefined || service.session !== session || session.sessionId !== state.sessionId;
+      };
+      state.compaction = { status: "running", requestedAt, startedAt };
       const operation = Promise.resolve()
         .then(async () => {
           throwIfAborted(signal);
@@ -353,51 +387,64 @@ export default {
           let unsubscribeCompaction: (() => void) | undefined;
           signal.addEventListener("abort", abort, { once: true });
           try {
+            if (scopeChanged()) throw new Error("Session changed before context compaction started");
             unsubscribeCompaction = session.subscribe((event) => {
               if (event.type === "compaction_start" && signal.aborted) abort();
             });
             await session.compact();
-            compaction = { status: "completed", requestedAt, startedAt, finishedAt: new Date().toISOString() };
-            refreshReport();
+            if (scopeChanged()) throw new Error("Session changed while context compaction was running");
+            state.compaction = { status: "completed", requestedAt, startedAt, finishedAt: new Date().toISOString() };
+            refreshReport(session);
           } catch (error) {
-            compaction = {
-              status: signal.aborted ? "cancelled" : "failed",
+            const changed = scopeChanged();
+            const failure = changed
+              ? new Error("Session changed while context compaction was running", { cause: error })
+              : signal.aborted
+                ? signal.reason instanceof Error
+                  ? signal.reason
+                  : new Error("Context Doctor operation was cancelled", { cause: signal.reason })
+                : error;
+            state.compaction = {
+              status: signal.aborted || changed ? "cancelled" : "failed",
               requestedAt,
               startedAt,
               finishedAt: new Date().toISOString(),
-              error: boundedError(error),
+              error: boundedError(failure),
             };
-            refreshReport();
-            throw error;
+            refreshReport(session);
+            throw failure;
           } finally {
             signal.removeEventListener("abort", abort);
             unsubscribeCompaction?.();
           }
         })
         .finally(releaseCompaction);
-      active = operation;
+      active = { session, sessionId: state.sessionId, controller, operation };
       void operation.then(
         () => {
-          if (active === operation) active = undefined;
+          if (active?.operation === operation) active = undefined;
         },
         () => {
-          if (active === operation) active = undefined;
+          if (active?.operation === operation) active = undefined;
         },
       );
       return operation;
     };
+    const initialService = runtime();
+    if (initialService !== undefined) stateFor(initialService.session);
     const unsubscribe = context.on("pi/session-event", (event) => {
       const eventType = dataProperty(event, "type");
       if (typeof eventType !== "string") return;
-      cancelQueuedForSessionChange(runtime()?.session);
-      if (["message_end", "tool_execution_end", "agent_end", "agent_settled", "compaction_end", "entry_appended"].includes(eventType)) refreshReport();
+      const service = runtime();
+      cancelForSessionChange(service?.session);
+      if (service !== undefined && ["message_end", "tool_execution_end", "agent_end", "agent_settled", "compaction_end", "entry_appended"].includes(eventType))
+        refreshReport(service.session);
       if (eventType !== "agent_settled" || queued === undefined) return;
       const request = queued;
       queued = undefined;
       request.removeAbortListener();
-      const service = runtime();
-      if (service === undefined || service.session !== request.session) {
-        compaction = {
+      if (service === undefined || service.session !== request.session || service.session.sessionId !== request.sessionId) {
+        request.state.compaction = {
           status: "cancelled",
           requestedAt: request.requestedAt,
           finishedAt: new Date().toISOString(),
@@ -405,7 +452,7 @@ export default {
         };
         return;
       }
-      void startCompaction(service.session, request.signal, request.requestedAt).catch(() => undefined);
+      void startCompaction(service.session, request.state, request.signal, request.requestedAt).catch(() => undefined);
     });
     context.effect(() => () => {
       lifecycle.abort(new Error("Context Doctor plugin disposed"));
@@ -437,7 +484,9 @@ export default {
           throwIfAborted(actionSignal);
           const service = runtime();
           if (service === undefined) throw new Error("Pi runtime is not ready");
-          refreshReport();
+          cancelForSessionChange(service.session);
+          const state = stateFor(service.session);
+          refreshReport(service.session);
           if (request.compact) {
             if (active !== undefined || queued !== undefined) throw new Error("A context compaction is already in progress");
             if (service.session.isCompacting) throw new Error("A context compaction is already in progress");
@@ -445,8 +494,9 @@ export default {
             if (service.session.isIdle === false) {
               const onAbort = (): void => {
                 if (queued?.signal !== actionSignal) return;
+                const request = queued;
                 queued = undefined;
-                compaction = {
+                request.state.compaction = {
                   status: "cancelled",
                   requestedAt,
                   finishedAt: new Date().toISOString(),
@@ -456,20 +506,22 @@ export default {
               actionSignal.addEventListener("abort", onAbort, { once: true });
               queued = {
                 session: service.session,
+                sessionId: state.sessionId,
+                state,
                 signal: actionSignal,
                 requestedAt,
                 removeAbortListener: () => actionSignal.removeEventListener("abort", onAbort),
               };
-              compaction = { status: "queued", requestedAt };
-              const queuedDetails = details(false);
+              state.compaction = { status: "queued", requestedAt };
+              const queuedDetails = details(state, false);
               return {
                 content: [{ type: "text", text: "Context compaction queued until the current agent run settles." }],
                 details: queuedDetails,
               };
             }
-            await waitForOperation(startCompaction(service.session, actionSignal, requestedAt), actionSignal);
+            await waitForOperation(startCompaction(service.session, state, actionSignal, requestedAt), actionSignal);
           }
-          const resultDetails = details(request.compact);
+          const resultDetails = details(state, request.compact);
           return {
             content: [
               {
@@ -489,17 +541,21 @@ export default {
       title: "Context Doctor",
       description: "安全审计上下文压力、超大或不可测量消息和工具错误，并展示确认压缩的生命周期。",
       icon: "⌁",
-      read: () => ({
-        ...report(),
-        compaction: { ...compaction },
-        limits: {
-          scannedMessages: maxScannedMessages,
-          jsonDepth: maxJsonDepth,
-          jsonNodesPerMessage: maxJsonNodes,
-          jsonNodesPerAudit: maxJsonNodesPerAudit,
-          errorCharacters: maxErrorLength,
-        },
-      }),
+      read: () => {
+        const state = currentState();
+        return {
+          ...cloneReport(state.report),
+          sessionId: state.sessionId,
+          compaction: { ...state.compaction },
+          limits: {
+            scannedMessages: maxScannedMessages,
+            jsonDepth: maxJsonDepth,
+            jsonNodesPerMessage: maxJsonNodes,
+            jsonNodesPerAudit: maxJsonNodesPerAudit,
+            errorCharacters: maxErrorLength,
+          },
+        };
+      },
     });
     context.effect(() => disposePanel);
   },
