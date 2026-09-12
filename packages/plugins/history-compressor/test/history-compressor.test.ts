@@ -16,7 +16,7 @@ async function fixture(usagePercent = 90, isIdle?: boolean) {
   const panels = new PiPluginUiRegistry();
   const compact = vi.fn().mockResolvedValue(undefined);
   const usage = { percent: usagePercent };
-  const session = { getContextUsage: () => ({ percent: usage.percent }), compact, isIdle, subscribe: vi.fn(() => () => undefined) };
+  const session = { sessionId: "session-1", getContextUsage: () => ({ percent: usage.percent }), compact, isIdle, subscribe: vi.fn(() => () => undefined) };
   context.provide("piRuntime", { session } as never);
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
@@ -87,10 +87,11 @@ describe("history compressor", () => {
   });
 
   test("cancels a queued request when the active session is replaced", async () => {
-    const { context, tool, compact, panels } = await fixture(10, false);
+    const { context, tool, compact, panels, session } = await fixture(10, false);
     await expect(tool.execute("queued", { confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { queued: true } });
     const replacementCompact = vi.fn().mockResolvedValue(undefined);
     const replacement = {
+      sessionId: "session-2",
       getContextUsage: () => ({ percent: 10 }),
       compact: replacementCompact,
       abortCompaction: vi.fn(),
@@ -99,13 +100,51 @@ describe("history compressor", () => {
     };
     context.reflect.set("piRuntime", { session: replacement });
 
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", queued: false, compactions: 0, lastError: null } }]);
+    context.reflect.set("piRuntime", { session });
     await expect(panels.snapshot()).resolves.toMatchObject([
-      { data: { queued: false, compactions: 0, lastError: "Session changed before the queued history compaction could start" } },
+      { data: { sessionId: "session-1", queued: false, compactions: 0, lastError: "Session changed before the queued history compaction could start" } },
     ]);
+    context.reflect.set("piRuntime", { session: replacement });
     context.emit("pi/session-event", { type: "agent_settled" } as never);
     await Promise.resolve();
     expect(compact).not.toHaveBeenCalled();
     expect(replacementCompact).not.toHaveBeenCalled();
+  });
+
+  test("keeps panel metrics scoped to the active session", async () => {
+    const { context, tool, panels } = await fixture(90, true);
+    await expect(tool.execute("compact-first", { confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { compacted: true },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-1", compactions: 1, lastUsagePercent: null, lastError: null } }]);
+
+    const replacement = {
+      sessionId: "session-2",
+      getContextUsage: () => ({ percent: 12 }),
+      compact: vi.fn().mockResolvedValue(undefined),
+      abortCompaction: vi.fn(),
+      isIdle: true,
+      subscribe: vi.fn(() => () => undefined),
+    };
+    context.reflect.set("piRuntime", { session: replacement });
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      { data: { sessionId: "session-2", queued: false, compactions: 0, lastUsagePercent: null, lastError: null } },
+    ]);
+  });
+
+  test("cancels queued work when the runtime reuses an object for a new session ID", async () => {
+    const { context, tool, compact, panels, session } = await fixture(90, false);
+    await expect(tool.execute("queued-old-id", { confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { queued: true } });
+
+    session.sessionId = "session-2";
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", queued: false, compactions: 0, lastError: null } }]);
+    session.isIdle = true;
+    context.emit("pi/session-event", { type: "agent_settled" } as never);
+    await Promise.resolve();
+
+    expect(compact).not.toHaveBeenCalled();
   });
 
   test("aborts only the captured session's active compaction", async () => {
@@ -198,6 +237,7 @@ describe("history compressor", () => {
 
     const replacementCompact = vi.fn().mockResolvedValue(undefined);
     const replacement = {
+      sessionId: "session-2",
       getContextUsage: () => ({ percent: 10 }),
       compact: replacementCompact,
       abortCompaction: vi.fn(),
@@ -208,6 +248,7 @@ describe("history compressor", () => {
     await panels.snapshot();
     await vi.waitFor(() => expect(outcome).toBe("Session changed while history compaction was running"));
     expect(oldAbort).toHaveBeenCalledTimes(1);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", compactions: 0, lastError: null } }]);
     await expect(tool.execute("replacement-overlap", { confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { compacted: false, queued: false },
     });
@@ -218,6 +259,7 @@ describe("history compressor", () => {
       details: { compacted: true },
     });
     expect(replacementCompact).toHaveBeenCalledTimes(1);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", compactions: 1, lastError: null } }]);
   });
 
   test("consumes a late native rejection after caller cancellation and releases the lock", async () => {
@@ -353,6 +395,25 @@ describe("history compressor", () => {
     await context.fiber.dispose();
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
+  });
+
+  test("rejects unknown and accessor-backed runtime parameters before compaction", async () => {
+    const { tool, compact } = await fixture(10, true);
+    let accessed = false;
+    const accessor = Object.defineProperty({}, "confirm", {
+      enumerable: true,
+      get() {
+        accessed = true;
+        return true;
+      },
+    });
+    const revoked = Proxy.revocable({ confirm: true }, {});
+    revoked.revoke();
+
+    for (const params of [{ confirm: true, extra: true }, accessor, revoked.proxy])
+      await expect(tool.execute("invalid", params as never, undefined, undefined, {} as never)).rejects.toThrow(/parameters/iu);
+    expect(accessed).toBe(false);
+    expect(compact).not.toHaveBeenCalled();
   });
 
   test("compacts a long SaaS support workflow through a real AgentSession and keeps session reporting coherent", async () => {
