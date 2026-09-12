@@ -1,7 +1,7 @@
 {
   "id": "session-bridge",
   "packageName": "@pi-harness/plugin-session-bridge",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "name": "Session Bridge",
   "description": "预览并导出会话交接包；导入需要确认，包体经过严格校验并防重复注入。",
   "author": "Pi Harness",
