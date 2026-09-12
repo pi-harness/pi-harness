@@ -194,6 +194,7 @@ export default {
     let latest: RewindResult | undefined;
     let queued: (RewindRequest & { session: unknown; sessionId: string; manager: unknown; signal: AbortSignal; removeAbortListener: () => void }) | undefined;
     let active: Promise<RewindResult> | undefined;
+    let idleWait: Promise<void> | undefined;
     let cachedSession: unknown;
     let cachedSessionId: string | undefined;
     let cachedManager: unknown;
@@ -274,8 +275,7 @@ export default {
         error: "Session changed before the queued rewind could start",
       };
     };
-    const unsubscribe = context.on("pi/session-event", (event) => {
-      if (event.type !== "agent_settled") return;
+    const startQueuedIfIdle = () => {
       cancelStaleQueue();
       if (queued === undefined) {
         refreshCandidateCache();
@@ -286,6 +286,46 @@ export default {
       queued = undefined;
       request.removeAbortListener();
       void startNavigation({ target: request.target, summarized: request.summarized, requestedAt: request.requestedAt }).catch(() => undefined);
+    };
+    const waitForQueuedIdle = () => {
+      if (queued === undefined || idleWait !== undefined) return;
+      const session = context.piRuntime.session;
+      const operation = session.waitForIdle();
+      idleWait = operation;
+      void operation
+        .then(() => {
+          if (idleWait === operation) idleWait = undefined;
+          if (!lifecycle.signal.aborted) startQueuedIfIdle();
+        })
+        .catch((error: unknown) => {
+          if (idleWait === operation) idleWait = undefined;
+          if (queued?.session !== session) return;
+          const request = queued;
+          queued = undefined;
+          request.removeAbortListener();
+          latest = {
+            status: "failed",
+            target: request.target,
+            summarized: request.summarized,
+            requestedAt: request.requestedAt,
+            finishedAt: new Date().toISOString(),
+            cancelled: false,
+            error: boundedError(error),
+          };
+        });
+    };
+    const unsubscribe = context.on("pi/session-event", (event) => {
+      if (event.type !== "agent_end" && event.type !== "agent_settled") return;
+      cancelStaleQueue();
+      if (event.type === "agent_end") {
+        waitForQueuedIdle();
+        return;
+      }
+      if (queued !== undefined && !context.piRuntime.session.isIdle) {
+        waitForQueuedIdle();
+        return;
+      }
+      startQueuedIfIdle();
     });
     const unregister = context.piTools.register(
       defineTool({
