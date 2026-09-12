@@ -3817,6 +3817,39 @@ describe("API gateway plugin", () => {
     await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  test("exports an empty active session by persisting its in-memory header", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-empty-session-export-"));
+    temporaryDirectories.push(directory);
+    const sessionDir = join(directory, "sessions");
+    await mkdir(sessionDir);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const manager = SessionManager.create("/tmp", sessionDir);
+    const target = manager.getSessionFile();
+    if (!target) throw new Error("Expected a new session path");
+    const session = {
+      sessionId: manager.getSessionId(),
+      get sessionFile() {
+        return manager.getSessionFile();
+      },
+      messages: [],
+      isStreaming: false,
+      sessionManager: manager,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/export");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(await response.text()).toContain('"type":"session"');
+    await expect(stat(target)).resolves.toBeDefined();
+  });
+
   test("keeps batch deletion going past a failing session and persists the metadata it did remove", async () => {
     const context = new Context();
     contexts.push(context);

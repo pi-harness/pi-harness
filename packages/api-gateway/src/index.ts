@@ -2397,6 +2397,15 @@ export default {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
+          // Pi defers creating the JSONL file for a new empty session until its first entry. Exporting that active session is still a durable user action, so materialize its in-memory header and entries before reading it; missing non-active paths remain a 404.
+          if (path === services.runtime.session.sessionFile && !existsSync(path)) {
+            try {
+              persistSessionBeforeFirstAssistant(manager);
+            } catch (error) {
+              // Another tab may win the first-persistence race between existsSync and writeFileSync; its file is the same export target, so continue with the read.
+              if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            }
+          }
           const content = await readFile(path, "utf8");
           response.writeHead(200, {
             "content-type": "application/x-ndjson; charset=utf-8",
