@@ -257,6 +257,15 @@ describe("web launcher", () => {
 });
 
 describe("web launcher startup guards", () => {
+  test("points at the supported EveryAPI pi-web launcher when its model catalog is missing", async () => {
+    const run = await runLauncherToExit({ PI_HARNESS_PROVIDER: "everyapi", PI_HARNESS_MODEL: "missing-model" });
+
+    expect(run.stderr).toContain("everyapi use pi-web");
+    expect(run.stderr).not.toContain("everyapi use pi-harness");
+    expect(run.stdout).not.toContain("Pi Harness web console:");
+    expect(run.code).not.toBe(0);
+  }, 60_000);
+
   test("refuses a non-loopback PI_HARNESS_HOST while remote access is not opted in", async () => {
     for (const remoteHost of ["0.0.0.0", "192.0.2.10"]) {
       const run = await runLauncherToExit({ PI_HARNESS_HOST: remoteHost });

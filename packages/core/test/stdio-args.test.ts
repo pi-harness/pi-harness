@@ -531,7 +531,7 @@ describe("stdio run outcome", () => {
     expect(stdio.errors[0]).not.toContain("node_modules");
     expect(stdio.errors[1]).toContain("pih has no /login command");
     expect(stdio.errors[1]).toContain("/tmp/auth.json");
-    expect(stdio.errors[1]).toContain("everyapi use pi-harness");
+    expect(stdio.errors[1]).toContain("everyapi use pi-web");
     expect(stdio.errors[1]?.split("\n").filter(Boolean)).toHaveLength(1);
   });
 

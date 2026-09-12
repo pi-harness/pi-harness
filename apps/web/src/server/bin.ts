@@ -87,7 +87,7 @@ const formatStartupError = (error: unknown): string => {
   }
   const unregistered = UNREGISTERED_EVERYAPI_MODEL.exec(message);
   if (unregistered === null) return debug ? message : `${message}\n${DEBUG_HINT}`;
-  const remedy = `The EveryAPI model catalog is not provisioned in PI_AGENT_DIR. Start with \`everyapi use pi-harness\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
+  const remedy = `The EveryAPI model catalog is not provisioned in PI_AGENT_DIR. Start with \`everyapi use pi-web\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
   // Under the debug flag the message already carries the frames bootHarness kept, and a reader who asked for them wants the remedy as well as the detail, not instead of it.
   return debug ? `${remedy}\n${message}` : `${remedy}\nPi model is not registered: ${unregistered[1]}`;
 };

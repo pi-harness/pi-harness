@@ -112,7 +112,7 @@ function withoutUpstreamCredentialRemedy(message: string): string {
 function missingCredentialGuidance(launch: PiHarnessLaunch): string {
   const profilePath = launch.configPath ?? "the booted profile under <PI_HARNESS_HOME or ~/.pi-harness>/profiles";
   return boundedLine(
-    `pih has no /login command: set the DEEPSEEK_API_KEY environment variable (the built-in profile selects deepseek), or store the credential in ${launch.agentDir}/auth.json, or start through \`everyapi use pi-harness\`, or edit ${profilePath} to name a provider that agent directory already registers.`,
+    `pih has no /login command: set the DEEPSEEK_API_KEY environment variable (the built-in profile selects deepseek), or store the credential in ${launch.agentDir}/auth.json, or start through \`everyapi use pi-web\`, or edit ${profilePath} to name a provider that agent directory already registers.`,
     DIAGNOSTIC_MESSAGE_LIMIT,
   );
 }

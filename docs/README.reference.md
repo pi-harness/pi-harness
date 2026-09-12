@@ -56,7 +56,7 @@ npm run web
 
 The web launcher builds the Vite browser bundle, starts the Cordis host, and prints a local URL (by default `http://127.0.0.1:3141`). Set `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, and `PI_AGENT_DIR` to change the bind address, port, or Pi state directory. The browser surface is served by the bundled `@pi-harness/web-app` plugin and talks to the bundled `@pi-harness/api-gateway` over `/api/status`, `/api/session`, `/api/sessions`, `/api/session/new`, `/api/session/open`, `/api/models`, `/api/model`, `/api/files`, `/api/prompt`, `/api/abort`, and the `/api/events` Server-Sent Events stream; [HTTP API routes](#http-api-routes) lists every registered route, including the mutating ones the console uses for plugins, providers, files, and sessions. The launcher refuses non-loopback hosts unless `PI_HARNESS_ALLOW_REMOTE=1` is explicitly set on a trusted network; the API is intended for local use and has no user authentication layer. Because there is no authentication, the web server answers only requests whose `Host` header names loopback, the configured bind host, one of this machine's own addresses or its hostname on a wildcard bind, or a name listed in `PI_HARNESS_ALLOWED_HOSTS`, and rejects cross-site requests whose `Origin` does not match the `Host` header; this blocks CSRF and DNS rebinding, and a reverse proxy must forward the original `Host` header over plain HTTP.
 
-The web profile ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) selects `everyapi/deepseek-v4-flash`, stores JSONL sessions under `$PI_AGENT_DIR/sessions`, and loads Pi resources from the current project and agent directory. `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` override that selection; the built-in CLI `default` profile selects `deepseek/deepseek-v4-flash` instead. Model selection is fail-closed, so a provider that is not registered in the active agent directory aborts startup with `Pi model is not registered: <provider>/<model>` rather than falling back to another provider. Provision the catalog with the EveryAPI CLI (`everyapi use pi-harness`, which prepares an isolated Pi agent directory with the EveryAPI provider catalog and starts Pi Harness on its local loopback URL), or point `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` at a model already registered in `PI_AGENT_DIR`, which defaults to `~/.pi/agent`.
+The web profile ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) selects `everyapi/deepseek-v4-flash`, stores JSONL sessions under `$PI_AGENT_DIR/sessions`, and loads Pi resources from the current project and agent directory. `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` override that selection; the built-in CLI `default` profile selects `deepseek/deepseek-v4-flash` instead. Model selection is fail-closed, so a provider that is not registered in the active agent directory aborts startup with `Pi model is not registered: <provider>/<model>` rather than falling back to another provider. Provision the catalog with the EveryAPI CLI (`everyapi use pi-web`, which prepares an isolated Pi agent directory with the EveryAPI provider catalog and starts Pi Harness on its local loopback URL), or point `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` at a model already registered in `PI_AGENT_DIR`, which defaults to `~/.pi/agent`.
 
 ## Architecture
 
@@ -847,46 +847,46 @@ This uses Cordis injection for deterministic ordering. A late contribution fails
 
 Every route the bundled `@pi-harness/api-gateway` plugin registers is listed below. All of them are served on the same loopback port as the browser console and none of them has an authentication layer, so any local process — including a browser page that passes the `Host` and `Origin` checks — can reach them. A route that accepts a specific method answers every other method with `405`.
 
-| Route                      | Methods   | Behavior                                                                                                                     |
-| -------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `/api/status`              | GET       | Runtime, session, and model status snapshot with buffered agent events.                                                      |
-| `/api/config`              | GET, POST | Read the Pi settings snapshot; `POST` writes the default provider, model, and related settings through the settings manager. |
-| `/api/config/reload`       | POST      | Re-reads `settings.json` from the agent directory.                                                                           |
-| `/api/config/source`       | POST      | Replaces `$PI_AGENT_DIR/settings.json` with the posted JSON document (at most 128 KiB) and reloads it.                       |
-| `/api/models`              | GET       | Registered model catalog for the active runtime.                                                                             |
-| `/api/providers`           | GET       | Configured providers and their credential state.                                                                             |
-| `/api/providers/add`       | POST      | Stores a provider entry, including its base URL and API key, in the Pi settings file.                                        |
-| `/api/providers/test`      | POST      | Checks whether one provider is reachable and authenticated.                                                                  |
-| `/api/providers/refresh`   | POST      | Re-queries one provider's available models.                                                                                  |
-| `/api/plugins`             | GET       | Loader entries with their ids, module names, and status.                                                                     |
-| `/api/plugin-ui`           | GET       | Latest bounded panel snapshots contributed by plugins.                                                                       |
-| `/api/marketplace`         | GET       | Marketplace catalog search over the bundled entries.                                                                         |
-| `/api/marketplace/install` | POST      | Runs `npm install` for the requested package in the profile's install directory and adds a Loader entry for it.              |
-| `/api/plugins/toggle`      | POST      | Enables or disables a marketplace entry and rewrites the profile YAML.                                                       |
-| `/api/plugins/uninstall`   | POST      | Removes a marketplace entry from the profile and runs `npm uninstall` for its package.                                       |
-| `/api/commands`            | GET       | Commands registered by Pi extensions.                                                                                        |
-| `/api/workspaces`          | GET       | Sibling workspace directories of the active working directory.                                                               |
-| `/api/workspaces/pick`     | POST      | Opens the native macOS directory picker; other platforms receive `501`.                                                      |
-| `/api/model`               | POST      | Switches the active model selection.                                                                                         |
-| `/api/files`               | GET       | Bounded `git status` for the active workspace.                                                                               |
+| Route                      | Methods   | Behavior                                                                                                                          |
+| -------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/status`              | GET       | Runtime, session, and model status snapshot with buffered agent events.                                                           |
+| `/api/config`              | GET, POST | Read the Pi settings snapshot; `POST` writes the default provider, model, and related settings through the settings manager.      |
+| `/api/config/reload`       | POST      | Re-reads `settings.json` from the agent directory.                                                                                |
+| `/api/config/source`       | POST      | Replaces `$PI_AGENT_DIR/settings.json` with the posted JSON document (at most 128 KiB) and reloads it.                            |
+| `/api/models`              | GET       | Registered model catalog for the active runtime.                                                                                  |
+| `/api/providers`           | GET       | Configured providers and their credential state.                                                                                  |
+| `/api/providers/add`       | POST      | Stores a provider entry, including its base URL and API key, in the Pi settings file.                                             |
+| `/api/providers/test`      | POST      | Checks whether one provider is reachable and authenticated.                                                                       |
+| `/api/providers/refresh`   | POST      | Re-queries one provider's available models.                                                                                       |
+| `/api/plugins`             | GET       | Loader entries with their ids, module names, and status.                                                                          |
+| `/api/plugin-ui`           | GET       | Latest bounded panel snapshots contributed by plugins.                                                                            |
+| `/api/marketplace`         | GET       | Marketplace catalog search over the bundled entries.                                                                              |
+| `/api/marketplace/install` | POST      | Runs `npm install` for the requested package in the profile's install directory and adds a Loader entry for it.                   |
+| `/api/plugins/toggle`      | POST      | Enables or disables a marketplace entry and rewrites the profile YAML.                                                            |
+| `/api/plugins/uninstall`   | POST      | Removes a marketplace entry from the profile and runs `npm uninstall` for its package.                                            |
+| `/api/commands`            | GET       | Commands registered by Pi extensions.                                                                                             |
+| `/api/workspaces`          | GET       | Sibling workspace directories of the active working directory.                                                                    |
+| `/api/workspaces/pick`     | POST      | Opens the native macOS directory picker; other platforms receive `501`.                                                           |
+| `/api/model`               | POST      | Switches the active model selection.                                                                                              |
+| `/api/files`               | GET       | Bounded `git status` for the active workspace.                                                                                    |
 | `/api/workspace/files`     | GET       | Lists up to 5,000 tracked and non-ignored workspace files for search and `@file` completion; responses are cached for one second. |
-| `/api/files/diff`          | GET       | `git diff` for one workspace-relative path; a path that escapes the workspace is rejected.                                   |
-| `/api/files/commit`        | POST      | Commits the requested workspace paths.                                                                                       |
-| `/api/files/revert`        | POST      | Discards workspace changes for the requested paths and requires `confirm: true`.                                             |
-| `/api/events`              | GET       | Server-Sent Events stream of agent events.                                                                                   |
-| `/api/prompt`              | POST      | Starts a prompt run on the active session.                                                                                   |
-| `/api/abort`               | POST      | Aborts the active run.                                                                                                       |
-| `/api/session`             | GET       | Active session file, messages, entries, and buffered events.                                                                 |
-| `/api/session/new`         | POST      | Starts a new session; rejected with `409` while a prompt is streaming.                                                       |
-| `/api/session/open`        | POST      | Opens a stored session from the session directory.                                                                           |
-| `/api/session/rename`      | POST      | Renames a stored session; names are limited to 120 characters.                                                               |
-| `/api/session/delete`      | POST      | Deletes a stored session and requires `confirm: true`.                                                                       |
-| `/api/session/metadata`    | POST      | Updates the archived and pinned flags of a stored session.                                                                   |
-| `/api/sessions/batch`      | POST      | Applies delete, archive, unarchive, pin, or unpin to at most 100 stored sessions.                                            |
-| `/api/session/fork`        | POST      | Forks a stored session into a new one.                                                                                       |
-| `/api/session/import`      | POST      | Imports a bounded session document; rejected with `409` while a prompt is streaming.                                         |
-| `/api/session/export`      | GET       | Downloads one stored session as newline-delimited JSON.                                                                      |
-| `/api/sessions`            | GET       | Paginated stored session list, at most 100 entries per page.                                                                 |
+| `/api/files/diff`          | GET       | `git diff` for one workspace-relative path; a path that escapes the workspace is rejected.                                        |
+| `/api/files/commit`        | POST      | Commits the requested workspace paths.                                                                                            |
+| `/api/files/revert`        | POST      | Discards workspace changes for the requested paths and requires `confirm: true`.                                                  |
+| `/api/events`              | GET       | Server-Sent Events stream of agent events.                                                                                        |
+| `/api/prompt`              | POST      | Starts a prompt run on the active session.                                                                                        |
+| `/api/abort`               | POST      | Aborts the active run.                                                                                                            |
+| `/api/session`             | GET       | Active session file, messages, entries, and buffered events.                                                                      |
+| `/api/session/new`         | POST      | Starts a new session; rejected with `409` while a prompt is streaming.                                                            |
+| `/api/session/open`        | POST      | Opens a stored session from the session directory.                                                                                |
+| `/api/session/rename`      | POST      | Renames a stored session; names are limited to 120 characters.                                                                    |
+| `/api/session/delete`      | POST      | Deletes a stored session and requires `confirm: true`.                                                                            |
+| `/api/session/metadata`    | POST      | Updates the archived and pinned flags of a stored session.                                                                        |
+| `/api/sessions/batch`      | POST      | Applies delete, archive, unarchive, pin, or unpin to at most 100 stored sessions.                                                 |
+| `/api/session/fork`        | POST      | Forks a stored session into a new one.                                                                                            |
+| `/api/session/import`      | POST      | Imports a bounded session document; rejected with `409` while a prompt is streaming.                                              |
+| `/api/session/export`      | GET       | Downloads one stored session as newline-delimited JSON.                                                                           |
+| `/api/sessions`            | GET       | Paginated stored session list, at most 100 entries per page.                                                                      |
 
 The session and file routes validate their paths against the session directory and the active workspace before touching the filesystem. Workspace file discovery uses Git's tracked and non-ignored file catalogue when available; outside Git it performs a bounded walk that skips generated directories and symlinks. Marketplace mutations are serialized so a second install, toggle, or uninstall receives `409` while one is running.
 

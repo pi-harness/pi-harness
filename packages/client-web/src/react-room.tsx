@@ -33,7 +33,16 @@ import {
   updatePromptDraft,
   type ClientPromptUiState,
 } from "./prompt-ui.js";
-import { compactThinkingEvents, eventDataSource, eventKindLabel, eventOrigin, eventOutputText, formatEventClock, formatEventDuration, mergeTrajectoryEvents } from "./runtime-events.js";
+import {
+  compactThinkingEvents,
+  eventDataSource,
+  eventKindLabel,
+  eventOrigin,
+  eventOutputText,
+  formatEventClock,
+  formatEventDuration,
+  mergeTrajectoryEvents,
+} from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { type ChatToolCall, messageText, messageThinking, projectChatTurns } from "./message-content.js";
 import {
@@ -361,7 +370,7 @@ export function providerTestAuthText(auth: unknown): string | undefined {
   if (auth === null || typeof auth !== "object") return undefined;
   const status = "status" in auth ? auth.status : undefined;
   if (status === "cli-auth-missing") return t("未检测到认证");
-  if (status === "relay-key-missing") return t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。");
+  if (status === "relay-key-missing") return t("请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。");
   return "label" in auth && typeof auth.label === "string" ? auth.label : undefined;
 }
 
@@ -980,7 +989,7 @@ export function ProviderAuthNotice({ model, providers, onConfigure }: { model?: 
         <span>{provider.name}</span>
         <span>
           {provider.provider === "everyapi"
-            ? t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
+            ? t("请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
             : t("请在设置 → 提供商中配置 API key，然后重试。")}
         </span>
       </div>
@@ -1002,11 +1011,19 @@ export function PromptError({ message, action = "prompt" }: { message: string; a
     <div className="action-error" role="alert">
       <div className="action-error-summary">
         <strong>
-          {everyApiAuth ? t("EveryAPI 认证未注入当前进程") : requiresAuth ? t("模型尚未配置认证") : action === "model" ? t("模型切换失败") : action === "session" ? t("会话操作失败") : t("发送失败")}
+          {everyApiAuth
+            ? t("EveryAPI 认证未注入当前进程")
+            : requiresAuth
+              ? t("模型尚未配置认证")
+              : action === "model"
+                ? t("模型切换失败")
+                : action === "session"
+                  ? t("会话操作失败")
+                  : t("发送失败")}
         </strong>
         <span>
           {everyApiAuth
-            ? t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
+            ? t("请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
             : requiresAuth
               ? t("请在设置 → 提供商中配置 API key，然后重试。")
               : action === "model"
@@ -8003,17 +8020,12 @@ export function nextSessionSearchPage(currentPage: number, previousQuery: string
 const GLOBAL_SEARCH_PAGE_SIZE = 100;
 const MAX_GLOBAL_SEARCH_SESSION_PAGES = 100;
 
-export async function listAllSessionsForGlobalSearch(
-  api: Pick<ClientApi, "listSessions">,
-  query: string,
-): Promise<readonly Record<string, unknown>[]> {
+export async function listAllSessionsForGlobalSearch(api: Pick<ClientApi, "listSessions">, query: string): Promise<readonly Record<string, unknown>[]> {
   const first = await api.listSessions(0, GLOBAL_SEARCH_PAGE_SIZE, true, query);
   if (!first.hasNext) return first.items;
   // Fetch the remaining pages concurrently: global search should cover a large history without making the dialog wait on a serial request chain. The cap prevents an unexpectedly huge or inconsistent total from creating unbounded work.
   const pageCount = Math.min(MAX_GLOBAL_SEARCH_SESSION_PAGES, Math.max(2, Math.ceil(first.total / GLOBAL_SEARCH_PAGE_SIZE)));
-  const remaining = await Promise.all(
-    Array.from({ length: pageCount - 1 }, (_, index) => api.listSessions(index + 1, GLOBAL_SEARCH_PAGE_SIZE, true, query)),
-  );
+  const remaining = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => api.listSessions(index + 1, GLOBAL_SEARCH_PAGE_SIZE, true, query)));
   return [first, ...remaining].flatMap((page) => page.items);
 }
 
@@ -9260,10 +9272,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [commandOpen, data.status?.status, details, globalSearchOpen, sessionDialog, stopRun]);
-  const events = useMemo(
-    () => mergeTrajectoryEvents(data.session?.entries ?? [], data.session?.events ?? []),
-    [data.session?.entries, data.session?.events],
-  );
+  const events = useMemo(() => mergeTrajectoryEvents(data.session?.entries ?? [], data.session?.events ?? []), [data.session?.entries, data.session?.events]);
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
   const chatTurns = useMemo(() => projectChatTurns(data.session?.messages ?? []), [data.session?.messages]);
   // Every streamed delta has to re-stick, not just the finished turn: without the streaming lengths in here the viewport freezes while the answer keeps growing below the fold and only jumps to the bottom once the turn ends and the message count changes.
@@ -9935,30 +9944,28 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setPromptError("");
                   setModelSelectionError("");
                   setPendingModel(selectedModel);
-                  void api
-                    .selectModel(provider, model)
-                    .then(
-                      (result) => {
-                        if (promptScopeRef.current !== promptScope) return;
-                        // The mutation response is newer than every snapshot already in flight. Advance the live-status barrier before applying it so an older poll cannot visually undo a successful switch.
-                        liveRefreshSequenceRef.current.status = Math.max(liveRefreshSequenceRef.current.status, refreshSequenceRef.current.requested + 1);
-                        setData((current) => ({
-                          ...current,
-                          status: current.status ? { ...current.status, model: `${result.model.provider}/${result.model.id}` } : current.status,
-                          models: current.models.map((item) => ({
-                            ...item,
-                            active: item.provider === result.model.provider && item.id === result.model.id,
-                          })),
-                        }));
-                        setPendingModel(undefined);
-                        void refresh();
-                      },
-                      (cause: unknown) => {
-                        if (promptScopeRef.current !== promptScope) return;
-                        setPendingModel(undefined);
-                        setModelSelectionError(cause instanceof Error ? cause.message : String(cause));
-                      },
-                    );
+                  void api.selectModel(provider, model).then(
+                    (result) => {
+                      if (promptScopeRef.current !== promptScope) return;
+                      // The mutation response is newer than every snapshot already in flight. Advance the live-status barrier before applying it so an older poll cannot visually undo a successful switch.
+                      liveRefreshSequenceRef.current.status = Math.max(liveRefreshSequenceRef.current.status, refreshSequenceRef.current.requested + 1);
+                      setData((current) => ({
+                        ...current,
+                        status: current.status ? { ...current.status, model: `${result.model.provider}/${result.model.id}` } : current.status,
+                        models: current.models.map((item) => ({
+                          ...item,
+                          active: item.provider === result.model.provider && item.id === result.model.id,
+                        })),
+                      }));
+                      setPendingModel(undefined);
+                      void refresh();
+                    },
+                    (cause: unknown) => {
+                      if (promptScopeRef.current !== promptScope) return;
+                      setPendingModel(undefined);
+                      setModelSelectionError(cause instanceof Error ? cause.message : String(cause));
+                    },
+                  );
                 }}
               >
                 {data.models.length ? (

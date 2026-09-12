@@ -1064,7 +1064,7 @@
   "请在设置 → 提供商中配置 API key，然后重试。": "Configurez une clé d'API dans Réglages → Fournisseurs, puis réessayez.",
   "请求保留": "Requêtes conservées",
   "请求失败（HTTP {status}）：请确认 Pi Harness 仍在运行，然后重试。": "Échec de la requête (HTTP {status}) : vérifiez que Pi Harness tourne toujours, puis réessayez.",
-  "请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。": "Lancez-le avec everyapi use pi-harness, ou définissez EVERYAPI_RELAY_KEY puis redémarrez.",
+  "请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。": "Lancez-le avec everyapi use pi-web, ou définissez EVERYAPI_RELAY_KEY puis redémarrez.",
   "读取 MCP 运行状态；工具列表通过 mcp_panel 的 tools 操作查询，健康建议通过 health 操作查看。": "Lit l'état d'exécution MCP ; interrogez la liste des outils avec l'action tools de mcp_panel et consultez les recommandations de santé avec son action health.",
   "读取中": "Lecture en cours",
   "读取中…": "Lecture…",
