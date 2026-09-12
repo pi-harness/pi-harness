@@ -7842,6 +7842,8 @@ export function CommandPalette({
   onUse: (value: string) => void;
 }) {
   const visible = filterCommands(commands, query);
+  const activeOptionRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => scrollActiveOptionIntoView(activeOptionRef.current), [activeIndex, query]);
   const execute = (index: number) => {
     const command = visible[index];
     if (!command) return;
@@ -7859,9 +7861,11 @@ export function CommandPalette({
             return (
               <button
                 aria-selected={index === activeIndex}
+                id={`command-menu-option-${index}`}
                 key={`${command.invocationName}:${command.source ?? "runtime"}`}
                 onClick={() => execute(index)}
                 onMouseEnter={() => onActiveIndexChange(index)}
+                ref={index === activeIndex ? activeOptionRef : undefined}
                 role="option"
                 type="button"
               >
@@ -7903,6 +7907,8 @@ function PromptCompletionPopover({
     kind === "command"
       ? filterCommands(commands, query).slice(0, 12)
       : files.filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 12);
+  const activeOptionRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => scrollActiveOptionIntoView(activeOptionRef.current), [activeIndex, kind, query]);
   return (
     <div
       aria-label={kind === "command" ? t("命令补全") : t("文件补全")}
@@ -7924,6 +7930,7 @@ function PromptCompletionPopover({
               key={`${kind}:${label}`}
               onClick={() => onUse(label)}
               onMouseEnter={() => onActiveIndexChange(index)}
+              ref={index === activeIndex ? activeOptionRef : undefined}
               role="option"
               type="button"
             >
@@ -7944,8 +7951,21 @@ type GlobalSearchItem =
   | { kind: "session"; session: Record<string, unknown> }
   | { kind: "file"; file: ClientFile };
 
-export function scrollActiveSearchOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
+export function scrollActiveOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
   option?.scrollIntoView({ block: "nearest" });
+}
+
+export function commandSearchAccessibility(
+  open: boolean,
+  activeIndex: number,
+  itemCount: number,
+): { readonly "aria-activedescendant": string | undefined; readonly "aria-autocomplete": "list" | undefined; readonly role: "combobox" | undefined } {
+  const selectedIndex = itemCount > 0 ? Math.min(Math.max(activeIndex, 0), itemCount - 1) : -1;
+  return {
+    "aria-activedescendant": open && selectedIndex >= 0 ? `command-menu-option-${selectedIndex}` : undefined,
+    "aria-autocomplete": open ? "list" : undefined,
+    role: open ? "combobox" : undefined,
+  };
 }
 
 export function GlobalSearch({
@@ -7983,7 +8003,7 @@ export function GlobalSearch({
   const selectedIndex = items.length ? Math.min(activeIndex, items.length - 1) : -1;
   const activeItemId = selectedIndex >= 0 ? `global-search-option-${selectedIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [query]);
-  useEffect(() => scrollActiveSearchOptionIntoView(activeOptionRef.current), [activeItemId, query]);
+  useEffect(() => scrollActiveOptionIntoView(activeOptionRef.current), [activeItemId, query]);
   const execute = (item: GlobalSearchItem | undefined) => {
     if (!item) return;
     if (item.kind === "command") onUse(`/${item.command.invocationName}`);
@@ -9833,6 +9853,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const groups = sessionGroups(filteredSessions);
   const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
   const visibleCommands = filterCommands(data.commands, commandQuery);
+  const commandActiveIndex = Math.min(commandIndex, Math.max(visibleCommands.length - 1, 0));
   const betterSidebarPanel = data.pluginPanels.find((panel) => panel.id === "better-sidebar-panel");
   const betterSidebarData = betterSidebarPanelView(betterSidebarPanel?.data, data.session?.sessionId);
   const themeStudioPanel = data.pluginPanels.find((panel) => panel.id === "theme-studio-panel");
@@ -9878,6 +9899,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           </button>
           <div className="session-search" data-command-palette>
             <input
+              {...commandSearchAccessibility(commandOpen, commandActiveIndex, visibleCommands.length)}
               aria-controls={commandOpen ? "command-menu" : undefined}
               aria-expanded={commandOpen}
               aria-label={commandOpen ? t("搜索命令") : t("搜索会话")}
@@ -9901,7 +9923,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setCommandIndex((index) => (index - 1 + visibleCommands.length) % visibleCommands.length);
                 } else if (event.key === "Enter" && visibleCommands.length) {
                   event.preventDefault();
-                  insertCommand(`/${visibleCommands[commandIndex]?.invocationName ?? ""}`);
+                  insertCommand(`/${visibleCommands[commandActiveIndex]?.invocationName ?? ""}`);
                 }
               }}
               placeholder={commandOpen ? t("输入命令名称或描述") : t("搜索会话 · ⌘K 命令")}
@@ -9911,7 +9933,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             />
             {commandOpen && (
               <CommandPalette
-                activeIndex={commandIndex}
+                activeIndex={commandActiveIndex}
                 commands={data.commands}
                 onActiveIndexChange={setCommandIndex}
                 onUse={insertCommand}
