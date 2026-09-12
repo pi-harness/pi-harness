@@ -42,3 +42,56 @@ test("keeps the active search result visible while keyboard focus stays on the c
 
   expect(received).toEqual({ block: "nearest" });
 });
+
+test("merges the workspace catalogue with live Git changes for file discovery", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    mergeSearchableFiles?: (
+      workspace: readonly Record<string, string>[],
+      changed: readonly Record<string, string>[],
+    ) => readonly Record<string, string>[];
+  };
+
+  expect(module.mergeSearchableFiles).toBeTypeOf("function");
+  if (!module.mergeSearchableFiles) return;
+  expect(
+    module.mergeSearchableFiles(
+      [
+        { path: "deleted.ts", status: "", label: "workspace" },
+        { path: "src/app.ts", status: "", label: "workspace" },
+      ],
+      [
+        { path: "deleted.ts", status: "D", label: "deleted" },
+        { path: "src/app.ts", status: "M", label: "modified" },
+        { path: "src/new.ts", status: "??", label: "untracked" },
+      ],
+    ),
+  ).toEqual([
+    { path: "src/app.ts", status: "M", label: "modified" },
+    { path: "src/new.ts", status: "??", label: "untracked" },
+  ]);
+});
+
+test("presents a clean workspace file by its path in global search", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    GlobalSearch: (props: Record<string, unknown>) => ReturnType<typeof createElement>;
+    fileDetailSource?: (file: Record<string, string>) => string;
+  };
+  const html = renderToStaticMarkup(
+    createElement(module.GlobalSearch, {
+      commands: [],
+      sessions: [],
+      files: [{ path: "README.md", status: "", label: "workspace" }],
+      filesTruncated: true,
+      onClose: () => {},
+      onUse: () => {},
+      onOpenSession: () => {},
+      onOpenFile: () => {},
+    }),
+  );
+
+  expect(html).toContain("<strong>README.md</strong>");
+  expect(html).toContain("文件索引已截断，搜索结果可能不完整。");
+  expect(module.fileDetailSource).toBeTypeOf("function");
+  expect(module.fileDetailSource?.({ path: "README.md", status: "", label: "workspace" })).toBe("/api/workspace/files");
+  expect(module.fileDetailSource?.({ path: "src/app.ts", status: "M", label: "modified" })).toBe("/api/files");
+});
