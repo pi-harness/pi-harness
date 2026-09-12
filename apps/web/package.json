@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/web",
-  "version": "0.1.65",
+  "version": "0.1.66",
   "private": true,
   "description": "Browser application entry for Pi Harness",
   "type": "module",
@@ -10,11 +10,11 @@
     "dev": "vp dev"
   },
   "dependencies": {
-    "@pi-harness/api-gateway": "0.1.65",
-    "@pi-harness/client-web": "0.1.65",
-    "@pi-harness/core": "0.1.65",
-    "@pi-harness/host-webserver": "0.1.65",
-    "@pi-harness/web-app": "0.1.65"
+    "@pi-harness/api-gateway": "0.1.66",
+    "@pi-harness/client-web": "0.1.66",
+    "@pi-harness/core": "0.1.66",
+    "@pi-harness/host-webserver": "0.1.66",
+    "@pi-harness/web-app": "0.1.66"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
