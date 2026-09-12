@@ -2092,7 +2092,7 @@ export default {
             sendJson(response, 409, { error: "Session switching requires JSONL session storage" });
             return;
           }
-          const items = await SessionManager.list(activeCwd(services), manager.getSessionDir());
+          const items = (await SessionManager.list(activeCwd(services), manager.getSessionDir())).filter((item) => sessionPathInDirectory(item.path, manager));
           const target = items.find(
             (item) =>
               (typeof payload.path === "string" && item.path === payload.path) || (typeof payload.sessionId === "string" && item.id === payload.sessionId),
@@ -2456,7 +2456,9 @@ export default {
           const query = url.searchParams.get("q")?.trim().toLowerCase() ?? "";
           const metadata = await readSessionMetadataLocked(manager, context.logger);
           const items =
-            typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(activeCwd(services), manager.getSessionDir()) : [];
+            typeof manager.isPersisted === "function" && manager.isPersisted()
+              ? (await SessionManager.list(activeCwd(services), manager.getSessionDir())).filter((item) => sessionPathInDirectory(item.path, manager))
+              : [];
           const filtered = items.filter((item) => {
             if (!includeArchived && metadata[item.path]?.archived === true) return false;
             if (!query) return true;
