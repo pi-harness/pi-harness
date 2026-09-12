@@ -21,6 +21,7 @@ export type ClientEventStreamState = "connecting" | "open" | "reconnecting" | "c
 export interface ClientSession {
   readonly sessionId: string;
   readonly sessionFile?: string;
+  readonly name?: string;
   readonly messages: readonly Record<string, unknown>[];
   readonly entries: readonly unknown[];
   readonly events: readonly Record<string, unknown>[];

@@ -1774,6 +1774,40 @@ describe("API gateway plugin", () => {
     });
   });
 
+  test("returns the current session name after renaming an empty session", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-session-name-"));
+    temporaryDirectories.push(workspace);
+    const sessionDir = join(workspace, "sessions");
+    const sessionManager = SessionManager.create(workspace, sessionDir);
+    const sessionFile = sessionManager.newSession();
+    if (!sessionFile) throw new Error("Unable to create test session");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: sessionManager.getSessionId(),
+      sessionFile,
+      sessionManager,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const rename = await fetch(context.webServer.url + "/api/session/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: sessionFile, name: "Audit smoke session" }),
+    });
+    expect(rename.status).toBe(200);
+    const response = await fetch(context.webServer.url + "/api/session");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ name: "Audit smoke session", messages: [] });
+  });
+
   test("opens an event stream with the current trajectory snapshot", async () => {
     const context = new Context();
     contexts.push(context);
