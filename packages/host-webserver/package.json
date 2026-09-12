@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/host-webserver",
-  "version": "0.1.88",
+  "version": "0.1.89",
   "private": true,
   "description": "Cordis route-registration service for the Pi Harness web host",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
