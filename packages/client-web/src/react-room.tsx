@@ -995,13 +995,15 @@ export function modelSelectable(model: Pick<ClientModel, "provider">, providers:
   return providers.find((provider) => provider.provider === model.provider)?.auth?.configured !== false;
 }
 
-export function PromptError({ message, action = "prompt" }: { message: string; action?: "prompt" | "model" }) {
+export function PromptError({ message, action = "prompt" }: { message: string; action?: "prompt" | "model" | "session" }) {
   const everyApiAuth = /No API key(?: found)? for everyapi/i.test(message);
   const requiresAuth = everyApiAuth || /No API key(?: found)?|authentication|未配置认证/i.test(message);
   return (
     <div className="action-error" role="alert">
       <div className="action-error-summary">
-        <strong>{everyApiAuth ? t("EveryAPI 认证未注入当前进程") : requiresAuth ? t("模型尚未配置认证") : action === "model" ? t("模型切换失败") : t("发送失败")}</strong>
+        <strong>
+          {everyApiAuth ? t("EveryAPI 认证未注入当前进程") : requiresAuth ? t("模型尚未配置认证") : action === "model" ? t("模型切换失败") : action === "session" ? t("会话操作失败") : t("发送失败")}
+        </strong>
         <span>
           {everyApiAuth
             ? t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
@@ -1009,7 +1011,9 @@ export function PromptError({ message, action = "prompt" }: { message: string; a
               ? t("请在设置 → 提供商中配置 API key，然后重试。")
               : action === "model"
                 ? t("运行时没有接受模型切换；当前模型保持不变。")
-                : t("运行时没有接受这次请求，请重试或查看错误详情。")}
+                : action === "session"
+                  ? t("运行时没有接受这次会话操作，请重试。")
+                  : t("运行时没有接受这次请求，请重试或查看错误详情。")}
         </span>
       </div>
       <details>
@@ -8536,6 +8540,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
+  const [sessionActionError, setSessionActionError] = useState("");
   const [includeArchivedSessions, setIncludeArchivedSessions] = useState(false);
   const [sessionPage, setSessionPage] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
@@ -9233,6 +9238,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     if (!prompt || !delivery) return;
     const submissionId = ++promptSubmissionIdRef.current;
     setModelSelectionError("");
+    setSessionActionError("");
     setStoredPromptUi((current) => startPromptSubmission(current, data.session?.sessionId, submissionId, prompt));
     setStreamingAssistant(undefined);
     stickToBottomRef.current = true;
@@ -9354,6 +9360,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const promptScope = promptScopeRef.current;
     setSessionActionBusy(true);
     setPromptError("");
+    setSessionActionError("");
     try {
       await action();
       await refresh();
@@ -9367,7 +9374,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionSelectionMode(false);
       setSessionDialog(undefined);
     } catch (cause: unknown) {
-      setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause));
+      if (promptScopeRef.current === promptScope) setSessionActionError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSessionActionBusy(false);
     }
@@ -9695,7 +9702,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         </div>
         <div className="composer-stack">
           <ProviderAuthNotice model={data.status?.model} providers={data.providers} onConfigure={() => setSettings("providers")} />
-          {modelSelectionError ? <PromptError action="model" message={modelSelectionError} /> : promptError ? <PromptError message={promptError} /> : null}
+          {modelSelectionError ? (
+            <PromptError action="model" message={modelSelectionError} />
+          ) : promptError ? (
+            <PromptError message={promptError} />
+          ) : sessionActionError ? (
+            <PromptError action="session" message={sessionActionError} />
+          ) : null}
           {annotationSelection ? (
             <div aria-label={t("添加批注")} className="rounded-lg border border-[#cdddf8] bg-[var(--color-blue-soft)] px-3 py-2">
               <div className="flex items-start gap-2">

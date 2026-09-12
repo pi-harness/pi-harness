@@ -1238,5 +1238,7 @@
   "打开": "Öffnen",
   "已从会话日志恢复 {count} 个历史事件": "{count} historische Ereignisse aus dem Sitzungsprotokoll wiederhergestellt",
   "更早的历史事件已省略": "Frühere historische Ereignisse ausgelassen",
-  "全局搜索结果": "Ergebnisse der globalen Suche"
+  "全局搜索结果": "Ergebnisse der globalen Suche",
+  "会话操作失败": "Sitzungsaktion fehlgeschlagen",
+  "运行时没有接受这次会话操作，请重试。": "Die Laufzeit hat diese Sitzungsaktion nicht akzeptiert. Bitte erneut versuchen."
 }

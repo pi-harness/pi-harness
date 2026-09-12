@@ -1238,5 +1238,7 @@
   "打开": "Abrir",
   "已从会话日志恢复 {count} 个历史事件": "Se recuperaron {count} eventos históricos del registro de la sesión",
   "更早的历史事件已省略": "Se omitieron eventos históricos anteriores",
-  "全局搜索结果": "Resultados de búsqueda global"
+  "全局搜索结果": "Resultados de búsqueda global",
+  "会话操作失败": "La acción de sesión falló",
+  "运行时没有接受这次会话操作，请重试。": "El runtime no aceptó esta acción de sesión; inténtalo de nuevo."
 }
