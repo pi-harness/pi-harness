@@ -2303,6 +2303,15 @@ export default {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
+          // Pi defers creating a JSONL file for a new empty session until its first assistant response. A duplicate is still a durable action, so materialize the active session before listing it; missing non-active paths remain a 404.
+          if (sourcePath === services.runtime.session.sessionFile && !existsSync(sourcePath)) {
+            try {
+              persistSessionBeforeFirstAssistant(manager);
+            } catch (error) {
+              // Another tab may win the first-persistence race between existsSync and writeFileSync; its file is the same fork source, so continue with the list.
+              if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            }
+          }
           const sessions = await SessionManager.list(activeCwd(services), manager.getSessionDir());
           const source = sessions.find((item) => item.path === sourcePath);
           if (!source) {

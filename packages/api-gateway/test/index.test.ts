@@ -2101,6 +2101,51 @@ describe("API gateway plugin", () => {
     expect(sessionPayload.items).toEqual(expect.arrayContaining([expect.objectContaining({ sessionId: fork.sessionId, forked: true })]));
   });
 
+  test("forks an empty active session before its JSONL file is created", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-active-empty-fork-"));
+    temporaryDirectories.push(directory);
+    const launchCwd = join(directory, "launch");
+    const activeCwd = join(directory, "active");
+    const manager = SessionManager.create(activeCwd, directory);
+    const sourcePath = manager.getSessionFile();
+    expect(sourcePath).toBeDefined();
+    const session = {
+      get sessionId() {
+        return manager.getSessionId();
+      },
+      get sessionFile() {
+        return manager.getSessionFile();
+      },
+      get messages() {
+        return manager.buildSessionContext().messages;
+      },
+      isStreaming: false,
+      sessionManager: manager,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, sessionRuntime: { cwd: activeCwd }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: launchCwd, agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: sourcePath }),
+    });
+
+    expect(response.status).toBe(200);
+    const fork = (await response.json()) as { sessionId: string; sessionFile?: string; cwd: string };
+    expect(fork).toMatchObject({ cwd: activeCwd });
+    expect(fork.sessionFile).toBeDefined();
+    expect(fork.sessionFile).not.toBe(sourcePath);
+    const sourceContent = await readFile(sourcePath ?? "", "utf8");
+    expect(sourceContent).toContain('"type":"session"');
+  });
+
   test("opens a forked persisted session from the session list and exposes its relationship", async () => {
     const context = new Context();
     contexts.push(context);
