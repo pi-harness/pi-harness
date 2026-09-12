@@ -7,6 +7,7 @@ import type {
   AgentSessionRuntime,
   AgentSessionServices,
   ExtensionError,
+  PromptOptions,
   SessionManager,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -55,7 +56,7 @@ export interface PiMcpService {
 export interface PiRuntimeService {
   readonly session: AgentSession;
   readonly sessionRuntime: AgentSessionRuntime;
-  prompt(text: string): Promise<void>;
+  prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior">): Promise<void>;
   abort(): Promise<void>;
   dispose(): Promise<void>;
 }

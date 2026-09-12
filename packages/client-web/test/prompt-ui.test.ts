@@ -2,6 +2,13 @@ import { describe, expect, test } from "vitest";
 import * as promptUi from "../src/prompt-ui.js";
 
 describe("prompt UI state", () => {
+  test("allows a steering submission while the original prompt request is still busy", () => {
+    expect(promptUi.promptDelivery(false, "ready")).toBe("prompt");
+    expect(promptUi.promptDelivery(true, "ready")).toBeUndefined();
+    expect(promptUi.promptDelivery(true, "running")).toBe("steer");
+    expect(promptUi.promptDelivery(false, "running")).toBe("steer");
+  });
+
   test("clears private composer state when the active session changes", () => {
     const previous = {
       sessionId: "session-one",

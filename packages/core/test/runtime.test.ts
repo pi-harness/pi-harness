@@ -26,6 +26,15 @@ async function createRuntimeContext(): Promise<{ context: Context; responseText:
 }
 
 describe("Pi runtime plugin", () => {
+  test("forwards streaming delivery options to the active Pi session", async () => {
+    const prompt = vi.fn(() => Promise.resolve());
+    const runtime = new PiRuntime({ session: { prompt } } as never);
+
+    await runtime.prompt("correct course", { streamingBehavior: "steer" });
+
+    expect(prompt).toHaveBeenCalledWith("correct course", { streamingBehavior: "steer" });
+  });
+
   test("completes a deterministic Pi agent run", async () => {
     const { context, responseText, callCount } = await createRuntimeContext();
 

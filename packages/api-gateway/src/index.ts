@@ -1782,18 +1782,39 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
-        if (busy) {
-          sendJson(response, 409, { error: "Another prompt is already running" });
-          return;
-        }
-        busy = true;
+        let ownsBusy = false;
         let unsubscribe: (() => void) | undefined;
         try {
-          const payload = JSON.parse(await bodyText(request)) as { prompt?: unknown };
+          const payload = JSON.parse(await bodyText(request)) as { prompt?: unknown; streamingBehavior?: unknown };
           if (typeof payload.prompt !== "string" || payload.prompt.trim().length === 0) {
             sendJson(response, 400, { error: "Prompt must be a non-empty string" });
             return;
           }
+          if (payload.streamingBehavior !== undefined && payload.streamingBehavior !== "steer" && payload.streamingBehavior !== "followUp") {
+            sendJson(response, 400, { error: 'streamingBehavior must be "steer" or "followUp"' });
+            return;
+          }
+          const streamingBehavior = payload.streamingBehavior;
+          if (services.runtime.session.isStreaming) {
+            if (!streamingBehavior) {
+              sendJson(response, 409, { error: "Another prompt is already running; choose steer or followUp delivery" });
+              return;
+            }
+            await services.runtime.prompt(payload.prompt, { streamingBehavior });
+            sendJson(response, 200, {
+              reply: "",
+              messages: services.runtime.session.messages.length,
+              queued: true,
+              streamingBehavior,
+            });
+            return;
+          }
+          if (busy) {
+            sendJson(response, 409, { error: "Another prompt is already running" });
+            return;
+          }
+          busy = true;
+          ownsBusy = true;
           const chunks: string[] = [];
           unsubscribe = services.runtime.session.subscribe((event) => {
             if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") chunks.push(event.assistantMessageEvent.delta);
@@ -1813,7 +1834,7 @@ export default {
           sendJson(response, 400, { error: errorText(error) });
         } finally {
           unsubscribe?.();
-          busy = false;
+          if (ownsBusy) busy = false;
         }
       },
     });

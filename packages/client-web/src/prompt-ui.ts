@@ -7,6 +7,11 @@ export interface ClientPromptUiState {
   readonly submissionId?: number;
 }
 
+export function promptDelivery(promptBusy: boolean, runtimeStatus: string | undefined): "prompt" | "steer" | undefined {
+  if (runtimeStatus === "running") return "steer";
+  return promptBusy ? undefined : "prompt";
+}
+
 export function promptUiForSession(state: ClientPromptUiState, sessionId: string | undefined): ClientPromptUiState {
   return state.sessionId === sessionId ? state : { sessionId, draft: "", pendingPrompt: "", busy: false, error: "" };
 }

@@ -1,4 +1,4 @@
-import type { AgentSession, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionRuntime, PromptOptions } from "@earendil-works/pi-coding-agent";
 import type { PiRuntimeService } from "@pi-harness/plugin-api";
 
 export class PiRuntimeDisposedError extends Error {
@@ -23,9 +23,9 @@ export class PiRuntime implements PiRuntimeService {
     return this.sessionRuntime.session;
   }
 
-  async prompt(text: string): Promise<void> {
+  async prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior">): Promise<void> {
     if (this.#disposed) throw new PiRuntimeDisposedError();
-    await this.session.prompt(text);
+    await this.session.prompt(text, options);
   }
 
   async abort(): Promise<void> {

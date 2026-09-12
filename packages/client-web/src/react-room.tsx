@@ -25,6 +25,7 @@ import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind
 import {
   failPromptSubmission,
   finishPromptSubmission,
+  promptDelivery,
   promptUiForSession,
   reportPromptRefreshFailure,
   runPromptSubmission,
@@ -9125,12 +9126,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const question = draft.trim();
     const prompt = annotations.length > 0 ? formatAnnotationPrompt(annotations, question) : question;
     const submittedSessionId = annotationDraft.sessionId;
-    if (!prompt || promptBusy) return;
+    const delivery = promptDelivery(promptBusy, data.status?.status);
+    if (!prompt || !delivery) return;
     const submissionId = ++promptSubmissionIdRef.current;
     setStoredPromptUi((current) => startPromptSubmission(current, data.session?.sessionId, submissionId, prompt));
     setStreamingAssistant(undefined);
     stickToBottomRef.current = true;
-    void runPromptSubmission(() => api.prompt(prompt), refresh, {
+    void runPromptSubmission(() => api.prompt(prompt, delivery === "steer" ? "steer" : undefined), refresh, {
       accepted: () => {
         setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
       },
@@ -9787,13 +9789,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               </span>
               <span className="composer-hint">{t("⌘↵ 发送 · ⌘K 命令 · ⌃C 中断")}</span>
               <button
-                aria-label={promptBusy ? t("发送中") : t("发送消息")}
+                aria-label={promptDelivery(promptBusy, data.status?.status) ? t("发送消息") : t("发送中")}
                 className="send-button"
-                disabled={promptBusy || !draft.trim()}
-                title={promptBusy ? t("正在发送") : t("发送消息（⌘↵）")}
+                disabled={!promptDelivery(promptBusy, data.status?.status) || !draft.trim()}
+                title={promptDelivery(promptBusy, data.status?.status) ? t("发送消息（⌘↵）") : t("正在发送")}
                 type="submit"
               >
-                {promptBusy ? "…" : "↑"}
+                {promptDelivery(promptBusy, data.status?.status) ? "↑" : "…"}
               </button>
             </div>
           </form>
