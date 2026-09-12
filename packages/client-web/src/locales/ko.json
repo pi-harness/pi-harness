@@ -1064,7 +1064,7 @@
   "请在设置 → 提供商中配置 API key，然后重试。": "설정 → 공급자에서 API 키를 설정한 뒤 다시 시도하세요.",
   "请求保留": "요청 보관",
   "请求失败（HTTP {status}）：请确认 Pi Harness 仍在运行，然后重试。": "요청 실패(HTTP {status}): Pi Harness가 아직 실행 중인지 확인한 뒤 다시 시도하세요.",
-  "请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。": "everyapi use pi-harness로 실행하거나, EVERYAPI_RELAY_KEY를 설정하고 다시 시작하세요.",
+  "请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。": "everyapi use pi-web로 실행하거나, EVERYAPI_RELAY_KEY를 설정하고 다시 시작하세요.",
   "读取 MCP 运行状态；工具列表通过 mcp_panel 的 tools 操作查询，健康建议通过 health 操作查看。": "MCP 런타임 상태를 읽습니다. 도구 목록은 mcp_panel의 tools 작업으로 조회하고, 상태 권고는 health 작업으로 확인합니다.",
   "读取中": "읽는 중",
   "读取中…": "읽는 중…",

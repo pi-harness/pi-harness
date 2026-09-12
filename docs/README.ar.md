@@ -29,7 +29,7 @@ npm run web
 
 أهم متغيرات البيئة هي `PI_HARNESS_HOST` و`PI_HARNESS_PORT` و`PI_AGENT_DIR` و`PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL`. العنوان الافتراضي هو `http://127.0.0.1:3141`.
 
-يختار profile وحدة تحكم الويب ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) النموذج `everyapi/deepseek-v4-flash` افتراضياً. واختيار النموذج fail-closed: إذا لم يكن ذلك المزوّد مسجّلاً في `PI_AGENT_DIR` النشط، يتوقف التشغيل بالخطأ `Pi model is not registered: <provider>/<model>` بدلاً من التحوّل إلى مزوّد آخر. لذلك جهّز كتالوج النماذج أولاً بعد التثبيت الجديد: شغّل `everyapi use pi-harness` إن كانت أداة EveryAPI CLI مثبّتة، فهي تُهيّئ مجلد Pi agent معزولاً يحتوي كتالوج مزوّدي EveryAPI ثم تُشغّل Pi Harness، أو وجّه `PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL` إلى نموذج مسجّل مسبقاً في ذلك المجلد. أما profile الافتراضي `default` المضمّن في CLI فيختار `deepseek/deepseek-v4-flash`.
+يختار profile وحدة تحكم الويب ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) النموذج `everyapi/deepseek-v4-flash` افتراضياً. واختيار النموذج fail-closed: إذا لم يكن ذلك المزوّد مسجّلاً في `PI_AGENT_DIR` النشط، يتوقف التشغيل بالخطأ `Pi model is not registered: <provider>/<model>` بدلاً من التحوّل إلى مزوّد آخر. لذلك جهّز كتالوج النماذج أولاً بعد التثبيت الجديد: شغّل `everyapi use pi-web` إن كانت أداة EveryAPI CLI مثبّتة، فهي تُهيّئ مجلد Pi agent معزولاً يحتوي كتالوج مزوّدي EveryAPI ثم تُشغّل Pi Harness، أو وجّه `PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL` إلى نموذج مسجّل مسبقاً في ذلك المجلد. أما profile الافتراضي `default` المضمّن في CLI فيختار `deepseek/deepseek-v4-flash`.
 
 ## CLI
 

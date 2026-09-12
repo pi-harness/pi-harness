@@ -47,7 +47,7 @@ describe("provider auth readiness", () => {
   test("warns before submit when the selected provider explicitly lacks auth", () => {
     const html = render("everyapi/model/variant", [provider]);
     expect(html).toContain("模型尚未配置认证");
-    expect(html).toContain("everyapi use pi-harness");
+    expect(html).toContain("everyapi use pi-web");
     expect(html).toContain("提供商");
   });
 
@@ -63,7 +63,7 @@ describe("provider auth readiness", () => {
     try {
       expect(providerTestAuthText({ status: "cli-auth-missing", label: "未检测到 EveryAPI CLI 登录" })).toBe("No credentials detected");
       expect(providerTestAuthText({ status: "relay-key-missing", label: "EveryAPI CLI 已登录，但 relay key 未注入当前进程" })).toBe(
-        "Start it with everyapi use pi-harness, or set EVERYAPI_RELAY_KEY and restart.",
+        "Start it with everyapi use pi-web, or set EVERYAPI_RELAY_KEY and restart.",
       );
       expect(providerTestAuthText({ label: "Provider-specific fallback" })).toBe("Provider-specific fallback");
     } finally {
@@ -724,7 +724,7 @@ describe("interrupting a run with the advertised shortcut", () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
 
     expect(source).toContain('<button onClick={stopRun} type="button">');
-    expect(source).not.toContain("<button onClick={() => void api.abort()} type=\"button\">");
+    expect(source).not.toContain('<button onClick={() => void api.abort()} type="button">');
   });
 
   test("stops a run in flight, and only while one is in flight", () => {

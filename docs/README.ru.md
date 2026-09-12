@@ -29,7 +29,7 @@ npm run web
 
 Основные переменные окружения: `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL`. Адрес по умолчанию — `http://127.0.0.1:3141`.
 
-Profile веб-консоли ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) по умолчанию выбирает `everyapi/deepseek-v4-flash`. Выбор модели работает по принципу fail-closed: если этот провайдер не зарегистрирован в активном `PI_AGENT_DIR`, запуск прерывается ошибкой `Pi model is not registered: <provider>/<model>`, а не переключается на другого провайдера. Поэтому после чистой установки сначала подготовьте каталог моделей: выполните `everyapi use pi-harness`, если установлен CLI EveryAPI, — он создаёт изолированный каталог Pi agent с каталогом провайдеров EveryAPI и запускает Pi Harness, — либо укажите в `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL` модель, уже зарегистрированную в этом каталоге. Встроенный в CLI profile `default` выбирает `deepseek/deepseek-v4-flash`.
+Profile веб-консоли ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) по умолчанию выбирает `everyapi/deepseek-v4-flash`. Выбор модели работает по принципу fail-closed: если этот провайдер не зарегистрирован в активном `PI_AGENT_DIR`, запуск прерывается ошибкой `Pi model is not registered: <provider>/<model>`, а не переключается на другого провайдера. Поэтому после чистой установки сначала подготовьте каталог моделей: выполните `everyapi use pi-web`, если установлен CLI EveryAPI, — он создаёт изолированный каталог Pi agent с каталогом провайдеров EveryAPI и запускает Pi Harness, — либо укажите в `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL` модель, уже зарегистрированную в этом каталоге. Встроенный в CLI profile `default` выбирает `deepseek/deepseek-v4-flash`.
 
 ## CLI
 

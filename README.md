@@ -19,7 +19,7 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
-The web console listens on `http://127.0.0.1:3141` by default. It boots with `everyapi/deepseek-v4-flash` and model selection is fail-closed, so the provider must be registered in `PI_AGENT_DIR` first: provision it with `everyapi use pi-harness`, or set `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` to a model that agent directory already knows. For a terminal workflow:
+The web console listens on `http://127.0.0.1:3141` by default. It boots with `everyapi/deepseek-v4-flash` and model selection is fail-closed, so the provider must be registered in `PI_AGENT_DIR` first: provision it with `everyapi use pi-web`, or set `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` to a model that agent directory already knows. For a terminal workflow:
 
 ```sh
 pih "Summarize the current directory"

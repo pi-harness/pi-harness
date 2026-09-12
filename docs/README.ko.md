@@ -29,7 +29,7 @@ npm run web
 
 주요 환경 변수는 `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER`, `PI_HARNESS_MODEL`입니다. 기본 주소는 `http://127.0.0.1:3141`입니다.
 
-웹 콘솔 profile([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml))은 기본적으로 `everyapi/deepseek-v4-flash`를 선택합니다. 모델 선택은 fail-closed 방식이라 해당 provider가 현재 `PI_AGENT_DIR`에 등록되어 있지 않으면 다른 provider로 대체하지 않고 `Pi model is not registered: <provider>/<model>` 오류로 기동이 중단됩니다. 따라서 새로 설치한 뒤에는 모델 카탈로그를 먼저 준비해야 합니다. EveryAPI CLI가 있으면 `everyapi use pi-harness`를 실행하세요. EveryAPI provider 카탈로그를 갖춘 격리된 Pi agent 디렉터리를 준비하고 기동합니다. 또는 `PI_HARNESS_PROVIDER`와 `PI_HARNESS_MODEL`을 해당 agent 디렉터리에 이미 등록된 모델로 지정하세요. CLI 내장 `default` profile이 선택하는 모델은 `deepseek/deepseek-v4-flash`입니다.
+웹 콘솔 profile([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml))은 기본적으로 `everyapi/deepseek-v4-flash`를 선택합니다. 모델 선택은 fail-closed 방식이라 해당 provider가 현재 `PI_AGENT_DIR`에 등록되어 있지 않으면 다른 provider로 대체하지 않고 `Pi model is not registered: <provider>/<model>` 오류로 기동이 중단됩니다. 따라서 새로 설치한 뒤에는 모델 카탈로그를 먼저 준비해야 합니다. EveryAPI CLI가 있으면 `everyapi use pi-web`를 실행하세요. EveryAPI provider 카탈로그를 갖춘 격리된 Pi agent 디렉터리를 준비하고 기동합니다. 또는 `PI_HARNESS_PROVIDER`와 `PI_HARNESS_MODEL`을 해당 agent 디렉터리에 이미 등록된 모델로 지정하세요. CLI 내장 `default` profile이 선택하는 모델은 `deepseek/deepseek-v4-flash`입니다.
 
 ## CLI
 
