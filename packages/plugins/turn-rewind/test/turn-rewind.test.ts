@@ -20,6 +20,7 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
   const navigations: Array<{ entryId: string; summarize: boolean }> = [];
   const rawNavigations: Array<{ entryId: string; summarize: boolean }> = [];
   const commandContextNavigations: Array<{ entryId: string; summarize: boolean }> = [];
+  const idleWaiters = new Set<() => void>();
   let candidateScans = 0;
   const entries = new Map<string, unknown>([
     ["u1", { type: "message", id: "u1", parentId: null, message: { role: "user", content: "第一轮" } }],
@@ -30,6 +31,12 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
       sessionId: "initial-session",
       isIdle: !streaming,
       isStreaming: streaming,
+      waitForIdle: () =>
+        context.piRuntime.session.isIdle
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => {
+              idleWaiters.add(resolve);
+            }),
       sessionManager: {
         getLeafEntry: () => {
           candidateScans += 1;
@@ -58,11 +65,16 @@ async function createTurnRewind(streaming: boolean, navigate?: () => Promise<{ c
   await context.plugin(turnRewindPlugin);
   const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "session_rewind");
   if (tool === undefined) throw new Error("Turn Rewind tool was not registered");
-  const settle = () => {
+  const becomeIdle = () => {
     Object.assign(context.piRuntime.session, { isIdle: true, isStreaming: false });
+    for (const resolve of idleWaiters) resolve();
+    idleWaiters.clear();
+  };
+  const settle = () => {
+    becomeIdle();
     context.emit("pi/session-event", { type: "agent_settled" });
   };
-  return { context, panels, tool, navigations, rawNavigations, commandContextNavigations, settle, candidateScans: () => candidateScans };
+  return { context, panels, tool, navigations, rawNavigations, commandContextNavigations, becomeIdle, settle, candidateScans: () => candidateScans };
 }
 
 describe("turn rewind", () => {
@@ -236,6 +248,23 @@ describe("turn rewind", () => {
       expect((await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "queued" } });
       fixture.settle();
       await expect.poll(() => fixture.navigations).toHaveLength(1);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("starts a queued rewind after agent_end when native idle resolves without a subscriber settlement event", async () => {
+    const fixture = await createTurnRewind(true);
+    try {
+      await expect(fixture.tool.execute("queued", {}, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { status: "queued" },
+      });
+
+      fixture.context.emit("pi/session-event", { type: "agent_end" } as never);
+      fixture.becomeIdle();
+
+      await expect.poll(() => fixture.navigations).toEqual([{ entryId: "u2", summarize: false }]);
+      await expect.poll(async () => (await fixture.panels.snapshot())[0]?.data).toMatchObject({ latest: { status: "completed" } });
     } finally {
       await fixture.context.fiber.dispose();
     }
