@@ -1688,16 +1688,27 @@ describe("API gateway plugin", () => {
     });
   });
 
-  test("serializes concurrent prompts and validates input", async () => {
+  test("serializes ordinary prompts, accepts steering while streaming, and validates input", async () => {
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
-    const session = { messages: [], subscribe: () => () => {} };
+    const session = {
+      messages: [],
+      subscribe: () => () => {},
+      get isStreaming() {
+        return promptStarted;
+      },
+    };
     let promptStarted = false;
     let releasePrompt: (() => void) | undefined;
+    const queued: Array<{ text: string; streamingBehavior?: string }> = [];
     const runtime = {
       session,
-      prompt: () => {
+      prompt: (text: string, options?: { streamingBehavior?: string }) => {
+        if (options?.streamingBehavior) {
+          queued.push({ text, streamingBehavior: options.streamingBehavior });
+          return Promise.resolve();
+        }
         promptStarted = true;
         return new Promise<void>((resolve) => {
           releasePrompt = resolve;
@@ -1722,6 +1733,14 @@ describe("API gateway plugin", () => {
         body: JSON.stringify({ prompt: "second" }),
       }),
     ).resolves.toMatchObject({ status: 409 });
+    const steering = await fetch(context.webServer.url + "/api/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "correct course", streamingBehavior: "steer" }),
+    });
+    expect(steering.status).toBe(200);
+    await expect(steering.json()).resolves.toMatchObject({ queued: true, streamingBehavior: "steer" });
+    expect(queued).toEqual([{ text: "correct course", streamingBehavior: "steer" }]);
     releasePrompt?.();
     await expect(first).resolves.toMatchObject({ status: 200 });
     await expect(
