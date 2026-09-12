@@ -137,8 +137,9 @@ function boundedInteger(value: number | undefined, fallback: number, maximum: nu
 
 function dataDescriptors(value: unknown, field: string, allowed: ReadonlySet<string>): Record<PropertyKey, PropertyDescriptor> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${field} must be an object`);
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > allowed.size || keys.some((key) => typeof key !== "string" || !allowed.has(key))) throw new Error(`${field} contains an unknown property`);
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !allowed.has(key))) throw new Error(`${field} contains an unknown property`);
   if (Object.values(descriptors).some((descriptor) => !("value" in descriptor))) throw new Error(`${field} must use data properties`);
   return descriptors;
 }
@@ -216,7 +217,7 @@ function searchPage(query: string, ranked: GraphNode[], allRelations: GraphRelat
   const end = offset + report.nodes.length;
   report.relationsOffset = relationsOffset;
   report.nextOffset = end < ranked.length ? end : null;
-  report.nodesTruncated = report.nodes.length < ranked.length;
+  report.nodesTruncated = report.nextOffset !== null;
   const ids = new Set(report.nodes.map((node) => node.id));
   const incident = allRelations.filter((relation) => ids.has(relation.from) || ids.has(relation.to));
   report.relationsTotal = incident.length;
@@ -233,7 +234,7 @@ function searchPage(query: string, ranked: GraphNode[], allRelations: GraphRelat
   }
   const relationEnd = relationsOffset + report.relations.length;
   report.nextRelationsOffset = relationEnd < incident.length ? relationEnd : null;
-  report.relationsTruncated = report.relations.length < incident.length;
+  report.relationsTruncated = report.nextRelationsOffset !== null;
   if (bytes() > maxSearchResponseBytes) throw new Error("Graph memory search page exceeds its byte limit");
   return report;
 }
@@ -264,6 +265,7 @@ function normalizeText(value: string, field: string, maxLength: number): string 
 
 function normalizeSummary(value: string): string {
   if (value.includes("\0")) throw new Error("Graph memory summary must not contain NUL characters");
+  if (value.length > maxSummaryBytes) throw new Error(`Graph memory summary must be non-empty and at most ${maxSummaryBytes} bytes`);
   const normalized = value.trim();
   if (normalized === "" || Buffer.byteLength(normalized, "utf8") > maxSummaryBytes)
     throw new Error(`Graph memory summary must be non-empty and at most ${maxSummaryBytes} bytes`);
@@ -278,43 +280,98 @@ function isRelationKind(value: unknown): value is RelationKind {
   return value === "USED_SKILL" || value === "SOLVED_BY" || value === "REQUIRES" || value === "PATCHES" || value === "CONFLICTS_WITH" || value === "RELATED_TO";
 }
 
+function canonicalTimestamp(value: unknown): { text: string; milliseconds: number } | undefined {
+  if (typeof value !== "string" || value.length > 64) return undefined;
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) return undefined;
+  try {
+    return new Date(milliseconds).toISOString() === value ? { text: value, milliseconds } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function ownDataRecord(value: unknown, allowed: ReadonlySet<string>, required: ReadonlySet<string>): Record<string, unknown> | undefined {
+  try {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) return undefined;
+    const keys = Reflect.ownKeys(value);
+    if (
+      keys.length < required.size ||
+      keys.length > allowed.size ||
+      keys.some((key) => typeof key !== "string" || !allowed.has(key)) ||
+      [...required].some((key) => !keys.includes(key))
+    )
+      return undefined;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const output = Object.create(null) as Record<string, unknown>;
+    for (const key of keys as string[]) {
+      const descriptor = descriptors[key];
+      if (descriptor === undefined || !("value" in descriptor)) return undefined;
+      output[key] = descriptor.value;
+    }
+    return output;
+  } catch {
+    return undefined;
+  }
+}
+
+const requiredNodeFields = new Set(["id", "kind", "label", "summary", "createdAt", "updatedAt"]);
+
 function isGraphNode(value: unknown): value is GraphNode {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const node = value as Record<string, unknown>;
+  const node = ownDataRecord(value, nodeFields, requiredNodeFields);
+  if (node === undefined) return false;
+  const created = canonicalTimestamp(node.createdAt);
+  const updated = canonicalTimestamp(node.updatedAt);
   return (
-    Object.keys(node).every((key) => nodeFields.has(key)) &&
     typeof node.id === "string" &&
     node.id.length > 0 &&
     node.id.length <= maxLabelLength &&
+    !node.id.includes("\0") &&
+    node.id === node.id.trim() &&
     isNodeKind(node.kind) &&
     typeof node.label === "string" &&
     node.label.trim().length > 0 &&
     node.label.length <= maxLabelLength &&
+    !node.label.includes("\0") &&
+    node.label === node.label.trim() &&
     typeof node.summary === "string" &&
+    node.summary.length <= maxSummaryBytes &&
     node.summary.trim().length > 0 &&
+    !node.summary.includes("\0") &&
+    node.summary === node.summary.trim() &&
     Buffer.byteLength(node.summary, "utf8") <= maxSummaryBytes &&
     (node.source === undefined || typeof node.source === "string") &&
-    (node.source === undefined || (node.source.length > 0 && node.source.length <= maxSourceLength)) &&
-    typeof node.createdAt === "string" &&
-    Number.isFinite(Date.parse(node.createdAt)) &&
-    typeof node.updatedAt === "string" &&
-    Number.isFinite(Date.parse(node.updatedAt))
+    (node.source === undefined ||
+      (node.source.trim().length > 0 && node.source.length <= maxSourceLength && !node.source.includes("\0") && node.source === node.source.trim())) &&
+    created !== undefined &&
+    updated !== undefined &&
+    updated.milliseconds >= created.milliseconds
   );
 }
 
 function isGraphRelation(value: unknown): value is GraphRelation {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const relation = value as Record<string, unknown>;
+  const relation = ownDataRecord(value, relationFields, relationFields);
+  if (relation === undefined) return false;
   return (
-    Object.keys(relation).every((key) => relationFields.has(key)) &&
     typeof relation.id === "string" &&
     relation.id.length > 0 &&
     relation.id.length <= maxLabelLength &&
+    !relation.id.includes("\0") &&
+    relation.id === relation.id.trim() &&
     typeof relation.from === "string" &&
+    relation.from.length > 0 &&
+    relation.from.length <= maxLabelLength &&
+    !relation.from.includes("\0") &&
+    relation.from === relation.from.trim() &&
     typeof relation.to === "string" &&
+    relation.to.length > 0 &&
+    relation.to.length <= maxLabelLength &&
+    !relation.to.includes("\0") &&
+    relation.to === relation.to.trim() &&
     isRelationKind(relation.relation) &&
-    typeof relation.createdAt === "string" &&
-    Number.isFinite(Date.parse(relation.createdAt))
+    canonicalTimestamp(relation.createdAt) !== undefined
   );
 }
 
@@ -326,22 +383,51 @@ async function readGraphFile(filePath: string, nodeLimit: number, relationLimit:
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { nodes: [], relations: [] };
     throw error;
   }
-  const parsed = JSON.parse(raw.toString("utf8")) as Partial<GraphFile>;
-  if (parsed.version !== 1 || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.relations)) throw new Error("Graph memory file has an unsupported format");
-  if (!parsed.nodes.every(isGraphNode)) throw new Error("Graph memory file contains invalid nodes");
-  if (!parsed.relations.every(isGraphRelation)) throw new Error("Graph memory file contains invalid relations");
-  if (parsed.nodes.length > nodeLimit) throw new Error(`Graph memory file exceeds its ${nodeLimit}-node limit`);
-  if (parsed.relations.length > relationLimit) throw new Error(`Graph memory file exceeds its ${relationLimit}-relation limit`);
-  const nodeIds = new Set(parsed.nodes.map((node) => node.id));
+  const parsed: unknown = JSON.parse(raw.toString("utf8"));
+  const fileKeys = new Set(["version", "nodes", "relations"]);
+  const file = ownDataRecord(parsed, fileKeys, fileKeys);
+  if (file === undefined || file.version !== 1 || !Array.isArray(file.nodes) || !Array.isArray(file.relations))
+    throw new Error("Graph memory file has an unsupported format");
+  if (!file.nodes.every(isGraphNode)) throw new Error("Graph memory file contains invalid nodes");
+  if (!file.relations.every(isGraphRelation)) throw new Error("Graph memory file contains invalid relations");
+  const fileNodes = file.nodes;
+  const fileRelations = file.relations;
+  if (fileNodes.length > nodeLimit) throw new Error(`Graph memory file exceeds its ${nodeLimit}-node limit`);
+  if (fileRelations.length > relationLimit) throw new Error(`Graph memory file exceeds its ${relationLimit}-relation limit`);
+  if (fileNodes.some((node, index) => index > 0 && Date.parse(fileNodes[index - 1]!.updatedAt) < Date.parse(node.updatedAt)))
+    throw new Error("Graph memory file contains invalid nodes");
+  if (fileRelations.some((relation, index) => index > 0 && Date.parse(fileRelations[index - 1]!.createdAt) < Date.parse(relation.createdAt)))
+    throw new Error("Graph memory file contains invalid relations");
+  const nodeIds = new Set(fileNodes.map((node) => node.id));
   const relationIds = new Set<string>();
-  for (const relation of parsed.relations) {
+  const semanticRelations = new Set<string>();
+  for (const relation of fileRelations) {
     if (!nodeIds.has(relation.from) || !nodeIds.has(relation.to)) throw new Error("Graph memory file contains relations with missing nodes");
     if (relation.from === relation.to) throw new Error("Graph memory file contains self-relations");
     if (relationIds.has(relation.id)) throw new Error("Graph memory file contains duplicate relation ids");
+    const semanticId = `${relation.from}\0${relation.to}\0${relation.relation}`;
+    if (semanticRelations.has(semanticId)) throw new Error("Graph memory file contains duplicate relations");
     relationIds.add(relation.id);
+    semanticRelations.add(semanticId);
   }
-  if (nodeIds.size !== parsed.nodes.length) throw new Error("Graph memory file contains duplicate node ids");
-  return { nodes: parsed.nodes, relations: parsed.relations };
+  if (nodeIds.size !== fileNodes.length) throw new Error("Graph memory file contains duplicate node ids");
+  return { nodes: fileNodes, relations: fileRelations };
+}
+
+function nextGraphTimestamp(state: GraphState): string {
+  const previous = Math.max(
+    ...state.nodes.flatMap((node) => [Date.parse(node.createdAt), Date.parse(node.updatedAt)]),
+    ...state.relations.map((relation) => Date.parse(relation.createdAt)),
+    Number.NEGATIVE_INFINITY,
+  );
+  const wallClock = Date.now();
+  if (!Number.isFinite(wallClock)) throw new Error("Graph memory wall clock is invalid");
+  const milliseconds = previous === Number.NEGATIVE_INFINITY ? wallClock : Math.max(wallClock, previous + 1);
+  try {
+    return new Date(milliseconds).toISOString();
+  } catch (error) {
+    throw new Error("Graph memory timestamp sequence is exhausted", { cause: error });
+  }
 }
 
 async function writeGraphFile(filePath: string, state: GraphState): Promise<void> {
@@ -412,7 +498,7 @@ async function reclaimStaleGraphLock(lockPath: string, lockMetadata: Awaited<Ret
 }
 
 async function acquireGraphLock(lockPath: string, signal: AbortSignal): Promise<() => Promise<void>> {
-  const deadline = Date.now() + lockTimeoutMs;
+  const startedAt = performance.now();
   while (true) {
     throwIfAborted(signal);
     try {
@@ -449,7 +535,7 @@ async function acquireGraphLock(lockPath: string, signal: AbortSignal): Promise<
       if (metadata.isSymbolicLink()) throw new Error("Graph memory file lock must not be a symbolic link", { cause: error });
       if (!metadata.isDirectory()) throw new Error("Graph memory file lock must be a directory", { cause: error });
       if (await reclaimStaleGraphLock(lockPath, metadata)) continue;
-      if (Date.now() >= deadline) throw new Error("Timed out waiting for graph memory file lock", { cause: error });
+      if (performance.now() - startedAt >= lockTimeoutMs) throw new Error("Timed out waiting for graph memory file lock", { cause: error });
       await waitForLockRetry(signal);
     }
   }
@@ -536,7 +622,7 @@ export default {
         const node = await mutate((state) => {
           const existing = state.nodes.find((candidate) => candidate.kind === params.kind && candidate.label.toLocaleLowerCase() === label.toLocaleLowerCase());
           if (existing === undefined && state.nodes.length >= nodeLimit) throw new Error(`Graph memory reached its ${nodeLimit}-node limit`);
-          const now = new Date().toISOString();
+          const now = nextGraphTimestamp(state);
           const next: GraphNode =
             existing === undefined
               ? { id: randomUUID(), kind: params.kind, label, summary, ...(source === undefined ? {} : { source }), createdAt: now, updatedAt: now }
@@ -582,7 +668,7 @@ export default {
           const existing = state.relations.find((candidate) => candidate.from === from && candidate.to === to && candidate.relation === params.relation);
           if (existing !== undefined) return existing;
           if (state.relations.length >= relationLimit) throw new Error(`Graph memory reached its ${relationLimit}-relation limit`);
-          const next: GraphRelation = { id: randomUUID(), from, to, relation: params.relation, createdAt: new Date().toISOString() };
+          const next: GraphRelation = { id: randomUUID(), from, to, relation: params.relation, createdAt: nextGraphTimestamp(state) };
           state.relations = [next, ...state.relations];
           return next;
         }, operationSignal);
@@ -646,7 +732,7 @@ export default {
             return { node, score: score > 0 ? score : relationHit ? 20 : 0 };
           })
           .filter((match) => match.score > 0)
-          .sort((left, right) => right.score - left.score || right.node.updatedAt.localeCompare(left.node.updatedAt));
+          .sort((left, right) => right.score - left.score || Date.parse(right.node.updatedAt) - Date.parse(left.node.updatedAt));
         const report = searchPage(
           query,
           ranked.map((match) => match.node),
