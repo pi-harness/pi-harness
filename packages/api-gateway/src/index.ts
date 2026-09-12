@@ -1644,6 +1644,10 @@ export default {
           const packageLockPath = join(installDirectory, "package-lock.json");
           const packageJsonBefore = await readFile(packageJsonPath, "utf8").catch(() => undefined);
           const packageLockBefore = await readFile(packageLockPath, "utf8").catch(() => undefined);
+          // Capture the loader location before removal. If npm cleanup fails, the profile and runtime entry must be restored to the same group and slot rather than silently drifting to the root.
+          const restoreParent = [...loader.entries()].find((candidate) => candidate.subgroup === entry.parent)?.id ?? null;
+          const restoreIndex = Array.isArray(entry.parent.data) ? entry.parent.data.indexOf(entry.options) : -1;
+          const restorePosition = restoreIndex < 0 ? Infinity : restoreIndex;
           await entry.parent.remove(entry.options.id);
           entry.parent.tree.write();
           try {
@@ -1656,7 +1660,7 @@ export default {
             if (packageLockBefore !== undefined) await writeFile(packageLockPath, packageLockBefore, "utf8").catch(() => {});
             const options = entry.options as { name: string; config?: unknown; group?: boolean | null };
             await loader
-              .create({ id: entry.options.id, name: options.name, config: options.config, ...(options.group ? { group: true } : {}) } as never)
+              .create({ id: entry.options.id, name: options.name, config: options.config, ...(options.group ? { group: true } : {}) } as never, restoreParent, restorePosition)
               .catch(() => {});
             sendJson(response, 502, { error: errorText(error) });
           }

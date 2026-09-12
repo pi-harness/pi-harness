@@ -3225,6 +3225,68 @@ describe("API gateway plugin", () => {
     await expect(readFile(configPath, "utf8")).resolves.toBe(profileBefore);
   });
 
+  test("restores a nested marketplace plugin to its original group when npm uninstall fails", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-nested-uninstall-failure-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nprintf 'uninstall failed\\n' >&2\nexit 1\n", { mode: 0o755 });
+    const configPath = join(directory, "profile.yml");
+    const entryId = "skill-guard";
+    const runtimeOptions = { id: "runtime", name: "@pi-harness/core/plugins/runtime", config: {} };
+    const pluginOptions = { id: entryId, name: "@pi-harness/plugin-skill-guard", config: {} };
+    const group = { data: [pluginOptions, runtimeOptions], tree: { write() {} }, remove: () => Promise.resolve() };
+    const loaderEntry = {
+      id: `profile:${entryId}`,
+      options: pluginOptions,
+      parent: group,
+    };
+    const groupEntry = { id: "profile:agent", options: { id: "agent", name: "cordis:group" }, subgroup: group };
+    await writeFile(
+      configPath,
+      `- id: agent\n  name: cordis:group\n  group: true\n  config:\n    - id: ${entryId}\n      name: ${JSON.stringify(pluginOptions.name)}\n      config: {}\n    - id: runtime\n      name: "@pi-harness/core/plugins/runtime"\n      config: {}\n`,
+      "utf8",
+    );
+    const restored: Array<[unknown, unknown, unknown]> = [];
+    let active = true;
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "nested-uninstall-failure-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", {
+      entries: () => (active ? [groupEntry, loaderEntry] : [groupEntry]),
+      create: (options: unknown, parent: unknown, position: unknown) => {
+        restored.push([options, parent, position]);
+        return Promise.resolve(`profile:${entryId}`);
+      },
+    });
+    loaderEntry.parent.remove = () => {
+      active = false;
+      return Promise.resolve();
+    };
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: entryId }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(502);
+    expect(restored).toEqual([[expect.objectContaining({ id: entryId, name: pluginOptions.name }), "profile:agent", 0]]);
+  });
+
   test("commits selected workspace files only after an explicit message", async () => {
     const context = new Context();
     contexts.push(context);
