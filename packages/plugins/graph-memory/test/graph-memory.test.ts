@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import assert from "node:assert/strict";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import graphMemoryPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
@@ -29,6 +29,8 @@ async function waitForPath(path: string, description: string, timeoutMs = 5_000)
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -100,7 +102,13 @@ describe("graph memory production boundaries", () => {
       const first = await search.execute("first", { query: "hub", limit: 1 }, undefined, undefined, {} as never);
       expect(first.details).toMatchObject({ nodes: [{ id: "hub" }], relationsTotal: 5, nextRelationsOffset: 4, relationsTruncated: true });
       const next = await search.execute("next", { query: "hub", limit: 1, relationsOffset: 4 }, undefined, undefined, {} as never);
-      expect(next.details).toMatchObject({ nodes: [{ id: "hub" }], relations: [{ id: "edge-e" }], nextRelationsOffset: null, relationsTotal: 5 });
+      expect(next.details).toMatchObject({
+        nodes: [{ id: "hub" }],
+        relations: [{ id: "edge-e" }],
+        nextRelationsOffset: null,
+        relationsTotal: 5,
+        relationsTruncated: false,
+      });
       const empty = await search.execute("empty", { query: "missing" }, undefined, undefined, {} as never);
       expect(JSON.parse((empty.content[0] as { text: string }).text)).toMatchObject({
         total: 0,
@@ -172,7 +180,7 @@ describe("graph memory production boundaries", () => {
         undefined,
         {} as never,
       );
-      expect(next.details).toMatchObject({ offset: 1, nextOffset: null });
+      expect(next.details).toMatchObject({ offset: 1, nextOffset: null, nodesTruncated: false });
       expect(firstNodeId(next.details)).not.toBe(firstNodeId(report));
     } finally {
       await fixture.context.fiber.dispose();
@@ -376,6 +384,156 @@ describe("graph memory production boundaries", () => {
       await expect(record.execute("nul", { kind: "task", label: "unsafe\0label", summary: "safe summary" }, undefined, undefined, {} as never)).rejects.toThrow(
         /label.*NUL/iu,
       );
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("keeps updated graph nodes valid when the wall clock moves backward", async () => {
+    const fixture = await createFixture();
+    const record = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_record");
+    const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search");
+    if (record === undefined || search === undefined) throw new Error("Graph memory tools were not registered");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-12T03:00:00.000Z"));
+    try {
+      const created = (await record.execute("create", { kind: "task", label: "tenant-a/order-100", summary: "first" }, undefined, undefined, {} as never))
+        .details as { updatedAt: string };
+      vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+      const updated = (await record.execute("update", { kind: "task", label: "tenant-a/order-100", summary: "second" }, undefined, undefined, {} as never))
+        .details as { updatedAt: string };
+      expect(Date.parse(updated.updatedAt)).toBe(Date.parse(created.updatedAt) + 1);
+      await expect(search.execute("search", { query: "tenant-a" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { nodes: [{ summary: "second" }] },
+      });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("times out a live graph lock wait when the wall clock moves backward", async () => {
+    const fixture = await createFixture();
+    const lock = join(fixture.agentDir, "graph-memory.json.lock");
+    await mkdir(lock);
+    await writeFile(join(lock, "live.owner"), JSON.stringify({ pid: process.pid }));
+    const record = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_record");
+    if (record === undefined) throw new Error("graph_memory_record was not registered");
+    vi.spyOn(Date, "now").mockReturnValue(0);
+    vi.spyOn(performance, "now").mockReturnValueOnce(0).mockReturnValue(10_001);
+    const controller = new AbortController();
+    const pending = record.execute(
+      "frozen-clock",
+      { kind: "event", label: "tenant-a/carrier-delay", summary: "never written" },
+      controller.signal,
+      undefined,
+      {} as never,
+    );
+    let abortTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      abortTimer = setTimeout(() => controller.abort(new Error("test fallback cancellation")), 250);
+      await expect(pending).rejects.toThrow(/timed out waiting for graph memory file lock/iu);
+    } finally {
+      if (abortTimer !== undefined) clearTimeout(abortTimer);
+      controller.abort();
+      await pending.catch(() => undefined);
+      await rm(lock, { recursive: true, force: true });
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects non-canonical and contradictory persisted timestamps", async () => {
+    const fixture = await createFixture();
+    const path = join(fixture.agentDir, "graph-memory.json");
+    const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search");
+    if (search === undefined) throw new Error("graph_memory_search was not registered");
+    const base = {
+      id: "tenant-a/order-100",
+      kind: "task",
+      label: "tenant-a/order-100",
+      summary: "refund workflow",
+      createdAt: "2026-09-12T03:00:00.000Z",
+      updatedAt: "2026-09-12T03:00:01.000Z",
+    };
+    try {
+      for (const node of [
+        { ...base, createdAt: "2026-09-12T03:00:00Z" },
+        { ...base, updatedAt: "2020-01-01T00:00:00.000Z" },
+      ]) {
+        await writeFile(path, JSON.stringify({ version: 1, nodes: [node], relations: [] }));
+        await expect(search.execute("invalid", { query: "tenant-a" }, undefined, undefined, {} as never)).rejects.toThrow(/invalid nodes/iu);
+      }
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("rejects NUL characters in externally written graph records", async () => {
+    const fixture = await createFixture();
+    const path = join(fixture.agentDir, "graph-memory.json");
+    const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search");
+    if (search === undefined) throw new Error("graph_memory_search was not registered");
+    const base = {
+      id: "tenant-a/order-100",
+      kind: "task",
+      label: "tenant-a/order-100",
+      summary: "refund workflow",
+      source: "commerce://tenant-a",
+      createdAt: "2026-09-12T03:00:00.000Z",
+      updatedAt: "2026-09-12T03:00:00.000Z",
+    };
+    try {
+      for (const node of [
+        { ...base, id: "tenant\0a" },
+        { ...base, label: "tenant\0a" },
+        { ...base, summary: "refund\0workflow" },
+        { ...base, source: "commerce\0tenant" },
+      ]) {
+        await writeFile(path, JSON.stringify({ version: 1, nodes: [node], relations: [] }));
+        await expect(search.execute("invalid", { query: "tenant" }, undefined, undefined, {} as never)).rejects.toThrow(/invalid nodes/iu);
+      }
+      const nodes = [base, { ...base, id: "tenant-b/order-100", label: "tenant-b/order-100" }];
+      await writeFile(
+        path,
+        JSON.stringify({
+          version: 1,
+          nodes,
+          relations: [{ id: "relation\0id", from: nodes[0]!.id, to: nodes[1]!.id, relation: "RELATED_TO", createdAt: base.createdAt }],
+        }),
+      );
+      await expect(search.execute("invalid-relation", { query: "tenant" }, undefined, undefined, {} as never)).rejects.toThrow(/invalid relations/iu);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("orders canonical expanded-year timestamps by time instead of text", async () => {
+    const fixture = await createFixture();
+    const path = join(fixture.agentDir, "graph-memory.json");
+    const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search");
+    if (search === undefined) throw new Error("graph_memory_search was not registered");
+    const nodes = [
+      {
+        id: "newer",
+        kind: "task",
+        label: "tenant newer",
+        summary: "refund",
+        createdAt: "+010000-01-01T00:00:00.000Z",
+        updatedAt: "+010000-01-01T00:00:00.000Z",
+      },
+      {
+        id: "older",
+        kind: "task",
+        label: "tenant older",
+        summary: "refund",
+        createdAt: "9999-01-01T00:00:00.000Z",
+        updatedAt: "9999-01-01T00:00:00.000Z",
+      },
+    ];
+    await writeFile(path, JSON.stringify({ version: 1, nodes, relations: [] }));
+    try {
+      await expect(search.execute("expanded-year", { query: "tenant" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { nodes: [{ id: "newer" }, { id: "older" }] },
+      });
     } finally {
       await fixture.context.fiber.dispose();
     }

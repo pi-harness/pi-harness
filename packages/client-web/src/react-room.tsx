@@ -3259,9 +3259,71 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
       ) : panel.id === "graph-memory-panel" ? (
         (() => {
           const report = graphMemoryPanelView(data);
+          if (report.malformed) {
+            return (
+              <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+                <strong className="block text-[12px]">{t("Graph Memory 面板数据异常")}</strong>
+                <span className="mt-1 block">{t("面板数据不完整或不可信，请重新加载后再查询。")}</span>
+              </div>
+            );
+          }
           const kinds = report.kinds;
           const recent = report.recent;
           const recentRelations = report.recentRelations;
+          const renderNodes = (entries: typeof recent, label: string) => (
+            <ul aria-label={label} className="grid max-h-[40rem] gap-1.5 overflow-y-auto" tabIndex={0}>
+              {entries.map((entry) => {
+                const kindLabel = entry.kind === "task" ? t("任务") : entry.kind === "skill" ? t("技能") : t("事件");
+                const kindClass =
+                  entry.kind === "task"
+                    ? "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"
+                    : entry.kind === "skill"
+                      ? "bg-[var(--color-green-soft)] text-[var(--color-green)]"
+                      : "bg-[var(--color-amber-soft)] text-[var(--color-amber)]";
+                return (
+                  <li className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2" key={entry.id}>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold ${kindClass}`}>{kindLabel}</span>
+                      <strong className="min-w-0 flex-1 whitespace-pre-wrap text-[11px] text-[var(--color-ink)] [overflow-wrap:anywhere]">{entry.label}</strong>
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap font-mono text-[9px] text-[var(--color-faint)] [overflow-wrap:anywhere]">{entry.id}</p>
+                    <p className="mt-1 whitespace-pre-wrap font-mono text-[8px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
+                      {t("创建：{v0} · 更新：{v1}", { v0: entry.createdAt, v1: entry.updatedAt })}
+                    </p>
+                    <p
+                      className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap text-[10px] leading-4 text-[var(--color-muted)] [overflow-wrap:anywhere]"
+                      tabIndex={0}
+                    >
+                      {entry.summary}
+                    </p>
+                    {entry.source !== undefined ? (
+                      <p className="mt-1 whitespace-pre-wrap font-mono text-[9px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
+                        {t("来源：{v0}", { v0: entry.source })}
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          );
+          const renderRelations = (
+            entries: ReadonlyArray<{ id: string; from: string; to: string; relation: string; createdAt: string; fromLabel?: string; toLabel?: string }>,
+            label: string,
+          ) => (
+            <div aria-label={label} className="grid max-h-[40rem] gap-1.5 overflow-y-auto" role="list" tabIndex={0}>
+              {entries.map((entry) => (
+                <div className="min-w-0 rounded border border-[var(--color-line)] bg-[var(--color-soft)] px-2 py-1.5" key={entry.id} role="listitem">
+                  <p className="whitespace-pre-wrap font-mono text-[9px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                    {entry.fromLabel ?? entry.from} <span className="text-[var(--color-blue)]">—{entry.relation}→</span> {entry.toLabel ?? entry.to}
+                  </p>
+                  <p className="mt-0.5 whitespace-pre-wrap font-mono text-[8px] text-[var(--color-faint)] [overflow-wrap:anywhere]">{entry.id}</p>
+                  <p className="mt-0.5 whitespace-pre-wrap font-mono text-[8px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
+                    {t("创建：{v0}", { v0: entry.createdAt })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          );
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid grid-cols-3 gap-2">
@@ -3284,39 +3346,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 <span className="font-mono text-[var(--color-blue)]">{t("{v0} 节点 · {v1} 关系", { v0: report.nodes, v1: report.relations })}</span>
               </div>
               {recent.length > 0 ? (
-                <ul className="grid gap-1.5">
-                  <li className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
-                    {t("最近节点 {v0} / {v1}", { v0: Math.min(recent.length, 5), v1: report.nodes })}
-                  </li>
-                  {recent.slice(0, 5).map((entry, index) => {
-                    const item = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
-                    const kind = item.kind === "task" || item.kind === "skill" || item.kind === "event" ? item.kind : "unknown";
-                    const kindLabel = kind === "task" ? t("任务") : kind === "skill" ? t("技能") : kind === "event" ? t("事件") : t("未知");
-                    const kindClass =
-                      kind === "task"
-                        ? "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"
-                        : kind === "skill"
-                          ? "bg-[var(--color-green-soft)] text-[var(--color-green)]"
-                          : kind === "event"
-                            ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]"
-                            : "bg-[var(--color-soft)] text-[var(--color-muted)]";
-                    return (
-                      <li
-                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
-                        key={`${value(item.id ?? "node")}-${index}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${kindClass}`}>{kindLabel}</span>
-                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(item.label ?? t("未命名节点"))}</strong>
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[var(--color-muted)]">{value(item.summary, "")}</p>
-                        {item.source ? (
-                          <p className="mt-1 truncate font-mono text-[9px] text-[var(--color-faint)]">{t("来源：{v0}", { v0: value(item.source) })}</p>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <section className="grid gap-1.5">
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
+                    {t("最近节点 {v0} / {v1}", { v0: recent.length, v1: report.nodes })}
+                  </span>
+                  {renderNodes(recent, t("最近节点"))}
+                </section>
               ) : (
                 <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                   {t("尚未记录图记忆。Agent 可调用 graph_memory_record 创建任务、技能或事件节点。")}
@@ -3325,30 +3360,39 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               {recentRelations.length > 0 ? (
                 <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
                   <span className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
-                    {t("最近关系 {v0} / {v1}", { v0: Math.min(recentRelations.length, 3), v1: report.relations })}
+                    {t("最近关系 {v0} / {v1}", { v0: recentRelations.length, v1: report.relations })}
                   </span>
-                  {recentRelations.slice(0, 3).map((entry, index) => {
-                    const relation = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
-                    return (
-                      <div
-                        className="flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-[var(--color-muted)]"
-                        key={`${value(relation.id ?? "relation")}-${index}`}
-                      >
-                        <span className="truncate">{value(relation.fromLabel ?? relation.from ?? t("节点"))}</span>
-                        <span className="shrink-0 text-[var(--color-blue)]">—{value(relation.relation ?? "RELATED_TO")}→</span>
-                        <span className="truncate">{value(relation.toLabel ?? relation.to ?? t("节点"))}</span>
-                      </div>
-                    );
-                  })}
+                  {renderRelations(recentRelations, t("最近关系"))}
                 </div>
               ) : null}
               {report.lastSearch !== null ? (
-                <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
-                  <span className="min-w-0 truncate text-[var(--color-muted)]">{t("最近搜索：{v0}", { v0: report.lastSearch.query })}</span>
-                  <span className="shrink-0 font-mono text-[var(--color-blue)]">
-                    {report.lastSearch.shown} / {report.lastSearch.total}
+                <section className="grid gap-2 border-t border-[var(--color-line)] pt-3">
+                  <p className="whitespace-pre-wrap text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                    {t("最近搜索：{v0}", { v0: report.lastSearch.query })}
+                  </p>
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
+                    {t("搜索节点 {v0} / {v1}", { v0: report.lastSearch.nodes.length, v1: report.lastSearch.total })}
                   </span>
-                </div>
+                  <p className="font-mono text-[9px] text-[var(--color-faint)]">
+                    {t("节点页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}", {
+                      v0: report.lastSearch.offset,
+                      v1: report.lastSearch.nextOffset ?? t("无"),
+                      v2: report.lastSearch.nodesTruncated ? t("是") : t("否"),
+                    })}
+                  </p>
+                  {report.lastSearch.nodes.length > 0 ? renderNodes(report.lastSearch.nodes, t("最近搜索节点")) : null}
+                  <span className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
+                    {t("搜索关系 {v0} / {v1}", { v0: report.lastSearch.relations.length, v1: report.lastSearch.relationsTotal })}
+                  </span>
+                  <p className="font-mono text-[9px] text-[var(--color-faint)]">
+                    {t("关系页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}", {
+                      v0: report.lastSearch.relationsOffset,
+                      v1: report.lastSearch.nextRelationsOffset ?? t("无"),
+                      v2: report.lastSearch.relationsTruncated ? t("是") : t("否"),
+                    })}
+                  </p>
+                  {report.lastSearch.relations.length > 0 ? renderRelations(report.lastSearch.relations, t("最近搜索关系")) : null}
+                </section>
               ) : null}
               <div className="flex flex-wrap gap-2 font-mono text-[9px] text-[var(--color-faint)]">
                 <span className="rounded bg-[var(--color-soft)] px-2 py-1">{t("节点 ≤ {v0}", { v0: report.limits.nodes })}</span>
