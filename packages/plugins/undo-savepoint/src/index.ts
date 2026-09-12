@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, opendir } from "node:fs/promises";
-import { basename, extname, join, relative, resolve, sep } from "node:path";
+import type { Stats } from "node:fs";
+import { link, lstat, mkdir, opendir, realpath, rename, rm, rmdir } from "node:fs/promises";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { Type } from "@earendil-works/pi-ai";
@@ -142,6 +143,56 @@ function isIgnoredPath(relativePath: string): boolean {
 // A manifest is a plain JSON file in the agent directory, so the mode it records is untrusted. Restore masks off every execute bit, because a manifest that could mark a file executable is a way to plant a runnable script, and it masks off group and other write, the bit that would let another local account rewrite a workspace file. The owner read/write bits are forced back on so a manifest cannot leave a restored file that its owner can no longer open. Only group and other read survive from the manifest.
 function restorableMode(mode: number): number {
   return (mode & 0o644) | 0o600;
+}
+
+async function inspectWorkspaceFile(
+  root: string,
+  requested: string,
+  message: string,
+): Promise<{ target: string; relativePath: string; existingIdentity: string | undefined; existingMode: number | undefined; missingDirectories: string[] }> {
+  const canonicalRoot = await realpath(resolve(root));
+  const lexicalTarget = resolve(canonicalRoot, requested);
+  if (!withinRoot(canonicalRoot, lexicalTarget)) throw new Error(message);
+
+  let ancestor = dirname(lexicalTarget);
+  const missingNames: string[] = [];
+  let canonicalAncestor: string;
+  for (;;) {
+    try {
+      canonicalAncestor = await realpath(ancestor);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = dirname(ancestor);
+      if (parent === ancestor) throw error;
+      missingNames.unshift(basename(ancestor));
+      ancestor = parent;
+    }
+  }
+  if (!withinRoot(canonicalRoot, canonicalAncestor) || !(await lstat(canonicalAncestor)).isDirectory()) throw new Error(message);
+  const missingDirectories: string[] = [];
+  let parent = canonicalAncestor;
+  for (const name of missingNames) {
+    parent = join(parent, name);
+    missingDirectories.push(parent);
+  }
+  const target = join(parent, basename(lexicalTarget));
+  let info: Stats | undefined;
+  if (missingDirectories.length === 0) {
+    try {
+      info = await lstat(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (info !== undefined && (info.isSymbolicLink() || !info.isFile())) throw new Error(message);
+  }
+  return {
+    target,
+    relativePath: relative(canonicalRoot, target),
+    existingIdentity: info === undefined ? undefined : `${info.dev}:${info.ino}`,
+    existingMode: info === undefined ? undefined : info.mode & 0o777,
+    missingDirectories,
+  };
 }
 
 function hash(content: Buffer): string {
@@ -424,7 +475,11 @@ export default {
       const sessionId = session?.sessionId;
       const workspace = manager?.getCwd() ?? context.piHarnessLaunch.cwd;
       const check = () => {
-        if (disposed || operationSignal.aborted) throw new Error("Savepoint operation was cancelled");
+        if (operationSignal.aborted)
+          throw operationSignal.reason instanceof Error
+            ? operationSignal.reason
+            : new Error("Savepoint operation was cancelled", { cause: operationSignal.reason });
+        if (disposed) throw new Error("Savepoint operation was cancelled");
         const current = context.get("piRuntime")?.session;
         if (
           current !== session ||
@@ -486,10 +541,17 @@ export default {
       manifest: SavepointManifest,
       check: () => void,
       signal: AbortSignal,
-    ): Promise<{ restored: string[]; skipped: string[] }> => {
+    ): Promise<{ restored: string[]; skipped: string[]; cleanupPending?: string[] }> => {
       const restored: string[] = [];
       const skipped: string[] = [];
-      const writes: Array<{ path: string; target: string; content: Buffer; mode: number | undefined }> = [];
+      const writes: Array<{
+        path: string;
+        target: string;
+        content: Buffer;
+        mode: number;
+        existingIdentity: string | undefined;
+        missingDirectories: string[];
+      }> = [];
       for (const file of manifest.files) {
         check();
         const lexicalPath = resolve(cwd, ...file.path.split("/"));
@@ -500,23 +562,94 @@ export default {
         }
         const content = Buffer.from(file.content, "base64");
         if (hash(content) !== file.sha256) throw new Error(`Savepoint integrity check failed: ${file.path}`);
-        const prepared = await prepareWorkspaceFile(cwd, file.path, `Savepoint path must stay inside the workspace and target a regular file: ${file.path}`);
-        // prepareWorkspaceFile realpaths the parent directory, so the same check has to run again on the canonical path: the lexical one above only sees what the manifest spelled, and a workspace symlink, or a trailing dot that Windows strips, can spell something that resolves into an ignored directory the lexical spelling never named.
-        if (withinRoot(store, prepared.target) || isIgnoredPath(prepared.relativePath)) {
+        const message = `Savepoint path must stay inside the workspace and target a regular file: ${file.path}`;
+        const inspected = await inspectWorkspaceFile(cwd, file.path, message);
+        // inspectWorkspaceFile realpaths the nearest existing parent directory, so the same check has to run again on the canonical path: the lexical one above only sees what the manifest spelled, and a workspace symlink, or a trailing dot that Windows strips, can spell something that resolves into an ignored directory the lexical spelling never named.
+        if (withinRoot(store, inspected.target) || isIgnoredPath(inspected.relativePath)) {
           skipped.push(file.path);
           continue;
         }
-        const destinationMode = prepared.exists ? (await lstat(prepared.target)).mode & 0o777 : undefined;
         // Preserve an existing executable destination's own permissions; a manifest cannot grant execution to a new or non-executable file.
-        const mode = destinationMode !== undefined && (destinationMode & 0o111) !== 0 ? undefined : restorableMode(file.mode);
-        writes.push({ path: file.path, target: prepared.target, content, mode });
+        const mode = inspected.existingMode !== undefined && (inspected.existingMode & 0o111) !== 0 ? inspected.existingMode : restorableMode(file.mode);
+        writes.push({
+          path: file.path,
+          target: inspected.target,
+          content,
+          mode,
+          existingIdentity: inspected.existingIdentity,
+          missingDirectories: inspected.missingDirectories,
+        });
       }
-      for (const write of writes) {
+
+      const touched: Array<{ path: string; target: string; backup: string | undefined }> = [];
+      const stages: string[] = [];
+      const createdDirectories = new Set<string>();
+      try {
+        for (const write of writes) {
+          check();
+          for (const directory of write.missingDirectories) createdDirectories.add(directory);
+          const message = `Savepoint path must stay inside the workspace and target a regular file: ${write.path}`;
+          const prepared = await prepareWorkspaceFile(cwd, write.path, message);
+          if (prepared.target !== write.target || prepared.exists !== (write.existingIdentity !== undefined))
+            throw new Error(`Savepoint destination changed during restore: ${write.path}`);
+          const stage = join(dirname(write.target), `.pi-harness-savepoint-${randomUUID()}.stage`);
+          stages.push(stage);
+          await atomicWriteFile(stage, write.content, { mode: write.mode, overwrite: false, signal });
+          check();
+          let backup: string | undefined;
+          if (write.existingIdentity !== undefined) {
+            const current = await lstat(write.target);
+            if (!current.isFile() || `${current.dev}:${current.ino}` !== write.existingIdentity)
+              throw new Error(`Savepoint destination changed during restore: ${write.path}`);
+            backup = join(dirname(write.target), `.pi-harness-savepoint-${randomUUID()}.rollback`);
+            await rename(write.target, backup);
+            touched.push({ path: write.path, target: write.target, backup });
+          }
+          await link(stage, write.target);
+          if (backup === undefined) touched.push({ path: write.path, target: write.target, backup });
+          restored.push(write.path);
+        }
         check();
-        await atomicWriteFile(write.target, write.content, { ...(write.mode === undefined ? {} : { mode: write.mode }), signal });
-        restored.push(write.path);
+      } catch (error) {
+        const rollbackErrors: unknown[] = [];
+        for (const write of touched.reverse()) {
+          try {
+            await rm(write.target, { force: true });
+            if (write.backup !== undefined) await rename(write.backup, write.target);
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError);
+          }
+        }
+        for (const stage of stages) {
+          try {
+            await rm(stage, { force: true });
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError);
+          }
+        }
+        for (const directory of [...createdDirectories].reverse()) {
+          try {
+            await rmdir(directory);
+          } catch (rollbackError) {
+            if ((rollbackError as NodeJS.ErrnoException).code !== "ENOENT") rollbackErrors.push(rollbackError);
+          }
+        }
+        if (rollbackErrors.length > 0)
+          throw new AggregateError(rollbackErrors, "Savepoint restore failed and rollback was incomplete; inspect the workspace before retrying", {
+            cause: error,
+          });
+        throw error;
       }
-      return { restored, skipped };
+      const cleanupPending: string[] = [];
+      const artifacts = [...stages, ...touched.flatMap((write) => (write.backup === undefined ? [] : [write.backup]))];
+      for (const artifact of artifacts) {
+        try {
+          await rm(artifact, { force: true });
+        } catch {
+          cleanupPending.push(artifact);
+        }
+      }
+      return { restored, skipped, ...(cleanupPending.length === 0 ? {} : { cleanupPending }) };
     };
     const report = async () => {
       const { cwd, check } = await capture();
@@ -575,7 +708,7 @@ export default {
                   ? { action: "diff", cwd, ...(await diffManifest(cwd, manifest, check)) }
                   : { action: "restore", cwd, id: manifest.id, ...(await restore(cwd, manifest, check, operationSignal)) };
             }
-            check();
+            if (params.action !== "restore") check();
             return { content: [{ type: "text", text: JSON.stringify(details) }], details };
           } finally {
             running = false;
