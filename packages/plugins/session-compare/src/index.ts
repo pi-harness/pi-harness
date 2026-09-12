@@ -4,7 +4,6 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, parseSessionEntries, SessionManager, type AgentToolResult, type SessionInfo } from "@earendil-works/pi-coding-agent";
 import { EmptyConfig, readBoundedFile } from "@pi-harness/plugin-api";
 
-const maxSessions = 200;
 const maxSessionFileBytes = 4 * 1024 * 1024;
 const maxMessageTextLength = 4_000;
 const maxDiffMessages = 40;
@@ -153,9 +152,8 @@ async function compareSessions(
   check();
   const sessions = await SessionManager.list(cwd, directory);
   check();
-  const bounded = sessions.slice(0, maxSessions);
-  const leftSession = findSession(bounded, leftId);
-  const rightSession = findSession(bounded, rightId);
+  const leftSession = findSession(sessions, leftId);
+  const rightSession = findSession(sessions, rightId);
   const [leftMessages, rightMessages] = await Promise.all([readMessages(leftSession, signal), readMessages(rightSession, signal)]);
   check();
   const diff = compareMessageEntries(leftMessages, rightMessages);
