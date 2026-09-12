@@ -49,6 +49,7 @@
   "README 面板数据无效，暂不展示生成或写入结果。": "Ungültige README-Paneldaten; Generierungs- und Schreibergebnisse werden ausgeblendet.",
   "SDK 成本": "SDK-Kosten",
   "SQL Lens 面板数据异常": "Ungültige SQL-Lens-Paneldaten",
+  "Taskboard 面板数据异常": "Ungültige Taskboard-Paneldaten",
   "Skill 安全": "Skill-Sicherheit",
   "Steering 消息": "Steuernachricht",
   "YAML 语法有效。": "Die YAML-Syntax ist gültig.",
