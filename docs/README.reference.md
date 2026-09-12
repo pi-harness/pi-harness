@@ -869,6 +869,7 @@ Every route the bundled `@pi-harness/api-gateway` plugin registers is listed bel
 | `/api/workspaces/pick`     | POST      | Opens the native macOS directory picker; other platforms receive `501`.                                                      |
 | `/api/model`               | POST      | Switches the active model selection.                                                                                         |
 | `/api/files`               | GET       | Bounded `git status` for the active workspace.                                                                               |
+| `/api/workspace/files`     | GET       | Lists up to 5,000 tracked and non-ignored workspace files for search and `@file` completion; responses are cached for one second. |
 | `/api/files/diff`          | GET       | `git diff` for one workspace-relative path; a path that escapes the workspace is rejected.                                   |
 | `/api/files/commit`        | POST      | Commits the requested workspace paths.                                                                                       |
 | `/api/files/revert`        | POST      | Discards workspace changes for the requested paths and requires `confirm: true`.                                             |
@@ -887,7 +888,7 @@ Every route the bundled `@pi-harness/api-gateway` plugin registers is listed bel
 | `/api/session/export`      | GET       | Downloads one stored session as newline-delimited JSON.                                                                      |
 | `/api/sessions`            | GET       | Paginated stored session list, at most 100 entries per page.                                                                 |
 
-The session and file routes validate their paths against the session directory and the active workspace before touching the filesystem, and the marketplace mutations are serialized so a second install, toggle, or uninstall receives `409` while one is running.
+The session and file routes validate their paths against the session directory and the active workspace before touching the filesystem. Workspace file discovery uses Git's tracked and non-ignored file catalogue when available; outside Git it performs a bounded walk that skips generated directories and symlinks. Marketplace mutations are serialized so a second install, toggle, or uninstall receives `409` while one is running.
 
 ## Failure and security boundaries
 

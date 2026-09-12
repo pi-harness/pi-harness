@@ -1,6 +1,6 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -60,6 +60,12 @@ const PROCESS_FAILURE_TEXT_LIMIT = 400;
 const PROCESS_TIMEOUT_MS = 120_000;
 // Mutating commands run user hooks (pre-commit, lint-staged, test suites) and may stage large trees; killing them part-way leaves index.lock and a half-finished operation behind, so they get a far more generous bound than read-only queries.
 const GIT_MUTATION_TIMEOUT_MS = 120_000;
+const MAX_WORKSPACE_FILES = 5_000;
+const MAX_WORKSPACE_FILE_CANDIDATES = 20_000;
+const MAX_WORKSPACE_DIRECTORIES = 2_000;
+const MAX_WORKSPACE_DEPTH = 16;
+const WORKSPACE_FILE_CACHE_MS = 1_000;
+const IGNORED_WORKSPACE_DIRECTORIES = new Set([".git", "node_modules", ".pi", "dist", "build"]);
 
 class PayloadTooLargeError extends Error {
   constructor() {
@@ -768,6 +774,104 @@ function gitCommand(cwd: string, args: readonly string[], timeoutMs = GIT_TIMEOU
   });
 }
 
+interface WorkspaceFileCatalogue {
+  readonly paths: readonly string[];
+  readonly truncated: boolean;
+}
+
+function ignoredWorkspaceDirectory(name: string): boolean {
+  return IGNORED_WORKSPACE_DIRECTORIES.has(process.platform === "win32" || process.platform === "darwin" ? name.toLowerCase() : name);
+}
+
+async function existingWorkspaceFiles(root: string, candidates: readonly string[], truncated: boolean): Promise<WorkspaceFileCatalogue> {
+  const canonicalRoot = await realpath(resolve(root));
+  const paths: string[] = [];
+  for (let start = 0; start < candidates.length && paths.length < MAX_WORKSPACE_FILES; start += 64) {
+    const batch = candidates.slice(start, start + 64);
+    const existing = await Promise.all(
+      batch.map(async (path) => {
+        const target = resolve(canonicalRoot, path);
+        if (escapesRoot(relative(canonicalRoot, target))) return undefined;
+        try {
+          const canonical = await realpath(target);
+          if (escapesRoot(relative(canonicalRoot, canonical)) || !(await stat(canonical)).isFile()) return undefined;
+          return path;
+        } catch {
+          return undefined;
+        }
+      }),
+    );
+    for (const path of existing) {
+      if (path !== undefined) paths.push(path);
+      if (paths.length >= MAX_WORKSPACE_FILES) break;
+    }
+  }
+  return { paths: paths.sort(), truncated: truncated || paths.length >= MAX_WORKSPACE_FILES };
+}
+
+async function gitWorkspaceFiles(root: string): Promise<WorkspaceFileCatalogue | undefined> {
+  const result = await gitCommand(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"]);
+  if (result.code !== 0 && result.terminated !== "output-limit") {
+    if (/not a git repository/iu.test(result.stderr)) return undefined;
+    throw new Error(result.terminated ? gitTerminationMessage("ls-files", result.terminated) : result.stderr.trim() || "Unable to list workspace files");
+  }
+  const lastBoundary = result.stdout.lastIndexOf("\0");
+  const completeOutput = result.terminated === "output-limit" ? result.stdout.slice(0, lastBoundary + 1) : result.stdout;
+  const allCandidates = [...new Set(completeOutput.split("\0").filter((path) => path !== "" && !path.includes("\uFFFD")))];
+  const candidates = allCandidates.slice(0, MAX_WORKSPACE_FILE_CANDIDATES);
+  return existingWorkspaceFiles(root, candidates, result.terminated === "output-limit" || allCandidates.length > candidates.length);
+}
+
+async function walkedWorkspaceFiles(root: string): Promise<WorkspaceFileCatalogue> {
+  const canonicalRoot = await realpath(resolve(root));
+  const pending: Array<{ readonly directory: string; readonly depth: number }> = [{ directory: canonicalRoot, depth: 0 }];
+  const paths: string[] = [];
+  let directories = 0;
+  let scanned = 0;
+  let truncated = false;
+  while (pending.length > 0 && paths.length < MAX_WORKSPACE_FILES && directories < MAX_WORKSPACE_DIRECTORIES && scanned < MAX_WORKSPACE_FILE_CANDIDATES) {
+    const current = pending.shift();
+    if (current === undefined) break;
+    directories += 1;
+    try {
+      const handle = await opendir(current.directory);
+      for await (const entry of handle) {
+        scanned += 1;
+        if (scanned > MAX_WORKSPACE_FILE_CANDIDATES) {
+          truncated = true;
+          break;
+        }
+        const name = entry.name;
+        if (name.includes("\uFFFD")) {
+          truncated = true;
+          continue;
+        }
+        const target = join(current.directory, name);
+        if (entry.isSymbolicLink()) continue;
+        if (entry.isFile()) {
+          paths.push(relative(canonicalRoot, target).split(sep).join("/"));
+          if (paths.length >= MAX_WORKSPACE_FILES) {
+            truncated = true;
+            break;
+          }
+        } else if (entry.isDirectory() && !ignoredWorkspaceDirectory(name)) {
+          if (current.depth >= MAX_WORKSPACE_DEPTH) truncated = true;
+          else pending.push({ directory: target, depth: current.depth + 1 });
+        }
+      }
+    } catch (error) {
+      if (current.directory === canonicalRoot) throw error;
+      truncated = true;
+    }
+  }
+  if (pending.length > 0 || directories >= MAX_WORKSPACE_DIRECTORIES || scanned >= MAX_WORKSPACE_FILE_CANDIDATES) truncated = true;
+  return { paths: paths.sort(), truncated };
+}
+
+async function workspaceFiles(root: string): Promise<WorkspaceFileCatalogue> {
+  return (await gitWorkspaceFiles(root)) ?? walkedWorkspaceFiles(root);
+}
+
 interface EveryApiCliAuthStatus {
   configured: false;
   source: "everyapi-cli";
@@ -880,6 +984,22 @@ export default {
     };
     const disposePluginPanels = registerPluginPanels(context, services);
     let busy = false;
+    let workspaceFileCache: { readonly cwd: string; readonly expiresAt: number; readonly catalogue: WorkspaceFileCatalogue } | undefined;
+    let workspaceFileRequest: { readonly cwd: string; readonly promise: Promise<WorkspaceFileCatalogue> } | undefined;
+    const readWorkspaceFiles = (cwd: string): Promise<WorkspaceFileCatalogue> => {
+      if (workspaceFileCache?.cwd === cwd && workspaceFileCache.expiresAt > Date.now()) return Promise.resolve(workspaceFileCache.catalogue);
+      if (workspaceFileRequest?.cwd === cwd) return workspaceFileRequest.promise;
+      const promise = workspaceFiles(cwd)
+        .then((catalogue) => {
+          workspaceFileCache = { cwd, expiresAt: Date.now() + WORKSPACE_FILE_CACHE_MS, catalogue };
+          return catalogue;
+        })
+        .finally(() => {
+          if (workspaceFileRequest?.promise === promise) workspaceFileRequest = undefined;
+        });
+      workspaceFileRequest = { cwd, promise };
+      return promise;
+    };
     const events: StampedSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
     const initialRunAt = Date.now();
@@ -1626,6 +1746,20 @@ export default {
         sendJson(response, 200, { items, ...(status.truncated ? { truncated: true } : {}) });
       },
     });
+    const disposeWorkspaceFiles = services.webServer.register({
+      path: "/api/workspace/files",
+      async handler(_request, response) {
+        try {
+          const catalogue = await readWorkspaceFiles(activeCwd(services));
+          sendJson(response, 200, {
+            items: catalogue.paths.map((path) => ({ path, status: "", label: "workspace" })),
+            truncated: catalogue.truncated,
+          });
+        } catch (error) {
+          sendJson(response, 500, { error: errorText(error) });
+        }
+      },
+    });
     const disposeFileDiff = services.webServer.register({
       path: "/api/files/diff",
       async handler(request, response) {
@@ -2339,6 +2473,7 @@ export default {
       disposeWorkspaces();
       disposePickDirectory();
       disposeFiles();
+      disposeWorkspaceFiles();
       disposeFileDiff();
       disposeFileCommit();
       disposeFileRevert();

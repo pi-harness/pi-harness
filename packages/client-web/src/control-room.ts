@@ -108,6 +108,10 @@ export interface ClientFile {
   readonly status: string;
   readonly label: string;
 }
+export interface ClientWorkspaceFileList {
+  readonly items: readonly ClientFile[];
+  readonly truncated: boolean;
+}
 export interface ClientWorkspace {
   readonly path: string;
   readonly branch: string;
@@ -153,6 +157,7 @@ export interface ClientApi {
   getStatus(): Promise<ClientStatus>;
   getSession(): Promise<ClientSession>;
   getFiles(): Promise<readonly ClientFile[]>;
+  getWorkspaceFiles(): Promise<ClientWorkspaceFileList>;
   listWorkspaces(): Promise<readonly ClientWorkspace[]>;
   pickDirectory(): Promise<string>;
   getFileDiff(path: string): Promise<{ path: string; diff: string }>;
@@ -222,6 +227,7 @@ export function createClientApi(): ClientApi {
     getStatus: () => requestJson<ClientStatus>("/api/status"),
     getSession: () => requestJson<ClientSession>("/api/session"),
     getFiles: async () => (await requestJson<{ items: readonly ClientFile[] }>("/api/files")).items,
+    getWorkspaceFiles: () => requestJson<ClientWorkspaceFileList>("/api/workspace/files"),
     listWorkspaces: async () => (await requestJson<{ items: readonly ClientWorkspace[] }>("/api/workspaces")).items,
     pickDirectory: async () => (await requestJson<{ path: string }>("/api/workspaces/pick", { method: "POST" })).path,
     getFileDiff: (path) => requestJson<{ path: string; diff: string }>(`/api/files/diff?path=${encodeURIComponent(path)}`),

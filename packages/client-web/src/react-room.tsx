@@ -105,6 +105,8 @@ interface RoomData {
   session?: ClientSession;
   sessions: readonly Record<string, unknown>[];
   files: readonly ClientFile[];
+  workspaceFiles: readonly ClientFile[];
+  workspaceFilesTruncated: boolean;
   models: readonly ClientModel[];
   providers: readonly ClientProvider[];
   plugins: readonly ClientPlugin[];
@@ -1038,7 +1040,7 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
   const fileDetail = event.type === "file" || event.type === "file_diff";
   const stats: readonly [string, string][] = fileDetail
     ? [
-        [t("来源"), "/api/files"],
+        [t("来源"), value(event.source, "/api/files")],
         [t("文件"), value(event.path)],
       ]
     : [
@@ -7890,6 +7892,7 @@ function PromptCompletionPopover({
   kind,
   commands,
   files,
+  filesTruncated,
   query,
   activeIndex,
   onActiveIndexChange,
@@ -7898,6 +7901,7 @@ function PromptCompletionPopover({
   kind: PromptCompletionKind;
   commands: readonly ClientCommand[];
   files: readonly ClientFile[];
+  filesTruncated: boolean;
   query: string;
   activeIndex: number;
   onActiveIndexChange: (index: number) => void;
@@ -7917,12 +7921,14 @@ function PromptCompletionPopover({
       id="prompt-completion-list"
       role="listbox"
     >
-      <small>{kind === "command" ? t("命令") : t("文件")}</small>
+      <small>{kind === "command" ? t("命令") : filesTruncated ? t("文件 · 索引已截断") : t("文件")}</small>
       {items.length ? (
         items.slice(0, 12).map((item, index) => {
           const label = kind === "command" ? `/${(item as ClientCommand).invocationName}` : `@${(item as ClientFile).path}`;
           const detail =
-            kind === "command" ? ((item as ClientCommand).description ?? (item as ClientCommand).source ?? t("由当前运行时注册")) : (item as ClientFile).status;
+            kind === "command"
+              ? ((item as ClientCommand).description ?? (item as ClientCommand).source ?? t("由当前运行时注册"))
+              : (item as ClientFile).status || t("工作区");
           return (
             <button
               aria-selected={index === activeIndex}
@@ -7951,6 +7957,19 @@ type GlobalSearchItem =
   | { kind: "session"; session: Record<string, unknown> }
   | { kind: "file"; file: ClientFile };
 
+export function mergeSearchableFiles(workspaceFiles: readonly ClientFile[], changedFiles: readonly ClientFile[]): readonly ClientFile[] {
+  const files = new Map(workspaceFiles.map((file) => [file.path, file]));
+  for (const file of changedFiles) {
+    if (file.status.includes("D")) files.delete(file.path);
+    else files.set(file.path, file);
+  }
+  return [...files.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export function fileDetailSource(file: ClientFile): "/api/files" | "/api/workspace/files" {
+  return file.status ? "/api/files" : "/api/workspace/files";
+}
+
 export function scrollActiveOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
   option?.scrollIntoView({ block: "nearest" });
 }
@@ -7972,6 +7991,7 @@ export function GlobalSearch({
   commands,
   sessions,
   files,
+  filesTruncated = false,
   onClose,
   onUse,
   onOpenSession,
@@ -7980,6 +8000,7 @@ export function GlobalSearch({
   commands: readonly ClientCommand[];
   sessions: readonly Record<string, unknown>[];
   files: readonly ClientFile[];
+  filesTruncated?: boolean;
   onClose: () => void;
   onUse: (value: string) => void;
   onOpenSession: (session: Record<string, unknown>) => void;
@@ -8030,6 +8051,7 @@ export function GlobalSearch({
           aria-activedescendant={activeItemId}
           aria-autocomplete="list"
           aria-controls="global-search-results"
+          aria-describedby={filesTruncated ? "global-search-file-warning" : undefined}
           aria-expanded="true"
           aria-label={t("全局搜索")}
           data-dialog-initial-focus
@@ -8069,13 +8091,15 @@ export function GlobalSearch({
                         ? `/${item.command.invocationName}`
                         : item.kind === "session"
                           ? value(item.session.name ?? item.session.firstMessage ?? item.session.sessionId, t("未命名会话"))
-                          : item.file.label;
+                          : item.file.path;
                     const detail =
                       item.kind === "command"
                         ? (item.command.description ?? item.command.source ?? t("由当前运行时注册"))
                         : item.kind === "session"
                           ? t("{count} 条消息", { count: value(item.session.messageCount, "0") })
-                          : `${item.file.path} · ${item.file.status}`;
+                          : item.file.status
+                            ? `${item.file.label} · ${item.file.status}`
+                            : t("工作区");
                     return (
                       <button
                         aria-selected={index === selectedIndex}
@@ -8099,6 +8123,11 @@ export function GlobalSearch({
             <div className="empty-state">{t("没有匹配的命令、会话或文件。")}</div>
           )}
         </div>
+        {filesTruncated && (
+          <div className="global-search-notice" id="global-search-file-warning" role="status">
+            {t("文件索引已截断，搜索结果可能不完整。")}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -8363,6 +8392,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [data, setData] = useState<RoomData>({
     sessions: [],
     files: [],
+    workspaceFiles: [],
+    workspaceFilesTruncated: false,
     models: [],
     providers: [],
     plugins: [],
@@ -8519,15 +8550,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   useEffect(() => {
     if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
   }, [data.session?.sessionFile, selectedSessionPath]);
+  const searchableFiles = useMemo(() => mergeSearchableFiles(data.workspaceFiles, data.files), [data.files, data.workspaceFiles]);
   const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
   const promptCompletionItems = useMemo(() => {
     if (!promptCompletion) return [] as readonly (ClientCommand | ClientFile)[];
     return promptCompletion.kind === "command"
       ? filterCommands(data.commands, promptCompletion.query).slice(0, 12)
-      : data.files
+      : searchableFiles
           .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(promptCompletion.query.trim().toLowerCase()))
           .slice(0, 12);
-  }, [data.commands, data.files, promptCompletion]);
+  }, [data.commands, promptCompletion, searchableFiles]);
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
   const promptCompletionActiveIndex = Math.min(promptCompletionIndex, Math.max(promptCompletionItems.length - 1, 0));
   const installedPackages = useMemo(
@@ -8786,6 +8818,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.getSession(),
       api.listSessions(sessionPage, 30, includeArchivedSessions),
       api.getFiles(),
+      api.getWorkspaceFiles(),
       api.listModels(),
       api.listProviders(),
       api.listPlugins(),
@@ -8831,7 +8864,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (reason: unknown) => applyPluginPanels({ status: "rejected", reason }),
     );
     const results = await allResults;
-    const [, session, sessions, files, models, providers, plugins, marketplace, commands, workspaces] = results;
+    const [, session, sessions, files, workspaceFiles, models, providers, plugins, marketplace, commands, workspaces] = results;
     // Slow older batches must not overwrite a newer applied snapshot. An older
     // result can still render while a newer batch is pending, avoiding starvation.
     if (sequence < refreshSequenceRef.current.applied) return;
@@ -8843,7 +8876,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setPendingSessionUrlPath(undefined);
     }
     const failedCoreLabels = failedRefreshLabels(
-      [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("模型"), t("提供商"), t("插件"), t("插件市场"), t("命令"), t("工作区")],
+      [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("工作区文件"), t("模型"), t("提供商"), t("插件"), t("插件市场"), t("命令"), t("工作区")],
       results,
     );
     setRefreshIssues((current) => (current.includes(pluginPanelLabel) ? [...failedCoreLabels, pluginPanelLabel] : failedCoreLabels));
@@ -8855,6 +8888,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       session: current.session,
       sessions: sessions.status === "fulfilled" ? sessions.value.items : current.sessions,
       files: files.status === "fulfilled" ? files.value : current.files,
+      workspaceFiles: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.items : current.workspaceFiles,
+      workspaceFilesTruncated: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.truncated : current.workspaceFilesTruncated,
       models: models.status === "fulfilled" ? models.value : current.models,
       providers: providers.status === "fulfilled" ? providers.value : current.providers,
       plugins: plugins.status === "fulfilled" ? plugins.value : current.plugins,
@@ -9705,7 +9740,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 const items = completion
                   ? completion.kind === "command"
                     ? filterCommands(data.commands, completion.query).slice(0, 12)
-                    : data.files
+                    : searchableFiles
                         .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(completion.query.trim().toLowerCase()))
                         .slice(0, 12)
                   : [];
@@ -9768,7 +9803,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               <PromptCompletionPopover
                 activeIndex={promptCompletionActiveIndex}
                 commands={data.commands}
-                files={data.files}
+                files={searchableFiles}
+                filesTruncated={data.workspaceFilesTruncated}
                 kind={promptCompletion.kind}
                 onActiveIndexChange={setPromptCompletionIndex}
                 onUse={(value) => {
@@ -10644,12 +10680,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       {globalSearchOpen && (
         <GlobalSearch
           commands={data.commands}
-          files={data.files}
+          files={searchableFiles}
+          filesTruncated={data.workspaceFilesTruncated}
           onClose={() => setGlobalSearchOpen(false)}
           onOpenFile={(file) => {
             setPage("session");
             setView("files");
-            setDetails({ type: "file", path: file.path, status: file.status });
+            setDetails({ type: "file", path: file.path, status: file.status, source: fileDetailSource(file) });
           }}
           onOpenSession={openSession}
           onUse={insertCommand}

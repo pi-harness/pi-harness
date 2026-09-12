@@ -1443,6 +1443,9 @@ button:disabled {
 .global-search-results {
   @apply [min-height:0] [overflow:auto] [padding:8px_10px_12px];
 }
+.global-search-notice {
+  @apply [flex:none] [padding:9px_18px] [border-top:1px_solid_var(--color-line)] [background:var(--color-warn-soft)] [color:var(--color-warn)] [font-size:11px];
+}
 .global-search-group {
   @apply [padding:0_0_8px];
 }

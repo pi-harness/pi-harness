@@ -2388,6 +2388,105 @@ describe("API gateway plugin", () => {
     expect(invalid.status).toBe(400);
   });
 
+  test("lists tracked and untracked workspace files independently from Git changes", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-workspace-files-"));
+    temporaryDirectories.push(workspace);
+    await execFile("git", ["init", "-q"], { cwd: workspace });
+    await mkdir(join(workspace, "src"));
+    await mkdir(join(workspace, "node_modules"));
+    await writeFile(join(workspace, ".gitignore"), "ignored.log\nnode_modules/\n");
+    await writeFile(join(workspace, "README.md"), "tracked\n");
+    await writeFile(join(workspace, "src", "app.ts"), "export {};\n");
+    await writeFile(join(workspace, "draft.md"), "untracked\n");
+    await writeFile(join(workspace, "ignored.log"), "ignored\n");
+    await writeFile(join(workspace, "node_modules", "dependency.js"), "ignored\n");
+    await execFile("git", ["add", ".gitignore", "README.md", "src/app.ts"], { cwd: workspace });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "workspace-files-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/workspace/files");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        { path: ".gitignore", status: "", label: "workspace" },
+        { path: "README.md", status: "", label: "workspace" },
+        { path: "draft.md", status: "", label: "workspace" },
+        { path: "src/app.ts", status: "", label: "workspace" },
+      ],
+      truncated: false,
+    });
+  });
+
+  test("lists bounded files in a non-Git workspace without following symlinks or generated directories", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-plain-workspace-files-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-plain-workspace-outside-"));
+    temporaryDirectories.push(workspace, outside);
+    await mkdir(join(workspace, "src"));
+    await mkdir(join(workspace, "node_modules"));
+    await writeFile(join(workspace, "README.md"), "root\n");
+    await writeFile(join(workspace, "src", "app.ts"), "export {};\n");
+    await writeFile(join(workspace, "node_modules", "dependency.js"), "ignored\n");
+    await writeFile(join(outside, "secret.txt"), "outside\n");
+    await symlink(join(outside, "secret.txt"), join(workspace, "linked-secret.txt"));
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "plain-workspace-files-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/workspace/files");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        { path: "README.md", status: "", label: "workspace" },
+        { path: "src/app.ts", status: "", label: "workspace" },
+      ],
+      truncated: false,
+    });
+  });
+
+  test("shares a short workspace catalogue cache across rapid console refreshes", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-workspace-file-cache-"));
+    temporaryDirectories.push(workspace);
+    const shimDirectory = join(workspace, "bin");
+    const calls = join(workspace, "git-calls.txt");
+    await mkdir(shimDirectory);
+    await writeFile(join(workspace, "README.md"), "cached\n");
+    await writeFile(
+      join(shimDirectory, "git"),
+      `#!/bin/sh\nprintf x >> ${JSON.stringify(calls)}\nprintf 'README.md\\0'\n`,
+      { mode: 0o755 },
+    );
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "workspace-file-cache-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    try {
+      expect((await fetch(context.webServer.url + "/api/workspace/files")).status).toBe(200);
+      expect((await fetch(context.webServer.url + "/api/workspace/files")).status).toBe(200);
+      await expect(readFile(calls, "utf8")).resolves.toBe("x");
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
   test("lists the reviewed plugin marketplace and supports bounded filters", async () => {
     const context = new Context();
     contexts.push(context);
