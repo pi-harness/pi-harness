@@ -27,7 +27,7 @@ test("gives the global search result list an accessible name", async () => {
 
 test("keeps the active search result visible while keyboard focus stays on the combobox", async () => {
   const module = (await import("../src/react-room.js")) as unknown as {
-    scrollActiveSearchOptionIntoView?: (option: Pick<HTMLElement, "scrollIntoView"> | null) => void;
+    scrollActiveOptionIntoView?: (option: Pick<HTMLElement, "scrollIntoView"> | null) => void;
   };
   let received: boolean | ScrollIntoViewOptions | undefined;
   const option = {
@@ -36,9 +36,9 @@ test("keeps the active search result visible while keyboard focus stays on the c
     },
   };
 
-  expect(module.scrollActiveSearchOptionIntoView).toBeTypeOf("function");
-  if (!module.scrollActiveSearchOptionIntoView) return;
-  module.scrollActiveSearchOptionIntoView(option);
+  expect(module.scrollActiveOptionIntoView).toBeTypeOf("function");
+  if (!module.scrollActiveOptionIntoView) return;
+  module.scrollActiveOptionIntoView(option);
 
   expect(received).toEqual({ block: "nearest" });
 });

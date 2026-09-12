@@ -671,6 +671,32 @@ describe("command palette with an empty registry", () => {
     ).toBe(true);
     expect(/className="tool-chip"\s*disabled=\{!data\.commands\.length\}/u.test(source)).toBe(true);
   });
+
+  test("gives every command option a stable active-descendant target", () => {
+    const html = palette([
+      { name: "commit", invocationName: "commit" },
+      { name: "review", invocationName: "review" },
+    ]);
+
+    expect(html).toContain('id="command-menu-option-0"');
+    expect(html).toContain('id="command-menu-option-1"');
+  });
+
+  test("exposes the visible command selection through the sidebar combobox", async () => {
+    const module = (await import("../src/react-room.js")) as unknown as {
+      commandSearchAccessibility?: (open: boolean, activeIndex: number, itemCount: number) => Record<string, unknown>;
+    };
+
+    expect(module.commandSearchAccessibility).toBeTypeOf("function");
+    if (!module.commandSearchAccessibility) return;
+    expect(module.commandSearchAccessibility(true, 12, 3)).toEqual({
+      "aria-activedescendant": "command-menu-option-2",
+      "aria-autocomplete": "list",
+      role: "combobox",
+    });
+    expect(module.commandSearchAccessibility(false, 0, 3)["aria-activedescendant"]).toBeUndefined();
+    expect(module.commandSearchAccessibility(true, 0, 0)["aria-activedescendant"]).toBeUndefined();
+  });
 });
 
 describe("tool transcript rendering", () => {
