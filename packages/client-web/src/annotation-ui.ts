@@ -4,9 +4,34 @@ export interface ClientAnnotation {
   note: string;
 }
 
+export interface ClientAnnotationDraft {
+  readonly sessionId: string | undefined;
+  readonly annotations: readonly ClientAnnotation[];
+  readonly selection: string;
+  readonly note: string;
+}
+
 const annotationHeader = "[Pi Harness annotations]";
 const annotationFooter = "[/Pi Harness annotations]";
 const questionMarker = "\n\n提问：";
+
+export function annotationDraftForSession(state: ClientAnnotationDraft, sessionId: string | undefined): ClientAnnotationDraft {
+  return state.sessionId === sessionId ? state : { sessionId, annotations: [], selection: "", note: "" };
+}
+
+export function clearSubmittedAnnotations(state: ClientAnnotationDraft, submittedSessionId: string | undefined): ClientAnnotationDraft {
+  return state.sessionId === submittedSessionId ? { ...state, annotations: [] } : state;
+}
+
+export function captureSelectionForSession(
+  state: ClientAnnotationDraft,
+  scheduledSessionId: string | undefined,
+  activeSessionId: string | undefined,
+  selection: string,
+): ClientAnnotationDraft {
+  if (scheduledSessionId !== activeSessionId) return state;
+  return { ...annotationDraftForSession(state, activeSessionId), selection };
+}
 
 export function formatAnnotationPrompt(annotations: readonly ClientAnnotation[], question: string): string {
   const lines = annotations.flatMap((annotation) => [
