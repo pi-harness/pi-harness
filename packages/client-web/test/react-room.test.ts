@@ -300,6 +300,14 @@ describe("new session workspace picker", () => {
 });
 
 describe("run telemetry", () => {
+  test("anchors the visually hidden live status so long turns cannot extend the page scroll area", async () => {
+    const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
+    const hiddenRule = /\.visually-hidden\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";
+
+    expect(hiddenRule).toContain("[top:0]");
+    expect(hiddenRule).toContain("[left:0]");
+  });
+
   test("formats elapsed time as a stable run clock", async () => {
     const { formatRunClock } = await import("../src/react-room.js");
 

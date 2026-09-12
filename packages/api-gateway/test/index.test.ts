@@ -57,6 +57,8 @@ const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];
 const execFile = promisify(execFileCallback);
 const sleep = (ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms));
+const persistedUserSession = (id: string, cwd: string, text: string) =>
+  `${JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd })}\n${JSON.stringify({ type: "message", id: `${id}-message`, parentId: null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() } })}\n`;
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async (context) => context.fiber.dispose()));
@@ -1981,6 +1983,117 @@ describe("API gateway plugin", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ sessionId: "new-session", messages: [] });
     expect(resetCount).toBe(1);
+  });
+
+  test("lists sessions from the active runtime workspace after a workspace switch", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-active-session-list-"));
+    temporaryDirectories.push(directory);
+    const launchCwd = join(directory, "launch");
+    const activeCwd = join(directory, "active");
+    const launchPath = join(directory, "2026-08-30T00-00-00-000Z_launch.jsonl");
+    const activePath = join(directory, "2026-08-30T00-00-01-000Z_active.jsonl");
+    await writeFile(launchPath, persistedUserSession("launch-session", launchCwd, "launch workspace"), "utf8");
+    await writeFile(activePath, persistedUserSession("active-session", activeCwd, "active workspace"), "utf8");
+    const manager = SessionManager.create(activeCwd, directory);
+    const session = { sessionId: "current", sessionFile: undefined, messages: [], isStreaming: false, sessionManager: manager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, sessionRuntime: { cwd: activeCwd }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: launchCwd, agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/sessions");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ items: [{ sessionId: "active-session", path: activePath }], total: 1 });
+  });
+
+  test("opens a persisted session from the active runtime workspace after a workspace switch", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-active-session-open-"));
+    temporaryDirectories.push(directory);
+    const launchCwd = join(directory, "launch");
+    const activeCwd = join(directory, "active");
+    const path = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
+    await writeFile(
+      path,
+      persistedUserSession("active-session", activeCwd, "active workspace"),
+      "utf8",
+    );
+    const manager = SessionManager.create(activeCwd, directory);
+    let openedPath = "";
+    const session = {
+      get sessionId() {
+        return manager.getSessionId();
+      },
+      get sessionFile() {
+        return manager.getSessionFile();
+      },
+      get messages() {
+        return manager.buildSessionContext().messages;
+      },
+      isStreaming: false,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const sessionRuntime = {
+      cwd: activeCwd,
+      switchSession(target: string) {
+        openedPath = target;
+        manager.setSessionFile(target);
+        return Promise.resolve({ cancelled: false });
+      },
+    };
+    context.provide("piRuntime", { session, sessionRuntime, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: launchCwd, agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(openedPath).toBe(path);
+    await expect(response.json()).resolves.toMatchObject({ sessionId: "active-session", sessionFile: path, messages: [{ role: "user" }] });
+  });
+
+  test("forks a persisted session from the active runtime workspace after a workspace switch", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-active-session-fork-"));
+    temporaryDirectories.push(directory);
+    const launchCwd = join(directory, "launch");
+    const activeCwd = join(directory, "active");
+    const path = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
+    await writeFile(
+      path,
+      persistedUserSession("active-session", activeCwd, "active workspace"),
+      "utf8",
+    );
+    const manager = SessionManager.create(activeCwd, directory);
+    const session = { sessionId: "current", sessionFile: undefined, messages: [], isStreaming: false, sessionManager: manager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, sessionRuntime: { cwd: activeCwd }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: launchCwd, agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ cwd: activeCwd });
   });
 
   test("opens a persisted session from the session list", async () => {

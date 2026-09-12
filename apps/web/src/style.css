@@ -701,7 +701,7 @@ button:disabled {
   @apply [max-height:320px] [margin:0] [overflow:auto] [border-top:1px_solid_var(--color-line)] [padding:10px] [font:11.5px_var(--font-mono)] [line-height:1.65] [white-space:pre-wrap] [word-break:break-word];
 }
 .visually-hidden {
-  @apply [position:absolute] [width:1px] [height:1px] [padding:0] [margin:-1px] [overflow:hidden] [clip:rect(0,0,0,0)] [white-space:nowrap] [border:0];
+  @apply [position:absolute] [top:0] [left:0] [width:1px] [height:1px] [padding:0] [margin:-1px] [overflow:hidden] [clip:rect(0,0,0,0)] [white-space:nowrap] [border:0];
 }
 .streaming-placeholder {
   @apply [display:flex] [align-items:center] [gap:8px] [color:var(--color-muted)] [font-size:12px];
