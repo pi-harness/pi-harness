@@ -8410,6 +8410,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [selectedSessionPaths, setSelectedSessionPaths] = useState<ReadonlySet<string>>(new Set());
   const importInputRef = useRef<HTMLInputElement>(null);
   const sessionPopoverTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const restoreSessionPopoverFocus = () => {
+    const trigger = sessionPopoverTriggerRef.current;
+    window.requestAnimationFrame(() => {
+      if (trigger?.isConnected) trigger.focus();
+    });
+  };
   const [streamingAssistant, setStreamingAssistant] = useState<{ thinking: string; text: string }>();
   const [runActivity, setRunActivity] = useState<LocalRunActivity>();
   const [runClockAt, setRunClockAt] = useState(() => Date.now());
@@ -9911,7 +9917,17 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 sessionToolsPosition &&
                 createPortal(
                   <div className="session-tools-popover" data-session-popover role="menu" style={{ ...themeStyle, ...sessionToolsPosition }}>
-                    <button autoFocus onClick={() => window.location.reload()} role="menuitem" type="button">
+                    <button
+                      autoFocus
+                      onClick={() => {
+                        setSessionToolsOpen(false);
+                        setSessionToolsPosition(undefined);
+                        void refresh();
+                        restoreSessionPopoverFocus();
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
                       {t("刷新列表")}
                     </button>
                     <button
@@ -9946,9 +9962,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     <button
                       onClick={() => {
                         setIncludeArchivedSessions((current) => !current);
+                        setSessionPage(0);
                         setSessionToolsOpen(false);
                         setSessionToolsPosition(undefined);
-                        void refresh();
+                        restoreSessionPopoverFocus();
                       }}
                       role="menuitem"
                       type="button"
