@@ -222,6 +222,27 @@ describe("runtime event subscription", () => {
   });
 });
 
+describe("session list tools", () => {
+  test("refreshes in place instead of reloading the whole application", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const menu = source.slice(source.indexOf('{t("刷新列表")}') - 500, source.indexOf('{t("刷新列表")}') + 100);
+
+    expect(menu).toContain("void refresh()");
+    expect(menu).toContain("restoreSessionPopoverFocus()");
+    expect(menu).not.toContain("window.location.reload()");
+  });
+
+  test("returns to the first page before applying the archived-session filter", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const start = source.indexOf("setIncludeArchivedSessions((current) => !current)");
+    const handler = source.slice(start, start + 260);
+
+    expect(handler).toContain("setSessionPage(0)");
+    expect(handler).toContain("restoreSessionPopoverFocus()");
+    expect(handler).not.toContain("void refresh()");
+  });
+});
+
 describe("run telemetry", () => {
   test("formats elapsed time as a stable run clock", async () => {
     const { formatRunClock } = await import("../src/react-room.js");
