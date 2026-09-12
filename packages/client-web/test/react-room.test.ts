@@ -1087,6 +1087,29 @@ test("does not render retained Context Insights metrics when there is no active 
   expect(html).not.toContain("10%");
 });
 
+test("does not render annotations from another or closed session", () => {
+  const panel = {
+    id: "annotation-panel",
+    pluginId: "@pi-harness/plugin-annotation",
+    title: "Annotations",
+    data: {
+      sessionId: "previous-session",
+      count: 1,
+      annotations: [{ id: 1, quote: "private previous-session text", note: "private note", createdAt: "2026-09-12T00:00:00.000Z" }],
+      lastPrompt: "private generated prompt",
+    },
+  };
+
+  const staleHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "active-session", panel }));
+  const closedHtml = renderToStaticMarkup(createElement(PluginPanelCard, { panel }));
+
+  for (const html of [staleHtml, closedHtml]) {
+    expect(html).toContain("批注面板数据不完整或不一致");
+    expect(html).not.toContain("private previous-session text");
+    expect(html).not.toContain("private generated prompt");
+  }
+});
+
 test("shows review locations and prioritizes errors in the visible findings", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {
