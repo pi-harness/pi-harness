@@ -7996,6 +7996,10 @@ export function nextSessionSearchPage(currentPage: number, previousQuery: string
   return previousQuery === nextQuery ? currentPage : 0;
 }
 
+export function sessionListEmptyMessage(search: string): string {
+  return search ? t("没有匹配的会话") : t("暂无已保存会话");
+}
+
 export function commandSearchAccessibility(
   open: boolean,
   activeIndex: number,
@@ -8509,6 +8513,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     };
   }, [data.session?.sessionId]);
   const [search, setSearch] = useState("");
+  const [sessionQuery, setSessionQuery] = useState("");
+  const sessionQueryRef = useRef("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
   const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
@@ -8578,6 +8584,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   useEffect(() => {
     if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
   }, [data.session?.sessionFile, selectedSessionPath]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const previousQuery = sessionQueryRef.current;
+      sessionQueryRef.current = search;
+      setSessionPage((page) => nextSessionSearchPage(page, previousQuery, search));
+      setSessionQuery(search);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const searchableFiles = useMemo(() => mergeSearchableFiles(data.workspaceFiles, data.files), [data.files, data.workspaceFiles]);
   const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
   const promptCompletionItems = useMemo(() => {
@@ -8844,7 +8859,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const requests = [
       api.getStatus(),
       api.getSession(),
-      api.listSessions(sessionPage, 30, includeArchivedSessions, search),
+      api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery),
       api.getFiles(),
       api.getWorkspaceFiles(),
       api.listModels(),
@@ -8937,7 +8952,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
-  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, search, sessionPage]);
+  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage, sessionQuery]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -10399,7 +10414,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               </div>
             ))
           ) : !showCurrentSession ? (
-            <div className="empty-state">{t("暂无已保存会话")}</div>
+            <div className="empty-state">{sessionListEmptyMessage(search)}</div>
           ) : null}
           {sessionTotal > 30 && (
             <div className="session-pagination">

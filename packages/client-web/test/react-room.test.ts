@@ -23,6 +23,7 @@ import {
   reloadRuntimeConfig,
   restartRequiredNotice,
   restartPendingForProcess,
+  sessionListEmptyMessage,
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
   pinActionForSessions,
@@ -71,6 +72,11 @@ describe("provider auth readiness", () => {
 });
 
 describe("session search requests", () => {
+  test("distinguishes an empty search result from an empty session history", async () => {
+    expect(sessionListEmptyMessage("missing")).toBe("没有匹配的会话");
+    expect(sessionListEmptyMessage("")).toBe("暂无已保存会话");
+  });
+
   test("resets pagination when the session query changes", async () => {
     expect(nextSessionSearchPage(3, "old", "new")).toBe(0);
     expect(nextSessionSearchPage(3, "same", "same")).toBe(3);
@@ -89,6 +95,14 @@ describe("session search requests", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("debounces session queries before they participate in the broad refresh", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    expect(source).toContain("setSessionQuery(search)");
+    expect(source).toContain("api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery)");
+    expect(source).toContain("marketplaceQuery, sessionPage, sessionQuery]");
+    expect(source).not.toContain("marketplaceQuery, search, sessionPage]");
   });
 });
 
