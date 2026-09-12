@@ -88,7 +88,15 @@ describe("better sidebar", () => {
       getSessionId: () => "session",
       listNodes: () => Promise.resolve({ nodes: [], scannedEntries: 0, directoryCount: 0, fileCount: 0, truncated: false }),
       readGitStatus: () =>
-        Promise.resolve({ available: true, branch: "main", clean: false, entries: [{ path: "first.txt", status: "??" }], changedCount: 600, truncated: true }),
+        Promise.resolve({
+          available: true,
+          failureReason: null,
+          branch: "main",
+          clean: false,
+          entries: [{ path: "first.txt", status: "??" }],
+          changedCount: 600,
+          truncated: true,
+        }),
     });
     await expect(inspect()).resolves.toMatchObject({ changedCount: 600, truncated: true, summary: "main · 600 个变更" });
   });
@@ -107,8 +115,16 @@ describe("better sidebar", () => {
         gitReads += 1;
         return Promise.resolve(
           gitReads === 1
-            ? { available: true, branch: "feature/old", clean: false, entries: [{ path: "src/app.ts", status: " M" }], changedCount: 1, truncated: false }
-            : { available: true, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false },
+            ? {
+                available: true,
+                failureReason: null,
+                branch: "feature/old",
+                clean: false,
+                entries: [{ path: "src/app.ts", status: " M" }],
+                changedCount: 1,
+                truncated: false,
+              }
+            : { available: true, failureReason: null, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false },
         );
       },
     });
@@ -139,7 +155,7 @@ describe("better sidebar", () => {
     const first = inspect();
     const second = inspect();
     expect(second).toBe(first);
-    resolveGit({ available: true, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false });
+    resolveGit({ available: true, failureReason: null, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false });
     await expect(first).resolves.toMatchObject({ branch: "main" });
     expect(gitReads).toBe(1);
   });
@@ -155,7 +171,8 @@ describe("better sidebar", () => {
           ? Promise.reject(new Error("temporary scan failure"))
           : Promise.resolve({ nodes: [], scannedEntries: 0, directoryCount: 1, fileCount: 2, truncated: false });
       },
-      readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
+      readGitStatus: () =>
+        Promise.resolve({ available: false, failureReason: "git-error", branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
     });
 
     await expect(inspect()).rejects.toThrow(/temporary scan failure/iu);
@@ -177,7 +194,7 @@ describe("better sidebar", () => {
         gitReads += 1;
         return gitReads === 1
           ? Promise.reject(new Error("temporary Git failure"))
-          : Promise.resolve({ available: true, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false });
+          : Promise.resolve({ available: true, failureReason: null, branch: "main", clean: true, entries: [], changedCount: 0, truncated: false });
       },
     });
 
@@ -202,7 +219,8 @@ describe("better sidebar", () => {
             : { nodes: [], scannedEntries: 0, directoryCount: 7, fileCount: 43, truncated: true },
         );
       },
-      readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
+      readGitStatus: () =>
+        Promise.resolve({ available: false, failureReason: "git-error", branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
     });
 
     await expect(inspect()).resolves.toMatchObject({ directoryCount: 1, fileCount: 3, truncated: false });
@@ -223,7 +241,8 @@ describe("better sidebar", () => {
         cwd: root,
         getSessionId: () => "session",
         now: () => clock,
-        readGitStatus: () => Promise.resolve({ available: false, branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
+        readGitStatus: () =>
+          Promise.resolve({ available: false, failureReason: "git-error", branch: null, clean: false, entries: [], changedCount: 0, truncated: false }),
       });
       await expect(inspect()).resolves.toMatchObject({ directoryCount: 0, fileCount: 1 });
 
