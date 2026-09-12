@@ -1093,6 +1093,9 @@ button:disabled {
 .trajectory-summary b {
   @apply [margin-left:9px] [color:var(--color-faint)] [font:10.5px_var(--font-mono)] [font-weight:400];
 }
+.trajectory-history {
+  @apply [margin-left:9px] [color:var(--color-blue)] [font:10.5px_var(--font-mono)];
+}
 .timeline {
   @apply [display:flex] [gap:3px] [height:26px] [margin-top:8px];
 }

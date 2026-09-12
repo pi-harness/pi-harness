@@ -1231,5 +1231,8 @@
   "固定在会话列表顶部": "Keep at the top of the session list",
   "恢复到默认列表": "Return to the default list",
   "输入绝对路径，如 /tmp/my-project": "Enter an absolute path, such as /tmp/my-project",
-  "打开": "Open"
+  "打开": "Open",
+  "已从会话日志恢复 {count} 个历史事件": "Recovered {count} historical events from the session log",
+  "更早的历史事件已省略": "Earlier historical events omitted",
+  "全局搜索结果": "Global search results"
 }
