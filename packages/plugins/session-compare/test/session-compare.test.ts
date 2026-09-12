@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, open, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, open, writeFile, rm, utimes } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -198,6 +198,52 @@ describe("session compare", () => {
       releaseReads();
       fileHandlePrototype.read = originalRead;
     }
+  });
+
+  test("compares an explicitly requested session beyond the first 200 recent sessions", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-old-cwd-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-old-agent-"));
+    directories.push(cwd, agentDir);
+    const sessionDir = join(agentDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    const session = (id: string, text: string, timestamp = "2026-09-03T00:00:00.000Z") =>
+      `${JSON.stringify({ type: "session", version: 3, id, timestamp, cwd })}\n${JSON.stringify({
+        type: "message",
+        id: `${id}-message`,
+        parentId: null,
+        timestamp,
+        message: { role: "user", content: [{ type: "text", text }] },
+      })}\n`;
+    const oldPath = join(sessionDir, "old-session.jsonl");
+    await writeFile(oldPath, session("old-session", "Original product brief", "2020-01-01T00:00:00.000Z"), "utf8");
+    await utimes(oldPath, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
+    await Promise.all(
+      Array.from({ length: 200 }, (_, index) => writeFile(join(sessionDir, `recent-${index}.jsonl`), session(`recent-${index}`, `Iteration ${index}`), "utf8")),
+    );
+
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager: { getCwd: () => cwd, getSessionId: () => "active", getSessionDir: () => sessionDir } } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(sessionComparePlugin);
+    const compare = tools.snapshot().customTools.find((tool) => tool.name === "session_compare");
+    if (compare === undefined) throw new Error("session_compare was not registered");
+
+    const result = await compare.execute("old", { left: "old-session", right: "recent-0" }, undefined, undefined, {} as never);
+    expect(result).toMatchObject({
+      details: {
+        left: { id: "old-session", messageCount: 1 },
+        right: { id: "recent-0", messageCount: 1 },
+        changed: true,
+      },
+    });
+    expect(result.content).toEqual([
+      expect.objectContaining({ type: "text", text: expect.stringContaining("Compared old-session with recent-0: changed.") as unknown }),
+    ]);
+    expect((await context.piPluginUi.snapshot())[0]?.data).toMatchObject({ left: { id: "old-session" }, right: { id: "recent-0" }, changed: true });
   });
 });
 
