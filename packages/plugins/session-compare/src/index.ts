@@ -1,10 +1,13 @@
-import { basename } from "node:path";
+import { constants } from "node:fs";
+import { lstat, open, opendir } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, parseSessionEntries, SessionManager, type AgentToolResult, type SessionInfo } from "@earendil-works/pi-coding-agent";
+import { defineTool, parseSessionEntries, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { EmptyConfig, readBoundedFile } from "@pi-harness/plugin-api";
 
 const maxSessionFileBytes = 4 * 1024 * 1024;
+const maxSessionHeaderBytes = 64 * 1024;
 const maxMessageTextLength = 4_000;
 const maxDiffMessages = 40;
 
@@ -30,6 +33,21 @@ export interface SessionCompareSide {
   modified: string;
   messageCount: number;
   roles: Record<string, number>;
+}
+
+interface SessionReference {
+  id: string;
+  firstMessage?: string;
+  name?: string;
+  path: string;
+  modified: Date;
+}
+
+interface SessionCandidate {
+  path: string;
+  expectedCwd: string;
+  expectedId?: string;
+  modified: Date;
 }
 
 export interface SessionCompareReport extends SessionCompareDiff {
@@ -104,11 +122,11 @@ export function compareMessageEntries(left: readonly SessionCompareMessage[], ri
   };
 }
 
-function sessionName(session: SessionInfo): string {
-  return session.name?.trim() || session.firstMessage.trim() || session.id;
+function sessionName(session: SessionReference): string {
+  return session.name?.trim() || session.firstMessage?.trim() || session.id;
 }
 
-function side(session: SessionInfo, messages: readonly SessionCompareMessage[]): SessionCompareSide {
+function side(session: SessionReference, messages: readonly SessionCompareMessage[]): SessionCompareSide {
   const roles: Record<string, number> = {};
   for (const message of messages) roles[message.role] = (roles[message.role] ?? 0) + 1;
   return {
@@ -121,24 +139,210 @@ function side(session: SessionInfo, messages: readonly SessionCompareMessage[]):
   };
 }
 
-async function readMessages(session: SessionInfo, signal: AbortSignal): Promise<SessionCompareMessage[]> {
+interface ReadSession {
+  session: SessionReference;
+  messages: SessionCompareMessage[];
+}
+
+function logicalModified(entries: readonly unknown[], fallback: Date): Date {
+  let latest = Number.NaN;
+  for (const value of entries) {
+    const entry = record(value);
+    const message = record(entry?.message);
+    if (entry?.type !== "message" || (message?.role !== "user" && message?.role !== "assistant") || !("content" in message)) continue;
+    const timestamp =
+      typeof message.timestamp === "number" ? message.timestamp : typeof entry.timestamp === "string" ? new Date(entry.timestamp).getTime() : Number.NaN;
+    if (!Number.isNaN(timestamp)) latest = Number.isNaN(latest) ? timestamp : Math.max(latest, timestamp);
+  }
+  return Number.isNaN(latest) ? fallback : new Date(latest);
+}
+
+function selectedSessionInfo(
+  candidate: SessionCandidate,
+  header: Record<string, unknown>,
+  entries: readonly unknown[],
+  messages: readonly SessionCompareMessage[],
+): SessionReference {
+  let name: string | undefined;
+  for (const value of entries) {
+    const entry = record(value);
+    if (entry?.type !== "session_info") continue;
+    name = typeof entry.name === "string" ? entry.name.trim() || undefined : undefined;
+  }
+  const firstMessage = messages.find((message) => message.role === "user")?.text;
+  const base: SessionReference = {
+    id: header.id as string,
+    path: candidate.path,
+    modified: logicalModified(entries, candidate.modified),
+  };
+  const session = firstMessage === undefined ? base : { ...base, firstMessage };
+  return name === undefined ? session : { ...session, name };
+}
+
+function sessionCwdMatches(value: unknown, expectedCwd: string): boolean {
+  return value === undefined || value === "" || (typeof value === "string" && resolve(value) === resolve(expectedCwd));
+}
+
+async function readSession(candidate: SessionCandidate, signal: AbortSignal): Promise<ReadSession> {
   try {
-    const bytes = await readBoundedFile(session.path, maxSessionFileBytes, "Session comparison file", signal);
+    const bytes = await readBoundedFile(candidate.path, maxSessionFileBytes, "Session comparison file", signal);
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     for (const line of text.split("\n")) if (line.trim() !== "") JSON.parse(line);
-    return sessionMessageEntries(parseSessionEntries(text));
+    const entries = parseSessionEntries(text);
+    const header = record(entries[0]);
+    if (
+      header?.type !== "session" ||
+      typeof header.id !== "string" ||
+      (candidate.expectedId !== undefined && header.id !== candidate.expectedId) ||
+      !sessionCwdMatches(header.cwd, candidate.expectedCwd)
+    )
+      throw new Error("Session comparison file changed during execution");
+    const messages = sessionMessageEntries(entries);
+    return { session: selectedSessionInfo(candidate, header, entries, messages), messages };
   } catch (error) {
     if (signal.aborted) throw new Error("Session comparison was cancelled", { cause: error });
     throw error;
   }
 }
 
-function findSession(sessions: readonly SessionInfo[], requested: string): SessionInfo {
-  const value = requested.trim();
-  if (value === "") throw new Error("Session id is required");
-  const exact = sessions.find((session) => session.id === value || session.path === value || basename(session.path) === value);
-  if (exact === undefined) throw new Error(`Session was not found: ${value}`);
-  return exact;
+function throwIfCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error("Session comparison was cancelled", { cause: signal.reason });
+}
+
+function headerSessionCandidate(value: unknown, path: string, modified: Date, expectedCwd: string): { candidate: SessionCandidate; id: string } | undefined {
+  const header = record(value);
+  if (header?.type !== "session" || typeof header.id !== "string" || !sessionCwdMatches(header.cwd, expectedCwd)) return undefined;
+  return {
+    id: header.id,
+    candidate: { path, expectedCwd, expectedId: header.id, modified },
+  };
+}
+
+async function readSessionHeader(path: string, expectedCwd: string, signal: AbortSignal): Promise<{ candidate: SessionCandidate; id: string } | undefined> {
+  throwIfCancelled(signal);
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    throwIfCancelled(signal);
+    const metadata = await handle.stat();
+    throwIfCancelled(signal);
+    if (!metadata.isFile()) return undefined;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let newline = -1;
+    while (total < maxSessionHeaderBytes) {
+      throwIfCancelled(signal);
+      const buffer = Buffer.allocUnsafe(Math.min(16 * 1024, maxSessionHeaderBytes - total));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      throwIfCancelled(signal);
+      if (bytesRead === 0) break;
+      const chunk = buffer.subarray(0, bytesRead);
+      const index = chunk.indexOf(0x0a);
+      chunks.push(index === -1 ? chunk : chunk.subarray(0, index));
+      total += index === -1 ? chunk.length : index;
+      if (index !== -1) {
+        newline = total;
+        break;
+      }
+    }
+    throwIfCancelled(signal);
+    if (newline === -1 && metadata.size > total) return undefined;
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
+    return headerSessionCandidate(JSON.parse(text), path, metadata.mtime, expectedCwd);
+  } catch {
+    throwIfCancelled(signal);
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
+}
+
+function sessionMatches(session: { candidate: SessionCandidate; id: string }, requested: string): boolean {
+  return (
+    session.id === requested ||
+    basename(session.candidate.path) === requested ||
+    (isAbsolute(requested) && resolve(requested) === resolve(session.candidate.path))
+  );
+}
+
+function directCandidate(directory: string, requested: string): { path: string; authoritative: boolean } | undefined {
+  const root = resolve(directory);
+  if (isAbsolute(requested)) {
+    const path = resolve(requested);
+    return dirname(path) === root && basename(path).endsWith(".jsonl") ? { path, authoritative: true } : undefined;
+  }
+  if (basename(requested) !== requested) return undefined;
+  if (requested.endsWith(".jsonl")) return { path: join(root, requested), authoritative: true };
+  if (/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(requested)) return { path: join(root, `${requested}.jsonl`), authoritative: false };
+  return undefined;
+}
+
+async function inspectDirectCandidate(path: string, expectedCwd: string, signal: AbortSignal): Promise<SessionCandidate | undefined> {
+  try {
+    throwIfCancelled(signal);
+    const metadata = await lstat(path);
+    throwIfCancelled(signal);
+    return metadata.isFile() ? { path, expectedCwd, modified: metadata.mtime } : undefined;
+  } catch {
+    throwIfCancelled(signal);
+    return undefined;
+  }
+}
+
+async function findSessions(
+  cwd: string,
+  directory: string,
+  leftRequested: string,
+  rightRequested: string,
+  signal: AbortSignal,
+  check: () => void,
+): Promise<[SessionCandidate, SessionCandidate]> {
+  const expectedCwd = resolve(cwd);
+  const found = new Map<string, SessionCandidate>();
+  const requested = [...new Set([leftRequested, rightRequested])];
+  for (const key of requested) {
+    const direct = directCandidate(directory, key);
+    if (direct?.authoritative === true) {
+      const candidate = await inspectDirectCandidate(direct.path, expectedCwd, signal);
+      if (candidate !== undefined) found.set(key, candidate);
+    } else if (direct !== undefined) {
+      const session = await readSessionHeader(direct.path, expectedCwd, signal);
+      if (session !== undefined && sessionMatches(session, key)) found.set(key, session.candidate);
+    }
+    check();
+  }
+  if (found.size < requested.length) {
+    let handle: Awaited<ReturnType<typeof opendir>> | undefined;
+    try {
+      handle = await opendir(directory);
+    } catch (error) {
+      check();
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (handle !== undefined) {
+      try {
+        check();
+      } catch (error) {
+        await handle.close().catch(() => undefined);
+        throw error;
+      }
+      for await (const entry of handle) {
+        check();
+        if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+        const session = await readSessionHeader(join(directory, entry.name), expectedCwd, signal);
+        check();
+        if (session === undefined) continue;
+        for (const key of requested) if (!found.has(key) && sessionMatches(session, key)) found.set(key, session.candidate);
+        if (found.size === requested.length) break;
+      }
+    }
+  }
+  check();
+  const left = found.get(leftRequested);
+  const right = found.get(rightRequested);
+  if (left === undefined) throw new Error(`Session was not found: ${leftRequested}`);
+  if (right === undefined) throw new Error(`Session was not found: ${rightRequested}`);
+  return [left, right];
 }
 
 async function compareSessions(
@@ -150,18 +354,20 @@ async function compareSessions(
   check: () => void,
 ): Promise<SessionCompareReport> {
   check();
-  const sessions = await SessionManager.list(cwd, directory);
+  const leftRequested = leftId.trim();
+  const rightRequested = rightId.trim();
+  if (leftRequested === "") throw new Error("Session id is required");
+  if (rightRequested === "") throw new Error("Session id is required");
+  const [leftSession, rightSession] = await findSessions(cwd, directory, leftRequested, rightRequested, signal, check);
   check();
-  const leftSession = findSession(sessions, leftId);
-  const rightSession = findSession(sessions, rightId);
-  const [leftMessages, rightMessages] = await Promise.all([readMessages(leftSession, signal), readMessages(rightSession, signal)]);
+  const [left, right] = await Promise.all([readSession(leftSession, signal), readSession(rightSession, signal)]);
   check();
-  const diff = compareMessageEntries(leftMessages, rightMessages);
+  const diff = compareMessageEntries(left.messages, right.messages);
   return {
     ...diff,
-    left: side(leftSession, leftMessages),
-    right: side(rightSession, rightMessages),
-    changed: diff.shared !== leftMessages.length || diff.shared !== rightMessages.length,
+    left: side(left.session, left.messages),
+    right: side(right.session, right.messages),
+    changed: diff.shared !== left.messages.length || diff.shared !== right.messages.length,
     comparedAt: new Date().toISOString(),
   };
 }
@@ -219,8 +425,8 @@ export default {
         promptSnippet: "compare two persisted Pi sessions",
         parameters: Type.Object(
           {
-            left: Type.String({ description: "Left session id or session filename" }),
-            right: Type.String({ description: "Right session id or session filename" }),
+            left: Type.String({ description: "Left session id, filename or full path" }),
+            right: Type.String({ description: "Right session id, filename or full path" }),
           },
           { additionalProperties: false },
         ),
