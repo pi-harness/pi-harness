@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { chmodSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -160,7 +161,7 @@ describe("undo savepoint", () => {
     const { root, tool } = await fixture();
     const caller = new AbortController();
     caller.abort();
-    await expect(tool.execute("cancelled", { action: "save" }, caller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    await expect(tool.execute("cancelled", { action: "save" }, caller.signal, undefined, {} as never)).rejects.toBe(caller.signal.reason);
     await expect(stat(join(root, "savepoints"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -171,6 +172,160 @@ describe("undo savepoint", () => {
     await writeManifest(root, id, [payloadFile("tracked.txt", "overwritten", 0o644), payloadFile("directory", "invalid", 0o644)]);
     await expect(tool.execute("restore", { action: "restore", id, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/regular file/iu);
     expect(await readFile(join(root, "tracked.txt"), "utf8")).toBe("before\n");
+  });
+
+  test("does not create missing parent directories when a later restore target fails preflight", async () => {
+    const { root, tool } = await fixture();
+    const id = manifestId();
+    await mkdir(join(root, "directory"));
+    await writeManifest(root, id, [payloadFile("new/deep/file.txt", "new file", 0o644), payloadFile("directory", "invalid", 0o644)]);
+
+    await expect(tool.execute("restore", { action: "restore", id, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/regular file/iu);
+    await expect(stat(join(root, "new"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("rolls back earlier files when the workspace changes between restore writes", async () => {
+    const { root, context, tool } = await fixture({
+      async prepare(workspace) {
+        await writeFile(join(workspace, "second.txt"), "current second\n");
+      },
+    });
+    const first = join(root, "tracked.txt");
+    const second = join(root, "second.txt");
+    await writeFile(first, "current first\n");
+    const id = manifestId();
+    await writeManifest(root, id, [payloadFile("tracked.txt", "saved first\n", 0o644), payloadFile("second.txt", "saved second\n", 0o644)]);
+    const session = {
+      sessionId: "transaction-test",
+      sessionManager: {
+        getCwd: () => (readFileSync(first, "utf8") === "saved first\n" ? join(root, "another-workspace") : root),
+      },
+    };
+    context.provide("piRuntime", { session } as never);
+
+    await expect(tool.execute("restore", { action: "restore", id, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /Session workspace changed/iu,
+    );
+    await expect(readFile(first, "utf8")).resolves.toBe("current first\n");
+    await expect(readFile(second, "utf8")).resolves.toBe("current second\n");
+  });
+
+  test("rolls back earlier files when the caller cancels between restore writes", async () => {
+    const { root, context, tool } = await fixture({
+      async prepare(workspace) {
+        await writeFile(join(workspace, "second.txt"), "current second\n");
+      },
+    });
+    const first = join(root, "tracked.txt");
+    const second = join(root, "second.txt");
+    await writeFile(first, "current first\n");
+    const id = manifestId();
+    await writeManifest(root, id, [payloadFile("tracked.txt", "saved first\n", 0o644), payloadFile("second.txt", "saved second\n", 0o644)]);
+    const caller = new AbortController();
+    const cancellation = new Error("caller stopped restore");
+    const session = {
+      sessionId: "cancellation-test",
+      sessionManager: {
+        getCwd: () => {
+          if (readFileSync(first, "utf8") === "saved first\n") caller.abort(cancellation);
+          return root;
+        },
+      },
+    };
+    context.provide("piRuntime", { session } as never);
+
+    await expect(tool.execute("restore", { action: "restore", id, confirm: true }, caller.signal, undefined, {} as never)).rejects.toBe(cancellation);
+    await expect(readFile(first, "utf8")).resolves.toBe("current first\n");
+    await expect(readFile(second, "utf8")).resolves.toBe("current second\n");
+  });
+
+  test("removes a newly restored file and its empty parents when a later write is rejected", async () => {
+    const { root, context, tool } = await fixture();
+    const fresh = join(root, "new", "deep", "fresh.txt");
+    const id = manifestId();
+    await writeManifest(root, id, [payloadFile("new/deep/fresh.txt", "saved fresh\n", 0o644), payloadFile("tracked.txt", "saved tracked\n", 0o644)]);
+    const session = {
+      sessionId: "new-file-rollback-test",
+      sessionManager: { getCwd: () => (existsSync(fresh) ? join(root, "another-workspace") : root) },
+    };
+    context.provide("piRuntime", { session } as never);
+
+    await expect(tool.execute("restore", { action: "restore", id, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /Session workspace changed/iu,
+    );
+    await expect(stat(join(root, "new"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(root, "tracked.txt"), "utf8")).resolves.toBe("before\n");
+  });
+
+  test("does not report failure for a workspace change after the restore transaction commits", async () => {
+    const { root, context, tool } = await fixture({
+      async prepare(workspace) {
+        await writeFile(join(workspace, "second.txt"), "current second\n");
+      },
+    });
+    const first = join(root, "tracked.txt");
+    const second = join(root, "second.txt");
+    await writeFile(first, "current first\n");
+    const id = manifestId();
+    await writeManifest(root, id, [payloadFile("tracked.txt", "saved first\n", 0o644), payloadFile("second.txt", "saved second\n", 0o644)]);
+    const session = {
+      sessionId: "commit-boundary-test",
+      sessionManager: {
+        getCwd: () => {
+          const restoreFinished = readFileSync(first, "utf8") === "saved first\n" && readFileSync(second, "utf8") === "saved second\n";
+          const rollbackAvailable = readdirSync(root).some((name) => name.endsWith(".rollback"));
+          return restoreFinished && !rollbackAvailable ? join(root, "another-workspace") : root;
+        },
+      },
+    };
+    context.provide("piRuntime", { session } as never);
+
+    await expect(tool.execute("restore", { action: "restore", id, confirm: true }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { restored: ["tracked.txt", "second.txt"] },
+    });
+    await expect(readFile(first, "utf8")).resolves.toBe("saved first\n");
+    await expect(readFile(second, "utf8")).resolves.toBe("saved second\n");
+  });
+
+  test.skipIf(process.platform === "win32")("reports post-commit cleanup failures without rejecting the completed restore", async () => {
+    const { root, context, tool } = await fixture({
+      async prepare(workspace) {
+        await writeFile(join(workspace, "second.txt"), "current second\n");
+      },
+    });
+    const first = join(root, "tracked.txt");
+    const second = join(root, "second.txt");
+    await writeFile(first, "current first\n");
+    const id = manifestId();
+    await writeManifest(root, id, [payloadFile("tracked.txt", "saved first\n", 0o644), payloadFile("second.txt", "saved second\n", 0o644)]);
+    const session = {
+      sessionId: "cleanup-boundary-test",
+      sessionManager: {
+        getCwd: () => {
+          const restoreFinished = readFileSync(first, "utf8") === "saved first\n" && readFileSync(second, "utf8") === "saved second\n";
+          const rollbackAvailable = readdirSync(root).some((name) => name.endsWith(".rollback"));
+          if (restoreFinished && rollbackAvailable && (statSync(root).mode & 0o200) !== 0) chmodSync(root, 0o500);
+          return root;
+        },
+      },
+    };
+    context.provide("piRuntime", { session } as never);
+
+    try {
+      const result = await tool.execute("restore", { action: "restore", id, confirm: true }, undefined, undefined, {} as never);
+      expect(result.details).toMatchObject({ restored: ["tracked.txt", "second.txt"] });
+      const cleanupPending = (result.details as { cleanupPending?: string[] }).cleanupPending;
+      expect(cleanupPending?.some((path) => path.endsWith(".rollback"))).toBe(true);
+      await expect(readFile(first, "utf8")).resolves.toBe("saved first\n");
+      await expect(readFile(second, "utf8")).resolves.toBe("saved second\n");
+    } finally {
+      chmodSync(root, 0o700);
+      await Promise.all(
+        readdirSync(root)
+          .filter((name) => name.endsWith(".rollback") || name.endsWith(".stage"))
+          .map(async (name) => rm(join(root, name), { force: true })),
+      );
+    }
   });
 
   test("marks snapshots incomplete when configured file limits are reached", async () => {
