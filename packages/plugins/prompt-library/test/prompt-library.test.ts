@@ -1,8 +1,8 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Context } from "@deepseek-ai/cordis";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
-import { createPromptTemplate } from "../src/index.js";
+import { createPromptTemplate, type PromptTemplate } from "../src/index.js";
 import promptLibraryPlugin from "../src/index.js";
 
 async function fixture() {
@@ -131,6 +131,100 @@ describe("prompt library", () => {
       await context.fiber.dispose();
     }
   });
+  test("bounds the panel to the twelve most recently mutated templates", async () => {
+    const f = await fixture();
+    try {
+      let firstId = "";
+      for (let index = 1; index <= 15; index += 1) {
+        const saved = await f.call({ action: "save", title: `Tenant ${index}`, prompt: `Operations playbook ${index}` });
+        if (index === 1) firstId = (saved.details as { selected: { id: string } }).selected.id;
+      }
+      expect((await f.panels.snapshot())[0]?.data).toMatchObject({
+        total: 15,
+        shown: 12,
+        truncated: true,
+        templates: Array.from({ length: 12 }, (_, index) => ({ title: `Tenant ${15 - index}` })),
+      });
+
+      await f.call({ action: "save", id: firstId, title: "Tenant 1 updated" });
+      expect(((await f.panels.snapshot())[0]?.data as { templates: PromptTemplate[] }).templates[0]).toMatchObject({
+        id: firstId,
+        title: "Tenant 1 updated",
+      });
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+  test("includes legacy in-place updates in the newest panel inventory", async () => {
+    const f = await fixture();
+    try {
+      const templates = Array.from({ length: 15 }, (_, index): PromptTemplate => ({
+        id: `prompt-${index + 1}`,
+        title: `Legacy ${index + 1}`,
+        prompt: `Legacy playbook ${index + 1}`,
+        tags: [],
+        createdAt: `2026-09-12T02:00:${String(index).padStart(2, "0")}.000Z`,
+        updatedAt: index === 0 ? "2026-09-12T03:00:00.000Z" : `2026-09-12T02:00:${String(index).padStart(2, "0")}.000Z`,
+      }));
+      f.entries().push({ type: "custom", customType: "pi-harness/prompt-library", data: { templates } });
+
+      expect(((await f.panels.snapshot())[0]?.data as { templates: PromptTemplate[] }).templates[0]).toMatchObject({ id: "prompt-1" });
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+  test("keeps updates readable when the wall clock moves backward", async () => {
+    const f = await fixture();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-12T03:00:00.000Z"));
+      const saved = await f.call({ action: "save", title: "Tenant", prompt: "Initial playbook" });
+      const selected = (saved.details as { selected: PromptTemplate }).selected;
+      vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+      const updated = await f.call({ action: "save", id: selected.id, prompt: "Updated playbook" });
+      const updatedTemplate = (updated.details as { selected: PromptTemplate }).selected;
+
+      expect(Date.parse(updatedTemplate.updatedAt)).toBe(Date.parse(selected.updatedAt) + 1);
+      await expect(f.call({ action: "get", id: selected.id })).resolves.toMatchObject({ content: [{ text: "Updated playbook" }] });
+    } finally {
+      vi.useRealTimers();
+      await f.context.fiber.dispose();
+    }
+  });
+  test("advances frozen timestamps across expanded years and rejects exhaustion", async () => {
+    const f = await fixture();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("9999-12-31T23:59:59.999Z"));
+      const first = (await f.call({ action: "save", title: "First", prompt: "First" })).details as { selected: PromptTemplate };
+      const second = (await f.call({ action: "save", title: "Second", prompt: "Second" })).details as { selected: PromptTemplate };
+      expect(first.selected.updatedAt).toBe("9999-12-31T23:59:59.999Z");
+      expect(second.selected.updatedAt).toBe("+010000-01-01T00:00:00.000Z");
+
+      f.switchSession();
+      f.entries().push({
+        type: "custom",
+        customType: "pi-harness/prompt-library",
+        data: {
+          templates: [
+            {
+              id: "prompt-max",
+              title: "Maximum",
+              prompt: "Maximum",
+              tags: [],
+              createdAt: "+275760-09-13T00:00:00.000Z",
+              updatedAt: "+275760-09-13T00:00:00.000Z",
+            },
+          ],
+        },
+      });
+      await expect(f.call({ action: "save", title: "Overflow", prompt: "Overflow" })).rejects.toThrow(/timestamp sequence is exhausted/i);
+      expect(f.entries()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      await f.context.fiber.dispose();
+    }
+  });
   test("isolates returned state and refreshes the panel when the session changes", async () => {
     const f = await fixture();
     try {
@@ -200,6 +294,72 @@ describe("prompt library", () => {
       f.entries().push({ type: "custom", customType: "pi-harness/prompt-library", data: { templates: [{ id: "broken" }] } });
       await expect(f.call({ action: "save", title: "x", prompt: "x" })).rejects.toThrow();
       expect(f.entries()).toHaveLength(1);
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+  test("rejects journal timestamps that move backward", async () => {
+    const f = await fixture();
+    try {
+      f.entries().push({
+        type: "custom",
+        customType: "pi-harness/prompt-library",
+        data: {
+          templates: [
+            {
+              id: "prompt-1",
+              title: "Refund review",
+              prompt: "Review the refund",
+              tags: [],
+              createdAt: "2026-09-12T03:00:01.000Z",
+              updatedAt: "2026-09-12T03:00:00.000Z",
+            },
+          ],
+        },
+      });
+      await expect(f.call({ action: "list" })).rejects.toThrow(/timestamp/i);
+      expect(f.entries()).toHaveLength(1);
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+  test("rejects sparse, accessor, extra-property, and proxied journal inventories without invoking getters or proxy traps", async () => {
+    const f = await fixture();
+    try {
+      let getterCalls = 0;
+      let proxyCalls = 0;
+      const valid = {
+        id: "prompt-1",
+        title: "Refund review",
+        prompt: "Review the refund",
+        tags: [],
+        createdAt: "2026-09-12T03:00:00.000Z",
+        updatedAt: "2026-09-12T03:00:00.000Z",
+      };
+      const accessor: unknown[] = [];
+      Object.defineProperty(accessor, "0", {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return valid;
+        },
+      });
+      const sparse = new Array<unknown>(1);
+      const extra = [valid] as unknown[] & { extra?: boolean };
+      extra.extra = true;
+      const proxy = new Proxy([valid], {
+        get() {
+          proxyCalls += 1;
+          return undefined;
+        },
+      });
+      for (const templates of [accessor, sparse, extra, proxy]) {
+        f.switchSession();
+        f.entries().push({ type: "custom", customType: "pi-harness/prompt-library", data: { templates } });
+        await expect(f.call({ action: "list" })).rejects.toThrow(/inventory/i);
+      }
+      expect(getterCalls).toBe(0);
+      expect(proxyCalls).toBe(0);
     } finally {
       await f.context.fiber.dispose();
     }

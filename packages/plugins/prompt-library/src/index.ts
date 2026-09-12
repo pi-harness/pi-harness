@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { types as utilTypes } from "node:util";
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -10,6 +11,7 @@ const maxPromptLength = 8_000;
 const maxTagLength = 40;
 const maxTags = 10;
 const maxTemplates = 100;
+const maxPanelTemplates = 12;
 const failedManagers = new WeakMap<object, object | null>();
 const writeFailureMessage = "Prompt library write failed; reopen the session from disk before using the library again";
 
@@ -40,17 +42,36 @@ function bounded(value: unknown, field: string, maxLength: number): string {
   return text;
 }
 
+function ownDataArray(value: unknown, field: string, maximum: number): unknown[] {
+  if (utilTypes.isProxy(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new Error(`Invalid ${field}`);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  const length: unknown = lengthDescriptor !== undefined && "value" in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (!Number.isSafeInteger(length) || (length as number) < 0 || (length as number) > maximum) throw new Error(`Invalid ${field}`);
+  if (
+    Reflect.ownKeys(descriptors).some(
+      (key) => key !== "length" && (typeof key !== "string" || !/^\d+$/u.test(key) || String(Number(key)) !== key || Number(key) >= (length as number)),
+    ) ||
+    Object.values(descriptors).some((descriptor) => !("value" in descriptor))
+  )
+    throw new Error(`Invalid ${field}`);
+  const output: unknown[] = [];
+  for (let index = 0; index < (length as number); index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor === undefined || !("value" in descriptor)) throw new Error(`Invalid ${field}`);
+    output.push(descriptor.value);
+  }
+  return output;
+}
+
 function normalizeTags(values: string[] | undefined): string[] {
-  const tags = values === undefined ? [] : values;
-  if (!Array.isArray(tags)) throw new Error("tags must be an array");
-  if (tags.length > maxTags) throw new Error(`tags must contain ${maxTags} items or fewer`);
+  const tags = values === undefined ? [] : ownDataArray(values, "tags", maxTags);
   const normalized: string[] = [];
   for (let index = 0; index < tags.length; index++) {
-    const descriptor = Object.getOwnPropertyDescriptor(tags, String(index));
-    if (descriptor === undefined || !("value" in descriptor) || typeof descriptor.value !== "string")
-      throw new Error("tags must contain string data properties");
-    const tag = descriptor.value.trim();
-    if (tag !== "") normalized.push(bounded(tag, "tag", maxTagLength));
+    const tag = tags[index];
+    if (typeof tag !== "string") throw new Error("tags must contain string data properties");
+    const normalizedTag = tag.trim();
+    if (normalizedTag !== "") normalized.push(bounded(normalizedTag, "tag", maxTagLength));
   }
   return [...new Set(normalized)];
 }
@@ -67,7 +88,7 @@ export function createPromptTemplate(input: PromptTemplateInput, id: string, tim
 }
 
 function ownRecord(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Prompt library data must be an object");
+  if (value === null || typeof value !== "object" || Array.isArray(value) || utilTypes.isProxy(value)) throw new Error("Prompt library data must be an object");
   const prototype = Object.getPrototypeOf(value) as unknown;
   if (prototype !== Object.prototype && prototype !== null) throw new Error("Prompt library data must be a plain object");
   const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
@@ -108,10 +129,9 @@ function readState(context: Context): PromptLibraryState {
   if (entry === undefined) return { templates: [] };
   if (entry.type !== "custom") throw new Error("Invalid prompt library entry");
   const value = ownRecord(entry.data);
-  if (!Array.isArray(value.templates) || value.templates.length > maxTemplates)
-    throw new Error("Invalid prompt library inventory: expected at most 100 templates");
+  const inventory = ownDataArray(value.templates, "prompt library inventory: expected at most 100 templates", maxTemplates);
   const ids = new Set<string>();
-  const templates = value.templates.map((item): PromptTemplate => {
+  const templates = inventory.map((item): PromptTemplate => {
     const candidate = ownRecord(item);
     if (!Array.isArray(candidate.tags)) throw new Error("Invalid prompt library tags");
     const id = bounded(candidate.id, "id", 128);
@@ -119,9 +139,16 @@ function readState(context: Context): PromptLibraryState {
     ids.add(id);
     const createdAt = bounded(candidate.createdAt, "createdAt", 64);
     const updatedAt = bounded(candidate.updatedAt, "updatedAt", 64);
-    for (const timestamp of [createdAt, updatedAt]) {
-      if (!Number.isFinite(Date.parse(timestamp))) throw new Error("Invalid prompt library timestamp");
-    }
+    const createdMilliseconds = Date.parse(createdAt);
+    const updatedMilliseconds = Date.parse(updatedAt);
+    if (
+      !Number.isFinite(createdMilliseconds) ||
+      !Number.isFinite(updatedMilliseconds) ||
+      new Date(createdMilliseconds).toISOString() !== createdAt ||
+      new Date(updatedMilliseconds).toISOString() !== updatedAt ||
+      updatedMilliseconds < createdMilliseconds
+    )
+      throw new Error("Invalid prompt library timestamp");
     return {
       ...createPromptTemplate({ title: candidate.title as string, prompt: candidate.prompt as string, tags: candidate.tags as string[] }, id, createdAt),
       updatedAt,
@@ -144,6 +171,18 @@ function filterTemplates(state: PromptLibraryState, query: string | undefined): 
   const normalized = query?.trim().toLocaleLowerCase() ?? "";
   if (!normalized) return state.templates;
   return state.templates.filter((template) => `${template.title} ${template.prompt} ${template.tags.join(" ")}`.toLocaleLowerCase().includes(normalized));
+}
+
+function nextTimestamp(state: PromptLibraryState): string {
+  const previous = state.templates.reduce((latest, template) => Math.max(latest, Date.parse(template.updatedAt)), Number.NEGATIVE_INFINITY);
+  const wallClock = Date.now();
+  if (!Number.isFinite(wallClock)) throw new Error("Prompt library wall clock is invalid");
+  const milliseconds = previous === Number.NEGATIVE_INFINITY ? wallClock : Math.max(wallClock, previous + 1);
+  try {
+    return new Date(milliseconds).toISOString();
+  } catch (error) {
+    throw new Error("Prompt library timestamp sequence is exhausted", { cause: error });
+  }
 }
 
 export default {
@@ -191,7 +230,7 @@ export default {
               };
             }
             if (params.action === "save") {
-              const now = new Date().toISOString();
+              const now = nextTimestamp(state);
               const existing = params.id?.trim() ? state.templates.find((template) => template.id === params.id?.trim()) : undefined;
               if (params.id !== undefined && existing === undefined) throw new Error(`Prompt was not found: ${params.id}`);
               if (existing === undefined && state.templates.length >= maxTemplates)
@@ -209,7 +248,7 @@ export default {
                     `prompt-${randomUUID()}`,
                     now,
                   );
-              const templates = existing ? state.templates.map((item) => (item.id === existing.id ? template : item)) : [...state.templates, template];
+              const templates = existing ? [...state.templates.filter((item) => item.id !== existing.id), template] : [...state.templates, template];
               const latest = { templates };
               persist(context, latest);
               return {
@@ -243,7 +282,12 @@ export default {
       icon: "✎",
       read: () => {
         const state = readState(context);
-        return { total: state.templates.length, templates: state.templates };
+        const templates = state.templates
+          .map((template, index) => ({ template, index }))
+          .sort((left, right) => Date.parse(right.template.updatedAt) - Date.parse(left.template.updatedAt) || right.index - left.index)
+          .slice(0, maxPanelTemplates)
+          .map(({ template }) => template);
+        return { total: state.templates.length, shown: templates.length, truncated: state.templates.length > templates.length, templates };
       },
     });
     context.effect(() => disposePanel);

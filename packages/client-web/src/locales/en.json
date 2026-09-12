@@ -46,6 +46,7 @@
   "ModLens 证据": "ModLens evidence",
   "PNG 无损压缩": "Lossless PNG compression",
   "Plugin Stars 面板数据异常": "Invalid Plugin Stars panel data",
+  "Prompt Library 面板数据异常": "Invalid Prompt Library panel data",
   "README 面板数据无效，暂不展示生成或写入结果。": "Invalid README panel data; generation and write results are hidden.",
   "SDK 成本": "SDK cost",
   "SQL Lens 面板数据异常": "Invalid SQL Lens panel data",
