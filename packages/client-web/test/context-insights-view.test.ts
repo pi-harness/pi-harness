@@ -2,9 +2,34 @@ import { describe, expect, test } from "vitest";
 import { contextInsightsPanelView } from "../src/context-insights-view.js";
 
 describe("Context Insights panel view", () => {
+  test("fails closed when the snapshot does not carry a valid session ID", () => {
+    expect(contextInsightsPanelView({ tokens: 800 })).toMatchObject({ sessionId: "", tokens: null, malformed: true });
+  });
+
+  test("fails closed for a snapshot from another active session", () => {
+    const view = contextInsightsPanelView(
+      {
+        sessionId: "previous-session",
+        tokens: 800,
+        contextWindow: 8_000,
+        percent: 10,
+        messages: 1,
+        scannedMessages: 1,
+        events: 3,
+        compactions: 1,
+        composition: { user: 1, assistant: 0, toolResult: 0, system: 0, other: 0 },
+        recentEvents: [{ type: "message_end", at: 1_788_621_601_000 }],
+      },
+      "active-session",
+    );
+
+    expect(view).toMatchObject({ sessionId: "", tokens: null, messages: 0, events: 0, compactions: 0, recentEvents: [], malformed: true });
+  });
+
   test("normalizes a complete bounded context report", () => {
     expect(
       contextInsightsPanelView({
+        sessionId: "session-1",
         tokens: 800,
         contextWindow: 8_000,
         percent: 10,
@@ -20,6 +45,7 @@ describe("Context Insights panel view", () => {
         ],
       }),
     ).toEqual({
+      sessionId: "session-1",
       tokens: 800,
       contextWindow: 8_000,
       percent: 10,
@@ -35,12 +61,14 @@ describe("Context Insights panel view", () => {
       ],
       recentEventsTruncated: false,
       limits: { scannedMessages: 10_000, retainedEvents: 50, displayedEvents: 6, eventTypeCharacters: 128 },
+      malformed: false,
     });
   });
 
   test("applies fixed browser bounds to malformed panel data", () => {
     const type = `event\0${"x".repeat(1_000)}`;
     const view = contextInsightsPanelView({
+      sessionId: "session-1",
       tokens: -1,
       contextWindow: Number.POSITIVE_INFINITY,
       percent: Number.NaN,
@@ -71,7 +99,7 @@ describe("Context Insights panel view", () => {
   });
 
   test("preserves over-capacity usage for display", () => {
-    expect(contextInsightsPanelView({ percent: 125 })).toMatchObject({ percent: 125 });
+    expect(contextInsightsPanelView({ sessionId: "session-1", percent: 125 })).toMatchObject({ percent: 125 });
   });
 
   test("does not execute root, composition, event array, or event accessors", () => {
@@ -100,7 +128,7 @@ describe("Context Insights panel view", () => {
         throw new Error("composition getter executed");
       },
     });
-    const data = { messages: 1, scannedMessages: 1, composition, recentEvents };
+    const data = { sessionId: "session-1", messages: 1, scannedMessages: 1, composition, recentEvents };
     Object.defineProperty(data, "percent", {
       enumerable: true,
       get() {

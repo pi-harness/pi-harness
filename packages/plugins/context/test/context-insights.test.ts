@@ -245,6 +245,39 @@ describe("context insights", () => {
     }
   });
 
+  test("resets cached composition and event history when the active session ID changes", async () => {
+    const session = {
+      sessionId: "session-one",
+      messages: [{ role: "user" }],
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+    };
+    const fixture = await createInsights({ session });
+    try {
+      fixture.context.emit("pi/session-event", { type: "message_start" } as never);
+      fixture.context.emit("pi/session-event", { type: "compaction_start" } as never);
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { events: 2, compactions: 1, composition: { user: 1 } } }]);
+
+      session.sessionId = "session-two";
+      session.messages = [{ role: "system" }, { role: "assistant" }];
+
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([
+        {
+          data: {
+            sessionId: "session-two",
+            messages: 2,
+            events: 0,
+            compactions: 0,
+            composition: { user: 0, assistant: 1, system: 1 },
+            eventTypes: {},
+            recentEvents: [],
+          },
+        },
+      ]);
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("inspects proxied message arrays through descriptors without invoking property reads", async () => {
     let propertyRead = false;
     const messages = new Proxy([{ role: "user" }, { role: "toolResult" }], {

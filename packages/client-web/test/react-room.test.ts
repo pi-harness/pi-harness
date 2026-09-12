@@ -1032,6 +1032,61 @@ test("does not render Context Doctor findings from another active session", () =
   expect(html).not.toContain("92%");
 });
 
+test("does not render Context Insights metrics from another active session", () => {
+  const panel = {
+    id: "context-insight-panel",
+    pluginId: "@pi-harness/plugin-context",
+    title: "Context Insights",
+    data: {
+      sessionId: "previous-session",
+      tokens: 800,
+      contextWindow: 8_000,
+      percent: 10,
+      messages: 1,
+      scannedMessages: 1,
+      messagesTruncated: false,
+      events: 3,
+      compactions: 1,
+      composition: { user: 1, assistant: 0, toolResult: 0, system: 0, other: 0 },
+      recentEvents: [{ type: "message_end", at: 1_788_621_601_000 }],
+    },
+  };
+
+  const html = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "active-session", panel }));
+
+  expect(html).toContain("上下文洞察面板数据不完整或不一致");
+  expect(html).not.toContain("previous-session");
+  expect(html).not.toContain("800 tokens");
+  expect(html).not.toContain("10%");
+});
+
+test("does not render retained Context Insights metrics when there is no active session", () => {
+  const panel = {
+    id: "context-insight-panel",
+    pluginId: "@pi-harness/plugin-context",
+    title: "Context Insights",
+    data: {
+      sessionId: "previous-session",
+      tokens: 800,
+      contextWindow: 8_000,
+      percent: 10,
+      messages: 1,
+      scannedMessages: 1,
+      messagesTruncated: false,
+      events: 3,
+      compactions: 1,
+      composition: { user: 1, assistant: 0, toolResult: 0, system: 0, other: 0 },
+      recentEvents: [{ type: "message_end", at: 1_788_621_601_000 }],
+    },
+  };
+
+  const html = renderToStaticMarkup(createElement(PluginPanelCard, { panel }));
+
+  expect(html).toContain("上下文洞察面板数据不完整或不一致");
+  expect(html).not.toContain("800 tokens");
+  expect(html).not.toContain("10%");
+});
+
 test("shows review locations and prioritizes errors in the visible findings", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {

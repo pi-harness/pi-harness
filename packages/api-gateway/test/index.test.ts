@@ -1548,6 +1548,7 @@ describe("API gateway plugin", () => {
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     context.provide("piRuntime", {
       session: {
+        sessionId: "context-doctor-session",
         isIdle: true,
         messages: [
           { role: "user", content: "x".repeat(2_000) },
@@ -1580,6 +1581,7 @@ describe("API gateway plugin", () => {
           pluginId: "@pi-harness/plugin-context-doctor",
           title: "Context Doctor",
           data: {
+            sessionId: "context-doctor-session",
             status: "warning",
             usagePercent: 82,
             tokens: 820,

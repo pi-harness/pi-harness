@@ -459,7 +459,7 @@ describe("Pi domain plugins", () => {
     const panels = new PiPluginUiRegistry();
     const toolRegistry = new PiToolRegistry();
     context.provide("piRuntime", {
-      session: { messages: [{ role: "user" }], getContextUsage: () => ({ tokens: 1200, contextWindow: 8000, percent: 15 }) },
+      session: { sessionId: "context-session", messages: [{ role: "user" }], getContextUsage: () => ({ tokens: 1200, contextWindow: 8000, percent: 15 }) },
     } as never);
     context.provide("piPluginUi", panels);
     context.provide("piTools", toolRegistry);
@@ -487,6 +487,7 @@ describe("Pi domain plugins", () => {
         description: "查看当前上下文占用、消息规模和压缩事件。",
         icon: "◒",
         data: {
+          sessionId: "context-session",
           tokens: 1200,
           contextWindow: 8000,
           percent: 15,
@@ -2611,6 +2612,7 @@ describe("Pi domain plugins", () => {
     let compacted = 0;
     context.provide("piRuntime", {
       session: {
+        sessionId: "context-doctor-session",
         messages: [
           { role: "user", content: [{ type: "text", text: "x".repeat(70_000) }] },
           { role: "toolResult", isError: true },
@@ -2645,6 +2647,7 @@ describe("Pi domain plugins", () => {
     let unsubscribed = 0;
     context.provide("piRuntime", {
       session: {
+        sessionId: "history-compressor-session",
         messages: [{ role: "user", content: [{ type: "text", text: "long context" }] }],
         subscribe: () => () => {
           unsubscribed += 1;

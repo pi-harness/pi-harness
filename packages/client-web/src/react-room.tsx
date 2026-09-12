@@ -5942,7 +5942,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         </div>
       ) : panel.id === "context-insight-panel" ? (
         (() => {
-          const view = contextInsightsPanelView(data);
+          const view = contextInsightsPanelView(data, activeSessionId ?? null);
+          if (view.malformed) return <p className="mt-3 text-[11px] text-[var(--color-red)]">{t("上下文洞察面板数据不完整或不一致。")}</p>;
           return (
             <div className="mt-3 grid gap-3">
               <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
