@@ -25,7 +25,14 @@ import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind
 import { compactThinkingEvents, eventKindLabel, eventOrigin, eventOutputText, formatEventClock, formatEventDuration } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { type ChatToolCall, messageText, messageThinking, projectChatTurns } from "./message-content.js";
-import { formatAnnotationPrompt, parseAnnotationPrompt, type ClientAnnotation } from "./annotation-ui.js";
+import {
+  annotationDraftForSession,
+  captureSelectionForSession,
+  clearSubmittedAnnotations,
+  formatAnnotationPrompt,
+  parseAnnotationPrompt,
+  type ClientAnnotationDraft,
+} from "./annotation-ui.js";
 import {
   marketplaceCapabilityLabeller,
   marketplaceCategoryTabs,
@@ -8327,9 +8334,26 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const pendingSessionNavigationRef = useRef<{ intent: number; path?: string; accepted: boolean } | undefined>(undefined);
   const [pendingSessionUrlPath, setPendingSessionUrlPath] = useState<string>();
   const [draft, setDraft] = useState("");
-  const [annotations, setAnnotations] = useState<ClientAnnotation[]>([]);
-  const [annotationSelection, setAnnotationSelection] = useState("");
-  const [annotationNote, setAnnotationNote] = useState("");
+  const [storedAnnotationDraft, setStoredAnnotationDraft] = useState<ClientAnnotationDraft>({
+    sessionId: undefined,
+    annotations: [],
+    selection: "",
+    note: "",
+  });
+  const annotationDraft = annotationDraftForSession(storedAnnotationDraft, data.session?.sessionId);
+  const { annotations, selection: annotationSelection, note: annotationNote } = annotationDraft;
+  const annotationSessionIdRef = useRef(data.session?.sessionId);
+  const annotationSelectionFrameRef = useRef<number | undefined>(undefined);
+  annotationSessionIdRef.current = data.session?.sessionId;
+  useEffect(() => {
+    setStoredAnnotationDraft((current) => annotationDraftForSession(current, data.session?.sessionId));
+    return () => {
+      if (annotationSelectionFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(annotationSelectionFrameRef.current);
+        annotationSelectionFrameRef.current = undefined;
+      }
+    };
+  }, [data.session?.sessionId]);
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
@@ -9011,6 +9035,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     event.preventDefault();
     const question = draft.trim();
     const prompt = annotations.length > 0 ? formatAnnotationPrompt(annotations, question) : question;
+    const submittedSessionId = annotationDraft.sessionId;
     if (!prompt || promptBusy) return;
     setDraft("");
     setPromptError("");
@@ -9021,7 +9046,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     void api
       .prompt(prompt)
       .then(async () => {
-        setAnnotations([]);
+        setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
         await refresh();
       })
       .catch((cause: unknown) => {
@@ -9034,20 +9059,33 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       .finally(() => setPromptBusy(false));
   };
   const captureAnnotationSelection = useCallback(() => {
-    window.requestAnimationFrame(() => {
+    if (annotationSelectionFrameRef.current !== undefined) window.cancelAnimationFrame(annotationSelectionFrameRef.current);
+    const scheduledSessionId = annotationSessionIdRef.current;
+    annotationSelectionFrameRef.current = window.requestAnimationFrame(() => {
+      annotationSelectionFrameRef.current = undefined;
+      if (annotationSessionIdRef.current !== scheduledSessionId) return;
       const selected = window.getSelection()?.toString().trim() ?? "";
-      if (selected.length > 0) setAnnotationSelection(selected.slice(0, 4_000));
+      if (selected.length > 0)
+        setStoredAnnotationDraft((current) =>
+          captureSelectionForSession(current, scheduledSessionId, annotationSessionIdRef.current, selected.slice(0, 4_000)),
+        );
     });
   }, []);
   const addAnnotation = () => {
     const quote = annotationSelection.trim();
     if (!quote) return;
-    setAnnotations((current) => [
-      ...current,
-      { id: current.length === 0 ? 1 : Math.max(...current.map((item) => item.id)) + 1, quote, note: annotationNote.trim() },
-    ]);
-    setAnnotationSelection("");
-    setAnnotationNote("");
+    setStoredAnnotationDraft((current) => {
+      const scoped = annotationDraftForSession(current, data.session?.sessionId);
+      return {
+        ...scoped,
+        annotations: [
+          ...scoped.annotations,
+          { id: scoped.annotations.length === 0 ? 1 : Math.max(...scoped.annotations.map((item) => item.id)) + 1, quote, note: annotationNote.trim() },
+        ],
+        selection: "",
+        note: "",
+      };
+    });
   };
   const openCommandCompletion = () => {
     const input = promptInputRef.current;
@@ -9459,7 +9497,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               <div className="flex items-start gap-2">
                 <span className="mt-0.5 shrink-0 rounded bg-[var(--color-blue-soft)] px-1.5 py-0.5 text-[10px] text-[var(--color-blue)]">{t("选中片段")}</span>
                 <p className="max-h-16 flex-1 overflow-auto whitespace-pre-wrap text-[11px] text-[var(--color-ink)]">{annotationSelection}</p>
-                <button aria-label={t("取消批注")} className="text-[12px] text-[var(--color-faint)]" onClick={() => setAnnotationSelection("")} type="button">
+                <button
+                  aria-label={t("取消批注")}
+                  className="text-[12px] text-[var(--color-faint)]"
+                  onClick={() =>
+                    setStoredAnnotationDraft((current) => ({ ...annotationDraftForSession(current, data.session?.sessionId), selection: "", note: "" }))
+                  }
+                  type="button"
+                >
                   ×
                 </button>
               </div>
@@ -9467,7 +9512,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 <input
                   aria-label={t("批注备注")}
                   className="min-w-0 flex-1 rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1.5 text-[11px] outline-none"
-                  onChange={(event) => setAnnotationNote(event.target.value)}
+                  onChange={(event) =>
+                    setStoredAnnotationDraft((current) => ({ ...annotationDraftForSession(current, data.session?.sessionId), note: event.target.value }))
+                  }
                   placeholder={t("备注（可选）")}
                   value={annotationNote}
                 />
@@ -9486,14 +9533,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 <button
                   className="max-w-48 shrink-0 truncate rounded-md border border-[#dce5f5] bg-[var(--color-surface)] px-2 py-1 text-left text-[var(--color-muted)]"
                   key={annotation.id}
-                  onClick={() => setAnnotations((current) => current.filter((item) => item.id !== annotation.id))}
+                  onClick={() =>
+                    setStoredAnnotationDraft((current) => {
+                      const scoped = annotationDraftForSession(current, data.session?.sessionId);
+                      return { ...scoped, annotations: scoped.annotations.filter((item) => item.id !== annotation.id) };
+                    })
+                  }
                   title={t("点击移除批注")}
                   type="button"
                 >
                   #{annotation.id} {annotation.quote}
                 </button>
               ))}
-              <button className="shrink-0 text-[var(--color-faint)]" onClick={() => setAnnotations([])} type="button">
+              <button
+                className="shrink-0 text-[var(--color-faint)]"
+                onClick={() => setStoredAnnotationDraft((current) => ({ ...annotationDraftForSession(current, data.session?.sessionId), annotations: [] }))}
+                type="button"
+              >
                 {t("清空")}
               </button>
             </div>
