@@ -3774,6 +3774,49 @@ describe("API gateway plugin", () => {
     expect(JSON.parse(await readFile(join(sessionDir, ".pi-harness-session-meta.json"), "utf8"))).toEqual({});
   });
 
+  test("deletes an empty active session whose JSONL file has not been persisted yet", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-empty-session-delete-"));
+    temporaryDirectories.push(directory);
+    const sessionDir = join(directory, "sessions");
+    await mkdir(sessionDir);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const target = join(sessionDir, "2026-08-30T00-00-00-000Z_empty.jsonl");
+    const manager = SessionManager.create("/tmp", sessionDir);
+    let activePath: string | undefined = target;
+    const session = {
+      sessionId: "empty-session",
+      get sessionFile() {
+        return activePath;
+      },
+      messages: [],
+      isStreaming: false,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const sessionRuntime = {
+      newSession() {
+        activePath = undefined;
+        return Promise.resolve({ cancelled: false });
+      },
+    };
+    context.provide("piRuntime", { session, sessionRuntime, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: target, confirm: true }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ deleted: true, path: target });
+    await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   test("keeps batch deletion going past a failing session and persists the metadata it did remove", async () => {
     const context = new Context();
     contexts.push(context);

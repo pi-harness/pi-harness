@@ -2167,7 +2167,10 @@ export default {
             }
             events.length = 0;
           }
-          await unlink(path);
+          // A newly created active session may not have a JSONL file yet: Pi defers persistence until the first entry. Treat that missing file as already deleted, while preserving failures for unexpected paths such as directories.
+          await unlink(path).catch((error: unknown) => {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          });
           await mutateSessionMetadata(manager, context.logger, (metadata) => {
             delete metadata[path];
           });
