@@ -9718,7 +9718,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             {runTelemetry.elapsedSeconds > 300 && (
               <div className="streaming-timeout-warning">
                 <span>{t("已运行 {seconds} 秒，模型响应较慢", { seconds: runTelemetry.elapsedSeconds })}</span>
-                <button onClick={() => void api.abort()} type="button">
+                <button onClick={stopRun} type="button">
                   {t("停止")}
                 </button>
               </div>

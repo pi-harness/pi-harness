@@ -720,6 +720,13 @@ const keyEvent = (overrides: Partial<{ ctrlKey: boolean; metaKey: boolean; shift
 });
 
 describe("interrupting a run with the advertised shortcut", () => {
+  test("routes the long-running stop button through the error-reporting stop handler", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('<button onClick={stopRun} type="button">');
+    expect(source).not.toContain("<button onClick={() => void api.abort()} type=\"button\">");
+  });
+
   test("stops a run in flight, and only while one is in flight", () => {
     expect(shouldInterruptRun(keyEvent(), true, "")).toBe(true);
     expect(shouldInterruptRun(keyEvent({ key: "C" }), true, "")).toBe(true);
