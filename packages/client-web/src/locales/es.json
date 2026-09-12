@@ -1229,5 +1229,7 @@
   "恢复会话": "Restaurar sesión",
   "从置顶区域移除": "Quitar de las sesiones fijadas",
   "固定在会话列表顶部": "Mantener al inicio de la lista de sesiones",
-  "恢复到默认列表": "Devolver a la lista predeterminada"
+  "恢复到默认列表": "Devolver a la lista predeterminada",
+  "输入绝对路径，如 /tmp/my-project": "Introduce una ruta absoluta, por ejemplo /tmp/my-project",
+  "打开": "Abrir"
 }

@@ -14,15 +14,22 @@ import {
   t,
 } from "../src/i18n.js";
 
-const localesDirectory = fileURLToPath(new URL("../src/locales/", import.meta.url));
+const localesDirectory = fileURLToPath(
+  new URL("../src/locales/", import.meta.url),
+);
 
 const catalogFiles = readdirSync(localesDirectory)
   .filter((name) => name.endsWith(".json"))
   .sort();
 
-const readCatalog = (id: string): Record<string, string> => JSON.parse(readFileSync(`${localesDirectory}${id}.json`, "utf8")) as Record<string, string>;
+const readCatalog = (id: string): Record<string, string> =>
+  JSON.parse(readFileSync(`${localesDirectory}${id}.json`, "utf8")) as Record<
+    string,
+    string
+  >;
 
-const placeholders = (text: string): string[] => [...text.matchAll(/\{(\w+)\}/gu)].map((match) => match[1] ?? "").sort();
+const placeholders = (text: string): string[] =>
+  [...text.matchAll(/\{(\w+)\}/gu)].map((match) => match[1] ?? "").sort();
 
 describe("locale resolution", () => {
   test("prefers an exact match over the language that only shares a primary subtag", () => {
@@ -58,7 +65,9 @@ describe("translation lookup", () => {
 
   test("substitutes named placeholders and leaves unknown ones visible", () => {
     expect(t("第 {v0} 页", { v0: 3 })).toBe("第 3 页");
-    expect(t("缺失 {missing} 个，额外 {extra} 个。", { missing: 1 })).toBe("缺失 1 个，额外 {extra} 个。");
+    expect(t("缺失 {missing} 个，额外 {extra} 个。", { missing: 1 })).toBe(
+      "缺失 1 个，额外 {extra} 个。",
+    );
   });
 
   test("switches the catalog and the formatting locale together, and back", async () => {
@@ -89,7 +98,26 @@ describe("catalog integrity", () => {
 
   test("every catalog carries the same keys as English", () => {
     const reference = Object.keys(readCatalog("en"));
-    for (const name of catalogFiles) expect([name, Object.keys(readCatalog(name.replace(".json", "")))]).toEqual([name, reference]);
+    for (const name of catalogFiles)
+      expect([
+        name,
+        Object.keys(readCatalog(name.replace(".json", ""))),
+      ]).toEqual([name, reference]);
+  });
+
+  test("translates the custom workspace path controls in every catalog", () => {
+    const keys = ["输入绝对路径，如 /tmp/my-project", "打开"];
+    for (const name of catalogFiles) {
+      const catalog = readCatalog(name.replace(".json", ""));
+      for (const key of keys) {
+        expect([name, key, catalog[key]]).toEqual([
+          name,
+          key,
+          expect.stringMatching(/\S/u),
+        ]);
+        expect([name, key, catalog[key]]).not.toEqual([name, key, key]);
+      }
+    }
   });
 
   test("no entry is left empty", () => {
@@ -104,7 +132,10 @@ describe("catalog integrity", () => {
   test("every translation keeps the placeholders its key declares", () => {
     for (const name of catalogFiles) {
       const mismatched = Object.entries(readCatalog(name.replace(".json", "")))
-        .filter(([key, value]) => placeholders(key).join(",") !== placeholders(value).join(","))
+        .filter(
+          ([key, value]) =>
+            placeholders(key).join(",") !== placeholders(value).join(","),
+        )
         .map(([key]) => key);
       expect([name, mismatched]).toEqual([name, []]);
     }
@@ -113,7 +144,11 @@ describe("catalog integrity", () => {
   test("every translation keeps the leading and trailing spacing its key declares", () => {
     for (const name of catalogFiles) {
       const mismatched = Object.entries(readCatalog(name.replace(".json", "")))
-        .filter(([key, value]) => key.startsWith(" ") !== value.startsWith(" ") || key.endsWith(" ") !== value.endsWith(" "))
+        .filter(
+          ([key, value]) =>
+            key.startsWith(" ") !== value.startsWith(" ") ||
+            key.endsWith(" ") !== value.endsWith(" "),
+        )
         .map(([key]) => key);
       expect([name, mismatched]).toEqual([name, []]);
     }

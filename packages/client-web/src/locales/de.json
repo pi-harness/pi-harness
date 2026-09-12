@@ -1229,5 +1229,7 @@
   "恢复会话": "Sitzung wiederherstellen",
   "从置顶区域移除": "Aus angehefteten Sitzungen entfernen",
   "固定在会话列表顶部": "Oben in der Sitzungsliste anheften",
-  "恢复到默认列表": "In die Standardliste zurückholen"
+  "恢复到默认列表": "In die Standardliste zurückholen",
+  "输入绝对路径，如 /tmp/my-project": "Absoluten Pfad eingeben, z. B. /tmp/my-project",
+  "打开": "Öffnen"
 }
