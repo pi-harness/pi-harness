@@ -10,7 +10,14 @@ export interface ClientStatus {
   readonly cwd: string;
   readonly agentDir: string;
   readonly plugins: readonly string[];
+  readonly run?: {
+    readonly startedAt: string;
+    readonly lastActivityAt: string;
+    readonly phase: ClientRunPhase;
+  };
 }
+export type ClientRunPhase = "starting" | "thinking" | "responding" | "tool";
+export type ClientEventStreamState = "connecting" | "open" | "reconnecting" | "closed";
 export interface ClientSession {
   readonly sessionId: string;
   readonly sessionFile?: string;
@@ -184,7 +191,7 @@ export interface ClientApi {
   updateConfig(input: Partial<ClientPiConfig["settings"]>): Promise<ClientPiConfig>;
   updateConfigSource(source: string): Promise<ClientPiConfig>;
   reloadConfig(): Promise<ClientPiConfig>;
-  subscribeEvents(onEvent: (payload: Record<string, unknown>) => void): () => void;
+  subscribeEvents(onEvent: (payload: Record<string, unknown>) => void, onConnectionChange?: (state: ClientEventStreamState) => void): () => void;
 }
 
 export function failedRefreshLabels(labels: readonly string[], results: readonly PromiseSettledResult<unknown>[]): readonly string[] {
@@ -349,9 +356,14 @@ export function createClientApi(): ClientApi {
         body: JSON.stringify({ source }),
       }),
     reloadConfig: () => requestJson<ClientPiConfig>("/api/config/reload", { method: "POST" }),
-    subscribeEvents: (onEvent) => {
-      if (typeof EventSource === "undefined") return () => {};
+    subscribeEvents: (onEvent, onConnectionChange) => {
+      if (typeof EventSource === "undefined") {
+        onConnectionChange?.("closed");
+        return () => {};
+      }
       const source = new EventSource("/api/events");
+      onConnectionChange?.("connecting");
+      source.onopen = () => onConnectionChange?.("open");
       source.onmessage = (event) => {
         try {
           const raw: unknown = event.data;
@@ -360,6 +372,7 @@ export function createClientApi(): ClientApi {
           /* Ignore malformed frames at the network boundary. */
         }
       };
+      source.onerror = () => onConnectionChange?.(source.readyState === EventSource.CLOSED ? "closed" : "reconnecting");
       return () => source.close();
     },
   };

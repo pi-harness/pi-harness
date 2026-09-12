@@ -1806,6 +1806,52 @@ describe("API gateway plugin", () => {
     await reader?.cancel();
   });
 
+  test("publishes recoverable run timing and phase through status", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    type Listener = (event: { type: string; [key: string]: unknown }) => void;
+    const listeners = new Set<Listener>();
+    const session = {
+      sessionId: "run-telemetry-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe(listener: Listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const status = async () => (await (await fetch(context.webServer.url + "/api/status")).json()) as Record<string, unknown>;
+    const emit = (event: { type: string; [key: string]: unknown }) => listeners.forEach((listener) => listener(event));
+
+    await expect(status()).resolves.not.toHaveProperty("run");
+    session.isStreaming = true;
+    emit({ type: "agent_start" });
+    const starting = await status();
+    expect(starting.run).toMatchObject({ phase: "starting" });
+    const startedAt = (starting.run as { startedAt: string }).startedAt;
+    expect(Number.isNaN(Date.parse(startedAt))).toBe(false);
+    expect((starting.run as { lastActivityAt: string }).lastActivityAt).toBe(startedAt);
+
+    emit({ type: "turn_start" });
+    expect((await status()).run).toMatchObject({ phase: "starting", startedAt });
+    emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "plan" } });
+    expect((await status()).run).toMatchObject({ phase: "thinking", startedAt });
+    emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "answer" } });
+    expect((await status()).run).toMatchObject({ phase: "responding", startedAt });
+    emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "read", args: {} });
+    expect((await status()).run).toMatchObject({ phase: "tool", startedAt });
+
+    session.isStreaming = false;
+    emit({ type: "agent_settled" });
+    await expect(status()).resolves.not.toHaveProperty("run");
+  });
+
   test("creates a new session through the live AgentSession", async () => {
     const context = new Context();
     contexts.push(context);

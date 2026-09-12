@@ -6,6 +6,7 @@ import {
   failedRefreshLabels,
   type ClientApi,
   type ClientCommand,
+  type ClientEventStreamState,
   type ClientFile,
   type ClientMarketplaceCapability,
   type ClientMarketplaceCategory,
@@ -15,6 +16,7 @@ import {
   type ClientPlugin,
   type ClientPluginPanel,
   type ClientProvider,
+  type ClientRunPhase,
   type ClientSession,
   type ClientStatus,
   type ClientWorkspace,
@@ -7804,8 +7806,98 @@ export function shouldRefreshForRuntimeEvent(payload: Record<string, unknown>): 
 export function subscribeRuntimeEvents(
   api: Pick<ClientApi, "subscribeEvents">,
   handler: { readonly current: (payload: Record<string, unknown>) => void },
+  connection?: { readonly current: (state: ClientEventStreamState) => void },
 ): () => void {
-  return api.subscribeEvents((payload) => handler.current(payload));
+  return api.subscribeEvents((payload) => handler.current(payload), connection === undefined ? undefined : (state) => connection.current(state));
+}
+
+export interface LocalRunActivity {
+  readonly startedAt: number;
+  readonly lastActivityAt: number;
+  readonly phase: ClientRunPhase;
+}
+
+export interface RunTelemetryView {
+  readonly phase: ClientRunPhase;
+  readonly tone: "active" | "quiet" | "connecting" | "reconnecting" | "disconnected" | "offline";
+  readonly elapsedSeconds: number;
+  readonly quietSeconds: number;
+}
+
+const RUN_QUIET_AFTER_MS = 30_000;
+
+function clampedTimestamp(value: string, fallback: number, now: number): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.min(parsed, now) : fallback;
+}
+
+export function runActivityFromStatus(
+  status: Pick<ClientStatus, "status" | "run"> | undefined,
+  current: LocalRunActivity | undefined,
+  now = Date.now(),
+): LocalRunActivity | undefined {
+  if (status?.status !== "running") return undefined;
+  if (status.run === undefined) return current ?? { startedAt: now, lastActivityAt: now, phase: "starting" };
+  const startedAt = clampedTimestamp(status.run.startedAt, now, now);
+  const lastActivityAt = Math.max(startedAt, clampedTimestamp(status.run.lastActivityAt, startedAt, now));
+  if (current?.startedAt === startedAt && current.lastActivityAt >= lastActivityAt) return current;
+  return { startedAt, lastActivityAt, phase: status.run.phase };
+}
+
+export function runTelemetryView(
+  activity: LocalRunActivity,
+  connection: ClientEventStreamState,
+  statusReachable: boolean | undefined,
+  now = Date.now(),
+): RunTelemetryView {
+  const elapsedSeconds = Math.max(0, Math.floor((now - activity.startedAt) / 1000));
+  const quietSeconds = Math.max(0, Math.floor((now - activity.lastActivityAt) / 1000));
+  const tone =
+    statusReachable === false && connection !== "open"
+      ? "offline"
+      : connection === "closed"
+        ? "disconnected"
+        : connection === "reconnecting"
+          ? "reconnecting"
+          : connection === "connecting"
+            ? "connecting"
+            : quietSeconds * 1000 >= RUN_QUIET_AFTER_MS
+              ? "quiet"
+              : "active";
+  return { phase: activity.phase, tone, elapsedSeconds, quietSeconds };
+}
+
+export function formatRunClock(totalSeconds: number): string {
+  const bounded = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(bounded / 3600);
+  const minutes = Math.floor((bounded % 3600) / 60);
+  const seconds = bounded % 60;
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}` : `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function runPhaseText(phase: ClientRunPhase): string {
+  if (phase === "thinking") return t("模型思考中");
+  if (phase === "responding") return t("模型生成中");
+  if (phase === "tool") return t("工具执行中");
+  return t("等待模型");
+}
+
+function runToneText(view: RunTelemetryView): string {
+  if (view.tone === "offline") return t("Pi runtime 不可达");
+  if (view.tone === "disconnected") return t("实时更新已断开");
+  if (view.tone === "reconnecting") return t("实时更新中断，正在重连");
+  if (view.tone === "connecting") return t("正在连接实时更新");
+  if (view.tone === "quiet") return t("模型暂时静默 · {seconds} 秒无新活动", { seconds: view.quietSeconds });
+  return view.quietSeconds < 2 ? t("刚刚有新活动") : t("{seconds} 秒前有新活动", { seconds: view.quietSeconds });
+}
+
+function runAnnouncementText(view: RunTelemetryView): string {
+  if (view.tone === "offline") return t("Pi runtime 不可达");
+  if (view.tone === "disconnected") return t("实时更新已断开");
+  if (view.tone === "reconnecting") return t("实时更新中断，正在重连");
+  if (view.tone === "connecting") return t("正在连接实时更新");
+  if (view.tone === "quiet") return t("模型暂时静默");
+  return runPhaseText(view.phase);
 }
 
 type MarketplaceDetailPlan =
@@ -8019,8 +8111,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const importInputRef = useRef<HTMLInputElement>(null);
   const sessionPopoverTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [streamingAssistant, setStreamingAssistant] = useState<{ thinking: string; text: string }>();
-  const [streamingStartedAt, setStreamingStartedAt] = useState<number | undefined>();
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [runActivity, setRunActivity] = useState<LocalRunActivity>();
+  const [runClockAt, setRunClockAt] = useState(() => Date.now());
+  const [eventStreamState, setEventStreamState] = useState<ClientEventStreamState>("connecting");
+  const [statusReachable, setStatusReachable] = useState<boolean>();
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -8325,9 +8419,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       // with authoritative navigation updates; updater functions stay pure.
       setData((current) => ({ ...current, [key]: result }));
     };
+    const applyLiveStatus = (result: PromiseSettledResult<ClientStatus>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.status) return;
+      liveRefreshSequenceRef.current.status = sequence;
+      setStatusReachable(result.status === "fulfilled");
+      if (result.status === "fulfilled") setData((current) => ({ ...current, status: result.value }));
+    };
     void requests[0].then(
-      (result) => applyLive("status", result),
-      () => {},
+      (value) => applyLiveStatus({ status: "fulfilled", value }),
+      (reason: unknown) => applyLiveStatus({ status: "rejected", reason }),
     );
     void requests[1].then(
       (result) => applyLive("session", result),
@@ -8407,26 +8507,50 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       const event = payload.event;
       if (typeof event !== "object" || event === null) return;
       const runtimeEvent = event as Record<string, unknown>;
-      if (runtimeEvent.type === "turn_start") {
+      const now = Date.now();
+      const receivedAt = typeof runtimeEvent.receivedAt === "number" && Number.isFinite(runtimeEvent.receivedAt) ? runtimeEvent.receivedAt : now;
+      const observedAt = Math.min(receivedAt, now);
+      const type = runtimeEvent.type;
+      const nextPhase: ClientRunPhase | undefined =
+        type === "message_update" && typeof runtimeEvent.assistantMessageEvent === "object" && runtimeEvent.assistantMessageEvent !== null
+          ? (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "thinking_delta"
+            ? "thinking"
+            : (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "text_delta"
+              ? "responding"
+              : undefined
+          : type === "tool_execution_start" || type === "tool_execution_update" || type === "tool_execution_end"
+            ? "tool"
+            : type === "agent_start" || type === "turn_start"
+              ? "starting"
+              : undefined;
+      setRunActivity((current) => {
+        if (current === undefined && nextPhase === undefined) return current;
+        const startedAt = type === "agent_start" ? observedAt : (current?.startedAt ?? observedAt);
+        return {
+          startedAt,
+          lastActivityAt: Math.max(startedAt, current?.lastActivityAt ?? 0, observedAt),
+          phase: nextPhase ?? current?.phase ?? "starting",
+        };
+      });
+      setRunClockAt(now);
+      if (type === "agent_start" || type === "turn_start") {
         setStreamingAssistant({ thinking: "", text: "" });
-        setStreamingStartedAt(Date.now());
-        return;
       }
-      if (runtimeEvent.type !== "message_update" || typeof runtimeEvent.assistantMessageEvent !== "object" || runtimeEvent.assistantMessageEvent === null)
-        return;
+      if (type !== "message_update" || typeof runtimeEvent.assistantMessageEvent !== "object" || runtimeEvent.assistantMessageEvent === null) return;
       const assistantMessageEvent = runtimeEvent.assistantMessageEvent as Record<string, unknown>;
-      const type = assistantMessageEvent.type;
-      if (type !== "thinking_delta" && type !== "text_delta") return;
+      const deltaType = assistantMessageEvent.type;
+      if (deltaType !== "thinking_delta" && deltaType !== "text_delta") return;
       const delta = typeof assistantMessageEvent.delta === "string" ? assistantMessageEvent.delta : "";
       if (!delta) return;
       setStreamingAssistant((current) => ({
-        thinking: (current?.thinking ?? "") + (type === "thinking_delta" ? delta : ""),
-        text: (current?.text ?? "") + (type === "text_delta" ? delta : ""),
+        thinking: (current?.thinking ?? "") + (deltaType === "thinking_delta" ? delta : ""),
+        text: (current?.text ?? "") + (deltaType === "text_delta" ? delta : ""),
       }));
     },
     [scheduleRefresh],
   );
   const handleRuntimeEventRef = useRef(handleRuntimeEvent);
+  const handleEventStreamStateRef = useRef<(state: ClientEventStreamState) => void>((state) => setEventStreamState(state));
   const refreshRef = useRef(refresh);
   const createNewSession = useCallback(
     (workspace?: ClientWorkspace) => {
@@ -8502,7 +8626,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  useEffect(() => subscribeRuntimeEvents(api, handleRuntimeEventRef), [api]);
+  useEffect(() => subscribeRuntimeEvents(api, handleRuntimeEventRef, handleEventStreamStateRef), [api]);
   useEffect(() => {
     const timer = window.setInterval(() => void refreshRef.current(), 5000);
     return () => {
@@ -8514,17 +8638,20 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     };
   }, []);
   useEffect(() => {
-    if (data.status?.status !== "running") {
+    const now = Date.now();
+    setRunActivity((current) => runActivityFromStatus(data.status, current, now));
+    setRunClockAt(now);
+    if (data.status?.status === "running") {
+      setStreamingAssistant((current) => current ?? { thinking: "", text: "" });
+    } else {
       setStreamingAssistant(undefined);
-      setStreamingStartedAt(undefined);
-      setElapsedSeconds(0);
     }
-  }, [data.status?.status]);
+  }, [data.status?.run?.lastActivityAt, data.status?.run?.phase, data.status?.run?.startedAt, data.status?.status]);
   useEffect(() => {
-    if (!streamingStartedAt || data.status?.status !== "running") return;
-    const timer = setInterval(() => setElapsedSeconds(Math.floor((Date.now() - streamingStartedAt) / 1000)), 1000);
-    return () => clearInterval(timer);
-  }, [streamingStartedAt, data.status?.status]);
+    if (data.status?.status !== "running") return;
+    const timer = window.setInterval(() => setRunClockAt(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [data.status?.status]);
   useEffect(() => {
     const path = initialSessionPathRef.current;
     if (!path || sessionRestoreAttemptedRef.current || !sessionsLoaded) return;
@@ -8834,6 +8961,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   };
   const installedPlugin = installedPluginId === undefined ? undefined : data.plugins.find((plugin) => plugin.name === installedPluginId);
   const installedPluginPanel = installedPluginId === undefined ? undefined : data.pluginPanels.find((panel) => panel.pluginId === installedPluginId);
+  const runTelemetry =
+    data.status?.status === "running" && runActivity !== undefined ? runTelemetryView(runActivity, eventStreamState, statusReachable, runClockAt) : undefined;
   const content = settings ? (
     <Settings
       api={api}
@@ -8985,7 +9114,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   ) : view === "chat" ? (
     <section className="view-panel chat-view">
       <div
-        className={`chat-scroll ${data.session?.messages.length ? "" : "is-empty"}`}
+        className={`chat-scroll ${data.session?.messages.length || data.status?.status === "running" ? "" : "is-empty"}`}
         onScroll={(event) => {
           const element = event.currentTarget;
           stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
@@ -9005,7 +9134,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               tools={turn.tools}
             />
           ))
-        ) : (
+        ) : data.status?.status !== "running" ? (
           <Workspace
             status={data.status}
             workspaces={data.workspaces}
@@ -9016,31 +9145,35 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               setSettings("toml");
             }}
           />
-        )}
-        {streamingAssistant && data.status?.status === "running" && (
-          <article className="turn text streaming-turn" aria-live="polite">
-            {streamingAssistant.thinking && (
+        ) : null}
+        {runTelemetry && data.status?.status === "running" && (
+          <article className={`turn text streaming-turn ${runTelemetry.tone}`}>
+            <span aria-live="polite" className="visually-hidden" role="status">
+              {runAnnouncementText(runTelemetry)}
+            </span>
+            {streamingAssistant?.thinking && (
               <details className="reasoning message-reasoning" open={false}>
                 <summary className="reasoning-head">
                   {t("思考中…")}
-                  {elapsedSeconds > 0 && <span className="streaming-elapsed">{elapsedSeconds}s</span>}
+                  <span className="streaming-elapsed">{formatRunClock(runTelemetry.elapsedSeconds)}</span>
                 </summary>
                 <div className="reasoning-body">
                   <MarkdownMessage text={streamingAssistant.thinking} />
                 </div>
               </details>
             )}
-            {!streamingAssistant.thinking && !streamingAssistant.text && (
+            {!streamingAssistant?.thinking && !streamingAssistant?.text && (
               <div className="streaming-placeholder">
                 <span className="streaming-spinner" />
-                {t("正在生成…")}
-                {elapsedSeconds > 0 && <span className="streaming-elapsed">{elapsedSeconds}s</span>}
+                {runPhaseText(runTelemetry.phase)}
+                <span className="streaming-elapsed">{formatRunClock(runTelemetry.elapsedSeconds)}</span>
               </div>
             )}
-            {streamingAssistant.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={streamingAssistant.text} />}
-            {elapsedSeconds > 300 && (
+            {streamingAssistant?.text && <MarkdownMessage onMouseUp={captureAnnotationSelection} text={streamingAssistant.text} />}
+            {runTelemetry.tone !== "active" && <div className={`streaming-activity ${runTelemetry.tone}`}>{runToneText(runTelemetry)}</div>}
+            {runTelemetry.elapsedSeconds > 300 && (
               <div className="streaming-timeout-warning">
-                <span>{t("已运行 {seconds} 秒，模型响应较慢", { seconds: elapsedSeconds })}</span>
+                <span>{t("已运行 {seconds} 秒，模型响应较慢", { seconds: runTelemetry.elapsedSeconds })}</span>
                 <button onClick={() => void api.abort()} type="button">
                   {t("停止")}
                 </button>
@@ -9817,10 +9950,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             </small>
           </div>
           <div className="header-spacer"></div>
-          {data.status?.status === "running" && (
-            <div className="run-indicator running">
-              <span className="run-dot"></span>
-              <span>{t("运行中 · Pi agent")}</span>
+          {runTelemetry && (
+            <div className={`run-indicator running ${runTelemetry.tone}`}>
+              <span aria-hidden="true" className="run-dot"></span>
+              <span className="run-phase">{runPhaseText(runTelemetry.phase)}</span>
+              <span aria-label={t("已运行 {time}", { time: formatRunClock(runTelemetry.elapsedSeconds) })} className="run-clock">
+                {formatRunClock(runTelemetry.elapsedSeconds)}
+              </span>
+              <span className="run-activity">{runToneText(runTelemetry)}</span>
               <button className="stop-button" onClick={stopRun} title={t("停止当前运行（⌃C）")} type="button">
                 {t("停止")}
               </button>
