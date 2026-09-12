@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-context",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Inspect context usage and descriptor-safe bounded message composition with cached active-session lifecycle counters and a fixed-limit normalized browser panel.",
   "keywords": [
     "cordis",
