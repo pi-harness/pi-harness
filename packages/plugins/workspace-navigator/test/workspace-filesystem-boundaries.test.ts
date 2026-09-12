@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
+import type * as NodeFsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -6,7 +7,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const filesystem = vi.hoisted(() => ({ lstat: vi.fn(), opendir: vi.fn(), realpath: vi.fn() }));
 
 vi.mock("node:fs/promises", async () => {
-  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  const actual = await vi.importActual<typeof NodeFsPromises>("node:fs/promises");
   filesystem.lstat.mockImplementation(actual.lstat);
   filesystem.opendir.mockImplementation(actual.opendir);
   filesystem.realpath.mockImplementation(actual.realpath);
@@ -17,7 +18,7 @@ import { listWorkspaceNodes } from "../src/index.js";
 
 describe("workspace filesystem boundaries", () => {
   beforeEach(async () => {
-    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    const actual = await vi.importActual<typeof NodeFsPromises>("node:fs/promises");
     filesystem.lstat.mockReset();
     filesystem.opendir.mockReset();
     filesystem.realpath.mockReset();
@@ -27,7 +28,7 @@ describe("workspace filesystem boundaries", () => {
   });
 
   test("rechecks ignored directories after authoritative lstat when dirent type is unknown", async () => {
-    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    const actual = await vi.importActual<typeof NodeFsPromises>("node:fs/promises");
     const root = await mkdtemp(join(tmpdir(), "pi-navigator-unknown-dirent-"));
     await mkdir(join(root, "parent", "node_modules"), { recursive: true });
     await writeFile(join(root, "parent", "node_modules", "hidden.js"), "hidden\n");
@@ -54,7 +55,7 @@ describe("workspace filesystem boundaries", () => {
   });
 
   test("does not follow a directory replaced by an external symlink before recursion", async () => {
-    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    const actual = await vi.importActual<typeof NodeFsPromises>("node:fs/promises");
     const root = await mkdtemp(join(tmpdir(), "pi-navigator-race-root-"));
     const outside = await mkdtemp(join(tmpdir(), "pi-navigator-race-outside-"));
     const inside = join(root, "inside");
@@ -92,21 +93,21 @@ describe("workspace filesystem boundaries", () => {
   });
 
   test("skips undecodable byte names and marks the tree incomplete", async () => {
-    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    const actual = await vi.importActual<typeof NodeFsPromises>("node:fs/promises");
     const root = await mkdtemp(join(tmpdir(), "pi-navigator-byte-name-"));
     filesystem.opendir.mockImplementation(async (...args: Parameters<typeof actual.opendir>) => {
       const handle = await actual.opendir(...args);
       let returned = false;
       const byteHandle = handle as unknown as { read: () => Promise<unknown> };
-      byteHandle.read = async () => {
-        if (returned) return null;
+      byteHandle.read = () => {
+        if (returned) return Promise.resolve(null);
         returned = true;
-        return {
+        return Promise.resolve({
           name: Buffer.from([0xff]),
           isDirectory: () => false,
           isFile: () => true,
           isSymbolicLink: () => false,
-        };
+        });
       };
       return handle;
     });
