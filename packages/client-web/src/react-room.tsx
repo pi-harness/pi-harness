@@ -7970,6 +7970,10 @@ export function fileDetailSource(file: ClientFile): "/api/files" | "/api/workspa
   return file.status ? "/api/files" : "/api/workspace/files";
 }
 
+function sessionForkSuffix(session: Record<string, unknown> | ClientSession): string {
+  return session.forked === true ? ` · ${t("副本")}` : "";
+}
+
 export function scrollActiveOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
   option?.scrollIntoView({ block: "nearest" });
 }
@@ -8096,7 +8100,7 @@ export function GlobalSearch({
                       item.kind === "command"
                         ? (item.command.description ?? item.command.source ?? t("由当前运行时注册"))
                         : item.kind === "session"
-                          ? t("{count} 条消息", { count: value(item.session.messageCount, "0") })
+                          ? `${t("{count} 条消息", { count: value(item.session.messageCount, "0") })}${sessionForkSuffix(item.session)}`
                           : item.file.status
                             ? `${item.file.label} · ${item.file.status}`
                             : t("工作区");
@@ -10172,7 +10176,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       {t("{v0} 条消息{v1} {v2}", {
                         v0: data.session.messages.length,
                         v1: data.session.pinned === true ? t(" · 已置顶") : "",
-                        v2: data.session.archived === true ? t(" · 已归档") : "",
+                        v2: [data.session.archived === true ? t("已归档") : "", data.session.forked === true ? t("副本") : ""]
+                          .filter(Boolean)
+                          .map((label) => `· ${label}`)
+                          .join(" "),
                       })}
                     </small>
                   </span>
@@ -10269,7 +10276,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                           {t("{v0} 条消息{v1} {v2}", {
                             v0: value(session.messageCount, "0"),
                             v1: session.pinned === true ? t(" · 已置顶") : "",
-                            v2: session.archived === true ? t(" · 已归档") : "",
+                            v2: [session.archived === true ? t("已归档") : "", session.forked === true ? t("副本") : ""]
+                              .filter(Boolean)
+                              .map((label) => `· ${label}`)
+                              .join(" "),
                           })}
                         </small>
                       </span>

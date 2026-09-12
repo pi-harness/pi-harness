@@ -24,6 +24,7 @@ export interface ClientSession {
   readonly name?: string;
   readonly archived?: boolean;
   readonly pinned?: boolean;
+  readonly forked?: boolean;
   readonly messages: readonly Record<string, unknown>[];
   readonly entries: readonly unknown[];
   readonly events: readonly Record<string, unknown>[];

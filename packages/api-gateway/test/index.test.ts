@@ -2093,10 +2093,15 @@ describe("API gateway plugin", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ cwd: activeCwd });
+    const fork = (await response.json()) as { sessionId: string; cwd: string };
+    expect(fork).toMatchObject({ cwd: activeCwd });
+    const sessions = await fetch(context.webServer.url + "/api/sessions?includeArchived=true");
+    expect(sessions.status).toBe(200);
+    const sessionPayload = (await sessions.json()) as { items: Array<{ sessionId: string; forked?: boolean }> };
+    expect(sessionPayload.items).toEqual(expect.arrayContaining([expect.objectContaining({ sessionId: fork.sessionId, forked: true })]));
   });
 
-  test("opens a persisted session from the session list", async () => {
+  test("opens a forked persisted session from the session list and exposes its relationship", async () => {
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -2104,7 +2109,7 @@ describe("API gateway plugin", () => {
     const path = join(directory, "2026-08-30T00-00-00-000Z_target.jsonl");
     await writeFile(
       path,
-      `${JSON.stringify({ type: "session", version: 3, id: "target-session", timestamp: new Date().toISOString(), cwd: "/tmp" })}\n${JSON.stringify({ type: "session_info", id: "session-name", parentId: null, timestamp: new Date().toISOString(), name: "Launch roadmap" })}\n${JSON.stringify({ type: "message", id: "message-1", parentId: "session-name", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "saved" }], provider: "test", model: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } })}\n`,
+      `${JSON.stringify({ type: "session", version: 3, id: "target-session", timestamp: new Date().toISOString(), cwd: "/tmp", parentSession: "/tmp/source.jsonl" })}\n${JSON.stringify({ type: "session_info", id: "session-name", parentId: null, timestamp: new Date().toISOString(), name: "Launch roadmap" })}\n${JSON.stringify({ type: "message", id: "message-1", parentId: "session-name", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "saved" }], provider: "test", model: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } })}\n`,
       "utf8",
     );
     let openedPath = "";
@@ -2144,6 +2149,7 @@ describe("API gateway plugin", () => {
       sessionId: "target-session",
       sessionFile: path,
       name: "Launch roadmap",
+      forked: true,
       entries: [{ type: "session_info", name: "Launch roadmap" }, { type: "message" }],
       messages: [{ role: "assistant" }],
     });

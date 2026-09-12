@@ -390,6 +390,7 @@
   "复制 JSON": "Copy JSON",
   "复制上下文并打开副本": "Copy the context and open the duplicate",
   "复制会话": "Duplicate session",
+  "副本": "Duplicate",
   "复核": "Review",
   "复核风险内容的默认策略": "Default policy for reviewing risky content",
   "复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。": "Reuses run_project_tests and review_changes rather than reimplementing test or review logic.",
