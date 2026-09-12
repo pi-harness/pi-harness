@@ -657,6 +657,9 @@ test("shows incomplete workspace searches even when no matches were collected", 
         title: "Workspace Search",
         data: {
           cwd: "/workspace/current",
+          query: "needle",
+          matchCount: 0,
+          scannedFiles: 2,
           latest: {
             query: "needle",
             path: ".",

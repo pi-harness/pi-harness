@@ -71,6 +71,7 @@ import { readmeGenPanelView } from "./readme-gen-view.js";
 import { taskboardPanelView } from "./taskboard-view.js";
 import { promptLibraryPanelView } from "./prompt-library-view.js";
 import { memoryPanelView } from "./memory-view.js";
+import { workspaceSearchPanelView } from "./workspace-search-view.js";
 import { LOCALES, formatLocale, setLocale, t, useLocale, writeStoredLocale } from "./i18n.js";
 
 export type { ClientApi } from "./control-room.js";
@@ -4323,51 +4324,63 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           )}
         </div>
       ) : panel.id === "workspace-search-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <p className="break-all text-[10px] text-[var(--color-faint)]">
-            {t("工作区：")}
-            {value(data?.cwd, "")}
-          </p>
-          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[var(--color-ink)]">{t("工作区文本检索")}</span>
-            <span className="font-mono text-[var(--color-blue)]">{t("{v0} 个匹配", { v0: value(data?.matchCount ?? 0) })}</span>
-          </div>
-          {data?.latest && typeof data.latest === "object" ? (
-            (() => {
-              const report = data.latest as Record<string, unknown>;
-              const matches = Array.isArray(report.matches) ? report.matches : [];
-              return (
+        (() => {
+          const view = workspaceSearchPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+                <strong className="block text-[12px]">{t("Workspace Search 面板数据异常")}</strong>
+                <span className="mt-1 block">{t("面板数据不完整或不可信，请重新加载后再查询。")}</span>
+              </div>
+            );
+          }
+          const report = view.latest;
+          return (
+            <div className="mt-3 grid min-w-0 gap-3">
+              <p className="whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
+                {t("工作区：")}
+                {view.cwd}
+              </p>
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+                <span className="font-medium text-[var(--color-ink)]">{t("工作区文本检索")}</span>
+                <span className="shrink-0 font-mono text-[var(--color-blue)]">{t("{v0} 个匹配", { v0: view.matchCount })}</span>
+              </div>
+              {report !== null ? (
                 <>
-                  <p className="break-all text-[10px] text-[var(--color-muted)]">
-                    {t("查询：{v0} · 路径：{v1}", { v0: value(report.query), v1: value(report.path) })}
+                  <p className="whitespace-pre-wrap text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                    {t("查询：{v0} · 路径：{v1}", { v0: report.query, v1: report.path })}
                   </p>
                   <p className="text-[10px] text-[var(--color-faint)]">
                     {t("已搜索 {v0} 个文件，跳过 {v1} 个；显示 {v2} / {v3} 条已收集匹配。", {
-                      v0: value(report.scannedFiles),
-                      v1: value(report.skippedFiles),
-                      v2: Math.min(5, matches.length),
-                      v3: matches.length,
+                      v0: report.scannedFiles,
+                      v1: report.skippedFiles,
+                      v2: report.matches.length,
+                      v3: report.matchCount,
                     })}
                   </p>
-                  {report.truncated === true ? (
+                  <p className="text-[10px] text-[var(--color-faint)]">
+                    {t("已扫描 {v0} 个目录条目 · 读取 {v1} bytes", { v0: report.scannedEntries, v1: report.readBytes })}
+                  </p>
+                  {report.truncated ? (
                     <p className="text-[10px] text-[var(--color-amber)]">{t("结果不完整：已达到扫描、读取或结果上限，存在跳过文件，或匹配片段已裁剪。")}</p>
                   ) : null}
-                  {matches.length > 0 ? (
-                    <ul className="grid gap-1.5">
-                      {matches.slice(0, 5).map((match, index) => {
-                        const item = match && typeof match === "object" ? (match as Record<string, unknown>) : {};
-                        return (
-                          <li
-                            className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
-                            key={`${value(item.path ?? "match")}-${index}`}
-                          >
-                            <strong className="block truncate font-mono text-[10px] text-[var(--color-blue)]">
-                              {value(item.path ?? t("未知文件"))}:{value(item.line ?? "?")}
-                            </strong>
-                            <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">{value(item.text, "")}</p>
-                          </li>
-                        );
-                      })}
+                  {report.matches.length > 0 ? (
+                    <ul
+                      aria-label={t("工作区搜索结果")}
+                      className="grid max-h-[40rem] min-w-0 gap-1.5 overflow-y-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-blue)]"
+                      tabIndex={0}
+                    >
+                      {report.matches.map((match) => (
+                        <li
+                          className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                          key={`${match.path}\0${match.line}`}
+                        >
+                          <strong className="block whitespace-pre-wrap font-mono text-[10px] text-[var(--color-blue)] [overflow-wrap:anywhere]">
+                            {match.path}:{match.line}
+                          </strong>
+                          <p className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">{match.text}</p>
+                        </li>
+                      ))}
                     </ul>
                   ) : (
                     <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
@@ -4375,14 +4388,14 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                     </div>
                   )}
                 </>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("Agent 可调用 workspace_search 检索当前工作区。")}
+              ) : (
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  {t("Agent 可调用 workspace_search 检索当前工作区。")}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "recall-unread-panel" ? (
         (() => {
           const view = recallUnreadPanelView(data);
