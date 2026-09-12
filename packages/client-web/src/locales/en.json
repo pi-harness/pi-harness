@@ -1238,5 +1238,7 @@
   "打开": "Open",
   "已从会话日志恢复 {count} 个历史事件": "Recovered {count} historical events from the session log",
   "更早的历史事件已省略": "Earlier historical events omitted",
-  "全局搜索结果": "Global search results"
+  "全局搜索结果": "Global search results",
+  "会话操作失败": "Session action failed",
+  "运行时没有接受这次会话操作，请重试。": "The runtime did not accept this session action; try again."
 }

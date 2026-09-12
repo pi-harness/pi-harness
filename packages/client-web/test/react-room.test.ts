@@ -132,6 +132,17 @@ describe("model selection readiness", () => {
     expect(runtimeHtml).toContain("模型切换失败");
     expect(runtimeHtml).not.toContain("发送失败");
   });
+
+  test("labels session action failures independently from prompt failures", () => {
+    const html = renderToStaticMarkup(createElement(PromptError, { action: "session", message: "Invalid session path" }));
+    expect(html).toContain("会话操作失败");
+    expect(html).not.toContain("发送失败");
+  });
+
+  test("clears a session action error before submitting a prompt", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    expect(source).toContain('setSessionActionError("");\n    setStoredPromptUi');
+  });
 });
 
 const plugin = (id: string): ClientMarketplacePlugin => ({
