@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
-import type { ClientMarketplacePlugin, ClientPiConfig } from "../src/control-room.js";
+import { createClientApi, type ClientMarketplacePlugin, type ClientPiConfig } from "../src/control-room.js";
 import type { ConfigStatus } from "../src/react-room.js";
 import {
   PluginPanelCard,
@@ -130,6 +130,54 @@ describe("runtime event refresh gating", () => {
 });
 
 describe("runtime event subscription", () => {
+  test("reports EventSource connection and reconnection states", () => {
+    const originalEventSource = globalThis.EventSource;
+    class FakeEventSource {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+      static latest: FakeEventSource | undefined;
+      readyState = FakeEventSource.CONNECTING;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      closed = false;
+      constructor(readonly url: string) {
+        FakeEventSource.latest = this;
+      }
+      close() {
+        this.closed = true;
+        this.readyState = FakeEventSource.CLOSED;
+      }
+    }
+    Object.assign(globalThis, { EventSource: FakeEventSource });
+    const states: string[] = [];
+    const events: Record<string, unknown>[] = [];
+    try {
+      const unsubscribe = createClientApi().subscribeEvents(
+        (payload) => events.push(payload),
+        (state) => states.push(state),
+      );
+      const source = FakeEventSource.latest;
+      expect(source?.url).toBe("/api/events");
+      expect(states).toEqual(["connecting"]);
+      if (source === undefined) throw new Error("EventSource was not created");
+      source.readyState = FakeEventSource.OPEN;
+      source.onopen?.(new Event("open"));
+      source.onmessage?.(new MessageEvent("message", { data: '{"event":"thinking"}' }));
+      source.readyState = FakeEventSource.CONNECTING;
+      source.onerror?.(new Event("error"));
+      source.readyState = FakeEventSource.CLOSED;
+      source.onerror?.(new Event("error"));
+      expect(states).toEqual(["connecting", "open", "reconnecting", "closed"]);
+      expect(events).toEqual([{ event: "thinking" }]);
+      unsubscribe();
+      expect(source.closed).toBe(true);
+    } finally {
+      Object.assign(globalThis, { EventSource: originalEventSource });
+    }
+  });
+
   test("keeps one stream open while the handler identity changes", () => {
     let subscriptions = 0;
     let closed = 0;
@@ -166,10 +214,92 @@ describe("runtime event subscription", () => {
     const effect = /useEffect\(\(\) => subscribeRuntimeEvents\(([^()]*)\), \[([^\]]*)\]\)/u.exec(source);
 
     expect(effect, "no `useEffect(() => subscribeRuntimeEvents(...), [...])` call was found").not.toBeNull();
-    expect((effect?.[1] ?? "").split(",").map((argument) => argument.trim())).toEqual(["api", "handleRuntimeEventRef"]);
+    expect((effect?.[1] ?? "").split(",").map((argument) => argument.trim())).toEqual(["api", "handleRuntimeEventRef", "handleEventStreamStateRef"]);
     expect((effect?.[2] ?? "").split(",").map((dependency) => dependency.trim())).toEqual(["api"]);
     // The stream stays open across re-renders only because the ref the wrapper reads is refreshed by its own effect.
     expect(source).toContain("handleRuntimeEventRef.current = handleRuntimeEvent;");
+  });
+});
+
+describe("run telemetry", () => {
+  test("formats elapsed time as a stable run clock", async () => {
+    const { formatRunClock } = await import("../src/react-room.js");
+
+    expect(formatRunClock(0)).toBe("0:00");
+    expect(formatRunClock(70)).toBe("1:10");
+    expect(formatRunClock(3_661)).toBe("1:01:01");
+    expect(formatRunClock(-1)).toBe("0:00");
+    expect(formatRunClock(70.9)).toBe("1:10");
+  });
+
+  test("rehydrates an active run from the status snapshot after a page reload", async () => {
+    const module = (await import("../src/react-room.js")) as Record<string, unknown>;
+    expect(module.runActivityFromStatus, "runActivityFromStatus must recover a run without waiting for turn_start").toBeTypeOf("function");
+    const merge = module.runActivityFromStatus as (
+      status: Record<string, unknown>,
+      current: unknown,
+      now: number,
+    ) => { startedAt: number; lastActivityAt: number; phase: string };
+    const now = Date.parse("2026-09-12T00:01:10.000Z");
+
+    expect(
+      merge(
+        {
+          status: "running",
+          run: { startedAt: "2026-09-12T00:00:00.000Z", lastActivityAt: "2026-09-12T00:00:20.000Z", phase: "thinking" },
+        },
+        undefined,
+        now,
+      ),
+    ).toEqual({ startedAt: Date.parse("2026-09-12T00:00:00.000Z"), lastActivityAt: Date.parse("2026-09-12T00:00:20.000Z"), phase: "thinking" });
+    expect(
+      merge(
+        {
+          status: "running",
+          run: { startedAt: "2026-09-12T00:00:00.000Z", lastActivityAt: "2026-09-12T00:00:20.000Z", phase: "thinking" },
+        },
+        {
+          startedAt: Date.parse("2026-09-12T00:00:00.000Z"),
+          lastActivityAt: Date.parse("2026-09-12T00:00:20.000Z"),
+          phase: "responding",
+        },
+        now,
+      ),
+    ).toEqual({ startedAt: Date.parse("2026-09-12T00:00:00.000Z"), lastActivityAt: Date.parse("2026-09-12T00:00:20.000Z"), phase: "responding" });
+    expect(merge({ status: "ready" }, { startedAt: 1, lastActivityAt: 2, phase: "tool" }, now)).toBeUndefined();
+  });
+
+  test("distinguishes active, quiet, reconnecting, and unreachable runs", async () => {
+    const module = (await import("../src/react-room.js")) as Record<string, unknown>;
+    expect(module.runTelemetryView).toBeTypeOf("function");
+    const view = module.runTelemetryView as (
+      activity: { startedAt: number; lastActivityAt: number; phase: string },
+      connection: string,
+      statusReachable: boolean | undefined,
+      now: number,
+    ) => Record<string, unknown>;
+    const now = Date.parse("2026-09-12T00:01:10.000Z");
+    const active = { startedAt: now - 70_000, lastActivityAt: now - 2_000, phase: "thinking" };
+    const quiet = { ...active, lastActivityAt: now - 40_000 };
+
+    expect(view(active, "open", true, now)).toEqual({ phase: "thinking", tone: "active", elapsedSeconds: 70, quietSeconds: 2 });
+    expect(view(quiet, "open", true, now)).toEqual({ phase: "thinking", tone: "quiet", elapsedSeconds: 70, quietSeconds: 40 });
+    expect(view(quiet, "reconnecting", true, now)).toEqual({ phase: "thinking", tone: "reconnecting", elapsedSeconds: 70, quietSeconds: 40 });
+    expect(view(quiet, "closed", false, now)).toEqual({ phase: "thinking", tone: "offline", elapsedSeconds: 70, quietSeconds: 40 });
+    expect(view(active, "connecting", true, now)).toEqual({ phase: "thinking", tone: "connecting", elapsedSeconds: 70, quietSeconds: 2 });
+  });
+
+  test("renders a running placeholder from status and observes the stable connection ref", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const styles = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
+
+    expect(source).not.toContain('{streamingAssistant && data.status?.status === "running" && (');
+    expect(source).toContain("runActivityFromStatus(data.status, current, now)");
+    expect(source).toContain("subscribeRuntimeEvents(api, handleRuntimeEventRef, handleEventStreamStateRef)");
+    expect(source).toContain("className={`run-indicator running ${runTelemetry.tone}`}");
+    expect(source).toContain(') : data.status?.status !== "running" ? (');
+    expect(source).toContain('data.session?.messages.length || data.status?.status === "running" ? "" : "is-empty"');
+    expect(styles).toContain(".main-header:has(.run-indicator) .active-heading");
   });
 });
 

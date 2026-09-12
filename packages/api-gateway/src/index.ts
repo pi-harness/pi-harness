@@ -47,6 +47,13 @@ const MAX_RETAINED_EVENTS = 2000;
 const MAX_PENDING_TOOL_CALLS = 256;
 /** A session event with the two fields the gateway owns: when it arrived, and for a tool call how long it took. */
 type StampedSessionEvent = AgentSessionEvent & { readonly receivedAt: number; readonly durationMs?: number };
+type RunPhase = "starting" | "thinking" | "responding" | "tool";
+interface RunActivity {
+  readonly sessionId: string;
+  readonly startedAt: number;
+  readonly lastActivityAt: number;
+  readonly phase: RunPhase;
+}
 const GIT_TIMEOUT_MS = 15_000;
 const PROCESS_FAILURE_TEXT_LIMIT = 400;
 const PROCESS_TIMEOUT_MS = 120_000;
@@ -105,9 +112,17 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
 // A plugin that contributes tools only joins on the next start, so the console remembers what it installed until then. That memory is about one particular process, and the console cannot tell a restart from a reconnect on its own, so the identity of this process rides along with the status it already polls.
 const PROCESS_STARTED_AT = new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString();
 
-function createStatus(services: ApiServices, events: readonly AgentSessionEvent[]) {
+function createStatus(services: ApiServices, events: readonly AgentSessionEvent[], runActivity: RunActivity | undefined) {
   const activeModel = services.runtime.session.model ?? services.models.model;
   const cwd = activeCwd(services);
+  const currentRun =
+    services.runtime.session.isStreaming && runActivity?.sessionId === services.runtime.session.sessionId
+      ? {
+          startedAt: new Date(runActivity.startedAt).toISOString(),
+          lastActivityAt: new Date(runActivity.lastActivityAt).toISOString(),
+          phase: runActivity.phase,
+        }
+      : undefined;
   return {
     processStartedAt: PROCESS_STARTED_AT,
     status: services.runtime.session.isStreaming ? "running" : "ready",
@@ -119,6 +134,7 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
     cwd,
     agentDir: services.launch.agentDir,
     plugins: services.loader ? [...services.loader.entries()].filter((entry) => !entry.disabled).map((entry) => entry.options.name) : [],
+    ...(currentRun === undefined ? {} : { run: currentRun }),
   };
 }
 
@@ -819,6 +835,15 @@ export default {
     let busy = false;
     const events: StampedSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
+    const initialRunAt = Date.now();
+    let runActivity: RunActivity | undefined = services.runtime.session.isStreaming
+      ? {
+          sessionId: services.runtime.session.sessionId,
+          startedAt: initialRunAt,
+          lastActivityAt: initialRunAt,
+          phase: "starting",
+        }
+      : undefined;
     // Pi puts a wall-clock on a message payload and nowhere else, so a tool call has no time of its own and nothing downstream can recover when the harness saw it. The gateway is the one place that sees every event as it happens, so it stamps each one on arrival, and pairs a tool call's two events to record how long the call took.
     // The stamp is written onto the event rather than onto a copy: a copy would give every event a new identity, and the serializer's cycle detection reads identity, so a self-referential event would serialize one level deeper on every hop.
     const toolCallStartedAt = new Map<string, number>();
@@ -842,6 +867,21 @@ export default {
     };
     const handleEvent = (rawEvent: AgentSessionEvent) => {
       const event = stampEvent(rawEvent);
+      const sessionId = services.runtime.session.sessionId;
+      if (event.type === "agent_settled") {
+        runActivity = undefined;
+      } else if (event.type === "agent_start") {
+        runActivity = { sessionId, startedAt: event.receivedAt, lastActivityAt: event.receivedAt, phase: "starting" };
+      } else if (runActivity?.sessionId === sessionId || services.runtime.session.isStreaming) {
+        const startedAt = runActivity?.sessionId === sessionId ? runActivity.startedAt : event.receivedAt;
+        let phase = runActivity?.sessionId === sessionId ? runActivity.phase : "starting";
+        if (event.type === "message_update") {
+          if (event.assistantMessageEvent.type === "thinking_delta") phase = "thinking";
+          if (event.assistantMessageEvent.type === "text_delta") phase = "responding";
+        }
+        if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") phase = "tool";
+        runActivity = { sessionId, startedAt, lastActivityAt: event.receivedAt, phase };
+      }
       // Streaming deltas reach clients live over SSE and each one carries the whole partial message, so only durable events are retained for snapshots.
       if (event.type !== "message_update") {
         events.push(event);
@@ -861,7 +901,7 @@ export default {
     const disposeStatus = services.webServer.register({
       path: "/api/status",
       handler(_request, response) {
-        sendJson(response, 200, createStatus(services, events));
+        sendJson(response, 200, createStatus(services, events, runActivity));
       },
     });
     const disposeConfig = services.webServer.register({
