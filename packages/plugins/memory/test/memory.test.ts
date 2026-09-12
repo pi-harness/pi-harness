@@ -2,7 +2,7 @@ import { lstat, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import memoryPlugin from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
@@ -29,6 +29,8 @@ async function fixture(config: { fileName?: string; maxEntries?: number } = { fi
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -64,13 +66,147 @@ describe("memory", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: { query: "script", memories: [{ value: "TypeScript", tags: ["code"] }] } } }]);
   });
 
+  test("bounds recent and last-search panel inventories with explicit counts", async () => {
+    const { set, search, panels } = await fixture({ fileName: "memory.json", maxEntries: 20 });
+    for (let index = 1; index <= 12; index += 1) {
+      await set.execute("set", { key: `tenant-${index}`, value: `shared operations fact ${index}`, tags: ["operations"] }, undefined, undefined, {} as never);
+    }
+    await search.execute("search", { query: "operations" }, undefined, undefined, {} as never);
+
+    await expect(panels.snapshot()).resolves.toMatchObject([
+      {
+        data: {
+          count: 12,
+          shown: 8,
+          truncated: true,
+          memories: Array.from({ length: 8 }, (_, index) => ({ key: `tenant-${12 - index}` })),
+          last: { query: "operations", total: 12, shown: 8, truncated: true },
+        },
+      },
+    ]);
+    const data = (await panels.snapshot())[0]?.data as { last: { memories: unknown[] } };
+    expect(data.last.memories).toHaveLength(8);
+  });
+
+  test("paginates broad searches with honest continuation metadata", async () => {
+    const { set, search } = await fixture({ fileName: "memory.json", maxEntries: 20 });
+    for (let index = 1; index <= 12; index += 1) {
+      await set.execute("set", { key: `tenant-${index}`, value: `shared fact ${index}` }, undefined, undefined, {} as never);
+    }
+
+    const first = (await search.execute("first", { query: "tenant" }, undefined, undefined, {} as never)).details as {
+      total: number;
+      offset: number;
+      shown: number;
+      truncated: boolean;
+      nextOffset: number | null;
+      memories: Array<{ key: string }>;
+    };
+    expect(first).toMatchObject({ total: 12, offset: 0, shown: 8, truncated: true, nextOffset: 8 });
+    expect(first.memories.map((item) => item.key)).toEqual(Array.from({ length: 8 }, (_, index) => `tenant-${12 - index}`));
+
+    const second = (await search.execute("second", { query: "tenant", offset: first.nextOffset, limit: 8 }, undefined, undefined, {} as never)).details as {
+      total: number;
+      offset: number;
+      shown: number;
+      truncated: boolean;
+      nextOffset: number | null;
+      memories: Array<{ key: string }>;
+    };
+    expect(second).toMatchObject({ total: 12, offset: 8, shown: 4, truncated: false, nextOffset: null });
+    expect(second.memories.map((item) => item.key)).toEqual(["tenant-4", "tenant-3", "tenant-2", "tenant-1"]);
+  });
+
+  test("leaves the latest successful panel search unchanged after invalid pagination", async () => {
+    const { set, search, panels } = await fixture();
+    await set.execute("keep", { key: "keep", value: "visible" }, undefined, undefined, {} as never);
+    await set.execute("secret", { key: "secret", value: "must not replace panel state" }, undefined, undefined, {} as never);
+    await search.execute("successful", { query: "keep" }, undefined, undefined, {} as never);
+
+    await expect(search.execute("invalid", { query: "secret", offset: -1 }, undefined, undefined, {} as never)).rejects.toThrow(/offset/iu);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: { query: "keep", total: 1, memories: [{ key: "keep" }] } } }]);
+  });
+
+  test("bounds and annotates large values in model-visible search pages", async () => {
+    const { set, search } = await fixture();
+    const value = "\0".repeat(64 * 1024);
+    for (let index = 1; index <= 3; index += 1) {
+      await set.execute("set", { key: `tenant-${index}`, value }, undefined, undefined, {} as never);
+    }
+
+    const result = await search.execute("large", { query: "tenant", limit: 8 }, undefined, undefined, {} as never);
+    const details = result.details as {
+      total: number;
+      shown: number;
+      truncated: boolean;
+      nextOffset: number | null;
+      memories: Array<{ value: string; valueBytes: number; valueTruncated: boolean }>;
+    };
+    expect(details.total).toBe(3);
+    expect(details.shown).toBeGreaterThan(0);
+    expect(details.shown).toBeLessThan(3);
+    expect(details.truncated).toBe(true);
+    expect(details.nextOffset).toBe(details.shown);
+    expect(details.memories.every((item) => item.valueTruncated && item.valueBytes === 64 * 1024)).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(details), "utf8")).toBeLessThanOrEqual(128 * 1024);
+    const content = result.content[0];
+    expect(content?.type).toBe("text");
+    expect(Buffer.byteLength(content?.type === "text" ? content.text : "", "utf8")).toBeLessThanOrEqual(128 * 1024);
+  });
+
+  test("rejects oversized values before UTF-8 byte allocation", async () => {
+    const { set } = await fixture();
+    const byteLength = vi.spyOn(Buffer, "byteLength");
+
+    await expect(set.execute("oversized", { key: "tenant", value: "x".repeat(64 * 1024 + 1) }, undefined, undefined, {} as never)).rejects.toThrow(
+      /at most 65536 bytes/iu,
+    );
+    expect(byteLength).not.toHaveBeenCalled();
+  });
+
+  test("keeps updated memories valid when the wall clock moves backward", async () => {
+    const { set, search } = await fixture();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-12T03:00:00.000Z"));
+    const created = (await set.execute("create", { key: "tenant", value: "first" }, undefined, undefined, {} as never)).details as { updatedAt: string };
+    vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+    const updated = (await set.execute("update", { key: "tenant", value: "second" }, undefined, undefined, {} as never)).details as { updatedAt: string };
+
+    expect(Date.parse(updated.updatedAt)).toBe(Date.parse(created.updatedAt) + 1);
+    await expect(search.execute("search", { query: "tenant" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { memories: [{ value: "second" }] },
+    });
+  });
+
+  test("times out a live lock wait when the wall clock moves backward", async () => {
+    const { root, set } = await fixture();
+    const lock = join(root, "memory.json.lock");
+    await mkdir(lock);
+    await writeFile(join(lock, "live.owner"), JSON.stringify({ pid: process.pid }));
+    vi.spyOn(Date, "now").mockReturnValue(0);
+    vi.spyOn(performance, "now").mockReturnValueOnce(0).mockReturnValue(10_001);
+    const controller = new AbortController();
+    const pending = set.execute("frozen-clock", { key: "tenant", value: "never written" }, controller.signal, undefined, {} as never);
+    let abortTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      abortTimer = setTimeout(() => controller.abort(new Error("test fallback cancellation")), 250);
+      await expect(pending).rejects.toThrow(/timed out waiting for memory file lock/iu);
+    } finally {
+      if (abortTimer !== undefined) clearTimeout(abortTimer);
+      controller.abort();
+      await pending.catch(() => undefined);
+      await rm(lock, { recursive: true, force: true });
+    }
+  });
+
   test("reads its own maximum-sized escaped JSON value", async () => {
-    const { set, search } = await fixture({ maxEntries: 1 });
+    const { set, search, panels } = await fixture({ maxEntries: 1 });
     const value = "x" + "\u0000".repeat(64 * 1024 - 1);
     await set.execute("escaped", { key: "escaped", value }, undefined, undefined, {} as never);
     await expect(search.execute("search", { query: "escaped" }, undefined, undefined, {} as never)).resolves.toMatchObject({
-      details: { memories: [{ value }] },
+      details: { memories: [{ valueBytes: 64 * 1024, shownValueBytes: 8 * 1024, valueTruncated: true }] },
     });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { memories: [{ value }] } }]);
   });
 
   test("reports every eviction after reducing the configured capacity", async () => {
@@ -251,5 +387,39 @@ describe("memory", () => {
     await context.fiber.dispose();
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
+  });
+
+  test("rejects extra fields and timestamps that move backward in persisted records", async () => {
+    const { root, search } = await fixture();
+    const base = {
+      id: "id-1",
+      key: "tenant",
+      value: "fact",
+      tags: [],
+      createdAt: "2026-09-12T03:00:01.000Z",
+      updatedAt: "2026-09-12T03:00:00.000Z",
+    };
+    for (const memory of [base, { ...base, updatedAt: base.createdAt, extra: true }]) {
+      await writeFile(join(root, "memory.json"), JSON.stringify({ version: 1, memories: [memory] }));
+      await expect(search.execute("search", { query: "tenant" }, undefined, undefined, {} as never)).rejects.toThrow(/invalid memories/iu);
+    }
+  });
+
+  test("rejects persisted memories that are not ordered newest first", async () => {
+    const { root, search } = await fixture({ maxEntries: 1 });
+    const memory = (id: string, updatedAt: string) => ({
+      id,
+      key: `tenant-${id}`,
+      value: `fact-${id}`,
+      tags: [],
+      createdAt: "2026-09-12T03:00:00.000Z",
+      updatedAt,
+    });
+    await writeFile(
+      join(root, "memory.json"),
+      JSON.stringify({ version: 1, memories: [memory("older", "2026-09-12T03:00:01.000Z"), memory("newer", "2026-09-12T03:00:02.000Z")] }),
+    );
+
+    await expect(search.execute("search", { query: "tenant" }, undefined, undefined, {} as never)).rejects.toThrow(/invalid memories/iu);
   });
 });

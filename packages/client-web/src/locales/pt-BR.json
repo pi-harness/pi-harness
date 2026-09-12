@@ -29,6 +29,7 @@
   "Browser Session 面板数据异常": "Dados inválidos no painel Browser Session",
   "Chrome DevTools Protocol · 显示 {v0}/{v1} 个可调试页面": "Chrome DevTools Protocol · exibindo {v0}/{v1} páginas depuráveis",
   "Cleaner 面板数据异常": "Dados inválidos no painel Cleaner",
+  "Memory 面板数据异常": "Dados inválidos no painel Memory",
   "Docker Sandbox 面板数据异常": "Dados inválidos no painel Docker Sandbox",
   "EveryAPI 认证未注入当前进程": "As credenciais do EveryAPI não foram injetadas neste processo",
   "Follow-up 消息": "Mensagem de acompanhamento",

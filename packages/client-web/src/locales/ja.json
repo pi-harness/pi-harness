@@ -29,6 +29,7 @@
   "Browser Session 面板数据异常": "Browser Session パネルのデータが不正です",
   "Chrome DevTools Protocol · 显示 {v0}/{v1} 个可调试页面": "Chrome DevTools Protocol · デバッグ可能なページを {v0}/{v1} 件表示",
   "Cleaner 面板数据异常": "Cleaner パネルのデータが不正です",
+  "Memory 面板数据异常": "Memory パネルのデータが不正です",
   "Docker Sandbox 面板数据异常": "Docker Sandbox パネルのデータが不正です",
   "EveryAPI 认证未注入当前进程": "EveryAPI の認証情報がこのプロセスに注入されていません",
   "Follow-up 消息": "フォローアップメッセージ",
