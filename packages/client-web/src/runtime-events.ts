@@ -1,6 +1,106 @@
 import { formatLocale, t } from "./i18n.js";
 
 export type RuntimeEvent = Record<string, unknown>;
+const MAX_TRAJECTORY_EVENTS = 2000;
+
+function record(value: unknown): RuntimeEvent | undefined {
+  return typeof value === "object" && value !== null ? (value as RuntimeEvent) : undefined;
+}
+
+function entryClock(entry: RuntimeEvent, message: RuntimeEvent): number | undefined {
+  const timestamp = entry.timestamp;
+  if (typeof timestamp === "string") {
+    const parsed = Date.parse(timestamp);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? message.timestamp : undefined;
+}
+
+function boundedHistoricalEvents(events: readonly RuntimeEvent[], limit: number): readonly RuntimeEvent[] {
+  if (events.length <= limit) return events;
+  if (limit <= 0) return [];
+  const existingMarker = events[0]?.type === "historical_events_omitted" ? events[0] : undefined;
+  const source = existingMarker === undefined ? events : events.slice(1);
+  const existingOmitted = typeof existingMarker?.omitted === "number" && Number.isFinite(existingMarker.omitted) ? existingMarker.omitted : 0;
+  if (limit === 1) return [{ type: "historical_events_omitted", historical: true, omitted: existingOmitted + source.length }];
+  let firstRetained = Math.max(0, source.length - (limit - 1));
+  while (firstRetained < source.length && source[firstRetained]?.type === "tool_execution_end") firstRetained += 1;
+  const retained = source.slice(firstRetained);
+  return [
+    {
+      type: "historical_events_omitted",
+      historical: true,
+      omitted: existingOmitted + firstRetained,
+      receivedAt: retained[0]?.receivedAt,
+    },
+    ...retained,
+  ];
+}
+
+/** Rebuild the durable part of the tool timeline from Pi's append-only session entries. Runtime events are ephemeral, but tool calls and results persist in JSONL with stable call ids and timestamps. */
+export function historicalTrajectoryEvents(entries: readonly unknown[]): readonly RuntimeEvent[] {
+  const events: RuntimeEvent[] = [];
+  const startedAt = new Map<string, number>();
+  for (const candidate of entries) {
+    const entry = record(candidate);
+    if (entry === undefined) continue;
+    if (entry.type !== "message") continue;
+    const message = record(entry.message);
+    if (message === undefined) continue;
+    const receivedAt = entryClock(entry, message);
+    if (receivedAt === undefined) continue;
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const item of message.content) {
+        const content = record(item);
+        if (content?.type !== "toolCall" || typeof content.id !== "string" || typeof content.name !== "string") continue;
+        startedAt.set(content.id, receivedAt);
+        events.push({
+          type: "tool_execution_start",
+          toolCallId: content.id,
+          toolName: content.name,
+          args: content.arguments,
+          receivedAt,
+          historical: true,
+        });
+      }
+      continue;
+    }
+    if (message.role !== "toolResult" || typeof message.toolCallId !== "string" || typeof message.toolName !== "string") continue;
+    const start = startedAt.get(message.toolCallId);
+    events.push({
+      type: "tool_execution_end",
+      toolCallId: message.toolCallId,
+      toolName: message.toolName,
+      result: {
+        content: message.content,
+        ...(message.details === undefined ? {} : { details: message.details }),
+      },
+      isError: message.isError === true,
+      receivedAt,
+      ...(start === undefined ? {} : { durationMs: Math.max(0, receivedAt - start) }),
+      historical: true,
+    });
+  }
+  return boundedHistoricalEvents(events, MAX_TRAJECTORY_EVENTS);
+}
+
+/** Keep durable history while a newly observed run streams, excluding entries the live event feed already represents. */
+export function mergeTrajectoryEvents(entries: readonly unknown[], liveEvents: readonly RuntimeEvent[]): readonly RuntimeEvent[] {
+  const historical = historicalTrajectoryEvents(entries);
+  if (liveEvents.length === 0) return historical;
+  const liveToolCallIds = new Set(
+    liveEvents.map((event) => event.toolCallId).filter((toolCallId): toolCallId is string => typeof toolCallId === "string"),
+  );
+  const liveClocks = liveEvents.map(eventClock).filter((clock): clock is number => clock !== undefined);
+  const firstLiveAt = liveClocks.length === 0 ? undefined : Math.min(...liveClocks);
+  const retainedHistory = historical.filter((event) => {
+    if (typeof event.toolCallId === "string" && liveToolCallIds.has(event.toolCallId)) return false;
+    const clock = eventClock(event);
+    return firstLiveAt === undefined || (clock !== undefined && clock < firstLiveAt);
+  });
+  const retainedLive = liveEvents.slice(-MAX_TRAJECTORY_EVENTS);
+  return [...boundedHistoricalEvents(retainedHistory, MAX_TRAJECTORY_EVENTS - retainedLive.length), ...retainedLive];
+}
 
 function thinkingDelta(event: RuntimeEvent | undefined): { assistantMessageEvent: RuntimeEvent; delta: string } | undefined {
   if (event?.type !== "message_update" || typeof event.assistantMessageEvent !== "object" || event.assistantMessageEvent === null) return undefined;
@@ -51,6 +151,7 @@ const EVENT_KIND_LABELS = new Map<string, string>([
   ["entry_appended", "写入会话"],
   ["session_info_changed", "会话信息变更"],
   ["thinking_level_changed", "思考级别变更"],
+  ["historical_events_omitted", "更早的历史事件已省略"],
   ["auto_retry_start", "自动重试"],
   ["auto_retry_end", "重试结束"],
   ["file", "文件详情"],
@@ -111,4 +212,10 @@ export function eventOutputText(output: unknown): string | undefined {
     )
     .filter((text): text is string => typeof text === "string");
   return parts.length ? parts.join("\n") : undefined;
+}
+
+/** Identifies the durable or live boundary that produced a trace row. */
+export function eventDataSource(event: RuntimeEvent): string {
+  if (event.type === "file" || event.type === "file_diff") return "Git workspace · /api/files";
+  return event.historical === true ? "Session JSONL · message history" : "Runtime loader · event";
 }

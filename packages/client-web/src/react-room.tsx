@@ -33,7 +33,7 @@ import {
   updatePromptDraft,
   type ClientPromptUiState,
 } from "./prompt-ui.js";
-import { compactThinkingEvents, eventKindLabel, eventOrigin, eventOutputText, formatEventClock, formatEventDuration } from "./runtime-events.js";
+import { compactThinkingEvents, eventDataSource, eventKindLabel, eventOrigin, eventOutputText, formatEventClock, formatEventDuration, mergeTrajectoryEvents } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { type ChatToolCall, messageText, messageThinking, projectChatTurns } from "./message-content.js";
 import {
@@ -1073,7 +1073,7 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
         )}
         <div className="detail-section">
           <small>{fileDetail ? t("数据来源") : t("经过的插件")}</small>
-          <div className="detail-plugin">{fileDetail ? "Git workspace · /api/files" : "Runtime loader · event"}</div>
+          <div className="detail-plugin">{eventDataSource(event)}</div>
         </div>
         <div className="detail-actions">
           <button onClick={onCopy} type="button">
@@ -1101,7 +1101,7 @@ export function Trajectory({
   sessionMessages: number;
   onSelect: (event: Record<string, unknown>) => void;
 }) {
-  // The trace is a live stream, not session history: reopening a session leaves it empty forever, and "暂无轨迹事件" alone reads as a console that failed to load rather than one that was not watching.
+  const historicalCount = events.filter((event) => event.historical === true && event.type !== "historical_events_omitted").length;
   const resumed = events.length === 0 && sessionMessages > 0;
   const [filter, setFilter] = useState("all");
   const counts = useMemo(() => {
@@ -1118,6 +1118,7 @@ export function Trajectory({
       <div className="trajectory-summary">
         <span>{t("按轮次")}</span>
         <b>{t("{v0} 个事件", { v0: events.length })}</b>
+        {historicalCount > 0 && <small className="trajectory-history">{t("已从会话日志恢复 {count} 个历史事件", { count: historicalCount })}</small>}
         <div className="timeline">
           {events.length ? (
             events.map((event, index) => (
@@ -7943,7 +7944,7 @@ type GlobalSearchItem =
   | { kind: "session"; session: Record<string, unknown> }
   | { kind: "file"; file: ClientFile };
 
-function GlobalSearch({
+export function GlobalSearch({
   commands,
   sessions,
   files,
@@ -8026,7 +8027,7 @@ function GlobalSearch({
           role="combobox"
           value={query}
         />
-        <div className="global-search-results" id="global-search-results" role="listbox">
+        <div aria-label={t("全局搜索结果")} className="global-search-results" id="global-search-results" role="listbox">
           {items.length ? (
             (["command", "session", "file"] as const).map((kind) => {
               const group = items.filter((item) => item.kind === kind);
@@ -9102,7 +9103,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [commandOpen, data.status?.status, details, globalSearchOpen, sessionDialog, stopRun]);
-  const events = data.session?.events ?? [];
+  const events = useMemo(
+    () => mergeTrajectoryEvents(data.session?.entries ?? [], data.session?.events ?? []),
+    [data.session?.entries, data.session?.events],
+  );
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
   const chatTurns = useMemo(() => projectChatTurns(data.session?.messages ?? []), [data.session?.messages]);
   // Every streamed delta has to re-stick, not just the finished turn: without the streaming lengths in here the viewport freezes while the answer keeps growing below the fold and only jumps to the bottom once the turn ends and the message count changes.

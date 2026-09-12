@@ -29,4 +29,10 @@ describe("trajectory empty state", () => {
     expect(html).toContain("工具进展");
     expect(html).not.toContain("暂无轨迹事件");
   });
+
+  test("labels tool events reconstructed from the persisted session log", () => {
+    const html = renderTrajectory([{ type: "tool_execution_start", toolName: "bash", historical: true }], 13);
+
+    expect(html).toContain("已从会话日志恢复 1 个历史事件");
+  });
 });

@@ -1231,5 +1231,8 @@
   "固定在会话列表顶部": "Garder en haut de la liste des sessions",
   "恢复到默认列表": "Remettre dans la liste par défaut",
   "输入绝对路径，如 /tmp/my-project": "Saisissez un chemin absolu, par exemple /tmp/my-project",
-  "打开": "Ouvrir"
+  "打开": "Ouvrir",
+  "已从会话日志恢复 {count} 个历史事件": "{count} événements historiques restaurés depuis le journal de session",
+  "更早的历史事件已省略": "Les événements historiques antérieurs ont été omis",
+  "全局搜索结果": "Résultats de la recherche globale"
 }

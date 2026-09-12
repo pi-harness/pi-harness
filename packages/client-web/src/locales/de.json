@@ -1231,5 +1231,8 @@
   "固定在会话列表顶部": "Oben in der Sitzungsliste anheften",
   "恢复到默认列表": "In die Standardliste zurückholen",
   "输入绝对路径，如 /tmp/my-project": "Absoluten Pfad eingeben, z. B. /tmp/my-project",
-  "打开": "Öffnen"
+  "打开": "Öffnen",
+  "已从会话日志恢复 {count} 个历史事件": "{count} historische Ereignisse aus dem Sitzungsprotokoll wiederhergestellt",
+  "更早的历史事件已省略": "Frühere historische Ereignisse ausgelassen",
+  "全局搜索结果": "Ergebnisse der globalen Suche"
 }
