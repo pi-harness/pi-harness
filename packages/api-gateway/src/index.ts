@@ -2437,10 +2437,15 @@ export default {
           const page = Math.max(0, Number.parseInt(url.searchParams.get("page") ?? "0", 10) || 0);
           const pageSize = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("pageSize") ?? "50", 10) || 50));
           const includeArchived = url.searchParams.get("includeArchived") === "true";
+          const query = url.searchParams.get("q")?.trim().toLowerCase() ?? "";
           const metadata = await readSessionMetadataLocked(manager, context.logger);
           const items =
             typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(activeCwd(services), manager.getSessionDir()) : [];
-          const filtered = items.filter((item) => includeArchived || metadata[item.path]?.archived !== true);
+          const filtered = items.filter((item) => {
+            if (!includeArchived && metadata[item.path]?.archived === true) return false;
+            if (!query) return true;
+            return `${item.name ?? ""} ${item.firstMessage ?? ""} ${item.id}`.toLowerCase().includes(query);
+          });
           const sorted = filtered.sort(
             (a, b) => Number(metadata[b.path]?.pinned === true) - Number(metadata[a.path]?.pinned === true) || b.modified.getTime() - a.modified.getTime(),
           );

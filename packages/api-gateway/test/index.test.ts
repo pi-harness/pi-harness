@@ -2010,6 +2010,35 @@ describe("API gateway plugin", () => {
     await expect(response.json()).resolves.toMatchObject({ items: [{ sessionId: "active-session", path: activePath }], total: 1 });
   });
 
+  test("filters the paginated session list by a case-insensitive query", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-session-search-"));
+    temporaryDirectories.push(directory);
+    const first = join(directory, "2026-08-30T00-00-00-000Z_first.jsonl");
+    const second = join(directory, "2026-08-30T00-00-01-000Z_second.jsonl");
+    await writeFile(first, persistedUserSession("first-session", "/tmp", "Roadmap planning"), "utf8");
+    await writeFile(second, persistedUserSession("second-session", "/tmp", "Incident review"), "utf8");
+    const manager = SessionManager.create("/tmp", directory);
+    const session = { sessionId: "current", sessionFile: undefined, messages: [], isStreaming: false, sessionManager: manager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/sessions?q=ROADMAP&pageSize=1");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ sessionId: "first-session", path: first }],
+      total: 1,
+      page: 0,
+      pageSize: 1,
+      hasNext: false,
+    });
+  });
+
   test("opens a persisted session from the active runtime workspace after a workspace switch", async () => {
     const context = new Context();
     contexts.push(context);

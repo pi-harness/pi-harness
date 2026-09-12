@@ -31,6 +31,7 @@ import {
   toolSignature,
   withoutInstalledPackages,
   writeRestartPendingPackages,
+  nextSessionSearchPage,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
@@ -65,6 +66,28 @@ describe("provider auth readiness", () => {
       expect(providerTestAuthText({ label: "Provider-specific fallback" })).toBe("Provider-specific fallback");
     } finally {
       await setLocale("zh-CN");
+    }
+  });
+});
+
+describe("session search requests", () => {
+  test("resets pagination when the session query changes", async () => {
+    expect(nextSessionSearchPage(3, "old", "new")).toBe(0);
+    expect(nextSessionSearchPage(3, "same", "same")).toBe(3);
+  });
+
+  test("passes the search query to the paginated session endpoint", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response(JSON.stringify({ items: [], total: 0, page: 0, pageSize: 30, hasNext: false }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      await createClientApi().listSessions(0, 30, false, "Road map");
+      expect(requests).toEqual(["/api/sessions?page=0&pageSize=30&includeArchived=false&q=Road%20map"]);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });
