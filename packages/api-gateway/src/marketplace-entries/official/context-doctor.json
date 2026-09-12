@@ -1,7 +1,7 @@
 {
   "id": "context-doctor",
   "packageName": "@pi-harness/plugin-context-doctor",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Context Doctor",
   "description": "体检当前上下文：找出压力来源、超大或读不出的消息以及工具报错。压缩请求会排到 agent 空闲后，确认后才调用模型（会产生费用），等待可取消。",
   "author": "Pi Harness",
