@@ -6,10 +6,11 @@ import { PiPluginUiRegistry, PiToolRegistry } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
 
-async function fixture() {
+async function fixture(runtime?: unknown) {
   const context = new Context();
   const tools = new PiToolRegistry();
   const panels = new PiPluginUiRegistry();
+  if (runtime !== undefined) context.provide("piRuntime", runtime as never);
   context.provide("piTools", tools);
   context.provide("piPluginUi", panels);
   await context.plugin(annotationPlugin);
@@ -24,6 +25,55 @@ afterEach(async () => {
 });
 
 describe("annotation", () => {
+  test("resets annotations when the runtime session ID changes", async () => {
+    const session = { sessionId: "session-one" };
+    const { panels, tool } = await fixture({ session });
+    await tool.execute("add", { action: "add", quote: "private session one text", note: "private note" }, undefined, undefined, {} as never);
+    await tool.execute("prompt", { action: "prompt", question: "Explain this" }, undefined, undefined, {} as never);
+    const [firstPanel] = await panels.snapshot();
+    const firstData = firstPanel?.data as { sessionId?: unknown; count?: unknown; lastPrompt?: unknown };
+    expect(firstData).toMatchObject({ sessionId: "session-one", count: 1 });
+    expect(firstData.lastPrompt).toContain("private session one text");
+
+    session.sessionId = "session-two";
+
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { count: 0, annotations: [] },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-two", count: 0, annotations: [], lastPrompt: undefined } }]);
+  });
+
+  test("rejects an annotation that crosses a runtime session change", async () => {
+    const session = { sessionId: "session-one" };
+    const { tool } = await fixture({ session });
+    const pending = tool.execute("add", { action: "add", quote: "must not cross sessions" }, undefined, undefined, {} as never);
+
+    session.sessionId = "session-two";
+
+    await expect(pending).rejects.toThrow(/session changed/iu);
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { count: 0, annotations: [] },
+    });
+  });
+
+  test("isolates annotations when the runtime replaces the session object with the same ID", async () => {
+    const runtime = { session: { sessionId: "shared-session-id" } };
+    const { context, panels, tool } = await fixture(runtime);
+    await tool.execute("add", { action: "add", quote: "private original-session text" }, undefined, undefined, {} as never);
+
+    context.reflect.set("piRuntime", { session: { sessionId: "shared-session-id" } });
+
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "shared-session-id", count: 0, annotations: [], lastPrompt: undefined } }]);
+
+    const pending = tool.execute("add", { action: "add", quote: "must not cross object replacement" }, undefined, undefined, {} as never);
+    context.reflect.set("piRuntime", { session: { sessionId: "shared-session-id" } });
+
+    await expect(pending).rejects.toThrow(/session changed/iu);
+    await expect(tool.execute("list", { action: "list" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { count: 0, annotations: [] },
+    });
+  });
+
   test("lists readable annotation bodies and notes with continuation metadata", async () => {
     const { tool } = await fixture();
     for (const quote of ["First passage", "Second passage"])

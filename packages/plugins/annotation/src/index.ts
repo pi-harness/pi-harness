@@ -17,6 +17,7 @@ export interface Annotation {
 }
 
 export interface AnnotationReport {
+  sessionId: string | null;
   count: number;
   annotations: Annotation[];
 }
@@ -65,9 +66,35 @@ export default {
   apply(context: Context) {
     const lifecycle = new AbortController();
     context.effect(() => () => lifecycle.abort());
+    const uninitializedSession = Symbol("uninitialized session");
+    let activeSession: unknown = uninitializedSession;
+    let activeSessionId: string | undefined;
     let annotations: Annotation[] = [];
     let lastPrompt: string | undefined;
-    const report = (): AnnotationReport => ({ count: annotations.length, annotations: annotations.map((annotation) => ({ ...annotation })) });
+    const readScope = () => {
+      const session = context.get("piRuntime")?.session;
+      return { session, sessionId: session?.sessionId };
+    };
+    const matchesScope = (scope: ReturnType<typeof readScope>): boolean => {
+      const current = readScope();
+      return current.session === scope.session && current.sessionId === scope.sessionId;
+    };
+    const ensureCurrentScope = (): ReturnType<typeof readScope> => {
+      const scope = readScope();
+      if (scope.session !== activeSession || scope.sessionId !== activeSessionId) {
+        activeSession = scope.session;
+        activeSessionId = scope.sessionId;
+        annotations = [];
+        lastPrompt = undefined;
+      }
+      return scope;
+    };
+    const report = (): AnnotationReport => ({
+      sessionId: activeSessionId ?? null,
+      count: annotations.length,
+      annotations: annotations.map((annotation) => ({ ...annotation })),
+    });
+    ensureCurrentScope();
     const unregister = context.piTools.register(
       defineTool({
         name: "annotation_manage",
@@ -93,9 +120,14 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<AnnotationReport | Annotation | { prompt: string }>> {
+          const scope = ensureCurrentScope();
           if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Annotation request was cancelled or plugin disposed");
           await Promise.resolve();
           if (signal?.aborted || lifecycle.signal.aborted) throw new Error("Annotation request was cancelled or plugin disposed");
+          if (!matchesScope(scope)) {
+            ensureCurrentScope();
+            throw new Error("Annotation session changed while the request was pending");
+          }
           if (params.action === "add") {
             if (annotations.length >= maxAnnotations) throw new Error(`At most ${maxAnnotations} annotations can be collected`);
             const quote = requiredText(params.quote ?? "", "Annotation quote", maxQuoteLength);
@@ -144,7 +176,10 @@ export default {
         title: "Annotations",
         description: "收集回复片段并生成带编号的提问上下文。",
         icon: "⌁",
-        read: () => ({ ...report(), lastPrompt }),
+        read: () => {
+          ensureCurrentScope();
+          return { ...report(), lastPrompt };
+        },
       });
     } catch (error) {
       unregister();

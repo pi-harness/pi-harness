@@ -3797,6 +3797,15 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         })()
       ) : panel.id === "annotation-panel" ? (
         (() => {
+          const panelSessionId = typeof data?.sessionId === "string" ? data.sessionId : "";
+          if (
+            activeSessionId === undefined ||
+            panelSessionId !== activeSessionId ||
+            panelSessionId.length === 0 ||
+            panelSessionId.length > 512 ||
+            /[\0\p{Cc}]/u.test(panelSessionId)
+          )
+            return <p className="mt-3 text-[11px] text-[var(--color-red)]">{t("批注面板数据不完整或不一致。")}</p>;
           const annotations = Array.isArray(data?.annotations) ? data.annotations : [];
           const lastPrompt = typeof data?.lastPrompt === "string" ? data.lastPrompt : "";
           return (
