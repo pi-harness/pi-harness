@@ -2039,6 +2039,40 @@ describe("API gateway plugin", () => {
     });
   });
 
+  test("does not list or open session files reached through symlinks", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-api-session-symlink-"));
+    temporaryDirectories.push(root);
+    const sessionDir = join(root, "sessions");
+    const outsideDir = join(root, "outside");
+    await mkdir(sessionDir);
+    await mkdir(outsideDir);
+    const externalPath = join(outsideDir, "external.jsonl");
+    const linkedPath = join(sessionDir, "2026-08-30T00-00-00-000Z_linked.jsonl");
+    await writeFile(externalPath, persistedUserSession("external-session", root, "outside session"), "utf8");
+    await symlink(externalPath, linkedPath);
+
+    const manager = SessionManager.create(root, sessionDir);
+    const session = { sessionId: "current", sessionFile: undefined, messages: [], isStreaming: false, sessionManager: manager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: root, agentDir: root, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const list = await fetch(context.webServer.url + "/api/sessions?includeArchived=true");
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({ items: [], total: 0 });
+
+    const open = await fetch(context.webServer.url + "/api/session/open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: linkedPath }),
+    });
+    expect(open.status).toBe(404);
+  });
+
   test("opens a persisted session from the active runtime workspace after a workspace switch", async () => {
     const context = new Context();
     contexts.push(context);
