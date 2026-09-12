@@ -954,6 +954,32 @@ test("does not render a Theme Studio snapshot from another active session", () =
   expect(html).not.toContain("previous-session");
 });
 
+test("does not render Session Insights statistics from another active session", () => {
+  const panel = {
+    id: "session-insights-panel",
+    pluginId: "@pi-harness/plugin-session-insights",
+    title: "Session Insights",
+    data: {
+      sessionId: "previous-session",
+      userMessages: 2,
+      assistantMessages: 2,
+      toolCalls: 1,
+      toolResults: 1,
+      totalMessages: 5,
+      tokens: { input: 10, output: 20, cacheRead: 3, cacheWrite: 2, total: 35 },
+      cost: 0.012_345,
+      contextUsage: null,
+      compaction: { status: "idle" },
+    },
+  };
+
+  const html = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "active-session", panel }));
+
+  expect(html).toContain("会话统计数据无效");
+  expect(html).not.toContain("previous-session");
+  expect(html).not.toContain("0.0123");
+});
+
 test("shows review locations and prioritizes errors in the visible findings", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {

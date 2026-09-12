@@ -188,12 +188,12 @@ function compactionView(source: Record<string, unknown>): SessionInsightsCompact
   return unknownCompaction();
 }
 
-export function sessionInsightsPanelView(data: unknown): SessionInsightsPanelView {
+export function sessionInsightsPanelView(data: unknown, activeSessionId?: string): SessionInsightsPanelView {
   const source = ownDataRecord(data);
   if (source === undefined) return { report: null, compaction: unknownCompaction(), malformed: true, limits: { ...fixedLimits } };
   const report = reportView(source);
   const compactionSource = ownDataRecord(source.compaction);
-  if (report === undefined || compactionSource === undefined)
+  if (report === undefined || compactionSource === undefined || (activeSessionId !== undefined && report.sessionId !== activeSessionId))
     return { report: null, compaction: unknownCompaction(), malformed: true, limits: { ...fixedLimits } };
   const compaction = compactionView(compactionSource);
   return {

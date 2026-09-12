@@ -49,6 +49,11 @@ describe("Session Insights panel view", () => {
     expect(view.report?.tokens.total).toBe(35);
   });
 
+  test("rejects a report from a different active session", () => {
+    expect(sessionInsightsPanelView(report(), "session-2")).toMatchObject({ report: null, malformed: true });
+    expect(sessionInsightsPanelView(report(), "session-1")).toMatchObject({ report: { sessionId: "session-1" }, malformed: false });
+  });
+
   test("preserves a temporarily unknown post-compaction context usage", () => {
     expect(
       sessionInsightsPanelView(

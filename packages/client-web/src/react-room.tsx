@@ -1983,7 +1983,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         })()
       ) : panel.id === "session-insights-panel" ? (
         (() => {
-          const view = sessionInsightsPanelView(panel.data);
+          const view = sessionInsightsPanelView(panel.data, activeSessionId);
           const report = view.report;
           if (report === null)
             return (
