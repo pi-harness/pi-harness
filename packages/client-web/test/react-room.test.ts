@@ -73,12 +73,12 @@ describe("provider auth readiness", () => {
 });
 
 describe("session search requests", () => {
-  test("distinguishes an empty search result from an empty session history", async () => {
+  test("distinguishes an empty search result from an empty session history", () => {
     expect(sessionListEmptyMessage("missing")).toBe("没有匹配的会话");
     expect(sessionListEmptyMessage("")).toBe("暂无已保存会话");
   });
 
-  test("resets pagination when the session query changes", async () => {
+  test("resets pagination when the session query changes", () => {
     expect(nextSessionSearchPage(3, "old", "new")).toBe(0);
     expect(nextSessionSearchPage(3, "same", "same")).toBe(3);
   });
@@ -86,10 +86,12 @@ describe("session search requests", () => {
   test("passes the search query to the paginated session endpoint", async () => {
     const originalFetch = globalThis.fetch;
     const requests: string[] = [];
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      requests.push(String(input));
-      return new Response(JSON.stringify({ items: [], total: 0, page: 0, pageSize: 30, hasNext: false }), { status: 200 });
-    }) as typeof fetch;
+    globalThis.fetch = (input: RequestInfo | URL) => {
+      if (typeof input === "string") requests.push(input);
+      else if (input instanceof URL) requests.push(input.href);
+      else requests.push(input.url);
+      return Promise.resolve(new Response(JSON.stringify({ items: [], total: 0, page: 0, pageSize: 30, hasNext: false }), { status: 200 }));
+    };
     try {
       await createClientApi().listSessions(0, 30, false, "Road map");
       expect(requests).toEqual(["/api/sessions?page=0&pageSize=30&includeArchived=false&q=Road%20map"]);
