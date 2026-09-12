@@ -1223,5 +1223,11 @@
   "高风险，需处理": "High risk, needs action",
   "（已截断）": "(truncated)",
   "＋ 新建会话": "+ New session",
-  "／ 命令": "/ Commands"
+  "／ 命令": "/ Commands",
+  "取消置顶": "Unpin",
+  "恢复": "Restore",
+  "恢复会话": "Restore session",
+  "从置顶区域移除": "Remove from pinned sessions",
+  "固定在会话列表顶部": "Keep at the top of the session list",
+  "恢复到默认列表": "Return to the default list"
 }

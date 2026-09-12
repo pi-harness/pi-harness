@@ -1223,5 +1223,11 @@
   "高风险，需处理": "Risque élevé, action requise",
   "（已截断）": "(tronqué)",
   "＋ 新建会话": "+ Nouvelle session",
-  "／ 命令": "/ Commandes"
+  "／ 命令": "/ Commandes",
+  "取消置顶": "Désépingler",
+  "恢复": "Restaurer",
+  "恢复会话": "Restaurer la session",
+  "从置顶区域移除": "Retirer des sessions épinglées",
+  "固定在会话列表顶部": "Garder en haut de la liste des sessions",
+  "恢复到默认列表": "Remettre dans la liste par défaut"
 }

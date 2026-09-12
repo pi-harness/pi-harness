@@ -1223,5 +1223,11 @@
   "高风险，需处理": "Hohes Risiko, Handlungsbedarf",
   "（已截断）": "(gekürzt)",
   "＋ 新建会话": "+ Neue Sitzung",
-  "／ 命令": "/ Befehle"
+  "／ 命令": "/ Befehle",
+  "取消置顶": "Fixierung lösen",
+  "恢复": "Wiederherstellen",
+  "恢复会话": "Sitzung wiederherstellen",
+  "从置顶区域移除": "Aus angehefteten Sitzungen entfernen",
+  "固定在会话列表顶部": "Oben in der Sitzungsliste anheften",
+  "恢复到默认列表": "In die Standardliste zurückholen"
 }

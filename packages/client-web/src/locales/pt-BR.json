@@ -1223,5 +1223,11 @@
   "高风险，需处理": "Risco alto, requer ação",
   "（已截断）": "(truncado)",
   "＋ 新建会话": "+ Nova sessão",
-  "／ 命令": "/ Comandos"
+  "／ 命令": "/ Comandos",
+  "取消置顶": "Desafixar",
+  "恢复": "Restaurar",
+  "恢复会话": "Restaurar sessão",
+  "从置顶区域移除": "Remover das sessões fixadas",
+  "固定在会话列表顶部": "Manter no topo da lista de sessões",
+  "恢复到默认列表": "Retornar à lista padrão"
 }
