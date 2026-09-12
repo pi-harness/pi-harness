@@ -1,4 +1,5 @@
 {
+  "Better Sidebar 面板数据异常": "Better Sidebar 面板資料異常",
   "Git 状态读取失败。": "無法讀取 Git 狀態。",
   "Git 状态读取超时；请提高 gitTimeoutMs 或缩小工作区。": "讀取 Git 狀態逾時；請提高 gitTimeoutMs 或縮小工作區。",
   "Git 返回了无法安全解析的状态。": "Git 傳回了無法安全解析的狀態。",
