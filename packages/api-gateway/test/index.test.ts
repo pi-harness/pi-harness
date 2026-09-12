@@ -3848,6 +3848,44 @@ describe("API gateway plugin", () => {
     expect(JSON.parse(await readFile(join(sessionDir, ".pi-harness-session-meta.json"), "utf8"))).toEqual({});
   });
 
+  test("refuses session paths that traverse a symlink inside the session directory", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-session-symlink-"));
+    temporaryDirectories.push(directory);
+    const sessionDir = join(directory, "sessions");
+    await mkdir(sessionDir);
+    const outside = join(directory, "outside");
+    await mkdir(outside);
+    const victim = join(outside, "victim.jsonl");
+    await writeFile(victim, "keep me\n", "utf8");
+    const link = join(sessionDir, "linked.jsonl");
+    await symlink(victim, link);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "session-symlink",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => sessionDir, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: link, confirm: true }),
+    });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid session path" });
+    await expect(readFile(victim, "utf8")).resolves.toBe("keep me\n");
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+  });
+
   test("deletes an empty active session whose JSONL file has not been persisted yet", async () => {
     const context = new Context();
     contexts.push(context);
