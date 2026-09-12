@@ -265,6 +265,27 @@ describe("session list tools", () => {
     expect(previousPage).toContain("setSelectedSessionPaths(new Set())");
     expect(nextPage).toContain("setSelectedSessionPaths(new Set())");
   });
+
+  test("closes the tools popover before opening the header session menu", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const start = source.indexOf("aria-expanded={sessionMenuOpen && !sessionMenuPath}");
+    const handler = source.slice(start, start + 900);
+
+    expect(handler).toContain("setSessionToolsOpen(false)");
+    expect(handler).toContain("setSessionToolsPosition(undefined)");
+  });
+
+  test("disables session popover triggers while a session action is busy", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const toolsTrigger = source.slice(source.indexOf("aria-expanded={sessionToolsOpen}"), source.indexOf("aria-expanded={sessionToolsOpen}") + 260);
+    const headerTrigger = source.slice(
+      source.indexOf("aria-expanded={sessionMenuOpen && !sessionMenuPath}"),
+      source.indexOf("aria-expanded={sessionMenuOpen && !sessionMenuPath}") + 260,
+    );
+
+    expect(toolsTrigger).toContain("disabled={sessionActionBusy}");
+    expect(headerTrigger).toContain("disabled={sessionActionBusy}");
+  });
 });
 
 describe("new session workspace picker", () => {

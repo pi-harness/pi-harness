@@ -9954,6 +9954,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 aria-haspopup="menu"
                 aria-label={t("会话工具")}
                 className="session-tool-button icon"
+                disabled={sessionActionBusy}
                 onClick={(event) => {
                   closeSessionMenu();
                   sessionPopoverTriggerRef.current = event.currentTarget;
@@ -10456,7 +10457,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   aria-expanded={sessionMenuOpen && !sessionMenuPath}
                   aria-haspopup="menu"
                   className="session-menu"
+                  disabled={sessionActionBusy}
                   onClick={(event) => {
+                    setSessionToolsOpen(false);
+                    setSessionToolsPosition(undefined);
                     const closeCurrentMenu = sessionMenuOpen && !sessionMenuPath;
                     setSessionMenuPath(undefined);
                     setSessionMenuPosition(undefined);
