@@ -1229,5 +1229,7 @@
   "恢复会话": "Restore session",
   "从置顶区域移除": "Remove from pinned sessions",
   "固定在会话列表顶部": "Keep at the top of the session list",
-  "恢复到默认列表": "Return to the default list"
+  "恢复到默认列表": "Return to the default list",
+  "输入绝对路径，如 /tmp/my-project": "Enter an absolute path, such as /tmp/my-project",
+  "打开": "Open"
 }
