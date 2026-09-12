@@ -1,7 +1,7 @@
 {
   "id": "workspace-navigator",
   "packageName": "@pi-harness/plugin-workspace-navigator",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Workspace Navigator",
   "description": "显示有上限的工作区目录树和只读 Git 状态，作为写代码时的侧边栏。",
   "author": "Pi Harness",

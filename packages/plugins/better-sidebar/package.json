@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-better-sidebar",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Show a compact workspace, Git, and session overview beside the conversation without modifying files.",
   "keywords": [
     "cordis",
