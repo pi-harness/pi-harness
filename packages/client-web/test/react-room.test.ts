@@ -980,6 +980,32 @@ test("does not render Session Insights statistics from another active session", 
   expect(html).not.toContain("0.0123");
 });
 
+test("does not render History Compressor state from another active session", () => {
+  const panel = {
+    id: "history-compressor-panel",
+    pluginId: "@pi-harness/plugin-history-compressor",
+    title: "History Compressor",
+    data: {
+      sessionId: "previous-session",
+      enabled: true,
+      thresholdPercent: 85,
+      compactions: 17,
+      lastUsagePercent: 92,
+      queued: false,
+      lastError: "previous session error",
+    },
+  };
+
+  const staleHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "active-session", panel }));
+  const activeHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "previous-session", panel }));
+
+  expect(staleHtml).toContain("面板数据不完整或不一致。");
+  expect(staleHtml).not.toContain("previous session error");
+  expect(staleHtml).not.toContain("92%");
+  expect(activeHtml).toContain("previous session error");
+  expect(activeHtml).toContain("92%");
+});
+
 test("shows review locations and prioritizes errors in the visible findings", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {

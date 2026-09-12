@@ -39,6 +39,7 @@ import { pluginDevPanelView } from "./plugin-dev-view.js";
 import { atFilePanelView } from "./at-file-view.js";
 import { testHarnessPanelView } from "./test-harness-view.js";
 import { sessionInsightsPanelView } from "./session-insights-view.js";
+import { historyCompressorPanelView } from "./history-compressor-view.js";
 import { yamlValidatorPanelView } from "./yaml-validator-view.js";
 import { browserFetchPanelView } from "./browser-fetch-view.js";
 import { browserSessionPanelView } from "./browser-session-view.js";
@@ -2371,25 +2372,31 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           );
         })()
       ) : panel.id === "history-compressor-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
-            <span className="font-mono text-[11px] text-[var(--color-ink)]">{data?.enabled === true ? t("自动压缩已启用") : t("自动压缩已停用")}</span>
-            <strong className="font-mono text-[11px] text-[var(--color-blue)]">{t("阈值 {v0}%", { v0: value(data?.thresholdPercent ?? "—") })}</strong>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
-              <span className="block text-[10px] text-[var(--color-faint)]">{t("已压缩")}</span>
-              <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{value(data?.compactions ?? 0)}</strong>
+        (() => {
+          const view = historyCompressorPanelView(panel.data, activeSessionId);
+          if (view.malformed) return <p className="mt-3 text-[11px] text-[var(--color-red)]">{t("面板数据不完整或不一致。")}</p>;
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
+                <span className="font-mono text-[11px] text-[var(--color-ink)]">{view.enabled ? t("自动压缩已启用") : t("自动压缩已停用")}</span>
+                <strong className="font-mono text-[11px] text-[var(--color-blue)]">{t("阈值 {v0}%", { v0: view.thresholdPercent ?? "—" })}</strong>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                  <span className="block text-[10px] text-[var(--color-faint)]">{t("已压缩")}</span>
+                  <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">{view.compactions}</strong>
+                </div>
+                <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
+                  <span className="block text-[10px] text-[var(--color-faint)]">{t("当前占用")}</span>
+                  <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">
+                    {view.lastUsagePercent === null ? "—" : `${view.lastUsagePercent}%`}
+                  </strong>
+                </div>
+              </div>
+              {view.lastError ? <p className="text-[11px] text-[var(--color-red)]">{t("最近错误：{v0}", { v0: view.lastError })}</p> : null}
             </div>
-            <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
-              <span className="block text-[10px] text-[var(--color-faint)]">{t("当前占用")}</span>
-              <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">
-                {typeof data?.lastUsagePercent === "number" ? `${value(data.lastUsagePercent)}%` : "—"}
-              </strong>
-            </div>
-          </div>
-          {data?.lastError ? <p className="text-[11px] text-[var(--color-red)]">{t("最近错误：{v0}", { v0: value(data.lastError) })}</p> : null}
-        </div>
+          );
+        })()
       ) : panel.id === "session-export-panel" ? (
         <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
           {data?.latest && typeof data.latest === "object" ? (
