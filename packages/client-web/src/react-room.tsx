@@ -7992,6 +7992,10 @@ export function scrollActiveOptionIntoView(option: Pick<HTMLElement, "scrollInto
   option?.scrollIntoView({ block: "nearest" });
 }
 
+export function nextSessionSearchPage(currentPage: number, previousQuery: string, nextQuery: string): number {
+  return previousQuery === nextQuery ? currentPage : 0;
+}
+
 export function commandSearchAccessibility(
   open: boolean,
   activeIndex: number,
@@ -8840,7 +8844,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const requests = [
       api.getStatus(),
       api.getSession(),
-      api.listSessions(sessionPage, 30, includeArchivedSessions),
+      api.listSessions(sessionPage, 30, includeArchivedSessions, search),
       api.getFiles(),
       api.getWorkspaceFiles(),
       api.listModels(),
@@ -8933,7 +8937,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
-  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage]);
+  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, search, sessionPage]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -9204,13 +9208,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     });
     return () => window.cancelAnimationFrame(frame);
   }, [data.session?.messages.length, data.status?.events, streamingAssistant?.text.length, streamingAssistant?.thinking.length, pendingPrompt, promptBusy]);
-  const filteredSessions = data.sessions.filter(
-    (session) =>
-      !search ||
-      value(session.name ?? session.firstMessage, t("未命名会话"))
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
+  const filteredSessions = data.sessions;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const question = draft.trim();
@@ -10000,7 +9998,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   return;
                 }
                 if (commandOpen) setCommandQuery(next.replace(/^\/\s?/, ""));
-                else setSearch(next);
+                else {
+                  setSearch(next);
+                  setSessionPage((page) => nextSessionSearchPage(page, search, next));
+                }
               }}
               onKeyDown={(event) => {
                 if (!commandOpen) return;

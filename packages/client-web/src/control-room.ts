@@ -171,7 +171,7 @@ export interface ClientApi {
   abort(): Promise<{ aborted: boolean }>;
   createSession(cwd?: string): Promise<ClientSession>;
   openSession(path: string): Promise<ClientSession>;
-  listSessions(page?: number, pageSize?: number, includeArchived?: boolean): Promise<ClientSessionList>;
+  listSessions(page?: number, pageSize?: number, includeArchived?: boolean, query?: string): Promise<ClientSessionList>;
   renameSession(path: string, name: string): Promise<{ path: string; name?: string }>;
   deleteSession(path: string): Promise<{ deleted: boolean; path: string; sessionFile?: string }>;
   setSessionMetadata(path: string, metadata: { archived?: boolean; pinned?: boolean }): Promise<{ path: string; metadata: Record<string, unknown> }>;
@@ -259,8 +259,10 @@ export function createClientApi(): ClientApi {
       }),
     openSession: (path) =>
       requestJson<ClientSession>("/api/session/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) }),
-    listSessions: (page = 0, pageSize = 50, includeArchived = false) =>
-      requestJson<ClientSessionList>(`/api/sessions?page=${page}&pageSize=${pageSize}&includeArchived=${includeArchived}`),
+    listSessions: (page = 0, pageSize = 50, includeArchived = false, query = "") =>
+      requestJson<ClientSessionList>(
+        `/api/sessions?page=${page}&pageSize=${pageSize}&includeArchived=${includeArchived}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ""}`,
+      ),
     renameSession: (path, name) =>
       requestJson<{ path: string; name?: string }>("/api/session/rename", {
         method: "POST",
