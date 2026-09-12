@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/api-gateway",
-  "version": "0.1.70",
+  "version": "0.1.72",
   "private": true,
   "description": "Cordis HTTP API routes for the Pi Harness browser client",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
@@ -34,8 +34,8 @@
     "@pi-harness/plugin-browser-fetch": "0.1.32",
     "@pi-harness/plugin-browser-session": "0.1.32",
     "@pi-harness/plugin-cleaner": "0.1.29",
-    "@pi-harness/plugin-context": "0.1.29",
-    "@pi-harness/plugin-context-doctor": "0.1.30",
+    "@pi-harness/plugin-context": "0.1.30",
+    "@pi-harness/plugin-context-doctor": "0.1.31",
     "@pi-harness/plugin-cost-meter": "0.1.31",
     "@pi-harness/plugin-dependency-checker": "0.1.30",
     "@pi-harness/plugin-docker-sandbox": "0.1.31",

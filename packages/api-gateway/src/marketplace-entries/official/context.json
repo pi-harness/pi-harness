@@ -1,7 +1,7 @@
 {
   "id": "context-insights",
   "packageName": "@pi-harness/plugin-context",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "name": "Context Insights",
   "description": "查看上下文占用与消息构成，带缓存的会话计数和固定上限的面板。",
   "author": "Pi Harness",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-context-doctor",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Descriptor-safe bounded context audits detect pressure, oversized or uninspectable messages, and tool errors. Compaction requests are queued until the agent has settled; confirmed model-backed compaction may incur cost and provides cancellable waits with dedicated cancellation.",
   "keywords": [
     "cordis",
