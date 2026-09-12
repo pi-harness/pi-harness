@@ -13,6 +13,13 @@ const maxTitleLength = 200;
 const maxDescriptionBytes = 16 * 1024;
 const maxQueryLength = 160;
 const maxTasksPerList = 100;
+const taskOrderSql = `
+  CASE WHEN substr(updated_at, 1, 1) = '+' THEN 2 WHEN substr(updated_at, 1, 1) = '-' THEN 0 ELSE 1 END DESC,
+  CASE WHEN substr(updated_at, 1, 1) = '-' THEN CAST(substr(updated_at, 2, 6) AS INTEGER) END ASC,
+  CASE WHEN substr(updated_at, 1, 1) = '-' THEN substr(updated_at, 8) END DESC,
+  CASE WHEN substr(updated_at, 1, 1) <> '-' THEN updated_at END DESC,
+  task_key DESC
+`;
 
 type TaskStatus = "backlog" | "todo" | "in_progress" | "in_review" | "blocked" | "canceled" | "done";
 type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -254,6 +261,30 @@ export default {
       return row === undefined ? undefined : taskFromRow(database, row);
     };
 
+    const nextUpdatedAt = (database: DatabaseSync, workspace: string): string => {
+      let previous = Number.NEGATIVE_INFINITY;
+      for (const row of database.prepare("SELECT updated_at FROM tasks WHERE workspace = ?").iterate(workspace)) {
+        if (typeof row.updated_at !== "string") throw new Error("Taskboard database contains an invalid timestamp");
+        const parsed = Date.parse(row.updated_at);
+        try {
+          if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== row.updated_at)
+            throw new Error("Taskboard database contains an invalid timestamp");
+        } catch (error) {
+          if (error instanceof Error && error.message === "Taskboard database contains an invalid timestamp") throw error;
+          throw new Error("Taskboard database contains an invalid timestamp", { cause: error });
+        }
+        previous = Math.max(previous, parsed);
+      }
+      const wallClock = Date.now();
+      if (!Number.isFinite(wallClock)) throw new Error("Taskboard wall clock is invalid");
+      const milliseconds = previous === Number.NEGATIVE_INFINITY ? wallClock : Math.max(wallClock, previous + 1);
+      try {
+        return new Date(milliseconds).toISOString();
+      } catch (error) {
+        throw new Error("Taskboard timestamp sequence is exhausted", { cause: error });
+      }
+    };
+
     const dependencyKeys = (value: unknown): string[] | undefined => {
       if (value === undefined) return undefined;
       if (!Array.isArray(value) || value.length > 32 || value.some((item) => typeof item !== "string"))
@@ -311,7 +342,7 @@ export default {
           }
           const nextNumber = lastNumber + 1;
           if (!Number.isSafeInteger(nextNumber)) throw new Error("Taskboard key sequence is exhausted");
-          const now = new Date().toISOString();
+          const now = nextUpdatedAt(database, workspace);
           const next: Task = {
             id: randomUUID(),
             key: `${keyPrefix}-${nextNumber}`,
@@ -374,7 +405,7 @@ export default {
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxTasksPerList) throw new Error("Taskboard limit must be an integer from 1 to 100");
         if (params.status !== undefined && !isTaskStatus(params.status)) throw new Error("Invalid Taskboard status");
         const report = await withDatabase(check, (database) => {
-          const rows = database.prepare("SELECT * FROM tasks WHERE workspace = ? ORDER BY updated_at DESC, task_key DESC").iterate(workspace);
+          const rows = database.prepare(`SELECT * FROM tasks WHERE workspace = ? ORDER BY ${taskOrderSql}`).iterate(workspace);
           const tasks: Task[] = [];
           let total = 0;
           const needle = query?.toLowerCase();
@@ -467,7 +498,7 @@ export default {
             ...(params.status === undefined ? {} : { status: params.status as TaskStatus }),
             ...(params.priority === undefined ? {} : { priority: params.priority }),
             ...(dueDate === undefined || params.clearDueDate === true ? {} : { dueDate }),
-            updatedAt: new Date().toISOString(),
+            updatedAt: nextUpdatedAt(database, workspace),
             version: current.version + 1,
             dependsOn: dependsOn ?? current.dependsOn,
           };
@@ -506,7 +537,7 @@ export default {
             )
             .all(key);
           if (unfinished.length > 0) throw new Error("Taskboard prerequisites must be done before acceptance");
-          const next = { ...current, status: "done" as const, updatedAt: new Date().toISOString(), version: current.version + 1 };
+          const next = { ...current, status: "done" as const, updatedAt: nextUpdatedAt(database, workspace), version: current.version + 1 };
           database
             .prepare("UPDATE tasks SET status = ?, updated_at = ?, version = ? WHERE workspace = ? AND task_key = ? AND version = ?")
             .run("done", next.updatedAt, next.version, workspace, key, current.version);
@@ -538,7 +569,7 @@ export default {
                 counts[row.status] = row.count;
               }
               const recent = database
-                .prepare("SELECT * FROM tasks WHERE workspace = ? ORDER BY updated_at DESC, task_key DESC LIMIT 8")
+                .prepare(`SELECT * FROM tasks WHERE workspace = ? ORDER BY ${taskOrderSql} LIMIT 8`)
                 .all(workspace)
                 .map((row) => taskFromRow(database, row));
               return { workspace, total: Object.values(counts).reduce((a, b) => a + b, 0), counts, recent };

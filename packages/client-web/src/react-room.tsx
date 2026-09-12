@@ -68,6 +68,7 @@ import { agentTeamsPanelView } from "./agent-teams-view.js";
 import { modlensPanelView } from "./modlens-view.js";
 import { visionToolkitPanelView } from "./vision-toolkit-view.js";
 import { readmeGenPanelView } from "./readme-gen-view.js";
+import { taskboardPanelView } from "./taskboard-view.js";
 import { LOCALES, formatLocale, setLocale, t, useLocale, writeStoredLocale } from "./i18n.js";
 
 export type { ClientApi } from "./control-room.js";
@@ -3289,8 +3290,16 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         })()
       ) : panel.id === "taskboard-panel" ? (
         (() => {
-          const counts = data?.counts !== null && typeof data?.counts === "object" ? (data.counts as Record<string, unknown>) : {};
-          const recent = Array.isArray(data?.recent) ? data.recent : [];
+          const view = taskboardPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+                <strong className="block text-[12px]">{t("Taskboard 面板数据异常")}</strong>
+                <span className="mt-1 block">{t("面板数据不完整或不可信，请重新加载后再查询。")}</span>
+              </div>
+            );
+          }
+          const { counts, recent } = view;
           const lanes = [
             [t("待规划"), "backlog", "bg-[var(--color-blue-soft)] text-[var(--color-blue)]"],
             [t("阻塞"), "blocked", "bg-[var(--color-red-soft)] text-[var(--color-red)]"],
@@ -3305,9 +3314,9 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
                 <span className="text-[var(--color-muted)]">
                   {t("当前工作区任务：")}
-                  {value(data?.workspace)}
+                  {view.workspace}
                 </span>
-                <strong className="font-mono text-[var(--color-blue)]">{t("{v0} 个", { v0: value(data?.total ?? 0) })}</strong>
+                <strong className="font-mono text-[var(--color-blue)]">{t("{v0} 个", { v0: view.total })}</strong>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {lanes.map(([label, key, color]) => (
@@ -3320,12 +3329,12 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                 ))}
               </div>
               {recent.length > 0 ? (
-                <ul className="grid gap-1.5">
+                <ul className="grid max-h-[32rem] gap-1.5 overflow-y-auto">
                   <li className="text-[9px] uppercase tracking-[0.08em] text-[var(--color-faint)]">
-                    {t("最近任务 {v0} / {v1}", { v0: Math.min(recent.length, 5), v1: value(data?.total ?? recent.length) })}
+                    {t("最近任务 {v0} / {v1}", { v0: recent.length, v1: view.total })}
                   </li>
-                  {recent.slice(0, 5).map((entry, index) => {
-                    const task = entry !== null && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+                  {recent.map((entry, index) => {
+                    const task = entry;
                     const status = typeof task.status === "string" ? task.status : "unknown";
                     const priority = typeof task.priority === "string" ? task.priority : "medium";
                     const statusLabel =
@@ -3354,19 +3363,21 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                             : "bg-[var(--color-blue-soft)] text-[var(--color-blue)]";
                     return (
                       <li
-                        className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
+                        className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
                         key={`${value(task.id ?? "task")}-${index}`}
                       >
-                        <div className="flex items-center gap-2">
-                          <code className="font-mono text-[10px] text-[var(--color-blue)]">{value(task.key ?? "PIH-?")}</code>
-                          <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">{value(task.title ?? t("未命名任务"))}</strong>
-                          <span className={`rounded px-1.5 py-0.5 text-[9px] ${statusClass}`}>{statusLabel}</span>
+                        <div className="flex min-w-0 items-start gap-2">
+                          <code className="shrink-0 font-mono text-[10px] text-[var(--color-blue)]">{value(task.key ?? "PIH-?")}</code>
+                          <strong className="min-w-0 flex-1 whitespace-pre-wrap text-[11px] text-[var(--color-ink)] [overflow-wrap:anywhere]">
+                            {value(task.title ?? t("未命名任务"))}
+                          </strong>
+                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] ${statusClass}`}>{statusLabel}</span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[9px] text-[var(--color-faint)]">
+                        <div className="mt-1 flex min-w-0 flex-wrap items-start gap-2 text-[9px] text-[var(--color-faint)]">
                           <span>{t("优先级 {v0}", { v0: priority })}</span>
                           {task.dueDate ? <span>{t("截止 {v0}", { v0: value(task.dueDate) })}</span> : null}
                           {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
-                            <span>
+                            <span className="min-w-0 basis-full whitespace-pre-wrap [overflow-wrap:anywhere]">
                               {t("前置任务：")}
                               {task.dependsOn.map((key) => value(key)).join(", ")}
                             </span>
