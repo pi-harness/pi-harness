@@ -1941,7 +1941,7 @@ export default {
             sendJson(response, 409, { error: "Session switching requires JSONL session storage" });
             return;
           }
-          const items = await SessionManager.list(services.launch.cwd, manager.getSessionDir());
+          const items = await SessionManager.list(activeCwd(services), manager.getSessionDir());
           const target = items.find(
             (item) =>
               (typeof payload.path === "string" && item.path === payload.path) || (typeof payload.sessionId === "string" && item.id === payload.sessionId),
@@ -2165,7 +2165,7 @@ export default {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
-          const sessions = await SessionManager.list(services.launch.cwd, manager.getSessionDir());
+          const sessions = await SessionManager.list(activeCwd(services), manager.getSessionDir());
           const source = sessions.find((item) => item.path === sourcePath);
           if (!source) {
             sendJson(response, 404, { error: "Session not found" });
@@ -2283,7 +2283,7 @@ export default {
           const includeArchived = url.searchParams.get("includeArchived") === "true";
           const metadata = await readSessionMetadataLocked(manager, context.logger);
           const items =
-            typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(services.launch.cwd, manager.getSessionDir()) : [];
+            typeof manager.isPersisted === "function" && manager.isPersisted() ? await SessionManager.list(activeCwd(services), manager.getSessionDir()) : [];
           const filtered = items.filter((item) => includeArchived || metadata[item.path]?.archived !== true);
           const sorted = filtered.sort(
             (a, b) => Number(metadata[b.path]?.pinned === true) - Number(metadata[a.path]?.pinned === true) || b.modified.getTime() - a.modified.getTime(),
