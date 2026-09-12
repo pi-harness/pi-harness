@@ -331,6 +331,17 @@ describe("session list tools", () => {
     expect(toolsTrigger).toContain("disabled={sessionActionBusy}");
     expect(headerTrigger).toContain("disabled={sessionActionBusy}");
   });
+
+  test("keeps session row action triggers targetable before hover reveals them", async () => {
+    const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
+    const actionRule = /\.session-row-more\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";
+
+    // The action button sits above a full-width row button. If it starts with
+    // pointer-events:none, browser hit testing never reaches it to establish
+    // the hover rule that would make it targetable.
+    expect(actionRule).toContain("[pointer-events:auto]");
+    expect(actionRule).toContain("z-index: 1");
+  });
 });
 
 describe("new session workspace picker", () => {
