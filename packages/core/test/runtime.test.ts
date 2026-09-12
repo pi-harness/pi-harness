@@ -89,6 +89,27 @@ describe("Pi runtime plugin", () => {
     expect(context.piRuntime.session.messages).toEqual([]);
   });
 
+  test("reloads extensions with a fresh API when replacing a session in the same cwd", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-session-extension-"));
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    await writeFile(
+      join(agentDir, "extensions", "probe.js"),
+      `export default function (pi) { pi.registerFlag("session-probe", { description: "probe", type: "boolean" }); pi.on("session_start", () => { pi.getFlag("session-probe"); }); }`,
+      "utf8",
+    );
+    const { context } = await createTestRuntimeServices([], [], { noExtensions: false, agentDir });
+    contexts.push(context);
+    const extensionErrors: string[] = [];
+    context.on("pi/extension-error", (error) => {
+      extensionErrors.push(error.error);
+    });
+    await context.plugin(runtimePlugin, { thinkingLevel: "off" });
+
+    await context.piRuntime.sessionRuntime.newSession();
+
+    expect(extensionErrors).toEqual([]);
+  }, 30_000);
+
   test("fails activation when configured core tools are unknown to Pi", async () => {
     await expect(createTestRuntimeContext([], ["not-a-pi-tool"])).rejects.toThrow(/not-a-pi-tool/);
   });

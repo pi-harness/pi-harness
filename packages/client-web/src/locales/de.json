@@ -390,6 +390,7 @@
   "复制 JSON": "JSON kopieren",
   "复制上下文并打开副本": "Kontext kopieren und die Kopie öffnen",
   "复制会话": "Sitzung duplizieren",
+  "副本": "Kopie",
   "复核": "Prüfen",
   "复核风险内容的默认策略": "Standardrichtlinie für die Prüfung riskanter Inhalte",
   "复用 run_project_tests 和 review_changes，不重复实现测试或审查逻辑。": "Nutzt run_project_tests und review_changes weiter, statt Test- oder Prüflogik neu zu implementieren.",

@@ -78,7 +78,12 @@ export default {
       context.effect(() => () => tools.release());
       const requestedTools = [...tools.names, ...tools.customTools.map((tool) => tool.name)];
       const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-        const services = cwd === context.piResources.cwd ? context.piResources : await context.piResources.createForCwd(cwd);
+        // A ResourceLoader owns instantiated extensions and their ExtensionAPI runtime. Once a
+        // session is disposed Pi invalidates that runtime, so reusing same-cwd services would run
+        // the replacement session_start handlers with stale load-time `pi` objects. The initial
+        // session can use the services prepared by pi-resources; every replacement needs a fresh
+        // extension set, even when its cwd is unchanged.
+        const services = runtime === undefined && cwd === context.piResources.cwd ? context.piResources : await context.piResources.createForCwd(cwd);
         const result = await createAgentSessionFromServices({
           services,
           sessionManager,

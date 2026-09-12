@@ -95,3 +95,26 @@ test("presents a clean workspace file by its path in global search", async () =>
   expect(module.fileDetailSource?.({ path: "README.md", status: "", label: "workspace" })).toBe("/api/workspace/files");
   expect(module.fileDetailSource?.({ path: "src/app.ts", status: "M", label: "modified" })).toBe("/api/files");
 });
+
+test("distinguishes a forked session from its identically named source", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    GlobalSearch: (props: Record<string, unknown>) => ReturnType<typeof createElement>;
+  };
+  const html = renderToStaticMarkup(
+    createElement(module.GlobalSearch, {
+      commands: [],
+      sessions: [
+        { sessionId: "source", name: "Launch roadmap", messageCount: 2 },
+        { sessionId: "fork", name: "Launch roadmap", messageCount: 2, forked: true },
+      ],
+      files: [],
+      onClose: () => {},
+      onUse: () => {},
+      onOpenSession: () => {},
+      onOpenFile: () => {},
+    }),
+  );
+
+  expect(html.match(/<strong>Launch roadmap<\/strong>/gu)).toHaveLength(2);
+  expect(html.match(/副本/gu)).toHaveLength(1);
+});
