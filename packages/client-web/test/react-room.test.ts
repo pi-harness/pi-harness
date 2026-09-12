@@ -8,6 +8,7 @@ import { setLocale } from "../src/i18n.js";
 import type { ConfigStatus } from "../src/react-room.js";
 import {
   PluginPanelCard,
+  PromptError,
   ProviderAuthNotice,
   ChatTurnArticle,
   CommandPalette,
@@ -15,6 +16,7 @@ import {
   archiveActionForSessions,
   insertCommandDraft,
   marketplaceDetailPlan,
+  modelSelectable,
   pluginActionErrorText,
   providerTestAuthText,
   readRestartPendingPackages,
@@ -64,6 +66,34 @@ describe("provider auth readiness", () => {
     } finally {
       await setLocale("zh-CN");
     }
+  });
+});
+
+describe("model selection readiness", () => {
+  const models = [
+    { provider: "missing", id: "one", name: "Missing", reasoning: false, contextWindow: 8_000, active: true },
+    { provider: "ready", id: "two", name: "Ready", reasoning: false, contextWindow: 8_000, active: false },
+    { provider: "unknown", id: "three", name: "Unknown", reasoning: false, contextWindow: 8_000, active: false },
+  ];
+  const providers = [
+    { provider: "missing", name: "Missing", active: true, auth: { configured: false }, models: [models[0]!] },
+    { provider: "ready", name: "Ready", active: false, auth: { configured: true }, models: [models[1]!] },
+  ];
+
+  test("disables only models whose provider explicitly lacks credentials", () => {
+    expect(modelSelectable(models[0]!, providers)).toBe(false);
+    expect(modelSelectable(models[1]!, providers)).toBe(true);
+    expect(modelSelectable(models[2]!, providers)).toBe(true);
+  });
+
+  test("reports model-switch failures as model errors and recognizes Pi's API-key wording", () => {
+    const authHtml = renderToStaticMarkup(createElement(PromptError, { action: "model", message: "No API key for everyapi/gpt-5.6-sol" }));
+    expect(authHtml).toContain("EveryAPI 认证未注入当前进程");
+    expect(authHtml).not.toContain("发送失败");
+
+    const runtimeHtml = renderToStaticMarkup(createElement(PromptError, { action: "model", message: "Runtime rejected model" }));
+    expect(runtimeHtml).toContain("模型切换失败");
+    expect(runtimeHtml).not.toContain("发送失败");
   });
 });
 
