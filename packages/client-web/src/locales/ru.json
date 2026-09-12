@@ -29,6 +29,7 @@
   "Browser Session 面板数据异常": "Некорректные данные панели Browser Session",
   "Chrome DevTools Protocol · 显示 {v0}/{v1} 个可调试页面": "Chrome DevTools Protocol · показано {v0}/{v1} отлаживаемых страниц",
   "Cleaner 面板数据异常": "Некорректные данные панели Cleaner",
+  "Memory 面板数据异常": "Некорректные данные панели Memory",
   "Docker Sandbox 面板数据异常": "Некорректные данные панели Docker Sandbox",
   "EveryAPI 认证未注入当前进程": "Учётные данные EveryAPI не переданы в этот процесс",
   "Follow-up 消息": "Дополнительное сообщение",

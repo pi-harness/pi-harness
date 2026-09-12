@@ -29,6 +29,7 @@
   "Browser Session 面板数据异常": "Ungültige Browser-Session-Paneldaten",
   "Chrome DevTools Protocol · 显示 {v0}/{v1} 个可调试页面": "Chrome DevTools Protocol · {v0}/{v1} debugfähige Seiten angezeigt",
   "Cleaner 面板数据异常": "Ungültige Cleaner-Paneldaten",
+  "Memory 面板数据异常": "Ungültige Memory-Paneldaten",
   "Docker Sandbox 面板数据异常": "Ungültige Docker-Sandbox-Paneldaten",
   "EveryAPI 认证未注入当前进程": "Die EveryAPI-Zugangsdaten wurden nicht in diesen Prozess eingespeist",
   "Follow-up 消息": "Folgenachricht",

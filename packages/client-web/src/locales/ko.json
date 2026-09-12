@@ -29,6 +29,7 @@
   "Browser Session 面板数据异常": "Browser Session 패널 데이터가 올바르지 않습니다",
   "Chrome DevTools Protocol · 显示 {v0}/{v1} 个可调试页面": "Chrome DevTools Protocol · 디버그 가능한 페이지 {v0}/{v1}개 표시",
   "Cleaner 面板数据异常": "Cleaner 패널 데이터가 올바르지 않습니다",
+  "Memory 面板数据异常": "Memory 패널 데이터가 올바르지 않습니다",
   "Docker Sandbox 面板数据异常": "Docker Sandbox 패널 데이터가 올바르지 않습니다",
   "EveryAPI 认证未注入当前进程": "EveryAPI 자격 증명이 이 프로세스에 주입되지 않았습니다",
   "Follow-up 消息": "후속 메시지",

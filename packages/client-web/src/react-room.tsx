@@ -70,6 +70,7 @@ import { visionToolkitPanelView } from "./vision-toolkit-view.js";
 import { readmeGenPanelView } from "./readme-gen-view.js";
 import { taskboardPanelView } from "./taskboard-view.js";
 import { promptLibraryPanelView } from "./prompt-library-view.js";
+import { memoryPanelView } from "./memory-view.js";
 import { LOCALES, formatLocale, setLocale, t, useLocale, writeStoredLocale } from "./i18n.js";
 
 export type { ClientApi } from "./control-room.js";
@@ -3177,32 +3178,84 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           )}
         </div>
       ) : panel.id === "memory-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
-            <span className="font-medium text-[var(--color-ink)]">{t("跨会话记忆")}</span>
-            <span className="font-mono text-[var(--color-blue)]">{t("{v0} 条", { v0: value(data?.count ?? 0) })}</span>
-          </div>
-          {Array.isArray(data?.memories) && data.memories.length > 0 ? (
-            <ul className="grid gap-1.5">
-              {data.memories.slice(0, 5).map((memory, index) => {
-                const item = memory && typeof memory === "object" ? (memory as Record<string, unknown>) : {};
-                return (
-                  <li
-                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2"
-                    key={`${value(item.key ?? "memory")}-${index}`}
+        (() => {
+          const view = memoryPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+                <strong className="block text-[12px]">{t("Memory 面板数据异常")}</strong>
+                <span className="mt-1 block">{t("面板数据不完整或不可信，请重新加载后再查询。")}</span>
+              </div>
+            );
+          }
+          const renderMemories = (memories: typeof view.memories, label: string) => (
+            <ul aria-label={label} className="grid max-h-[40rem] gap-1.5 overflow-y-auto" tabIndex={0}>
+              {memories.map((memory, index) => (
+                <li className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2" key={`${memory.id}-${index}`}>
+                  <strong className="block whitespace-pre-wrap font-mono text-[11px] text-[var(--color-ink)] [overflow-wrap:anywhere]">{memory.key}</strong>
+                  <p
+                    aria-label={memory.key}
+                    className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]"
+                    role="region"
+                    tabIndex={0}
                   >
-                    <strong className="block truncate font-mono text-[11px] text-[var(--color-ink)]">{value(item.key ?? t("未知键"))}</strong>
-                    <p className="mt-1 truncate text-[10px] text-[var(--color-faint)]">{value(item.value, "")}</p>
-                  </li>
-                );
-              })}
+                    {memory.value}
+                  </p>
+                  {memory.tags.length > 0 ? (
+                    <div className="mt-2 flex min-w-0 flex-wrap gap-1">
+                      {memory.tags.map((tag) => (
+                        <span
+                          className="max-w-full whitespace-pre-wrap rounded bg-[var(--color-blue-soft)] px-1.5 py-0.5 text-[9px] text-[var(--color-blue)] [overflow-wrap:anywhere]"
+                          key={tag}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
             </ul>
-          ) : (
-            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("尚未保存记忆。Agent 可调用 memory_set 明确写入。")}
+          );
+          return (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center justify-between rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
+                <span className="font-medium text-[var(--color-ink)]">{t("跨会话记忆")}</span>
+                <span className="font-mono text-[var(--color-blue)]">{t("{v0} 条", { v0: view.count })}</span>
+              </div>
+              {view.memories.length > 0 ? (
+                renderMemories(view.memories, t("跨会话记忆"))
+              ) : (
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  {t("尚未保存记忆。Agent 可调用 memory_set 明确写入。")}
+                </div>
+              )}
+              {view.truncated ? (
+                <p className="text-[10px] leading-4 text-[var(--color-amber)]">{t("列表已按安全上限截断，仅展示最近 {v0} 条有效记录。", { v0: view.shown })}</p>
+              ) : null}
+              {view.last !== null ? (
+                <section className="grid gap-1.5 border-t border-[var(--color-line)] pt-3">
+                  <div className="flex min-w-0 items-center justify-between gap-2 text-[11px]">
+                    <span className="min-w-0 whitespace-pre-wrap text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                      {t("最近搜索：{v0}", { v0: view.last.query })}
+                    </span>
+                    <strong className="shrink-0 font-mono text-[var(--color-blue)]">{t("{v0} 条", { v0: `${view.last.shown} / ${view.last.total}` })}</strong>
+                  </div>
+                  {view.last.memories.length > 0 ? (
+                    renderMemories(view.last.memories, t("最近搜索：{v0}", { v0: view.last.query }))
+                  ) : (
+                    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                      {t("没有匹配项。")}
+                    </div>
+                  )}
+                  {view.last.truncated ? (
+                    <p className="text-[10px] leading-4 text-[var(--color-amber)]">{t("面板按固定安全上限展示；完整计数保留在上方。")}</p>
+                  ) : null}
+                </section>
+              ) : null}
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : panel.id === "graph-memory-panel" ? (
         (() => {
           const report = graphMemoryPanelView(data);

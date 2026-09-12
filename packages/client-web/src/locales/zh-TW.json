@@ -29,6 +29,7 @@
   "Browser Session 面板数据异常": "Browser Session 面板資料異常",
   "Chrome DevTools Protocol · 显示 {v0}/{v1} 个可调试页面": "Chrome DevTools Protocol · 顯示 {v0}/{v1} 個可偵錯頁面",
   "Cleaner 面板数据异常": "Cleaner 面板資料異常",
+  "Memory 面板数据异常": "Memory 面板資料異常",
   "Docker Sandbox 面板数据异常": "Docker Sandbox 面板資料異常",
   "EveryAPI 认证未注入当前进程": "EveryAPI 憑證未注入目前處理程序",
   "Follow-up 消息": "Follow-up 訊息",

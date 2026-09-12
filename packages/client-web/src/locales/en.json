@@ -29,6 +29,7 @@
   "Browser Session 面板数据异常": "Invalid Browser Session panel data",
   "Chrome DevTools Protocol · 显示 {v0}/{v1} 个可调试页面": "Chrome DevTools Protocol · showing {v0}/{v1} debuggable pages",
   "Cleaner 面板数据异常": "Invalid Cleaner panel data",
+  "Memory 面板数据异常": "Invalid Memory panel data",
   "Docker Sandbox 面板数据异常": "Invalid Docker Sandbox panel data",
   "EveryAPI 认证未注入当前进程": "EveryAPI credentials were not injected into this process",
   "Follow-up 消息": "Follow-up message",
