@@ -1774,7 +1774,7 @@ describe("API gateway plugin", () => {
     });
   });
 
-  test("returns the current session name after renaming an empty session", async () => {
+  test("persists the current session name before an empty session is replaced", async () => {
     const context = new Context();
     contexts.push(context);
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-session-name-"));
@@ -1803,9 +1803,45 @@ describe("API gateway plugin", () => {
       body: JSON.stringify({ path: sessionFile, name: "Audit smoke session" }),
     });
     expect(rename.status).toBe(200);
+    const metadata = await fetch(context.webServer.url + "/api/session/metadata", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: sessionFile, archived: true, pinned: true }),
+    });
+    expect(metadata.status).toBe(200);
     const response = await fetch(context.webServer.url + "/api/session");
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ name: "Audit smoke session", messages: [] });
+    await expect(response.json()).resolves.toMatchObject({ name: "Audit smoke session", archived: true, pinned: true, messages: [] });
+
+    expect((await stat(sessionFile)).size).toBeGreaterThan(0);
+    sessionManager.appendThinkingLevelChange("high");
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "saved" }],
+      api: "test",
+      provider: "test",
+      model: "model",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    });
+    const persisted = await readFile(sessionFile, "utf8");
+    expect(persisted).toContain('"thinkingLevel":"high"');
+    expect(persisted).toContain('"role":"assistant"');
+    sessionManager.newSession();
+    const sessions = await fetch(context.webServer.url + "/api/sessions?includeArchived=true");
+    expect(sessions.status).toBe(200);
+    await expect(sessions.json()).resolves.toMatchObject({
+      items: [{ path: sessionFile, name: "Audit smoke session", messageCount: 1, archived: true, pinned: true }],
+      total: 1,
+    });
   });
 
   test("opens an event stream with the current trajectory snapshot", async () => {
@@ -1936,26 +1972,29 @@ describe("API gateway plugin", () => {
     const path = join(directory, "2026-08-30T00-00-00-000Z_target.jsonl");
     await writeFile(
       path,
-      `${JSON.stringify({ type: "session", version: 3, id: "target-session", timestamp: new Date().toISOString(), cwd: "/tmp" })}\n${JSON.stringify({ type: "message", id: "message-1", parentId: null, timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "saved" }], provider: "test", model: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } })}\n`,
+      `${JSON.stringify({ type: "session", version: 3, id: "target-session", timestamp: new Date().toISOString(), cwd: "/tmp" })}\n${JSON.stringify({ type: "session_info", id: "session-name", parentId: null, timestamp: new Date().toISOString(), name: "Launch roadmap" })}\n${JSON.stringify({ type: "message", id: "message-1", parentId: "session-name", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "saved" }], provider: "test", model: "model", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } })}\n`,
       "utf8",
     );
     let openedPath = "";
+    const sessionManager = SessionManager.create("/tmp", directory);
     const session = {
-      sessionId: "active-session",
-      sessionFile: "/tmp/active.jsonl",
-      messages: [],
-      isStreaming: false,
-      sessionManager: {
-        setSessionFile(nextPath: string) {
-          openedPath = nextPath;
-        },
-        getEntries: () => [],
-        isPersisted: () => true,
-        getSessionDir: () => directory,
-        buildSessionContext: () => ({ messages: [] }),
+      get sessionId() {
+        return sessionManager.getSessionId();
       },
+      get sessionFile() {
+        return sessionManager.getSessionFile();
+      },
+      get messages() {
+        return sessionManager.buildSessionContext().messages;
+      },
+      isStreaming: false,
+      sessionManager,
       agent: { state: { messages: [] } },
       subscribe: () => () => {},
+      reload() {
+        openedPath = sessionManager.getSessionFile() ?? "";
+        return Promise.resolve();
+      },
     };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
     context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
@@ -1969,6 +2008,13 @@ describe("API gateway plugin", () => {
     });
     expect(response.status).toBe(200);
     expect(openedPath).toBe(path);
+    await expect(response.json()).resolves.toMatchObject({
+      sessionId: "target-session",
+      sessionFile: path,
+      name: "Launch roadmap",
+      entries: [{ type: "session_info", name: "Launch roadmap" }, { type: "message" }],
+      messages: [{ role: "assistant" }],
+    });
   });
 
   test("lists and selects models through the live Pi session", async () => {

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 describe("pih-local launcher", () => {
-  test("builds and points the authenticated launcher at the local web assets", () => {
+  test("builds and makes the authenticated pi-web launcher run the local server", () => {
     const directory = mkdtempSync(join(tmpdir(), "pih-local-test-"));
     const fakeBin = join(directory, "bin");
     const marker = join(directory, "marker.json");
@@ -18,14 +18,20 @@ describe("pih-local launcher", () => {
       writeFileSync(
         fakeEveryApi,
         `#!/usr/bin/env node
-import { writeFileSync } from "node:fs";
-writeFileSync(process.env.PIH_LOCAL_MARKER, JSON.stringify({ webDist: process.env.PI_HARNESS_WEB_DIST, args: process.argv.slice(2) }));
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+const shim = process.env.PATH.split(":")[0];
+writeFileSync(process.env.PIH_LOCAL_MARKER, JSON.stringify({
+  args: process.argv.slice(2),
+  serverEntry: process.env.PIH_LOCAL_SERVER_ENTRY,
+  wrapper: readFileSync(join(shim, "pi-web"), "utf8"),
+}));
 process.exit(7);
 `,
       );
       chmodSync(fakeNpm, 0o755);
       chmodSync(fakeEveryApi, 0o755);
-      const result = spawnSync("sh", [join(process.cwd(), "scripts", "pih-local.sh")], {
+      const result = spawnSync("sh", [join(process.cwd(), "scripts", "pih-local.sh"), "--smoke"], {
         cwd: process.cwd(),
         env: {
           ...process.env,
@@ -37,9 +43,10 @@ process.exit(7);
       });
       expect(result.status).toBe(7);
       expect(readFileSync(`${marker}.build`, "utf8")).toBe("build");
-      const invocation = JSON.parse(readFileSync(marker, "utf8")) as { webDist?: string; args: string[] };
-      expect(invocation.webDist).toBe(join(process.cwd(), "apps", "web", "dist"));
-      expect(invocation.args).toEqual(["use", "pi-harness", "--"]);
+      const invocation = JSON.parse(readFileSync(marker, "utf8")) as { args: string[]; serverEntry?: string; wrapper: string };
+      expect(invocation.serverEntry).toBe(join(process.cwd(), "apps", "web", "server-dist", "bin.js"));
+      expect(invocation.wrapper).toContain('exec node "$PIH_LOCAL_SERVER_ENTRY" "$@"');
+      expect(invocation.args).toEqual(["use", "pi-web", "--", "--smoke"]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

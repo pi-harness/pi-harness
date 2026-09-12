@@ -216,6 +216,10 @@ function useModalFocus(open: boolean, onClose: () => void, busy = false, returnF
 }
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
   status?.cwd ?? (typeof session?.sessionFile === "string" ? session.sessionFile : t("未选择工作区"));
+export const archiveActionForSessions = (sessions: readonly { readonly archived?: boolean }[]): "archive" | "unarchive" =>
+  sessions.length > 0 && sessions.every((session) => session.archived === true) ? "unarchive" : "archive";
+export const pinActionForSessions = (sessions: readonly { readonly pinned?: boolean }[]): "pin" | "unpin" =>
+  sessions.length > 0 && sessions.every((session) => session.pinned === true) ? "unpin" : "pin";
 const EVENT_LABEL_LIMIT = 120;
 const eventLabel = (event: Record<string, unknown>): string => {
   const type = value(event.type, "");
@@ -887,19 +891,25 @@ function ConfirmDialog({
 
 function SessionActionMenu({
   busy,
+  archived,
+  pinned,
   position,
   themeStyle,
   onRename,
   onFork,
   onArchive,
+  onPin,
   onDelete,
 }: {
   busy: boolean;
+  archived: boolean;
+  pinned: boolean;
   position: { left: number; top: number };
   themeStyle?: CSSProperties;
   onRename: () => void;
   onFork: () => void;
   onArchive: () => void;
+  onPin: () => void;
   onDelete: () => void;
 }) {
   return createPortal(
@@ -916,8 +926,11 @@ function SessionActionMenu({
       <button disabled={busy} onClick={onFork} role="menuitem" type="button">
         {t("复制会话")}
       </button>
+      <button disabled={busy} onClick={onPin} role="menuitem" type="button">
+        {pinned ? t("取消置顶") : t("置顶")}
+      </button>
       <button disabled={busy} onClick={onArchive} role="menuitem" type="button">
-        {t("归档会话")}
+        {archived ? t("恢复会话") : t("归档会话")}
       </button>
       <button className="danger" disabled={busy} onClick={onDelete} role="menuitem" type="button">
         {t("删除会话")}
@@ -9254,6 +9267,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     }
   };
   const activeSessionPath = data.session?.sessionFile;
+  const selectedSessionMetadata = [...selectedSessionPaths].map((path) => {
+    const listed = data.sessions.find((session) => session.path === path);
+    if (listed) return { archived: listed.archived === true, pinned: listed.pinned === true };
+    if (path === activeSessionPath) return { archived: data.session?.archived === true, pinned: data.session?.pinned === true };
+    return {};
+  });
+  const selectedArchiveAction = archiveActionForSessions(selectedSessionMetadata);
+  const selectedPinAction = pinActionForSessions(selectedSessionMetadata);
   const toggleSessionSelection = (path: string) => {
     setSelectedSessionPaths((current) => {
       const next = new Set(current);
@@ -9999,6 +10020,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       onClick={() => {
                         setIncludeArchivedSessions((current) => !current);
                         setSessionPage(0);
+                        setSelectedSessionPaths(new Set());
                         setSessionToolsOpen(false);
                         setSessionToolsPosition(undefined);
                         restoreSessionPopoverFocus();
@@ -10017,14 +10039,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         {sessionSelectionMode && selectedSessionPaths.size > 0 && (
           <div className="session-batch-bar">
             <span>{t("{v0} 个已选择", { v0: selectedSessionPaths.size })}</span>
-            <button onClick={() => void sessionAction(() => api.batchSessions("archive", [...selectedSessionPaths]).then(() => undefined))} type="button">
-              {t("归档")}
+            <button
+              disabled={sessionActionBusy}
+              onClick={() => void sessionAction(() => api.batchSessions(selectedArchiveAction, [...selectedSessionPaths]).then(() => undefined))}
+              type="button"
+            >
+              {selectedArchiveAction === "unarchive" ? t("恢复") : t("归档")}
             </button>
-            <button onClick={() => void sessionAction(() => api.batchSessions("pin", [...selectedSessionPaths]).then(() => undefined))} type="button">
-              {t("置顶")}
+            <button
+              disabled={sessionActionBusy}
+              onClick={() => void sessionAction(() => api.batchSessions(selectedPinAction, [...selectedSessionPaths]).then(() => undefined))}
+              type="button"
+            >
+              {selectedPinAction === "unpin" ? t("取消置顶") : t("置顶")}
             </button>
             <button
               className="danger"
+              disabled={sessionActionBusy}
               onClick={() => {
                 setSessionActionTarget(undefined);
                 setSessionDialog("batch-delete");
@@ -10065,7 +10096,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <span className="session-dot ok"></span>
                   <span className="session-copy">
                     <strong>{data.session.name ?? (data.session.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话"))}</strong>
-                    <small>{t("{v0} 条消息", { v0: data.session.messages.length })}</small>
+                    <small>
+                      {t("{v0} 条消息{v1} {v2}", {
+                        v0: data.session.messages.length,
+                        v1: data.session.pinned === true ? t(" · 已置顶") : "",
+                        v2: data.session.archived === true ? t(" · 已归档") : "",
+                      })}
+                    </small>
                   </span>
                 </button>
                 {!sessionSelectionMode && activeSessionPath && (
@@ -10089,12 +10126,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 )}
                 {!sessionSelectionMode && activeSessionPath && sessionMenuPath === activeSessionPath && sessionMenuOpen && sessionMenuPosition && (
                   <SessionActionMenu
+                    archived={data.session.archived === true}
                     busy={sessionActionBusy}
+                    pinned={data.session.pinned === true}
                     position={sessionMenuPosition}
                     themeStyle={themeStyle}
                     onArchive={() => {
                       closeSessionMenu();
-                      setSessionDialog("archive");
+                      if (data.session?.archived === true) {
+                        void sessionAction(() => api.setSessionMetadata(activeSessionPath, { archived: false }).then(() => undefined));
+                      } else {
+                        setSessionDialog("archive");
+                      }
                     }}
                     onDelete={() => {
                       closeSessionMenu();
@@ -10111,6 +10154,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                         }
                       })
                     }
+                    onPin={() => {
+                      closeSessionMenu();
+                      void sessionAction(() => api.setSessionMetadata(activeSessionPath, { pinned: data.session?.pinned !== true }).then(() => undefined));
+                    }}
                     onRename={() => {
                       closeSessionMenu();
                       setSessionDialog("rename");
@@ -10177,12 +10224,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       sessionMenuOpen &&
                       sessionMenuPosition && (
                         <SessionActionMenu
+                          archived={session.archived === true}
                           busy={sessionActionBusy}
+                          pinned={session.pinned === true}
                           position={sessionMenuPosition}
                           themeStyle={themeStyle}
                           onArchive={() => {
                             closeSessionMenu();
-                            setSessionDialog("archive");
+                            if (session.archived === true) {
+                              void sessionAction(() => api.setSessionMetadata(session.path as string, { archived: false }).then(() => undefined));
+                            } else {
+                              setSessionDialog("archive");
+                            }
                           }}
                           onDelete={() => {
                             closeSessionMenu();
@@ -10199,6 +10252,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                               }
                             })
                           }
+                          onPin={() => {
+                            closeSessionMenu();
+                            void sessionAction(() => api.setSessionMetadata(session.path as string, { pinned: session.pinned !== true }).then(() => undefined));
+                          }}
                           onRename={() => {
                             closeSessionMenu();
                             setSessionDialog("rename");
@@ -10214,13 +10271,27 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           ) : null}
           {sessionTotal > 30 && (
             <div className="session-pagination">
-              <button disabled={sessionPage === 0} onClick={() => setSessionPage((page) => Math.max(0, page - 1))} type="button">
+              <button
+                disabled={sessionPage === 0}
+                onClick={() => {
+                  setSelectedSessionPaths(new Set());
+                  setSessionPage((page) => Math.max(0, page - 1));
+                }}
+                type="button"
+              >
                 {t("上一页")}
               </button>
               <span>
                 {sessionPage + 1} / {Math.max(1, Math.ceil(sessionTotal / 30))}
               </span>
-              <button disabled={!sessionHasNext} onClick={() => setSessionPage((page) => page + 1)} type="button">
+              <button
+                disabled={!sessionHasNext}
+                onClick={() => {
+                  setSelectedSessionPaths(new Set());
+                  setSessionPage((page) => page + 1);
+                }}
+                type="button"
+              >
                 {t("下一页")}
               </button>
             </div>
@@ -10443,13 +10514,32 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       disabled={!activeSessionPath || sessionActionBusy}
                       onClick={() => {
                         setSessionMenuOpen(false);
-                        setSessionDialog("archive");
+                        if (activeSessionPath) {
+                          void sessionAction(() => api.setSessionMetadata(activeSessionPath, { pinned: data.session?.pinned !== true }).then(() => undefined));
+                        }
                       }}
                       role="menuitem"
                       type="button"
                     >
-                      <strong>{t("归档会话")}</strong>
-                      <small>{t("从默认列表隐藏")}</small>
+                      <strong>{data.session?.pinned === true ? t("取消置顶") : t("置顶")}</strong>
+                      <small>{data.session?.pinned === true ? t("从置顶区域移除") : t("固定在会话列表顶部")}</small>
+                    </button>
+                    <button
+                      className="session-action"
+                      disabled={!activeSessionPath || sessionActionBusy}
+                      onClick={() => {
+                        setSessionMenuOpen(false);
+                        if (data.session?.archived === true && activeSessionPath) {
+                          void sessionAction(() => api.setSessionMetadata(activeSessionPath, { archived: false }).then(() => undefined));
+                        } else {
+                          setSessionDialog("archive");
+                        }
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <strong>{data.session?.archived === true ? t("恢复会话") : t("归档会话")}</strong>
+                      <small>{data.session?.archived === true ? t("恢复到默认列表") : t("从默认列表隐藏")}</small>
                     </button>
                     <button
                       className="session-action danger"

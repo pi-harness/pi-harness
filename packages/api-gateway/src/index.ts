@@ -1,4 +1,5 @@
 import { execFile, type ExecFileException } from "node:child_process";
+import { existsSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
@@ -138,6 +139,38 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
   };
 }
 
+async function createSessionSnapshot(
+  services: ApiServices,
+  events: readonly AgentSessionEvent[],
+  logger: MetadataLogger,
+  messages: readonly unknown[] = services.runtime.session.messages,
+) {
+  const session = services.runtime.session;
+  const manager = session.sessionManager;
+  let metadata: SessionMetadata | undefined;
+  let metadataAvailable = true;
+  if (session.sessionFile) {
+    try {
+      metadata = (await readSessionMetadataLocked(manager, logger))[session.sessionFile];
+    } catch (error) {
+      // Session metadata is an enhancement, not the conversation itself. A
+      // permissions or transient filesystem failure must not make a completed
+      // session switch look failed after the runtime already changed.
+      metadataAvailable = false;
+      logger.warn(`Unable to read current session metadata: ${errorText(error)}`);
+    }
+  }
+  return {
+    sessionId: session.sessionId,
+    sessionFile: session.sessionFile,
+    name: typeof manager?.getSessionName === "function" ? (manager.getSessionName() ?? undefined) : undefined,
+    messages,
+    entries: typeof manager?.getEntries === "function" ? manager.getEntries() : [],
+    events,
+    ...(metadataAvailable ? { archived: metadata?.archived === true, pinned: metadata?.pinned === true } : {}),
+  };
+}
+
 function activeCwd(services: ApiServices): string {
   const runtimeCwd = services.runtime.sessionRuntime?.cwd;
   return typeof runtimeCwd === "string" && runtimeCwd.length > 0 ? runtimeCwd : services.launch.cwd;
@@ -263,6 +296,20 @@ function sessionPathInDirectory(path: string, manager: SessionManager): boolean 
   const target = resolve(path);
   const relativePath = relative(root, target);
   return relativePath !== "" && !escapesRoot(relativePath) && target.endsWith(".jsonl");
+}
+
+function persistSessionBeforeFirstAssistant(manager: SessionManager): void {
+  const path = manager.getSessionFile();
+  if (!path || existsSync(path)) return;
+  const header = manager.getHeader();
+  if (!header) throw new Error("Current session is missing its header");
+  // Pi intentionally defers creating a JSONL file until the first assistant
+  // response. A user-assigned name is durable work too: persist the current
+  // tree now, then reopen the same path so Pi knows subsequent entries can be
+  // appended instead of trying to create the file again on first response.
+  const source = [header, ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+  writeFileSync(path, source, { encoding: "utf8", flag: "wx" });
+  manager.setSessionFile(path);
 }
 
 const webSessionUi = {
@@ -1788,21 +1835,12 @@ export default {
     });
     const disposeSession = services.webServer.register({
       path: "/api/session",
-      handler(_request, response) {
-        const session = services.runtime.session;
-        const sessionManager = session.sessionManager;
-        sendJson(
-          response,
-          200,
-          jsonSafe({
-            sessionId: session.sessionId,
-            sessionFile: session.sessionFile,
-            name: typeof sessionManager?.getSessionName === "function" ? (sessionManager.getSessionName() ?? undefined) : undefined,
-            messages: session.messages,
-            entries: typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [],
-            events,
-          }),
-        );
+      async handler(_request, response) {
+        try {
+          sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, events, context.logger)));
+        } catch (error) {
+          sendJson(response, 500, { error: errorText(error) });
+        }
       },
     });
     const disposeNewSession = services.webServer.register({
@@ -1858,16 +1896,7 @@ export default {
           events.length = 0;
           const session = services.runtime.session;
           for (const client of eventClients) writeSse(client, { type: "session", sessionId: session.sessionId, events: [] });
-          sendJson(
-            response,
-            200,
-            jsonSafe({
-              sessionId: session.sessionId,
-              sessionFile: session.sessionFile,
-              messages: services.runtime.sessionRuntime ? session.messages : [],
-              events: [],
-            }),
-          );
+          sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, [], context.logger, services.runtime.sessionRuntime ? undefined : [])));
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
         }
@@ -1913,16 +1942,7 @@ export default {
           }
           events.length = 0;
           for (const client of eventClients) writeSse(client, { type: "session", sessionId: services.runtime.session.sessionId, events: [] });
-          sendJson(
-            response,
-            200,
-            jsonSafe({
-              sessionId: services.runtime.session.sessionId,
-              sessionFile: services.runtime.session.sessionFile,
-              messages: services.runtime.session.messages,
-              events: [],
-            }),
-          );
+          sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, [], context.logger)));
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
         }
@@ -1948,8 +1968,12 @@ export default {
             sendJson(response, 400, { error: "Session name must be at most 120 characters" });
             return;
           }
-          if (path === services.runtime.session.sessionFile && typeof manager.appendSessionInfo === "function") manager.appendSessionInfo(name);
-          else SessionManager.open(path, manager.getSessionDir()).appendSessionInfo(name);
+          if (path === services.runtime.session.sessionFile && typeof manager.appendSessionInfo === "function") {
+            manager.appendSessionInfo(name);
+            if (name) persistSessionBeforeFirstAssistant(manager);
+          } else {
+            SessionManager.open(path, manager.getSessionDir()).appendSessionInfo(name);
+          }
           sendJson(response, 200, { path, name: name || undefined });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });

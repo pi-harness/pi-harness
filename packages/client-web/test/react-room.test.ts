@@ -11,6 +11,7 @@ import {
   ChatTurnArticle,
   CommandPalette,
   Marketplace,
+  archiveActionForSessions,
   insertCommandDraft,
   marketplaceDetailPlan,
   pluginActionErrorText,
@@ -20,6 +21,7 @@ import {
   restartPendingForProcess,
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
+  pinActionForSessions,
   subscribeRuntimeEvents,
   toolArgumentSummary,
   toolSignature,
@@ -223,6 +225,15 @@ describe("runtime event subscription", () => {
 });
 
 describe("session list tools", () => {
+  test("restores fully archived selections and unpins fully pinned selections", () => {
+    expect(archiveActionForSessions([{ archived: true }, { archived: true }])).toBe("unarchive");
+    expect(archiveActionForSessions([{ archived: true }, { archived: false }])).toBe("archive");
+    expect(archiveActionForSessions([])).toBe("archive");
+    expect(pinActionForSessions([{ pinned: true }, { pinned: true }])).toBe("unpin");
+    expect(pinActionForSessions([{ pinned: true }, {}])).toBe("pin");
+    expect(pinActionForSessions([])).toBe("pin");
+  });
+
   test("refreshes in place instead of reloading the whole application", async () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
     const menu = source.slice(source.indexOf('{t("刷新列表")}') - 500, source.indexOf('{t("刷新列表")}') + 100);
@@ -235,11 +246,24 @@ describe("session list tools", () => {
   test("returns to the first page before applying the archived-session filter", async () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
     const start = source.indexOf("setIncludeArchivedSessions((current) => !current)");
-    const handler = source.slice(start, start + 260);
+    const handler = source.slice(start, start + 360);
 
     expect(handler).toContain("setSessionPage(0)");
+    expect(handler).toContain("setSelectedSessionPaths(new Set())");
     expect(handler).toContain("restoreSessionPopoverFocus()");
     expect(handler).not.toContain("void refresh()");
+  });
+
+  test("clears selections before changing session pages", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const previousPage = source.slice(
+      source.indexOf("setSessionPage((page) => Math.max(0, page - 1))") - 140,
+      source.indexOf("setSessionPage((page) => Math.max(0, page - 1))") + 70,
+    );
+    const nextPage = source.slice(source.indexOf("setSessionPage((page) => page + 1)") - 140, source.indexOf("setSessionPage((page) => page + 1)") + 55);
+
+    expect(previousPage).toContain("setSelectedSessionPaths(new Set())");
+    expect(nextPage).toContain("setSelectedSessionPaths(new Set())");
   });
 });
 

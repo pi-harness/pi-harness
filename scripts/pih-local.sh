@@ -1,8 +1,8 @@
 #!/bin/sh
 
-# Build the current checkout's web assets and launch the authenticated
-# Pi Harness integration. EveryAPI resolves its installed server executable,
-# so PI_HARNESS_WEB_DIST is used to make that server serve this checkout's UI.
+# Build and launch the current checkout through EveryAPI's authenticated
+# pi-web integration. The temporary PATH shim makes EveryAPI invoke this
+# checkout's server rather than a potentially stale global installation.
 set -eu
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -23,5 +23,14 @@ if ! command -v "$everyapi_cli" >/dev/null 2>&1; then
   exit 1
 fi
 
-export PI_HARNESS_WEB_DIST="$root_dir/apps/web/dist"
-exec "$everyapi_cli" use pi-harness -- "$@"
+shim_dir=$(mktemp -d "${TMPDIR:-/tmp}/pi-harness-local.XXXXXX")
+cleanup() {
+  rm -f "$shim_dir/pi-web"
+  rmdir "$shim_dir" 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+printf '%s\n' '#!/bin/sh' 'exec node "$PIH_LOCAL_SERVER_ENTRY" "$@"' > "$shim_dir/pi-web"
+chmod 755 "$shim_dir/pi-web"
+export PIH_LOCAL_SERVER_ENTRY="$server_entry"
+PATH="$shim_dir:$PATH" "$everyapi_cli" use pi-web -- "$@"
