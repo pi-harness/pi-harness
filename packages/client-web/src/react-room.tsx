@@ -6788,6 +6788,7 @@ export function Marketplace({
             aria-label={t("搜索插件")}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder={t("搜索名称、包名、影响范围…")}
+            type="search"
             value={query}
           />
           <select

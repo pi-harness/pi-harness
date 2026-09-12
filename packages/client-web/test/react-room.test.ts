@@ -342,6 +342,13 @@ describe("session list tools", () => {
     expect(actionRule).toContain("[pointer-events:auto]");
     expect(actionRule).toContain("z-index: 1");
   });
+
+  test("marks the marketplace query as a search control", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const marketplaceSearch = source.slice(source.indexOf('className="marketplace-search"') - 180, source.indexOf('className="marketplace-search"') + 260);
+
+    expect(marketplaceSearch).toContain('type="search"');
+  });
 });
 
 describe("new session workspace picker", () => {
