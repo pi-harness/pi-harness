@@ -16,6 +16,7 @@ const maxDirectories = 512;
 const maxDepth = 16;
 const maxResults = 100;
 const maxMatchTextLength = 500;
+const maxSerializedReportBytes = 128 * 1024;
 const ignoredDirectories = new Set([".git", "node_modules", ".pi", "dist", "build"]);
 type SearchMatch = { path: string; line: number; text: string };
 type SearchReport = {
@@ -38,6 +39,23 @@ export function isWorkspaceSearchPathInside(root: string, target: string, pathSe
   return remainder === "" || (remainder !== ".." && !remainder.startsWith(`..${pathSemantics.sep}`) && !pathSemantics.isAbsolute(remainder));
 }
 
+export function workspaceSearchRelativePath(root: string, target: string, pathSemantics: PathSemantics = nativePathSemantics): string {
+  const remainder = pathSemantics.relative(root, target);
+  return remainder === "" ? "." : remainder.split(pathSemantics.sep).join("/");
+}
+
+export function isWorkspaceSearchIgnoredDirectory(name: string, caseInsensitive = process.platform === "win32" || process.platform === "darwin"): boolean {
+  return ignoredDirectories.has(caseInsensitive ? name.toLowerCase() : name);
+}
+
+function targetsIgnoredDirectory(root: string, target: string, targetIsDirectory: boolean): boolean {
+  const relativeTarget = workspaceSearchRelativePath(root, target);
+  if (relativeTarget === ".") return false;
+  const segments = relativeTarget.split("/");
+  const directories = targetIsDirectory ? segments : segments.slice(0, -1);
+  return directories.some((name) => isWorkspaceSearchIgnoredDirectory(name));
+}
+
 type WalkState = { files: string[]; directories: number; scannedEntries: number; truncated: boolean };
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -58,6 +76,7 @@ async function filesUnder(target: string, root: string, state: WalkState, signal
     return false;
   }
   if (metadata.isSymbolicLink()) return false;
+  if (targetsIgnoredDirectory(root, target, metadata.isDirectory())) return false;
   if (metadata.isFile()) {
     state.files.push(target);
     return false;
@@ -90,7 +109,7 @@ async function filesUnder(target: string, root: string, state: WalkState, signal
   entries.sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
     if (state.files.length >= maxFiles || state.directories >= maxDirectories) return true;
-    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
+    if (entry.isDirectory() && isWorkspaceSearchIgnoredDirectory(entry.name)) continue;
     const child = resolve(target, entry.name);
     if (!isWorkspaceSearchPathInside(root, child)) continue;
     if (await filesUnder(child, root, state, signal, depth + 1)) return true;
@@ -98,16 +117,39 @@ async function filesUnder(target: string, root: string, state: WalkState, signal
   return false;
 }
 
-function assertParameters(params: unknown): void {
-  if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Invalid workspace search parameters");
-  const prototype = Object.getPrototypeOf(params) as unknown;
-  if (prototype !== Object.prototype && prototype !== null) throw new Error("Workspace search parameters must be plain objects");
-  const descriptors = Object.getOwnPropertyDescriptors(params);
-  if (
-    Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !["query", "path", "caseSensitive", "maxResults"].includes(key)) ||
-    Object.values(descriptors).some((entry) => !("value" in entry))
-  )
-    throw new Error("Invalid workspace search parameter");
+type SearchParameters = { query?: unknown; path?: unknown; caseSensitive?: unknown; maxResults?: unknown };
+
+function snapshotParameters(params: unknown): SearchParameters {
+  try {
+    if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Invalid workspace search parameters");
+    const prototype = Object.getPrototypeOf(params) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("Workspace search parameters must be plain objects");
+    const allowed = new Set(["query", "path", "caseSensitive", "maxResults"]);
+    const keys = Reflect.ownKeys(params);
+    if (keys.length > allowed.size || keys.some((key) => typeof key !== "string" || !allowed.has(key))) throw new Error("Invalid workspace search parameter");
+    const snapshot = Object.create(null) as SearchParameters;
+    for (const key of keys as (keyof SearchParameters)[]) {
+      const descriptor = Object.getOwnPropertyDescriptor(params, key);
+      if (descriptor === undefined || !("value" in descriptor)) throw new Error("Invalid workspace search parameter");
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch (error) {
+    if (error instanceof Error && /^Invalid workspace search|^Workspace search parameters/u.test(error.message)) throw error;
+    throw new Error("Invalid workspace search parameter", { cause: error });
+  }
+}
+
+function boundSerializedReport(report: SearchReport): string {
+  let serialized = JSON.stringify(report);
+  while (Buffer.byteLength(serialized, "utf8") > maxSerializedReportBytes && report.matches.length > 0) {
+    report.matches.pop();
+    report.matchCount = report.matches.length;
+    report.truncated = true;
+    serialized = JSON.stringify(report);
+  }
+  if (Buffer.byteLength(serialized, "utf8") > maxSerializedReportBytes) throw new Error("Workspace search report exceeds its serialization budget");
+  return serialized;
 }
 
 function matchExcerpt(line: string, normalizedIndex: number, caseSensitive: boolean): string {
@@ -159,16 +201,21 @@ export default {
     ): Promise<SearchReport> => {
       throwIfAborted(signal);
       const operationScope = refreshScope();
+      if (query.length > maxQueryLength) throw new Error(`Workspace search query must contain 1-${maxQueryLength} characters`);
+      if (query.includes("\0")) throw new Error("Workspace search query must not contain NUL characters");
       const normalizedQuery = query.trim();
-      if (normalizedQuery.length === 0 || normalizedQuery.length > maxQueryLength)
-        throw new Error(`Workspace search query must contain 1-${maxQueryLength} characters`);
-      const requested = requestedPath?.trim() || ".";
-      if (requested.length > maxPathLength || requested.includes("\\"))
-        throw new Error("Workspace search path must be a relative POSIX path of at most 512 characters");
+      if (normalizedQuery.length === 0) throw new Error(`Workspace search query must contain 1-${maxQueryLength} characters`);
+      const rawPath = requestedPath ?? ".";
+      if (rawPath.length > maxPathLength) throw new Error("Workspace search path must be a relative POSIX path of at most 512 characters");
+      if (rawPath.includes("\0")) throw new Error("Workspace search path must not contain NUL characters");
+      const requested = rawPath.trim() || ".";
+      if (requested.includes("\\")) throw new Error("Workspace search path must be a relative POSIX path of at most 512 characters");
       // Canonicalise both ends before the containment check so a symlinked intermediate directory cannot lead outside the workspace.
       const resolved = await resolveExistingWorkspacePath(operationScope.cwd, requested, "Workspace search path must stay inside the current workspace");
       const root = resolved.root;
       const target = resolved.target;
+      const targetMetadata = await lstat(target);
+      if (targetsIgnoredDirectory(root, target, targetMetadata.isDirectory())) throw new Error("Workspace search path targets an ignored directory");
       const walkState: WalkState = { files: [], directories: 0, scannedEntries: 0, truncated: false };
       const filesTruncated = await filesUnder(target, root, walkState, signal);
       const files = walkState.files;
@@ -223,7 +270,7 @@ export default {
             // A minified bundle or a single-line JSON document is one legitimate line of up to maxFileBytes, so each match text is clipped before it reaches the agent content and the panel state.
             const clipped = line.length > maxMatchTextLength;
             if (clipped) clippedText = true;
-            matches.push({ path: relative(root, file), line: index + 1, text: matchExcerpt(line, matchIndex, caseSensitive) });
+            matches.push({ path: workspaceSearchRelativePath(root, file), line: index + 1, text: matchExcerpt(line, matchIndex, caseSensitive) });
             if (matches.length >= limit) {
               stoppedAtLimit = true;
               break;
@@ -233,7 +280,7 @@ export default {
       }
       const report: SearchReport = {
         query: normalizedQuery,
-        path: relative(root, target) || ".",
+        path: workspaceSearchRelativePath(root, target),
         matches,
         matchCount: matches.length,
         scannedFiles,
@@ -242,6 +289,7 @@ export default {
         scannedEntries: walkState.scannedEntries,
         readBytes,
       };
+      boundSerializedReport(report);
       throwIfAborted(signal);
       if (refreshScope() !== operationScope) throw new Error("Workspace changed during search");
       latest = report;
@@ -255,8 +303,8 @@ export default {
         promptSnippet: "search the workspace for a text pattern",
         parameters: Type.Object(
           {
-            query: Type.String(),
-            path: Type.Optional(Type.String()),
+            query: Type.String({ maxLength: maxQueryLength }),
+            path: Type.Optional(Type.String({ maxLength: maxPathLength })),
             caseSensitive: Type.Optional(Type.Boolean()),
             maxResults: Type.Optional(Type.Number()),
           },
@@ -264,17 +312,17 @@ export default {
         ),
         executionMode: "sequential",
         async execute(_toolCallId, params, signal): Promise<AgentToolResult<SearchReport>> {
-          assertParameters(params);
-          if (typeof params.query !== "string") throw new Error("Invalid workspace search query parameter");
-          if (params.path !== undefined && typeof params.path !== "string") throw new Error("Invalid workspace search path parameter");
-          if (params.caseSensitive !== undefined && typeof params.caseSensitive !== "boolean")
+          const snapshot = snapshotParameters(params);
+          if (typeof snapshot.query !== "string") throw new Error("Invalid workspace search query parameter");
+          if (snapshot.path !== undefined && typeof snapshot.path !== "string") throw new Error("Invalid workspace search path parameter");
+          if (snapshot.caseSensitive !== undefined && typeof snapshot.caseSensitive !== "boolean")
             throw new Error("Invalid workspace search caseSensitive parameter");
-          if (params.maxResults !== undefined && (typeof params.maxResults !== "number" || !Number.isFinite(params.maxResults)))
+          if (snapshot.maxResults !== undefined && (typeof snapshot.maxResults !== "number" || !Number.isFinite(snapshot.maxResults)))
             throw new Error("Invalid workspace search maxResults parameter");
           const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
-          const report = await search(params.query, params.path, params.caseSensitive === true, params.maxResults, operationSignal);
+          const report = await search(snapshot.query, snapshot.path, snapshot.caseSensitive === true, snapshot.maxResults, operationSignal);
           return {
-            content: [{ type: "text", text: JSON.stringify(report) }],
+            content: [{ type: "text", text: boundSerializedReport(report) }],
             details: structuredClone(report),
           };
         },

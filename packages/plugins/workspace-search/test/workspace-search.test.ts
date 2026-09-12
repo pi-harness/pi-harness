@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { win32 } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, test } from "vitest";
-import workspaceSearchPlugin, { isWorkspaceSearchPathInside } from "../src/index.js";
+import workspaceSearchPlugin, { isWorkspaceSearchIgnoredDirectory, isWorkspaceSearchPathInside, workspaceSearchRelativePath } from "../src/index.js";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 
 const contexts: Context[] = [];
@@ -53,6 +53,63 @@ describe("workspace search", () => {
     await expect(tool.execute("disposed", { query: "hello" }, undefined, undefined, {} as never)).rejects.toThrow(/abort|cancel/iu);
   });
 
+  test("rejects NUL query and path text before touching the filesystem", async () => {
+    const { tool } = await fixture();
+
+    await expect(tool.execute("query-nul", { query: "tenant\0refund" }, undefined, undefined, {} as never)).rejects.toThrow(/query.*NUL/iu);
+    await expect(tool.execute("path-nul", { query: "tenant", path: "orders\0archive" }, undefined, undefined, {} as never)).rejects.toThrow(/path.*NUL/iu);
+  });
+
+  test("rejects oversized parameter keysets before enumerating their descriptors", async () => {
+    const { tool } = await fixture();
+    let descriptorInspected = false;
+    const params = new Proxy(
+      {},
+      {
+        ownKeys: () => ["query", "path", "caseSensitive", "maxResults", "extra"],
+        getOwnPropertyDescriptor() {
+          descriptorInspected = true;
+          throw new Error("descriptor trap executed");
+        },
+      },
+    );
+
+    await expect(tool.execute("hostile", params as never, undefined, undefined, {} as never)).rejects.toThrow(/invalid workspace search parameter/iu);
+    expect(descriptorInspected).toBe(false);
+  });
+
+  test("snapshots descriptor values without invoking parameter proxy getters", async () => {
+    const { tool } = await fixture();
+    let getterAccessed = false;
+    const params = new Proxy(
+      {},
+      {
+        ownKeys: () => ["query"],
+        getOwnPropertyDescriptor: (_target, key) => (key === "query" ? { configurable: true, enumerable: true, value: "hello", writable: true } : undefined),
+        get() {
+          getterAccessed = true;
+          throw new Error("parameter getter executed");
+        },
+      },
+    );
+
+    await expect(tool.execute("proxy", params as never, undefined, undefined, {} as never)).resolves.toMatchObject({ details: { matchCount: 1 } });
+    expect(getterAccessed).toBe(false);
+  });
+
+  test("publishes raw string limits in the tool schema and rejects oversized strings", async () => {
+    const { tool } = await fixture();
+
+    expect(tool.parameters).toMatchObject({
+      properties: {
+        query: { type: "string", maxLength: 256 },
+        path: { type: "string", maxLength: 512 },
+      },
+    });
+    await expect(tool.execute("long-query", { query: " ".repeat(257) }, undefined, undefined, {} as never)).rejects.toThrow(/query/iu);
+    await expect(tool.execute("long-path", { query: "hello", path: " ".repeat(513) }, undefined, undefined, {} as never)).rejects.toThrow(/path/iu);
+  });
+
   test("keeps a late match visible in a clipped line", async () => {
     const { root, tool } = await fixture();
     await writeFile(join(root, "late.txt"), `${"İ".repeat(1000)}TARGET${"z".repeat(1000)}`);
@@ -82,9 +139,62 @@ describe("workspace search", () => {
     // Assert the byte cap independently of filesystem throughput.
   }, 30_000);
 
+  test("reports an exact 64 MiB inventory as complete when there are no more files", async () => {
+    const { root, tool } = await fixture();
+    const bytes = Buffer.alloc(2 * 1024 * 1024, 0x61);
+    await mkdir(join(root, "exact-budget"));
+    for (let index = 0; index < 32; index += 1) await writeFile(join(root, "exact-budget", `file-${String(index).padStart(2, "0")}.txt`), bytes);
+
+    await expect(tool.execute("exact-budget", { query: "missing", path: "exact-budget" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { matchCount: 0, scannedFiles: 32, readBytes: 64 * 1024 * 1024, truncated: false },
+    });
+  }, 30_000);
+
   test("rejects Windows paths outside the workspace using native path semantics", () => {
     expect(isWorkspaceSearchPathInside("C:\\repo", "C:\\outside", win32)).toBe(false);
     expect(isWorkspaceSearchPathInside("C:\\repo", "C:\\repo\\src", win32)).toBe(true);
+    expect(workspaceSearchRelativePath("C:\\repo", "C:\\repo\\apps\\tenant-a\\orders.ts", win32)).toBe("apps/tenant-a/orders.ts");
+    expect(workspaceSearchRelativePath("C:\\repo", "C:\\repo", win32)).toBe(".");
+    expect(isWorkspaceSearchIgnoredDirectory("DIST", true)).toBe(true);
+    expect(isWorkspaceSearchIgnoredDirectory("DIST", false)).toBe(false);
+  });
+
+  test("rejects ignored directories when the caller targets them explicitly", async () => {
+    const { root, tool } = await fixture();
+    for (const directory of [".git", "node_modules", ".pi", "dist", "build"]) {
+      await mkdir(join(root, directory), { recursive: true });
+      await writeFile(join(root, directory, "secret.txt"), "private needle\n");
+      await expect(
+        tool.execute(`ignored-${directory}`, { query: "needle", path: `${directory}/secret.txt` }, undefined, undefined, {} as never),
+      ).rejects.toThrow(/ignored director/iu);
+      await expect(tool.execute(`ignored-directory-${directory}`, { query: "needle", path: directory }, undefined, undefined, {} as never)).rejects.toThrow(
+        /ignored director/iu,
+      );
+    }
+  });
+
+  test("preserves a POSIX filename containing a literal backslash", async () => {
+    const { root, tool } = await fixture();
+    await writeFile(join(root, "tenant\\refund.txt"), "needle\n");
+
+    await expect(tool.execute("literal-backslash", { query: "needle" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { matches: [{ path: "tenant\\refund.txt" }] },
+    });
+  });
+
+  test("reports canonical paths longer than the request-path limit", async () => {
+    const { root, tool } = await fixture();
+    const deepRelative = Array.from({ length: 30 }, (_, index) => `tenant-${String(index).padStart(2, "0")}-segment`).join("/");
+    const deep = join(root, deepRelative);
+    await mkdir(deep, { recursive: true });
+    await writeFile(join(deep, "refund-handler.txt"), "needle\n");
+    await symlink(deep, join(root, "short-link"));
+
+    const result = await tool.execute("canonical-path", { query: "needle", path: "short-link" }, undefined, undefined, {} as never);
+
+    expect((result.details as { path: string }).path).toBe(deepRelative);
+    expect((result.details as { path: string }).path.length).toBeGreaterThan(512);
+    expect((result.details as { matches: { path: string }[] }).matches[0]?.path).toBe(`${deepRelative}/refund-handler.txt`);
   });
 
   test("finds bounded UTF-8 matches and reports panel state", async () => {
@@ -158,6 +268,20 @@ describe("workspace search", () => {
     expect(result.details.matches[0]?.text.endsWith("…")).toBe(true);
     expect(result.details.truncated).toBe(true);
     expect(result.content[0]?.text.length).toBeLessThan(1_000);
+  });
+
+  test("bounds the complete serialized report when matches require JSON escaping", async () => {
+    const { root, tool } = await fixture();
+    const line = `needle${"\u0001".repeat(490)}`;
+    await writeFile(join(root, "controls.txt"), Array.from({ length: 100 }, () => line).join("\n"));
+
+    const result = await tool.execute("serialized-budget", { query: "needle" }, undefined, undefined, {} as never);
+    const content = result.content[0];
+    if (content?.type !== "text") throw new Error("Expected text");
+
+    expect(Buffer.byteLength(content.text, "utf8")).toBeLessThanOrEqual(128 * 1024);
+    expect(result.details).toMatchObject({ truncated: true });
+    expect((result.details as { matchCount: number }).matchCount).toBeLessThan(100);
   });
 
   test("stops the directory walk when the caller aborts after the scan started", async () => {
