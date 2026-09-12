@@ -10064,7 +10064,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 >
                   <span className="session-dot ok"></span>
                   <span className="session-copy">
-                    <strong>{data.session.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话")}</strong>
+                    <strong>{data.session.name ?? (data.session.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话"))}</strong>
                     <small>{t("{v0} 条消息", { v0: data.session.messages.length })}</small>
                   </span>
                 </button>
@@ -10078,7 +10078,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     onClick={(event) =>
                       openSessionMenu(
                         activeSessionPath,
-                        data.session?.messages.length ? data.session?.sessionId.slice(0, 12) : t("新会话"),
+                        data.session?.name ?? (data.session?.messages.length ? data.session?.sessionId.slice(0, 12) : t("新会话")),
                         event.currentTarget,
                       )
                     }
@@ -10329,9 +10329,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   ? installedPluginId || marketplacePluginId
                     ? t("插件详情")
                     : t("插件")
-                  : data.session?.messages.length
-                    ? data.session.sessionId.slice(0, 12)
-                    : t("新会话")}
+                  : (data.session?.name ?? (data.session?.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话")))}
             </strong>
             <small>
               {settings
@@ -10410,7 +10408,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       className="session-action"
                       disabled={!activeSessionPath || sessionActionBusy}
                       onClick={() => {
-                        setSessionNameDraft(data.session?.sessionId?.slice(0, 12) ?? "");
+                        setSessionNameDraft(data.session?.name ?? data.session?.sessionId?.slice(0, 12) ?? "");
                         setSessionDialog("rename");
                         setSessionMenuOpen(false);
                       }}

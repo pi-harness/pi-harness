@@ -1797,6 +1797,7 @@ export default {
           jsonSafe({
             sessionId: session.sessionId,
             sessionFile: session.sessionFile,
+            name: typeof sessionManager?.getSessionName === "function" ? (sessionManager.getSessionName() ?? undefined) : undefined,
             messages: session.messages,
             entries: typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [],
             events,
@@ -1947,7 +1948,8 @@ export default {
             sendJson(response, 400, { error: "Session name must be at most 120 characters" });
             return;
           }
-          SessionManager.open(path, manager.getSessionDir()).appendSessionInfo(name);
+          if (path === services.runtime.session.sessionFile && typeof manager.appendSessionInfo === "function") manager.appendSessionInfo(name);
+          else SessionManager.open(path, manager.getSessionDir()).appendSessionInfo(name);
           sendJson(response, 200, { path, name: name || undefined });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
