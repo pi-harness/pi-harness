@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, open, writeFile, rm, utimes } from "node:fs/promises";
+import { Dir, ReadStream } from "node:fs";
+import { mkdtemp, mkdir, open, opendir, writeFile, rm, utimes } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -79,9 +80,10 @@ describe("session compare", () => {
       timestamp: "2026-09-03T00:01:00.000Z",
       message: { role, content: [{ type: "text", text }] },
     });
+    const name = { type: "session_info", id: "left-name", parentId: "left-1", timestamp: "2026-09-03T00:02:00.000Z", name: "Release baseline" };
     await writeFile(
       join(sessionDir, "left.jsonl"),
-      `${JSON.stringify(header("left"))}\n${JSON.stringify(message("left-1", null, "user", "Ship it"))}\n`,
+      `${JSON.stringify(header("left"))}\n${JSON.stringify(message("left-1", null, "user", "Ship it"))}\n${JSON.stringify(name)}\n`,
       "utf8",
     );
     await writeFile(
@@ -101,8 +103,8 @@ describe("session compare", () => {
     expect(compare).toBeDefined();
     await expect(compare!.execute("call-1", { left: "left", right: "right" }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: {
-        left: { id: "left", messageCount: 1 },
-        right: { id: "right", messageCount: 2 },
+        left: { id: "left", name: "Release baseline", messageCount: 1 },
+        right: { id: "right", name: "Ship it", messageCount: 2 },
         shared: 1,
         added: [{ role: "assistant", text: "Done" }],
         removed: [],
@@ -181,7 +183,7 @@ describe("session compare", () => {
     };
     try {
       const controller = new AbortController();
-      const pending = tool.execute("delayed-cancel", { left: "left", right: "right" }, controller.signal, undefined, {} as never);
+      const pending = tool.execute("delayed-cancel", { left: "left.jsonl", right: "right.jsonl" }, controller.signal, undefined, {} as never);
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         readStarted,
@@ -214,12 +216,25 @@ describe("session compare", () => {
         timestamp,
         message: { role: "user", content: [{ type: "text", text }] },
       })}\n`;
-    const oldPath = join(sessionDir, "old-session.jsonl");
-    await writeFile(oldPath, session("old-session", "Original product brief", "2020-01-01T00:00:00.000Z"), "utf8");
-    await utimes(oldPath, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
+    const identities = new Map<string, string>();
     await Promise.all(
-      Array.from({ length: 200 }, (_, index) => writeFile(join(sessionDir, `recent-${index}.jsonl`), session(`recent-${index}`, `Iteration ${index}`), "utf8")),
+      Array.from({ length: 201 }, (_, index) => {
+        const id = `session-${index}`;
+        const filename = `2026-09-03T00-00-${String(index).padStart(3, "0")}_${id}.jsonl`;
+        identities.set(filename, id);
+        return writeFile(join(sessionDir, filename), session(id, `Iteration ${index}`), "utf8");
+      }),
     );
+    const observedOrder: string[] = [];
+    const directory = await opendir(sessionDir);
+    for await (const entry of directory) if (entry.isFile() && entry.name.endsWith(".jsonl")) observedOrder.push(entry.name);
+    expect(observedOrder).toHaveLength(201);
+    const targetFilename = observedOrder[200]!;
+    const targetId = identities.get(targetFilename)!;
+    const comparisonFilename = observedOrder[0]!;
+    const comparisonId = identities.get(comparisonFilename)!;
+    const targetPath = join(sessionDir, targetFilename);
+    await utimes(targetPath, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
 
     const context = new Context();
     contexts.push(context);
@@ -232,18 +247,190 @@ describe("session compare", () => {
     const compare = tools.snapshot().customTools.find((tool) => tool.name === "session_compare");
     if (compare === undefined) throw new Error("session_compare was not registered");
 
-    const result = await compare.execute("old", { left: "old-session", right: "recent-0" }, undefined, undefined, {} as never);
+    const probe = await open(targetPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      return originalRead.call(this, ...args);
+    };
+    let result: Awaited<ReturnType<typeof compare.execute>>;
+    try {
+      result = await compare.execute("old", { left: targetId, right: comparisonFilename }, undefined, undefined, {} as never);
+    } finally {
+      fileHandlePrototype.read = originalRead;
+    }
+    expect(readCalls).toBeGreaterThan(200);
     expect(result).toMatchObject({
       details: {
-        left: { id: "old-session", messageCount: 1 },
-        right: { id: "recent-0", messageCount: 1 },
+        left: { id: targetId, messageCount: 1 },
+        right: { id: comparisonId, messageCount: 1 },
         changed: true,
       },
     });
     expect(result.content).toEqual([
-      expect.objectContaining({ type: "text", text: expect.stringContaining("Compared old-session with recent-0: changed.") as unknown }),
+      expect.objectContaining({ type: "text", text: expect.stringContaining(`Compared ${targetId} with ${comparisonId}: changed.`) as unknown }),
     ]);
-    expect((await context.piPluginUi.snapshot())[0]?.data).toMatchObject({ left: { id: "old-session" }, right: { id: "recent-0" }, changed: true });
+    expect((await context.piPluginUi.snapshot())[0]?.data).toMatchObject({ left: { id: targetId }, right: { id: comparisonId }, changed: true });
+  });
+
+  test("does not read an unrelated oversized journal beyond its bounded header", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-header-cwd-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-header-agent-"));
+    directories.push(cwd, agentDir);
+    const sessionDir = join(agentDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    const session = (id: string, text: string) =>
+      `${JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-09-03T00:00:00.000Z", cwd })}\n${JSON.stringify({
+        type: "message",
+        id: `${id}-message`,
+        parentId: null,
+        timestamp: "2026-09-03T00:01:00.000Z",
+        message: { role: "user", content: [{ type: "text", text }] },
+      })}\n`;
+    const unrelatedPath = join(sessionDir, "aa-unrelated.jsonl");
+    await writeFile(
+      unrelatedPath,
+      `${JSON.stringify({ type: "session", version: 3, id: "unrelated", timestamp: "2026-09-03T00:00:00.000Z", cwd })}\n${"x".repeat(8 * 1024 * 1024)}`,
+      "utf8",
+    );
+    await writeFile(join(sessionDir, "zz-left.jsonl"), session("left", "before"), "utf8");
+    await writeFile(join(sessionDir, "zz-right.jsonl"), session("right", "after"), "utf8");
+
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager: { getCwd: () => cwd, getSessionId: () => "active", getSessionDir: () => sessionDir } } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(sessionComparePlugin);
+    const compare = tools.snapshot().customTools.find((tool) => tool.name === "session_compare");
+    if (compare === undefined) throw new Error("session_compare was not registered");
+
+    const originalRead = Object.getOwnPropertyDescriptor(ReadStream.prototype, "_read")?.value as (this: ReadStream, size: number) => void;
+    let fullJournalRequestedBytes = 0;
+    ReadStream.prototype._read = function (size: number): void {
+      if (size >= 64 * 1024) fullJournalRequestedBytes += size;
+      originalRead.call(this, size);
+    };
+    try {
+      await expect(compare.execute("bounded-header", { left: "left", right: "right" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { left: { id: "left" }, right: { id: "right" }, changed: true },
+      });
+      expect(fullJournalRequestedBytes).toBe(0);
+    } finally {
+      ReadStream.prototype._read = originalRead;
+    }
+  });
+
+  test("uses the authoritative bounded read for an explicit filename with a large valid header", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-direct-cwd-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-direct-agent-"));
+    directories.push(cwd, agentDir);
+    const sessionDir = join(agentDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    const largeHeader = { type: "session", version: 3, id: "large-header", timestamp: "2026-09-03T00:00:00.000Z", cwd, metadata: "x".repeat(70 * 1024) };
+    const message = {
+      type: "message",
+      id: "large-message",
+      parentId: null,
+      timestamp: "2026-09-03T00:01:00.000Z",
+      message: { role: "user", content: [{ type: "text", text: "large header session" }] },
+    };
+    await writeFile(join(sessionDir, "large.jsonl"), `${JSON.stringify(largeHeader)}\n${JSON.stringify(message)}\n`, "utf8");
+
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager: { getCwd: () => cwd, getSessionId: () => "active", getSessionDir: () => sessionDir } } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(sessionComparePlugin);
+    const compare = tools.snapshot().customTools.find((tool) => tool.name === "session_compare");
+    if (compare === undefined) throw new Error("session_compare was not registered");
+
+    await expect(
+      compare.execute("large-header", { left: "large.jsonl", right: join(sessionDir, "large.jsonl") }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { left: { id: "large-header", messageCount: 1 }, right: { id: "large-header", messageCount: 1 }, changed: false },
+    });
+  });
+
+  test("compares a legacy session whose header omits cwd and timestamp", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-legacy-cwd-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-legacy-agent-"));
+    directories.push(cwd, agentDir);
+    const sessionDir = join(agentDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    const header = { type: "session", version: 1, id: "legacy" };
+    const message = {
+      type: "message",
+      id: "legacy-message",
+      parentId: null,
+      timestamp: "2020-01-01T00:01:00.000Z",
+      message: { role: "user", content: "legacy session" },
+    };
+    await writeFile(join(sessionDir, "2019-legacy.jsonl"), `${JSON.stringify(header)}\n${JSON.stringify(message)}\n`, "utf8");
+
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager: { getCwd: () => cwd, getSessionId: () => "active", getSessionDir: () => sessionDir } } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(sessionComparePlugin);
+    const compare = tools.snapshot().customTools.find((tool) => tool.name === "session_compare");
+    if (compare === undefined) throw new Error("session_compare was not registered");
+
+    await expect(compare.execute("legacy", { left: "legacy", right: "legacy" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { left: { id: "legacy", messageCount: 1 }, right: { id: "legacy", messageCount: 1 }, changed: false },
+    });
+  });
+
+  test("reports a context change after an empty directory scan instead of not-found", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-empty-cwd-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-empty-agent-"));
+    directories.push(cwd, agentDir);
+    const sessionDir = join(agentDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    let reads = 0;
+    const manager = {
+      getCwd: () => cwd,
+      getSessionDir: () => sessionDir,
+      getSessionId: () => (++reads < 5 ? "active" : "changed"),
+    };
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager } as never);
+    context.provide("piTools", new PiToolRegistry());
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(sessionComparePlugin);
+    const compare = context.piTools.snapshot().customTools.find((tool) => tool.name === "session_compare");
+    if (compare === undefined) throw new Error("session_compare was not registered");
+
+    type CloseCallback = (error?: NodeJS.ErrnoException | null) => void;
+    const originalClose = Object.getOwnPropertyDescriptor(Dir.prototype, "close")?.value as Dir["close"];
+    const closeWithCallback = originalClose as (this: Dir, callback: CloseCallback) => void;
+    let closeCalls = 0;
+    Dir.prototype.close = function (this: Dir, callback?: CloseCallback): Promise<void> | void {
+      closeCalls += 1;
+      if (callback !== undefined) return closeWithCallback.call(this, callback);
+      return new Promise<void>((resolve, reject) => {
+        closeWithCallback.call(this, (error) => (error == null ? resolve() : reject(error)));
+      });
+    } as Dir["close"];
+    try {
+      await expect(compare.execute("empty", { left: "missing", right: "missing" }, undefined, undefined, {} as never)).rejects.toThrow(/context changed/iu);
+      expect(closeCalls).toBe(1);
+    } finally {
+      Dir.prototype.close = originalClose;
+    }
   });
 });
 
