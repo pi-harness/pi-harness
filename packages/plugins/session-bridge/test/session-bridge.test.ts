@@ -592,6 +592,55 @@ test("quarantines a real journal write failure until session reload", async () =
   }
 });
 
+test("rejects the same handoff after reopening the persisted native session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-bridge-reload-"));
+  const sessionDir = join(root, "sessions");
+  const manager = SessionManager.create(root, sessionDir);
+  manager.appendMessage({ role: "user", content: [{ type: "text", text: "seed" }], timestamp: Date.now() });
+  manager.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "seed response" }],
+    api: "openai-completions",
+    provider: "fixture",
+    model: "fixture",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  });
+  let active = await realSession(manager);
+  const runtime = { session: active.session };
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  context.provide("piSession", { manager });
+  context.provide("piRuntime", runtime as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  try {
+    await context.plugin(sessionBridge);
+    const importer = tools.snapshot().customTools.find((tool) => tool.name === "session_bridge_import");
+    if (importer === undefined) throw new Error("Session Bridge import tool was not registered");
+    const packageValue = buildBridgePackage({ sessionId: "source", cwd: "/source" }, [{ role: "user", content: "persisted handoff" }]);
+    const parameters = { package: JSON.stringify(packageValue), confirm: true };
+
+    await expect(importer.execute("first", parameters, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { accepted: true, delivery: "appended", messages: 1 },
+    });
+    const file = manager.getSessionFile();
+    if (file === undefined) throw new Error("Session Bridge test session did not persist");
+    await active.dispose();
+    const reopenedManager = SessionManager.open(file, sessionDir);
+    active = await realSession(reopenedManager);
+    runtime.session = active.session;
+    await expect(importer.execute("duplicate-after-reload", parameters, undefined, undefined, {} as never)).rejects.toThrow(/handoff.*already imported/iu);
+    expect(reopenedManager.getEntries().filter((entry) => entry.type === "custom_message" && entry.customType === "pi-harness/session-bridge")).toHaveLength(1);
+  } finally {
+    await context.fiber.dispose();
+    await active.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test.each(["export", "preview", "import"] as const)("binds bridge %s before deferred execution and parameter inspection", async (operation) => {
   const context = new Context();
   const manager = SessionManager.inMemory("/workspace");
