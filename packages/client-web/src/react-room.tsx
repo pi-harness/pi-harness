@@ -5109,7 +5109,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         })()
       ) : panel.id === "theme-studio-panel" ? (
         (() => {
-          const theme = themeStudioView(panel.data);
+          const theme = themeStudioView(panel.data, activeSessionId);
           if (!theme) return <p className="mt-3 text-[11px] text-[var(--color-red)]">{t("主题数据无效，未应用颜色。")}</p>;
           return (
             <div className="mt-3 grid gap-3">
@@ -9651,7 +9651,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const betterSidebarPanel = data.pluginPanels.find((panel) => panel.id === "better-sidebar-panel");
   const betterSidebarData = betterSidebarPanelView(betterSidebarPanel?.data, data.session?.sessionId);
   const themeStudioPanel = data.pluginPanels.find((panel) => panel.id === "theme-studio-panel");
-  const themeStudioData = useMemo(() => themeStudioView(themeStudioPanel?.data), [themeStudioPanel?.data]);
+  const themeStudioData = useMemo(() => themeStudioView(themeStudioPanel?.data, data.session?.sessionId), [data.session?.sessionId, themeStudioPanel?.data]);
   const themeStyle = themeStudioData
     ? { ...themeStudioData.tokens, color: themeStudioData.tokens["--color-ink"], colorScheme: themeStudioData.theme === "midnight" ? "dark" : "light" }
     : undefined;
