@@ -991,19 +991,25 @@ export function ProviderAuthNotice({ model, providers, onConfigure }: { model?: 
   );
 }
 
-function PromptError({ message }: { message: string }) {
-  const everyApiAuth = /No API key found for everyapi/i.test(message);
-  const requiresAuth = everyApiAuth || /No API key found|authentication|未配置认证/i.test(message);
+export function modelSelectable(model: Pick<ClientModel, "provider">, providers: readonly ClientProvider[]): boolean {
+  return providers.find((provider) => provider.provider === model.provider)?.auth?.configured !== false;
+}
+
+export function PromptError({ message, action = "prompt" }: { message: string; action?: "prompt" | "model" }) {
+  const everyApiAuth = /No API key(?: found)? for everyapi/i.test(message);
+  const requiresAuth = everyApiAuth || /No API key(?: found)?|authentication|未配置认证/i.test(message);
   return (
     <div className="action-error" role="alert">
       <div className="action-error-summary">
-        <strong>{everyApiAuth ? t("EveryAPI 认证未注入当前进程") : requiresAuth ? t("模型尚未配置认证") : t("发送失败")}</strong>
+        <strong>{everyApiAuth ? t("EveryAPI 认证未注入当前进程") : requiresAuth ? t("模型尚未配置认证") : action === "model" ? t("模型切换失败") : t("发送失败")}</strong>
         <span>
           {everyApiAuth
             ? t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
             : requiresAuth
               ? t("请在设置 → 提供商中配置 API key，然后重试。")
-              : t("运行时没有接受这次请求，请重试或查看错误详情。")}
+              : action === "model"
+                ? t("运行时没有接受模型切换；当前模型保持不变。")
+                : t("运行时没有接受这次请求，请重试或查看错误详情。")}
         </span>
       </div>
       <details>
@@ -8455,21 +8461,27 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   });
   const promptUi = promptUiForSession(storedPromptUi, data.session?.sessionId);
   const { draft, pendingPrompt, busy: promptBusy, error: promptError } = promptUi;
+  const [pendingModel, setPendingModel] = useState<string>();
+  const [modelSelectionError, setModelSelectionError] = useState("");
   const promptScopeRef = useRef<{ sessionId: string | undefined }>({ sessionId: data.session?.sessionId });
   const promptSubmissionIdRef = useRef(0);
   const setDraft = useCallback((value: string | ((current: string) => string)) => {
     setStoredPromptUi((current) => updatePromptDraft(current, promptScopeRef.current.sessionId, value));
   }, []);
   const setPromptError = useCallback((error: string) => {
+    setModelSelectionError("");
     setStoredPromptUi((current) => ({ ...promptUiForSession(current, promptScopeRef.current.sessionId), error }));
   }, []);
   const setPromptErrorForScope = useCallback((scope: { sessionId: string | undefined }, error: string) => {
     if (promptScopeRef.current !== scope) return;
+    setModelSelectionError("");
     setStoredPromptUi((current) => (current.sessionId === scope.sessionId ? { ...current, error } : current));
   }, []);
   useLayoutEffect(() => {
     promptScopeRef.current = { sessionId: data.session?.sessionId };
     setStoredPromptUi((current) => promptUiForSession(current, data.session?.sessionId));
+    setPendingModel(undefined);
+    setModelSelectionError("");
   }, [data.session?.sessionId]);
   const [storedAnnotationDraft, setStoredAnnotationDraft] = useState<ClientAnnotationDraft>({
     sessionId: undefined,
@@ -9206,6 +9218,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const delivery = promptDelivery(promptBusy, data.status?.status);
     if (!prompt || !delivery) return;
     const submissionId = ++promptSubmissionIdRef.current;
+    setModelSelectionError("");
     setStoredPromptUi((current) => startPromptSubmission(current, data.session?.sessionId, submissionId, prompt));
     setStreamingAssistant(undefined);
     stickToBottomRef.current = true;
@@ -9422,6 +9435,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const installedPluginPanel = installedPluginId === undefined ? undefined : data.pluginPanels.find((panel) => panel.pluginId === installedPluginId);
   const runTelemetry =
     data.status?.status === "running" && runActivity !== undefined ? runTelemetryView(runActivity, eventStreamState, statusReachable, runClockAt) : undefined;
+  const hasSelectableModel = data.models.some((model) => modelSelectable(model, data.providers));
   const content = settings ? (
     <Settings
       api={api}
@@ -9667,7 +9681,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         </div>
         <div className="composer-stack">
           <ProviderAuthNotice model={data.status?.model} providers={data.providers} onConfigure={() => setSettings("providers")} />
-          {promptError && <PromptError message={promptError} />}
+          {modelSelectionError ? <PromptError action="model" message={modelSelectionError} /> : promptError ? <PromptError message={promptError} /> : null}
           {annotationSelection ? (
             <div aria-label={t("添加批注")} className="rounded-lg border border-[#cdddf8] bg-[var(--color-blue-soft)] px-3 py-2">
               <div className="flex items-start gap-2">
@@ -9835,26 +9849,53 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <div className="composer-tools">
               <select
                 aria-label={t("模型")}
-                disabled={!data.models.length || promptBusy}
-                value={data.status?.model ?? ""}
+                disabled={!hasSelectableModel || promptBusy || pendingModel !== undefined}
+                value={pendingModel ?? data.status?.model ?? ""}
                 onChange={(event) => {
-                  const [provider, ...modelParts] = event.target.value.split("/");
+                  const selectedModel = event.target.value;
+                  const [provider, ...modelParts] = selectedModel.split("/");
                   const model = modelParts.join("/");
                   if (!provider || !model) return;
                   const promptScope = promptScopeRef.current;
                   setPromptError("");
+                  setModelSelectionError("");
+                  setPendingModel(selectedModel);
                   void api
                     .selectModel(provider, model)
-                    .then(refresh)
-                    .catch((cause: unknown) => setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause)));
+                    .then(
+                      (result) => {
+                        if (promptScopeRef.current !== promptScope) return;
+                        // The mutation response is newer than every snapshot already in flight. Advance the live-status barrier before applying it so an older poll cannot visually undo a successful switch.
+                        liveRefreshSequenceRef.current.status = Math.max(liveRefreshSequenceRef.current.status, refreshSequenceRef.current.requested + 1);
+                        setData((current) => ({
+                          ...current,
+                          status: current.status ? { ...current.status, model: `${result.model.provider}/${result.model.id}` } : current.status,
+                          models: current.models.map((item) => ({
+                            ...item,
+                            active: item.provider === result.model.provider && item.id === result.model.id,
+                          })),
+                        }));
+                        setPendingModel(undefined);
+                        void refresh();
+                      },
+                      (cause: unknown) => {
+                        if (promptScopeRef.current !== promptScope) return;
+                        setPendingModel(undefined);
+                        setModelSelectionError(cause instanceof Error ? cause.message : String(cause));
+                      },
+                    );
                 }}
               >
                 {data.models.length ? (
-                  data.models.map((model) => (
-                    <option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
-                      {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
-                    </option>
-                  ))
+                  data.models.map((model) => {
+                    const selectable = modelSelectable(model, data.providers);
+                    return (
+                      <option disabled={!selectable} key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
+                        {model.name === model.id ? `${model.provider}/${model.id}` : `${model.name} (${model.provider})`}
+                        {selectable ? "" : ` — ${t("不可用")}`}
+                      </option>
+                    );
+                  })
                 ) : (
                   <option value="">{t("暂无可用模型")}</option>
                 )}
