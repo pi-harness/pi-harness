@@ -338,22 +338,41 @@ describe("run telemetry", () => {
 
 describe("marketplace detail resolution", () => {
   test("shows a plugin that is already loaded on the visible page", () => {
-    expect(marketplaceDetailPlan("cordis-timer", [plugin("cordis-timer")], undefined)).toEqual({ kind: "show", plugin: plugin("cordis-timer") });
+    expect(marketplaceDetailPlan("cordis-timer", [{ locale: "en", plugins: [plugin("cordis-timer")] }], "en", undefined)).toEqual({
+      kind: "show",
+      plugin: plugin("cordis-timer"),
+    });
   });
 
   test("finds a plugin that sits past the first marketplace page in the full catalog", () => {
     const catalog = Array.from({ length: 120 }, (_, index) => plugin(`plugin-${index}`));
 
-    expect(marketplaceDetailPlan("plugin-119", catalog, undefined)).toEqual({ kind: "show", plugin: plugin("plugin-119") });
+    expect(marketplaceDetailPlan("plugin-119", [{ locale: "en", plugins: catalog }], "en", undefined)).toEqual({
+      kind: "show",
+      plugin: plugin("plugin-119"),
+    });
   });
 
   test("keeps an already resolved detail instead of refetching it on every poll", () => {
-    expect(marketplaceDetailPlan("cordis-timer", [], "cordis-timer")).toEqual({ kind: "keep" });
+    expect(marketplaceDetailPlan("cordis-timer", [], "en", { pluginId: "cordis-timer", locale: "en" })).toEqual({ kind: "keep" });
   });
 
   test("fetches once for a deep link that no loaded page covers and clears without a route", () => {
-    expect(marketplaceDetailPlan("cordis-timer", [plugin("other")], "another-plugin")).toEqual({ kind: "fetch" });
-    expect(marketplaceDetailPlan(undefined, [plugin("cordis-timer")], "cordis-timer")).toEqual({ kind: "clear" });
+    expect(marketplaceDetailPlan("cordis-timer", [{ locale: "en", plugins: [plugin("other")] }], "en", { pluginId: "another-plugin", locale: "en" })).toEqual({
+      kind: "fetch",
+    });
+    expect(marketplaceDetailPlan(undefined, [{ locale: "en", plugins: [plugin("cordis-timer")] }], "en", { pluginId: "cordis-timer", locale: "en" })).toEqual({
+      kind: "clear",
+    });
+  });
+
+  test("does not reuse stale detail data when the locale changes and the new catalog is unavailable", () => {
+    expect(
+      marketplaceDetailPlan("cordis-timer", [{ locale: "zh-CN", plugins: [plugin("cordis-timer")] }], "en", {
+        pluginId: "cordis-timer",
+        locale: "zh-CN",
+      }),
+    ).toEqual({ kind: "fetch" });
   });
 });
 

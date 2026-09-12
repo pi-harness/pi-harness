@@ -10,14 +10,14 @@ import { atomicWriteFile, isPiToolRegistryLeasedError } from "@pi-harness/core";
 import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
 import type { WebServer } from "@pi-harness/host-webserver";
 import {
-  MARKETPLACE_CAPABILITIES,
-  MARKETPLACE_CATEGORIES,
   MARKETPLACE_PLUGINS,
   attachMarketplaceStatistics,
   createMarketplaceStatisticsLoader,
   paginateMarketplace,
   searchMarketplace,
   marketplaceNpmPackageName,
+  marketplaceCapabilities,
+  marketplaceCategories,
   sortMarketplaceByRecommendation,
   type MarketplacePlugin,
 } from "./marketplace.js";
@@ -1233,6 +1233,7 @@ export default {
         const query = url.searchParams.get("q") ?? "";
         const capability = url.searchParams.get("capability") ?? "";
         const category = url.searchParams.get("category") ?? "";
+        const locale = url.searchParams.get("locale") ?? "";
         const page = Number(url.searchParams.get("page") ?? "0");
         const pageSize = Number(url.searchParams.get("pageSize") ?? "24");
         const sort = url.searchParams.get("sort") ?? "";
@@ -1240,6 +1241,7 @@ export default {
           query.length > 120 ||
           capability.length > 80 ||
           category.length > 80 ||
+          locale.length > 20 ||
           !Number.isInteger(page) ||
           page < 0 ||
           !Number.isInteger(pageSize) ||
@@ -1250,15 +1252,15 @@ export default {
           sendJson(response, 400, { error: "Invalid marketplace query" });
           return;
         }
-        const filtered = searchMarketplace(query, capability, category);
+        const filtered = searchMarketplace(query, capability, category, locale);
         const cached = readCachedMarketplaceStatistics(MARKETPLACE_PLUGINS);
         // Recommendation is only applied once the whole catalogue has been looked up. Scoring a half-warm cache would reorder the grid under the reader's cursor on every poll as the background lookups land, which costs more than the few seconds the first sort is delayed.
         const items =
           sort === "recommended" && cached.ready ? sortMarketplaceByRecommendation(attachMarketplaceStatistics(filtered, cached.statistics)) : filtered;
         sendJson(response, 200, {
           ...paginateMarketplace(items, page, pageSize),
-          capabilities: MARKETPLACE_CAPABILITIES,
-          categories: MARKETPLACE_CATEGORIES,
+          capabilities: marketplaceCapabilities(locale),
+          categories: marketplaceCategories(locale),
         });
       },
     });

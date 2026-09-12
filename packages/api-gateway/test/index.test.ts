@@ -2202,6 +2202,18 @@ describe("API gateway plugin", () => {
     expect(payload).toMatchObject({ total: 1, page: 0, pageSize: 1, hasNext: false });
     expect(payload.capabilities).toEqual(expect.arrayContaining([expect.objectContaining({ id: "read-only", label: "只读运行" })]));
     expect(payload.categories).toEqual(expect.arrayContaining([expect.objectContaining({ id: "workflow", label: "工作流", count: 20 })]));
+    const englishResponse = await fetch(context.webServer.url + "/api/marketplace?q=lifecycle-managed%20asynchronous%20timers&locale=en&page=0&pageSize=1");
+    expect(englishResponse.status).toBe(200);
+    const englishPayload = (await englishResponse.json()) as {
+      items?: readonly { description?: unknown; category?: { label?: unknown }; hooks?: readonly unknown[] }[];
+      capabilities?: readonly { id?: unknown; label?: unknown }[];
+    };
+    expect(englishPayload.items?.[0]).toMatchObject({
+      description: "Provide lifecycle-managed asynchronous timers, throttling, and debouncing.",
+      category: { label: "Workflow" },
+    });
+    expect(englishPayload.items?.[0]?.hooks).toContain("Plugin panel");
+    expect(englishPayload.capabilities).toEqual(expect.arrayContaining([expect.objectContaining({ id: "read-only", label: "Read-only operation" })]));
     const tooLong = await fetch(context.webServer.url + "/api/marketplace?q=" + "x".repeat(121));
     expect(tooLong.status).toBe(400);
     const invalidPage = await fetch(context.webServer.url + "/api/marketplace?page=-1");

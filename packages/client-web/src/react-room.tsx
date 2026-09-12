@@ -109,6 +109,7 @@ interface RoomData {
   plugins: readonly ClientPlugin[];
   pluginPanels: readonly ClientPluginPanel[];
   marketplace: readonly ClientMarketplacePlugin[];
+  marketplaceLocale?: string;
   marketplaceCapabilities: readonly ClientMarketplaceCapability[];
   marketplaceCategories: readonly ClientMarketplaceCategory[];
   marketplaceTotal: number;
@@ -117,6 +118,10 @@ interface RoomData {
   commands: readonly ClientCommand[];
   workspaces: readonly ClientWorkspace[];
 }
+
+const EMPTY_MARKETPLACE_PLUGINS: readonly ClientMarketplacePlugin[] = [];
+const EMPTY_MARKETPLACE_CAPABILITIES: readonly ClientMarketplaceCapability[] = [];
+const EMPTY_MARKETPLACE_CATEGORIES: readonly ClientMarketplaceCategory[] = [];
 
 const value = (input: unknown, fallback = "—"): string => {
   if (input === undefined || input === null || input === "") return fallback;
@@ -8168,16 +8173,30 @@ type MarketplaceDetailPlan =
   | { readonly kind: "keep" }
   | { readonly kind: "fetch" };
 
-// `loaded` is every plugin already in memory (the visible page plus the fully paginated catalog); `resolvedId` is the detail already resolved for this route, which keeps a poll from blanking the page and refetching it.
+interface MarketplaceDetailSource {
+  readonly locale: string;
+  readonly plugins: readonly ClientMarketplacePlugin[];
+}
+
+interface MarketplaceDetailResolution {
+  readonly pluginId: string;
+  readonly locale: string;
+}
+
+// Sources carry their locale because a language switch must not reuse a previous catalog while the new request is still pending or failed. The resolved scope keeps a poll from blanking and refetching a detail only in the language that produced it.
 export function marketplaceDetailPlan(
   pluginId: string | undefined,
-  loaded: readonly ClientMarketplacePlugin[],
-  resolvedId: string | undefined,
+  sources: readonly MarketplaceDetailSource[],
+  locale: string,
+  resolved: MarketplaceDetailResolution | undefined,
 ): MarketplaceDetailPlan {
   if (pluginId === undefined) return { kind: "clear" };
-  const plugin = loaded.find((item) => item.id === pluginId);
+  const plugin = sources
+    .filter((source) => source.locale === locale)
+    .flatMap((source) => source.plugins)
+    .find((item) => item.id === pluginId);
   if (plugin !== undefined) return { kind: "show", plugin };
-  return resolvedId === pluginId ? { kind: "keep" } : { kind: "fetch" };
+  return resolved?.pluginId === pluginId && resolved.locale === locale ? { kind: "keep" } : { kind: "fetch" };
 }
 
 /** At most `limit` characters, collapsed to one line unless the caller wants the original line breaks kept. */
@@ -8397,7 +8416,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [marketplaceDetail, setMarketplaceDetail] = useState<ClientMarketplacePlugin>();
   const [marketplaceDetailPending, setMarketplaceDetailPending] = useState(initialQueryState.marketplacePlugin !== undefined);
   const [marketplaceDetailError, setMarketplaceDetailError] = useState("");
-  const [marketplaceCatalog, setMarketplaceCatalog] = useState<readonly ClientMarketplacePlugin[]>([]);
+  const [marketplaceCatalogState, setMarketplaceCatalogState] = useState<{ readonly locale: string; readonly plugins: readonly ClientMarketplacePlugin[] }>({
+    locale: "",
+    plugins: EMPTY_MARKETPLACE_PLUGINS,
+  });
+  const marketplaceCatalog = marketplaceCatalogState.locale === locale ? marketplaceCatalogState.plugins : EMPTY_MARKETPLACE_PLUGINS;
+  const marketplacePageCurrent = data.marketplaceLocale === locale;
+  const marketplacePagePlugins = marketplacePageCurrent ? data.marketplace : EMPTY_MARKETPLACE_PLUGINS;
+  const marketplacePageCapabilities = marketplacePageCurrent ? data.marketplaceCapabilities : EMPTY_MARKETPLACE_CAPABILITIES;
+  const marketplacePageCategories = marketplacePageCurrent ? data.marketplaceCategories : EMPTY_MARKETPLACE_CATEGORIES;
   const [installedPluginId, setInstalledPluginId] = useState<string | undefined>(initialQueryState.installedPlugin);
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
@@ -8428,7 +8455,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refreshQueuedRef = useRef(false);
   const refreshSequenceRef = useRef({ requested: 0, applied: 0 });
   const liveRefreshSequenceRef = useRef({ status: 0, session: 0, pluginPanels: 0 });
-  const resolvedMarketplaceDetailIdRef = useRef<string | undefined>(undefined);
+  const resolvedMarketplaceDetailRef = useRef<MarketplaceDetailResolution | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
@@ -8436,17 +8463,17 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [refreshIssues, setRefreshIssues] = useState<readonly string[]>([]);
   useEffect(() => {
     let cancelled = false;
-    void loadMarketplaceCatalog(api)
+    void loadMarketplaceCatalog(api, locale)
       .then((items) => {
-        if (!cancelled) setMarketplaceCatalog(items);
+        if (!cancelled) setMarketplaceCatalogState({ locale, plugins: items });
       })
       .catch(() => {
-        if (!cancelled) setMarketplaceCatalog([]);
+        if (!cancelled) setMarketplaceCatalogState({ locale, plugins: EMPTY_MARKETPLACE_PLUGINS });
       });
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, locale]);
   useEffect(() => {
     if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
   }, [data.session?.sessionFile, selectedSessionPath]);
@@ -8472,7 +8499,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     [data.plugins],
   );
   const harnessProcess = data.status?.processStartedAt ?? "";
-  const capabilityLabel = useMemo(() => marketplaceCapabilityLabeller(data.marketplaceCapabilities), [data.marketplaceCapabilities]);
+  const capabilityLabel = useMemo(() => marketplaceCapabilityLabeller(marketplacePageCapabilities), [marketplacePageCapabilities]);
   const [restartPending, setRestartPending] = useState<RestartPendingState>(() => readRestartPendingPackages(browserStorage()));
   const markRestartPending = (packageName: string) => {
     setRestartPending((current) =>
@@ -8636,17 +8663,25 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
   useEffect(() => {
-    const plan = marketplaceDetailPlan(marketplacePluginId, [...data.marketplace, ...marketplaceCatalog], resolvedMarketplaceDetailIdRef.current);
+    const plan = marketplaceDetailPlan(
+      marketplacePluginId,
+      [
+        { locale: data.marketplaceLocale ?? "", plugins: data.marketplace },
+        { locale: marketplaceCatalogState.locale, plugins: marketplaceCatalogState.plugins },
+      ],
+      locale,
+      resolvedMarketplaceDetailRef.current,
+    );
     if (plan.kind === "keep") return;
     if (plan.kind === "clear") {
-      resolvedMarketplaceDetailIdRef.current = undefined;
+      resolvedMarketplaceDetailRef.current = undefined;
       setMarketplaceDetail(undefined);
       setMarketplaceDetailPending(false);
       setMarketplaceDetailError("");
       return;
     }
     if (plan.kind === "show") {
-      resolvedMarketplaceDetailIdRef.current = marketplacePluginId;
+      resolvedMarketplaceDetailRef.current = marketplacePluginId === undefined ? undefined : { pluginId: marketplacePluginId, locale };
       setMarketplaceDetail(plan.plugin);
       setMarketplaceDetailPending(false);
       setMarketplaceDetailError("");
@@ -8657,11 +8692,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setMarketplaceDetailPending(true);
     setMarketplaceDetailError("");
     void api
-      .listMarketplace("", "", 0, 100)
+      .listMarketplace("", "", 0, 100, "", locale)
       .then((result) => {
         if (cancelled) return;
         // Only a real answer marks the route resolved; a failed request stays retryable on the next poll.
-        resolvedMarketplaceDetailIdRef.current = marketplacePluginId;
+        resolvedMarketplaceDetailRef.current = marketplacePluginId === undefined ? undefined : { pluginId: marketplacePluginId, locale };
         const plugin = result.items.find((item) => item.id === marketplacePluginId);
         if (plugin === undefined) setMarketplaceDetailError(t("没有找到这个市场插件，它可能已下架。"));
         else setMarketplaceDetail(plugin);
@@ -8675,7 +8710,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => {
       cancelled = true;
     };
-  }, [api, data.marketplace, marketplaceCatalog, marketplacePluginId]);
+  }, [api, data.marketplace, data.marketplaceLocale, locale, marketplaceCatalogState, marketplacePluginId]);
   useEffect(() => {
     if (installedPluginId === undefined) {
       setInstalledPluginMetadata(undefined);
@@ -8689,7 +8724,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     let cancelled = false;
     setInstalledPluginMetadata(undefined);
     void api
-      .listMarketplace("", "", 0, 100)
+      .listMarketplace("", "", 0, 100, "", locale)
       .then((result) => {
         if (!cancelled) setInstalledPluginMetadata(result.items.find((item) => item.packageName === installedPluginId));
       })
@@ -8699,7 +8734,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => {
       cancelled = true;
     };
-  }, [api, installedPluginId, marketplaceCatalog]);
+  }, [api, installedPluginId, locale, marketplaceCatalog]);
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequenceRef.current.requested;
     const pendingNavigation = pendingSessionNavigationRef.current;
@@ -8712,7 +8747,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listModels(),
       api.listProviders(),
       api.listPlugins(),
-      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory),
+      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale),
       api.listCommands(),
       api.listWorkspaces(),
     ] as const;
@@ -8783,6 +8818,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       plugins: plugins.status === "fulfilled" ? plugins.value : current.plugins,
       pluginPanels: current.pluginPanels,
       marketplace: marketplace.status === "fulfilled" ? marketplace.value.items : current.marketplace,
+      marketplaceLocale: marketplace.status === "fulfilled" ? locale : current.marketplaceLocale,
       marketplaceCapabilities: marketplace.status === "fulfilled" ? marketplace.value.capabilities : current.marketplaceCapabilities,
       marketplaceCategories: marketplace.status === "fulfilled" ? marketplace.value.categories : current.marketplaceCategories,
       marketplaceTotal: marketplace.status === "fulfilled" ? marketplace.value.total : current.marketplaceTotal,
@@ -8796,7 +8832,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
-  }, [api, includeArchivedSessions, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage]);
+  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -9342,7 +9378,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       capabilityLabel={capabilityLabel}
       plugins={data.plugins}
       panels={data.pluginPanels}
-      catalog={marketplaceCatalog.length ? marketplaceCatalog : data.marketplace}
+      catalog={marketplaceCatalog.length ? marketplaceCatalog : marketplacePagePlugins}
       onMarketplace={() => pushMarketplacePluginRoute(undefined)}
       onOpenDetail={(plugin) => pushInstalledPluginRoute(plugin.name)}
       onToml={() => {
@@ -9397,10 +9433,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       </section>
     ) : (
       <Marketplace
-        plugins={data.marketplace}
-        capabilities={data.marketplaceCapabilities}
+        plugins={marketplacePagePlugins}
+        capabilities={marketplacePageCapabilities}
         capabilityLabel={capabilityLabel}
-        categories={data.marketplaceCategories}
+        categories={marketplacePageCategories}
         total={data.marketplaceTotal}
         page={data.marketplacePage}
         hasNext={data.marketplaceHasNext}

@@ -5,6 +5,8 @@ import {
   MARKETPLACE_PLUGINS,
   attachMarketplaceStatistics,
   createMarketplaceStatisticsLoader,
+  marketplaceCapabilities,
+  marketplaceCategories,
   marketplaceNpmPackageName,
   paginateMarketplace,
   searchMarketplace,
@@ -53,6 +55,17 @@ describe("plugin marketplace registry", () => {
     expect(
       MARKETPLACE_PLUGINS.every((plugin) => plugin.repository.startsWith("https://") && plugin.license && plugin.profile.name === plugin.packageName),
     ).toBe(true);
+  });
+
+  test("localizes the English marketplace before filtering and returning it", () => {
+    const timer = searchMarketplace("lifecycle-managed asynchronous timers", "", "", "en");
+
+    expect(timer.map((plugin) => plugin.id)).toEqual(["cordis-timer"]);
+    expect(timer[0]?.description).toBe("Provide lifecycle-managed asynchronous timers, throttling, and debouncing.");
+    expect(timer[0]?.category.label).toBe("Workflow");
+    expect(timer[0]?.hooks).toContain("Plugin panel");
+    expect(marketplaceCapabilities("en").find((capability) => capability.id === "runs-commands")?.label).toBe("Run local commands");
+    expect(marketplaceCategories("en").find((category) => category.id === "security")?.label).toBe("Security");
   });
 
   test("publishes the high-value official plugins in the same marketplace registry", () => {

@@ -75,6 +75,13 @@ export interface MarketplaceCapability {
   readonly count: number;
 }
 
+interface MarketplaceLocale {
+  readonly categories: Readonly<Record<string, string>>;
+  readonly capabilities: Readonly<Record<string, string>>;
+  readonly hooks: Readonly<Record<string, string>>;
+  readonly plugins: Readonly<Record<string, string>>;
+}
+
 /** What a plugin does to the machine it is installed on, ordered from the least invasive to the most, so a reader can decide from the badges alone. This replaced free text, which produced 299 values across 78 entries with 284 of them held by a single plugin: the filter listed nearly one option per plugin and nothing could be compared against anything else. Every value here is derived from the plugin's own imports, including those it inherits from a plugin it depends on. */
 const MARKETPLACE_CAPABILITY_VOCABULARY: readonly { readonly id: string; readonly label: string }[] = [
   { id: "read-only", label: "只读运行" },
@@ -187,6 +194,50 @@ function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
 }
 
 export const MARKETPLACE_PLUGINS: readonly MarketplacePlugin[] = loadMarketplacePlugins();
+
+function requiredStringMap(value: unknown, label: string): Readonly<Record<string, string>> {
+  if (!isRecord(value) || Object.values(value).some((entry) => typeof entry !== "string" || entry.trim() === ""))
+    throw new Error(`Invalid marketplace locale ${label}`);
+  return value as Readonly<Record<string, string>>;
+}
+
+function requireExactLocaleKeys(actual: Readonly<Record<string, string>>, expected: ReadonlySet<string>, label: string): void {
+  const actualKeys = new Set(Object.keys(actual));
+  if (actualKeys.size !== expected.size || [...expected].some((key) => !actualKeys.has(key))) throw new Error(`Incomplete marketplace locale ${label}`);
+}
+
+function loadMarketplaceLocale(locale: string): MarketplaceLocale {
+  const path = join(dirname(fileURLToPath(import.meta.url)), "marketplace-locales", `${locale}.json`);
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch (error) {
+    throw new Error(`Invalid marketplace locale ${path}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  if (!isRecord(value)) throw new Error(`Invalid marketplace locale: ${path}`);
+  const categories = requiredStringMap(value.categories, `${locale} categories`);
+  const capabilities = requiredStringMap(value.capabilities, `${locale} capabilities`);
+  const hooks = requiredStringMap(value.hooks, `${locale} hooks`);
+  const plugins = requiredStringMap(value.plugins, `${locale} plugins`);
+  requireExactLocaleKeys(categories, new Set(MARKETPLACE_PLUGINS.map((plugin) => plugin.category.id)), `${locale} categories`);
+  requireExactLocaleKeys(capabilities, new Set(MARKETPLACE_CAPABILITY_VOCABULARY.map((capability) => capability.id)), `${locale} capabilities`);
+  requireExactLocaleKeys(hooks, new Set(MARKETPLACE_PLUGINS.flatMap((plugin) => plugin.hooks)), `${locale} hooks`);
+  requireExactLocaleKeys(plugins, new Set(MARKETPLACE_PLUGINS.map((plugin) => plugin.id)), `${locale} plugins`);
+  return { categories, capabilities, hooks, plugins };
+}
+
+const MARKETPLACE_LOCALES = new Map<string, MarketplaceLocale>([["en", loadMarketplaceLocale("en")]]);
+
+function localizeMarketplacePlugin(plugin: MarketplacePlugin, locale = ""): MarketplacePlugin {
+  const catalog = MARKETPLACE_LOCALES.get(locale);
+  if (catalog === undefined) return plugin;
+  return {
+    ...plugin,
+    description: catalog.plugins[plugin.id] ?? plugin.description,
+    category: { ...plugin.category, label: catalog.categories[plugin.category.id] ?? plugin.category.label },
+    hooks: plugin.hooks.map((hook) => catalog.hooks[hook] ?? hook),
+  };
+}
 
 export function marketplaceNpmPackageName(packageName: string): string {
   const segments = packageName.split("/");
@@ -349,20 +400,40 @@ export function sortMarketplaceByRecommendation(plugins: readonly MarketplacePlu
   return [...plugins].sort((left, right) => marketplaceRecommendationScore(right, now) - marketplaceRecommendationScore(left, now));
 }
 
-export function searchMarketplace(query = "", capability = "", category = ""): readonly MarketplacePlugin[] {
+export function searchMarketplace(query = "", capability = "", category = "", locale = ""): readonly MarketplacePlugin[] {
   const normalizedQuery = query.trim().toLowerCase();
   const normalizedCapability = capability.trim().toLowerCase();
   const normalizedCategory = category.trim().toLowerCase();
-  return MARKETPLACE_PLUGINS.filter((plugin) => {
-    // The capability labels are searched alongside their ids: the ids are what the filter and the URL carry, and the labels are what the reader sees on the card.
-    const capabilities = plugin.capabilities.flatMap((item) => [item, marketplaceCapabilityLabels.get(item) ?? item]);
-    const searchable = [plugin.name, plugin.packageName, plugin.description, plugin.author, ...capabilities, ...plugin.hooks].join(" ").toLowerCase();
-    return (
-      (normalizedQuery === "" || searchable.includes(normalizedQuery)) &&
-      (normalizedCapability === "" || plugin.capabilities.some((item) => item.toLowerCase() === normalizedCapability)) &&
-      (normalizedCategory === "" || plugin.category.id.toLowerCase() === normalizedCategory)
-    );
-  });
+  return MARKETPLACE_PLUGINS.map((plugin) => ({ source: plugin, localized: localizeMarketplacePlugin(plugin, locale) }))
+    .filter(({ source, localized }) => {
+      // The capability labels are searched alongside their ids: the ids are what the filter and the URL carry, and the labels are what the reader sees on the card.
+      const localeCatalog = MARKETPLACE_LOCALES.get(locale);
+      const capabilities = source.capabilities.flatMap((item) => [
+        item,
+        marketplaceCapabilityLabels.get(item) ?? item,
+        localeCatalog?.capabilities[item] ?? item,
+      ]);
+      const searchable = [
+        source.name,
+        source.packageName,
+        source.description,
+        localized.description,
+        source.author,
+        source.category.id,
+        localized.category.label,
+        ...capabilities,
+        ...source.hooks,
+        ...localized.hooks,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return (
+        (normalizedQuery === "" || searchable.includes(normalizedQuery)) &&
+        (normalizedCapability === "" || source.capabilities.some((item) => item.toLowerCase() === normalizedCapability)) &&
+        (normalizedCategory === "" || source.category.id.toLowerCase() === normalizedCategory)
+      );
+    })
+    .map(({ localized }) => localized);
 }
 
 export function paginateMarketplace(items: readonly MarketplacePlugin[], page = 0, pageSize = 24): MarketplacePage {
@@ -388,3 +459,17 @@ export const MARKETPLACE_CATEGORIES: readonly MarketplaceCategory[] = [
 ]
   .map((category) => ({ ...category, count: MARKETPLACE_PLUGINS.filter((plugin) => plugin.category.id === category.id).length }))
   .sort((a, b) => a.label.localeCompare(b.label));
+
+export function marketplaceCapabilities(locale = ""): readonly MarketplaceCapability[] {
+  const catalog = MARKETPLACE_LOCALES.get(locale);
+  if (catalog === undefined) return MARKETPLACE_CAPABILITIES;
+  return MARKETPLACE_CAPABILITIES.map((capability) => ({ ...capability, label: catalog.capabilities[capability.id] ?? capability.label }));
+}
+
+export function marketplaceCategories(locale = ""): readonly MarketplaceCategory[] {
+  const catalog = MARKETPLACE_LOCALES.get(locale);
+  if (catalog === undefined) return MARKETPLACE_CATEGORIES;
+  return MARKETPLACE_CATEGORIES.map((category) => ({ ...category, label: catalog.categories[category.id] ?? category.label })).sort((left, right) =>
+    left.label.localeCompare(right.label, locale),
+  );
+}
