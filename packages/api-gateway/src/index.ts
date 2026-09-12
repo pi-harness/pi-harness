@@ -1,5 +1,5 @@
 import { execFile, type ExecFileException } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
@@ -302,7 +302,19 @@ function sessionPathInDirectory(path: string, manager: SessionManager): boolean 
   const root = resolve(manager.getSessionDir());
   const target = resolve(path);
   const relativePath = relative(root, target);
-  return relativePath !== "" && !escapesRoot(relativePath) && target.endsWith(".jsonl");
+  if (relativePath === "" || escapesRoot(relativePath) || !target.endsWith(".jsonl")) return false;
+  // Session paths are supplied by the browser and are later opened, renamed, exported or unlinked. A lexical containment check is not enough: a symlinked component could redirect those operations outside the session directory. Missing final paths are allowed for the active session's deferred persistence, but every existing component must be a real directory/file.
+  let current = root;
+  for (const component of relativePath.split(sep)) {
+    current = join(current, component);
+    try {
+      if (lstatSync(current).isSymbolicLink()) return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+      return false;
+    }
+  }
+  return true;
 }
 
 function persistSessionBeforeFirstAssistant(manager: SessionManager): void {
