@@ -69,6 +69,7 @@ import { modlensPanelView } from "./modlens-view.js";
 import { visionToolkitPanelView } from "./vision-toolkit-view.js";
 import { readmeGenPanelView } from "./readme-gen-view.js";
 import { taskboardPanelView } from "./taskboard-view.js";
+import { promptLibraryPanelView } from "./prompt-library-view.js";
 import { LOCALES, formatLocale, setLocale, t, useLocale, writeStoredLocale } from "./i18n.js";
 
 export type { ClientApi } from "./control-room.js";
@@ -2746,42 +2747,59 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
             : null}
         </div>
       ) : panel.id === "prompt-library-panel" ? (
-        <div className="mt-3 grid gap-3">
-          {Array.isArray(data?.templates) && data.templates.length > 0 ? (
-            <div className="grid gap-2">
-              {data.templates.slice(0, 12).map((item, index) => {
-                const template = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                const tags = Array.isArray(template.tags) ? template.tags.filter((tag): tag is string => typeof tag === "string") : [];
-                return (
-                  <div
-                    className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3"
-                    key={`${value(template.id ?? "prompt")}-${index}`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <strong className="truncate text-[11px] text-[var(--color-ink)]">{value(template.title ?? t("未命名提示词"))}</strong>
-                      <code className="shrink-0 text-[10px] text-[var(--color-faint)]">{value(template.id ?? "—")}</code>
-                    </div>
-                    <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-[var(--color-muted)]">{value(template.prompt ?? "")}</p>
-                    {tags.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {tags.slice(0, 6).map((tag) => (
-                          <span className="rounded bg-[var(--color-blue-soft)] px-1.5 py-0.5 text-[9px] text-[var(--color-blue)]" key={tag}>
-                            {tag}
-                          </span>
-                        ))}
+        (() => {
+          const view = promptLibraryPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+                <strong className="block text-[12px]">{t("Prompt Library 面板数据异常")}</strong>
+                <span className="mt-1 block">{t("面板数据不完整或不可信，请重新加载后再查询。")}</span>
+              </div>
+            );
+          }
+          return (
+            <div className="mt-3 grid gap-3">
+              {view.templates.length > 0 ? (
+                <div className="grid max-h-[40rem] gap-2 overflow-y-auto">
+                  {view.templates.map((template, index) => {
+                    const tags = template.tags;
+                    return (
+                      <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3" key={`${template.id}-${index}`}>
+                        <div className="grid min-w-0 gap-1">
+                          <strong className="whitespace-pre-wrap text-[11px] text-[var(--color-ink)] [overflow-wrap:anywhere]">{template.title}</strong>
+                          <code className="min-w-0 break-all text-[10px] text-[var(--color-faint)]">{template.id}</code>
+                        </div>
+                        <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-[10px] leading-4 text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                          {template.prompt}
+                        </p>
+                        {tags.length > 0 ? (
+                          <div className="mt-2 flex min-w-0 flex-wrap gap-1">
+                            {tags.map((tag) => (
+                              <span
+                                className="max-w-full whitespace-pre-wrap rounded bg-[var(--color-blue-soft)] px-1.5 py-0.5 text-[9px] text-[var(--color-blue)] [overflow-wrap:anywhere]"
+                                key={tag}
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  {t("还没有保存的提示词。可让 Agent 调用 prompt_library 保存模板。")}
+                </div>
+              )}
+              {view.truncated ? (
+                <p className="text-[10px] leading-4 text-[var(--color-amber)]">{t("列表已按安全上限截断，仅展示最近 {v0} 条有效记录。", { v0: view.shown })}</p>
+              ) : null}
+              <p className="text-[10px] leading-4 text-[var(--color-faint)]">{t("共 {v0} 个模板，数据跟随当前会话。", { v0: view.total })}</p>
             </div>
-          ) : (
-            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("还没有保存的提示词。可让 Agent 调用 prompt_library 保存模板。")}
-            </div>
-          )}
-          <p className="text-[10px] leading-4 text-[var(--color-faint)]">{t("共 {v0} 个模板，数据跟随当前会话。", { v0: value(data?.total ?? 0) })}</p>
-        </div>
+          );
+        })()
       ) : panel.id === "colleague-skill-panel" ? (
         <div className="mt-3 grid gap-3">
           {data?.latest && typeof data.latest === "object" ? (
