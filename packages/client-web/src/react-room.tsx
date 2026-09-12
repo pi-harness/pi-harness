@@ -4030,7 +4030,11 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                           <strong className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-ink)]">
                             {value(node.label ?? node.sessionId ?? t("未命名会话"))}
                           </strong>
-                          <span className="font-mono text-[9px] text-[var(--color-faint)]">{t("{v0} 条消息", { v0: value(node.messageCount ?? 0) })}</span>
+                          <span className="font-mono text-[9px] text-[var(--color-faint)]">
+                            {node.messagesTruncated === true
+                              ? t("消息元数据未扫描（文件超过 4 MiB）")
+                              : t("{v0} 条消息", { v0: value(node.messageCount ?? 0) })}
+                          </span>
                         </div>
                         <div className="mt-1 flex items-center gap-2 text-[9px] text-[var(--color-faint)]">
                           <span className="min-w-0 flex-1 truncate font-mono">{value(node.cwd ?? t("未知工作区"))}</span>
@@ -4063,6 +4067,17 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
                       </div>
                     );
                   })}
+                </div>
+              ) : null}
+              {Number(data?.metadataTruncated ?? 0) > 0 || Number(data?.metadataUnavailable ?? 0) > 0 ? (
+                <div className="rounded-lg border border-[#f0d59b] bg-[#fff8e7] px-3 py-2 text-[10px] text-[#75520b]">
+                  {Number(data?.metadataTruncated ?? 0) > 0
+                    ? t("{v0} 个会话的消息元数据未扫描，因为文件超过 4 MiB。", { v0: value(data?.metadataTruncated) })
+                    : null}
+                  {Number(data?.metadataTruncated ?? 0) > 0 && Number(data?.metadataUnavailable ?? 0) > 0 ? " " : null}
+                  {Number(data?.metadataUnavailable ?? 0) > 0
+                    ? t("{v0} 个会话在扫描期间发生变化或无法读取，未显示。", { v0: value(data?.metadataUnavailable) })
+                    : null}
                 </div>
               ) : null}
               <div className="text-[10px] text-[var(--color-faint)]">
