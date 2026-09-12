@@ -1,4 +1,5 @@
 {
+  "Better Sidebar 面板数据异常": "Données du panneau Better Sidebar non valides",
   "Git 状态读取失败。": "Impossible de lire l’état Git.",
   "Git 状态读取超时；请提高 gitTimeoutMs 或缩小工作区。": "La lecture de l’état Git a expiré ; augmentez gitTimeoutMs ou réduisez l’espace de travail.",
   "Git 返回了无法安全解析的状态。": "Git a renvoyé un état impossible à analyser de façon sûre.",

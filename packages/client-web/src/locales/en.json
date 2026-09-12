@@ -1,4 +1,5 @@
 {
+  "Better Sidebar 面板数据异常": "Invalid Better Sidebar panel data",
   "Git 状态读取失败。": "Could not read Git status.",
   "Git 状态读取超时；请提高 gitTimeoutMs 或缩小工作区。": "Git status timed out; increase gitTimeoutMs or narrow the workspace.",
   "Git 返回了无法安全解析的状态。": "Git returned status output that could not be parsed safely.",

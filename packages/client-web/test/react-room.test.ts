@@ -876,9 +876,17 @@ test("reports the actual sidebar preview count without calling Git truncation a 
         icon: "",
         data: {
           cwd: "/active",
+          gitAvailable: true,
+          gitFailureReason: null,
+          branch: "feature/orders",
+          clean: false,
           changedCount: 15,
           changedFiles: Array.from({ length: 12 }, (_, i) => ({ path: `file-${i}.txt`, status: "??" })),
+          directoryCount: 20,
+          fileCount: 60,
           truncated: true,
+          sessionId: "session-orders",
+          summary: "feature/orders · 15 个变更",
         },
       },
     }),
@@ -887,6 +895,41 @@ test("reports the actual sidebar preview count without calling Git truncation a 
   expect(html).toContain("概览包含截断的结果");
   expect(html).not.toContain("目录摘要已截断");
   expect(html).not.toContain("file-8.txt");
+  expect(html).toContain('aria-label="工作区 Git 变更"');
+  expect(html).toContain('tabindex="0"');
+  expect(html).toContain("whitespace-pre-wrap");
+  expect(html).toContain("focus-visible:outline-2");
+});
+
+test("renders actionable Better Sidebar failures and rejects malformed panel snapshots", () => {
+  const panel = {
+    id: "better-sidebar-panel",
+    pluginId: "@pi-harness/plugin-better-sidebar",
+    title: "Better Sidebar",
+    data: {
+      cwd: "/active",
+      gitAvailable: false,
+      gitFailureReason: "timeout",
+      branch: null,
+      clean: false,
+      changedCount: 0,
+      changedFiles: [],
+      directoryCount: 1,
+      fileCount: 2,
+      truncated: false,
+      sessionId: "session-orders",
+      summary: "Git 状态不可用 (timeout) · 无变更",
+    },
+  };
+  const failureHtml = renderToStaticMarkup(createElement(PluginPanelCard, { panel }));
+  const malformedHtml = renderToStaticMarkup(createElement(PluginPanelCard, { panel: { ...panel, data: { ...panel.data, changedCount: 1 } } }));
+  const staleHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "new-session", panel }));
+
+  expect(failureHtml).toContain("Git 状态读取超时；请提高 gitTimeoutMs 或缩小工作区。");
+  expect(malformedHtml).toContain("Better Sidebar 面板数据异常");
+  expect(malformedHtml).not.toContain("session-orders");
+  expect(staleHtml).toContain("Better Sidebar 面板数据异常");
+  expect(staleHtml).not.toContain("session-orders");
 });
 
 test("shows review locations and prioritizes errors in the visible findings", () => {

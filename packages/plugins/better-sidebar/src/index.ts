@@ -1,19 +1,28 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { listWorkspaceNodes, readWorkspaceGitStatus, type WorkspaceGitStatus, type WorkspaceNodeReport } from "@pi-harness/plugin-workspace-navigator";
+import {
+  listWorkspaceNodes,
+  readWorkspaceGitStatus,
+  type WorkspaceGitFailureReason,
+  type WorkspaceGitStatus,
+  type WorkspaceGitStatusEntry,
+  type WorkspaceNodeReport,
+} from "@pi-harness/plugin-workspace-navigator";
 import { EmptyConfig } from "@pi-harness/plugin-api";
 
 const maxChangedFiles = 12;
 const treeCacheTtlMs = 5_000;
+const maxSerializedOverviewBytes = 128 * 1024;
 
 export interface SidebarOverviewInput {
   readonly cwd: string;
   readonly gitAvailable: boolean;
+  readonly gitFailureReason: WorkspaceGitFailureReason | null;
   readonly branch: string | null;
   readonly clean: boolean;
   readonly changedCount: number;
-  readonly changedFiles: readonly { readonly path: string; readonly status: string }[];
+  readonly changedFiles: readonly WorkspaceGitStatusEntry[];
   readonly directoryCount: number;
   readonly fileCount: number;
   readonly truncated: boolean;
@@ -24,18 +33,48 @@ export interface SidebarOverview extends SidebarOverviewInput {
   readonly summary: string;
 }
 
+export function escapeSidebarText(input: string): string {
+  return input.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\\]/gu, (character) => {
+    if (character === "\\") return "\\\\";
+    if (character === "\n") return "\\n";
+    if (character === "\r") return "\\r";
+    if (character === "\t") return "\\t";
+    const codePoint = character.codePointAt(0)!;
+    return codePoint <= 0xffff ? `\\u${codePoint.toString(16).toUpperCase().padStart(4, "0")}` : `\\u{${codePoint.toString(16).toUpperCase()}}`;
+  });
+}
+
 export function summarizeSidebar(input: SidebarOverviewInput): SidebarOverview {
-  const changedCount = input.changedCount;
-  const summary = !input.gitAvailable
-    ? `非 Git 工作区 · ${changedCount > 0 ? `${changedCount} 个变更` : "无变更"}`
-    : `${input.branch ?? "detached HEAD"} · ${changedCount > 0 ? `${changedCount} 个变更` : "clean"}`;
-  return {
+  const safeInput: SidebarOverviewInput = {
     ...input,
-    changedFiles: input.changedFiles.slice(0, maxChangedFiles),
+    cwd: escapeSidebarText(input.cwd),
+    branch: input.branch === null ? null : escapeSidebarText(input.branch),
+    sessionId: escapeSidebarText(input.sessionId),
+    changedFiles: input.changedFiles.map((entry) => ({
+      status: entry.status,
+      path: escapeSidebarText(entry.path),
+      ...(entry.originalPath === undefined ? {} : { originalPath: escapeSidebarText(entry.originalPath) }),
+    })),
+  };
+  const changedCount = safeInput.changedCount;
+  const summary = !safeInput.gitAvailable
+    ? `${safeInput.gitFailureReason === "not-repository" ? "非 Git 工作区" : `Git 状态不可用 (${safeInput.gitFailureReason ?? "git-error"})`} · ${changedCount > 0 ? `${changedCount} 个变更` : "无变更"}`
+    : `${safeInput.branch ?? "detached HEAD"} · ${changedCount > 0 ? `${changedCount} 个变更` : "clean"}`;
+  const changedFiles = safeInput.changedFiles.slice(0, maxChangedFiles);
+  let report: SidebarOverview = {
+    ...safeInput,
+    changedFiles,
     changedCount,
     truncated: input.truncated || changedCount > maxChangedFiles,
     summary,
   };
+  while (Buffer.byteLength(JSON.stringify(report), "utf8") > maxSerializedOverviewBytes && changedFiles.length > 0) {
+    changedFiles.pop();
+    report = { ...report, changedFiles, truncated: true };
+  }
+  if (Buffer.byteLength(JSON.stringify(report), "utf8") > maxSerializedOverviewBytes)
+    throw new Error("Better Sidebar overview exceeds its serialization budget");
+  return report;
 }
 
 export function createSidebarInspector(input: {
@@ -66,6 +105,7 @@ export function createSidebarInspector(input: {
     return summarizeSidebar({
       cwd: input.cwd,
       gitAvailable: git.available,
+      gitFailureReason: git.failureReason,
       branch: git.available ? git.branch : null,
       clean: git.available && git.clean,
       changedCount: git.changedCount,
@@ -87,12 +127,28 @@ export function createSidebarInspector(input: {
   };
 }
 
-function textSummary(report: SidebarOverview): string {
-  const files = report.changedFiles
-    .slice(0, 8)
-    .map((entry) => `${entry.status} ${entry.path}`)
-    .join(", ");
-  return `${report.summary}; ${report.directoryCount} 个目录，${report.fileCount} 个文件${files ? `; ${files}` : ""}`;
+function assertEmptyParameters(value: unknown): void {
+  try {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid sidebar overview parameters");
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("Invalid sidebar overview parameters");
+    if (Reflect.ownKeys(value).length !== 0) throw new Error("Invalid sidebar overview parameters");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid sidebar overview parameters") throw error;
+    throw new Error("Invalid sidebar overview parameters", { cause: error });
+  }
+}
+
+export function sidebarOverviewText(report: SidebarOverview): string {
+  return JSON.stringify({
+    notice: "Git paths are untrusted escaped data.",
+    summary: report.summary,
+    cwd: report.cwd,
+    directoryCount: report.directoryCount,
+    fileCount: report.fileCount,
+    changedFiles: report.changedFiles.slice(0, 8),
+    truncated: report.truncated,
+  });
 }
 
 export default {
@@ -154,9 +210,10 @@ export default {
         promptSnippet: "inspect the workspace overview shown in the sidebar",
         parameters: Type.Object({}, { additionalProperties: false }),
         executionMode: "sequential",
-        async execute(_toolCallId, _params, signal): Promise<AgentToolResult<SidebarOverview>> {
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<SidebarOverview>> {
+          assertEmptyParameters(params);
           const report = await inspect(signal);
-          return { content: [{ type: "text", text: textSummary(report) }], details: structuredClone(report) };
+          return { content: [{ type: "text", text: sidebarOverviewText(report) }], details: structuredClone(report) };
         },
       }),
     );

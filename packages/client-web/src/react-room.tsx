@@ -73,6 +73,7 @@ import { promptLibraryPanelView } from "./prompt-library-view.js";
 import { memoryPanelView } from "./memory-view.js";
 import { workspaceSearchPanelView } from "./workspace-search-view.js";
 import { workspaceNavigatorPanelView } from "./workspace-navigator-view.js";
+import { betterSidebarPanelView, type BetterSidebarGitFailureReason } from "./better-sidebar-view.js";
 import { LOCALES, formatLocale, setLocale, t, useLocale, writeStoredLocale } from "./i18n.js";
 
 export type { ClientApi } from "./control-room.js";
@@ -108,6 +109,23 @@ const value = (input: unknown, fallback = "—"): string => {
     return fallback;
   }
 };
+
+function betterSidebarGitFailureText(reason: BetterSidebarGitFailureReason | null): string {
+  switch (reason) {
+    case "not-repository":
+      return t("当前工作区不在 Git 仓库中。");
+    case "timeout":
+      return t("Git 状态读取超时；请提高 gitTimeoutMs 或缩小工作区。");
+    case "git-unavailable":
+      return t("未找到 Git 可执行文件。");
+    case "output-limit":
+      return t("Git 输出超过安全上限；请缩小工作区。");
+    case "invalid-output":
+      return t("Git 返回了无法安全解析的状态。");
+    default:
+      return t("Git 状态读取失败。");
+  }
+}
 
 const dialogFocusSelector = [
   "button:not([disabled])",
@@ -1256,7 +1274,7 @@ function pluginPanelData(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
-export function PluginPanelCard({ panel, inline = false }: { panel: ClientPluginPanel; inline?: boolean }) {
+export function PluginPanelCard({ panel, inline = false, activeSessionId }: { panel: ClientPluginPanel; inline?: boolean; activeSessionId?: string }) {
   const data = pluginPanelData(panel.data);
   const entries = data ? Object.entries(data) : [[t("内容"), panel.data] as const];
   const items = data && Array.isArray(data.items) ? data.items : [];
@@ -2613,44 +2631,58 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
         </div>
       ) : panel.id === "better-sidebar-panel" ? (
         (() => {
-          const changedFiles = Array.isArray(data?.changedFiles) ? data.changedFiles : [];
-          const clean = data?.clean === true;
+          const view = betterSidebarPanelView(data, activeSessionId);
+          if (view.malformed) {
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+                <strong className="block text-[12px]">{t("Better Sidebar 面板数据异常")}</strong>
+                <span className="mt-1 block">{t("面板数据不完整或不一致。")}</span>
+              </div>
+            );
+          }
           return (
             <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
               <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
-                  <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(data?.cwd ?? t("当前工作区"))}</code>
+                  <code className="min-w-0 whitespace-pre-wrap text-[11px] text-[var(--color-blue)] [overflow-wrap:anywhere]">{view.cwd}</code>
                   <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${clean ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${view.clean ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : view.gitAvailable ? "bg-[var(--color-red-soft)] text-[var(--color-red)]" : "bg-[var(--color-soft)] text-[var(--color-faint)]"}`}
                   >
-                    {clean ? "clean" : t("{count} 个变更", { count: value(data?.changedCount ?? changedFiles.length) })}
+                    {!view.gitAvailable ? t("不可用") : view.clean ? "clean" : t("{count} 个变更", { count: view.changedCount })}
                   </span>
                 </div>
-                <p className="mt-2 break-all font-mono text-[10px] text-[var(--color-muted)]">{value(data?.summary ?? t("等待工作区扫描"))}</p>
-                <p className="mt-1 break-all text-[10px] text-[var(--color-faint)]">
+                <p className="mt-2 whitespace-pre-wrap font-mono text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                  {view.gitAvailable ? (view.branch ?? "detached HEAD") : betterSidebarGitFailureText(view.gitFailureReason)}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
                   {t("会话 {v0} · 目录 {v1} · 文件 {v2}", {
-                    v0: value(data?.sessionId ?? "—"),
-                    v1: value(data?.directoryCount ?? 0),
-                    v2: value(data?.fileCount ?? 0),
+                    v0: view.sessionId,
+                    v1: view.directoryCount,
+                    v2: view.fileCount,
                   })}
                 </p>
               </div>
-              {changedFiles.length > 0 ? (
-                <div className="grid min-w-0 grid-cols-1 gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
+              {view.changedFiles.length > 0 ? (
+                <div
+                  aria-label={t("工作区 Git 变更")}
+                  className="grid max-h-[40rem] min-w-0 grid-cols-1 gap-1 overflow-y-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-blue)]"
+                  tabIndex={0}
+                >
                   <p className="text-[10px] text-[var(--color-faint)]">
-                    {t("显示 {v0} / {v1} 个变更", { v0: Math.min(changedFiles.length, 8), v1: value(data?.changedCount ?? changedFiles.length) })}
+                    {t("显示 {v0} / {v1} 个变更", { v0: Math.min(view.changedFiles.length, 8), v1: view.changedCount })}
                   </p>
-                  {changedFiles.slice(0, 8).map((item, index) => {
-                    const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                    return (
-                      <code className="truncate py-0.5 text-[10px] text-[var(--color-muted)]" key={`${value(entry.path ?? "file")}-${index}`}>
-                        {value(entry.status ?? "??")} {value(entry.path ?? t("未命名"))}
-                      </code>
-                    );
-                  })}
+                  {view.changedFiles.slice(0, 8).map((entry) => (
+                    <code
+                      className="whitespace-pre-wrap py-0.5 text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]"
+                      key={`${entry.status}\0${entry.path}`}
+                    >
+                      {entry.status} {entry.originalPath === undefined ? "" : `${entry.originalPath} → `}
+                      {entry.path}
+                    </code>
+                  ))}
                 </div>
               ) : null}
-              {data?.truncated === true ? <p className="text-[10px] text-[var(--color-faint)]">{t("概览包含截断的结果，显示数量与总数见上方。")}</p> : null}
+              {view.truncated ? <p className="text-[10px] text-[var(--color-faint)]">{t("概览包含截断的结果，显示数量与总数见上方。")}</p> : null}
             </div>
           );
         })()
@@ -6132,6 +6164,7 @@ function PluginCategoryNav({
 function Plugins({
   plugins,
   panels,
+  activeSessionId,
   catalog,
   capabilityLabel,
   onMarketplace,
@@ -6142,6 +6175,7 @@ function Plugins({
 }: {
   plugins: readonly ClientPlugin[];
   panels: readonly ClientPluginPanel[];
+  activeSessionId?: string;
   catalog: readonly ClientMarketplacePlugin[];
   capabilityLabel: (id: string) => string;
   onMarketplace: () => void;
@@ -6356,7 +6390,7 @@ function Plugins({
                 {panels
                   .filter((panel) => !installedPlugins.some((plugin) => plugin.name === panel.pluginId))
                   .map((panel) => (
-                    <PluginPanelCard key={panel.id} panel={panel} />
+                    <PluginPanelCard activeSessionId={activeSessionId} key={panel.id} panel={panel} />
                   ))}
               </div>
             </section>
@@ -6383,6 +6417,7 @@ function Plugins({
 function InstalledPluginDetail({
   plugin,
   panel,
+  activeSessionId,
   metadata,
   capabilityLabel,
   onBack,
@@ -6391,6 +6426,7 @@ function InstalledPluginDetail({
 }: {
   plugin: ClientPlugin;
   panel?: ClientPluginPanel;
+  activeSessionId?: string;
   metadata?: ClientMarketplacePlugin;
   capabilityLabel: (id: string) => string;
   onBack: () => void;
@@ -6528,7 +6564,11 @@ function InstalledPluginDetail({
                   </div>
                   <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-faint)]">LIVE</span>
                 </div>
-                {panel ? <PluginPanelCard inline panel={panel} /> : <div className="empty-state">{t("这个插件暂未提供实时面板。")}</div>}
+                {panel ? (
+                  <PluginPanelCard activeSessionId={activeSessionId} inline panel={panel} />
+                ) : (
+                  <div className="empty-state">{t("这个插件暂未提供实时面板。")}</div>
+                )}
               </section>
             </div>
             <aside className="h-fit rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
@@ -9166,6 +9206,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     />
   ) : page === "plugins" && installedPluginId && installedPlugin ? (
     <InstalledPluginDetail
+      activeSessionId={data.session?.sessionId}
       metadata={installedPluginMetadata}
       capabilityLabel={capabilityLabel}
       onBack={() => pushInstalledPluginRoute(undefined)}
@@ -9201,6 +9242,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     </section>
   ) : page === "plugins" ? (
     <Plugins
+      activeSessionId={data.session?.sessionId}
       capabilityLabel={capabilityLabel}
       plugins={data.plugins}
       panels={data.pluginPanels}
@@ -9607,10 +9649,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
   const visibleCommands = filterCommands(data.commands, commandQuery);
   const betterSidebarPanel = data.pluginPanels.find((panel) => panel.id === "better-sidebar-panel");
-  const betterSidebarData =
-    betterSidebarPanel?.data !== null && typeof betterSidebarPanel?.data === "object" && !Array.isArray(betterSidebarPanel?.data)
-      ? (betterSidebarPanel.data as Record<string, unknown>)
-      : undefined;
+  const betterSidebarData = betterSidebarPanelView(betterSidebarPanel?.data, data.session?.sessionId);
   const themeStudioPanel = data.pluginPanels.find((panel) => panel.id === "theme-studio-panel");
   const themeStudioData = useMemo(() => themeStudioView(themeStudioPanel?.data), [themeStudioPanel?.data]);
   const themeStyle = themeStudioData
@@ -10024,28 +10063,38 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               </button>
             </div>
           )}
-          {betterSidebarData && (
+          {!betterSidebarData.malformed && (
             <section aria-label={t("工作区概览")} className="mx-3 mt-3 rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
               <div className="flex items-center justify-between gap-2">
                 <strong className="text-[11px] font-semibold text-[var(--color-ink)]">{t("工作区概览")}</strong>
                 <span
-                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean === true ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-red-soft)] text-[var(--color-red)]"}`}
+                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${betterSidebarData.clean ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : betterSidebarData.gitAvailable ? "bg-[var(--color-red-soft)] text-[var(--color-red)]" : "bg-[var(--color-soft)] text-[var(--color-faint)]"}`}
                 >
-                  {betterSidebarData.clean === true ? "clean" : t("{count} 变更", { count: value(betterSidebarData.changedCount ?? 0) })}
+                  {!betterSidebarData.gitAvailable
+                    ? t("不可用")
+                    : betterSidebarData.clean
+                      ? "clean"
+                      : t("{count} 变更", { count: betterSidebarData.changedCount })}
                 </span>
               </div>
-              <code className="mt-2 block truncate text-[10px] text-[var(--color-blue)]">{value(betterSidebarData.cwd ?? t("当前工作区"))}</code>
-              <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">{value(betterSidebarData.branch ?? t("非 Git 工作区"))}</p>
-              {Array.isArray(betterSidebarData.changedFiles) && betterSidebarData.changedFiles.length > 0 ? (
-                <div className="mt-2 grid gap-1 border-t border-[#dce5f5] pt-2">
-                  {betterSidebarData.changedFiles.slice(0, 3).map((item, index) => {
-                    const file = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                    return (
-                      <code className="truncate text-[9px] text-[var(--color-muted)]" key={`${value(file.path ?? "file")}-${index}`}>
-                        {value(file.status ?? "??")} {value(file.path ?? t("未命名"))}
-                      </code>
-                    );
-                  })}
+              <code className="mt-2 block whitespace-pre-wrap text-[10px] text-[var(--color-blue)] [overflow-wrap:anywhere]">{betterSidebarData.cwd}</code>
+              <p className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                {betterSidebarData.gitAvailable
+                  ? (betterSidebarData.branch ?? "detached HEAD")
+                  : betterSidebarGitFailureText(betterSidebarData.gitFailureReason)}
+              </p>
+              {betterSidebarData.changedFiles.length > 0 ? (
+                <div
+                  aria-label={t("工作区 Git 变更")}
+                  className="mt-2 grid max-h-80 gap-1 overflow-y-auto border-t border-[#dce5f5] pt-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-blue)]"
+                  tabIndex={0}
+                >
+                  {betterSidebarData.changedFiles.slice(0, 3).map((file) => (
+                    <code className="whitespace-pre-wrap text-[9px] text-[var(--color-muted)] [overflow-wrap:anywhere]" key={`${file.status}\0${file.path}`}>
+                      {file.status} {file.originalPath === undefined ? "" : `${file.originalPath} → `}
+                      {file.path}
+                    </code>
+                  ))}
                 </div>
               ) : null}
             </section>
