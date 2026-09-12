@@ -243,6 +243,17 @@ describe("session list tools", () => {
   });
 });
 
+describe("new session workspace picker", () => {
+  test("centers short content without clipping the start of an overflowing workspace list", async () => {
+    const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
+    const scrollRule = /\.chat-scroll\.is-empty\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";
+    const screenRules = [...css.matchAll(/\.new-session-screen\s*\{([^}]*)\}/gu)].map((match) => match[1]).join("\n");
+
+    expect(scrollRule).toContain("[justify-content:flex-start]");
+    expect(screenRules).toContain("[margin-block:auto]");
+  });
+});
+
 describe("run telemetry", () => {
   test("formats elapsed time as a stable run clock", async () => {
     const { formatRunClock } = await import("../src/react-room.js");

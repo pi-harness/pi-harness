@@ -1991,10 +1991,10 @@ button:disabled {
   @apply [border:1px_solid_rgba(65,_118,_230,_0.14)] [background:var(--color-surface)] [box-shadow:0_1px_2px_rgba(0,_0,_0,_0.03)];
 }
 .chat-scroll.is-empty {
-  @apply [display:flex] [align-items:center] [justify-content:center] [padding-top:10px];
+  @apply [display:flex] [align-items:center] [justify-content:flex-start] [padding-top:10px];
 }
 .new-session-screen {
-  @apply [width:100%] [max-width:700px] [padding:24px_0_30px] [gap:12px] [text-align:left];
+  @apply [width:100%] [max-width:700px] [margin-block:auto] [padding:24px_0_30px] [gap:12px] [text-align:left];
 }
 .welcome-kicker {
   @apply [color:var(--color-blue)] [font:10px_var(--font-mono)] [letter-spacing:0.11em];
