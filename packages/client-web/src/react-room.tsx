@@ -1,5 +1,5 @@
 import { themeStudioView } from "./theme-studio-view.js";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   createClientApi,
@@ -22,6 +22,16 @@ import {
   type ClientWorkspace,
 } from "./control-room.js";
 import { getPromptCompletion, replacePromptCompletion, type PromptCompletionKind } from "./prompt-completion.js";
+import {
+  failPromptSubmission,
+  finishPromptSubmission,
+  promptUiForSession,
+  reportPromptRefreshFailure,
+  runPromptSubmission,
+  startPromptSubmission,
+  updatePromptDraft,
+  type ClientPromptUiState,
+} from "./prompt-ui.js";
 import { compactThinkingEvents, eventKindLabel, eventOrigin, eventOutputText, formatEventClock, formatEventDuration } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
 import { type ChatToolCall, messageText, messageThinking, projectChatTurns } from "./message-content.js";
@@ -8333,7 +8343,31 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const sessionNavigationIntentRef = useRef(0);
   const pendingSessionNavigationRef = useRef<{ intent: number; path?: string; accepted: boolean } | undefined>(undefined);
   const [pendingSessionUrlPath, setPendingSessionUrlPath] = useState<string>();
-  const [draft, setDraft] = useState("");
+  const [storedPromptUi, setStoredPromptUi] = useState<ClientPromptUiState>({
+    sessionId: undefined,
+    draft: "",
+    pendingPrompt: "",
+    busy: false,
+    error: "",
+  });
+  const promptUi = promptUiForSession(storedPromptUi, data.session?.sessionId);
+  const { draft, pendingPrompt, busy: promptBusy, error: promptError } = promptUi;
+  const promptScopeRef = useRef<{ sessionId: string | undefined }>({ sessionId: data.session?.sessionId });
+  const promptSubmissionIdRef = useRef(0);
+  const setDraft = useCallback((value: string | ((current: string) => string)) => {
+    setStoredPromptUi((current) => updatePromptDraft(current, promptScopeRef.current.sessionId, value));
+  }, []);
+  const setPromptError = useCallback((error: string) => {
+    setStoredPromptUi((current) => ({ ...promptUiForSession(current, promptScopeRef.current.sessionId), error }));
+  }, []);
+  const setPromptErrorForScope = useCallback((scope: { sessionId: string | undefined }, error: string) => {
+    if (promptScopeRef.current !== scope) return;
+    setStoredPromptUi((current) => (current.sessionId === scope.sessionId ? { ...current, error } : current));
+  }, []);
+  useLayoutEffect(() => {
+    promptScopeRef.current = { sessionId: data.session?.sessionId };
+    setStoredPromptUi((current) => promptUiForSession(current, data.session?.sessionId));
+  }, [data.session?.sessionId]);
   const [storedAnnotationDraft, setStoredAnnotationDraft] = useState<ClientAnnotationDraft>({
     sessionId: undefined,
     annotations: [],
@@ -8367,9 +8401,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [installedPluginId, setInstalledPluginId] = useState<string | undefined>(initialQueryState.installedPlugin);
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
-  const [promptError, setPromptError] = useState("");
-  const [promptBusy, setPromptBusy] = useState(false);
-  const [pendingPrompt, setPendingPrompt] = useState("");
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [includeArchivedSessions, setIncludeArchivedSessions] = useState(false);
   const [sessionPage, setSessionPage] = useState(0);
@@ -8823,6 +8854,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refreshRef = useRef(refresh);
   const createNewSession = useCallback(
     (workspace?: ClientWorkspace) => {
+      const promptScope = promptScopeRef.current;
       setPromptError("");
       setWorkspaceError("");
       const intent = ++sessionNavigationIntentRef.current;
@@ -8863,12 +8895,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           }
           const message = cause instanceof Error ? cause.message : String(cause);
           if (workspace) setWorkspaceError(message);
-          else setPromptError(message);
+          else setPromptErrorForScope(promptScope, message);
         }
       });
       return sessionNavigationRef.current;
     },
-    [api, refresh],
+    [api, refresh, setPromptError, setPromptErrorForScope],
   );
   const beginNewSession = () => {
     setPromptError("");
@@ -8939,6 +8971,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setInitialSessionRestorePending(false);
       return;
     }
+    const promptScope = promptScopeRef.current;
     sessionNavigationRef.current = sessionNavigationRef.current
       .then(async () => {
         if (sessionNavigationIntentRef.current > 0) return;
@@ -8949,9 +8982,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         }
         await refresh();
       })
-      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)))
+      .catch((cause: unknown) => setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setInitialSessionRestorePending(false));
-  }, [api, data.session?.sessionFile, data.sessions, refresh, sessionsLoaded]);
+  }, [api, data.session?.sessionFile, data.sessions, refresh, sessionsLoaded, setPromptErrorForScope]);
   useEffect(() => {
     setCommandIndex(0);
     if (!commandOpen) return;
@@ -8959,12 +8992,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => window.cancelAnimationFrame(frame);
   }, [commandOpen, commandQuery]);
   const stopRun = useCallback(() => {
+    const promptScope = promptScopeRef.current;
     setPromptError("");
     void api
       .abort()
       .then(refresh)
-      .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
-  }, [api, refresh]);
+      .catch((cause: unknown) => setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause)));
+  }, [api, refresh, setPromptError, setPromptErrorForScope]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (shouldInterruptRun(event, data.status?.status === "running", window.getSelection()?.toString() ?? "")) {
@@ -9037,26 +9071,24 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const prompt = annotations.length > 0 ? formatAnnotationPrompt(annotations, question) : question;
     const submittedSessionId = annotationDraft.sessionId;
     if (!prompt || promptBusy) return;
-    setDraft("");
-    setPromptError("");
-    setPendingPrompt(prompt);
+    const submissionId = ++promptSubmissionIdRef.current;
+    setStoredPromptUi((current) => startPromptSubmission(current, data.session?.sessionId, submissionId, prompt));
     setStreamingAssistant(undefined);
     stickToBottomRef.current = true;
-    setPromptBusy(true);
-    void api
-      .prompt(prompt)
-      .then(async () => {
+    void runPromptSubmission(() => api.prompt(prompt), refresh, {
+      accepted: () => {
         setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
-        await refresh();
-      })
-      .catch((cause: unknown) => {
-        setPromptError(cause instanceof Error ? cause.message : String(cause));
+      },
+      rejected: (cause) => {
         // A rejected request was never accepted as a turn. Keep it editable,
         // without replacing a new draft the user typed while awaiting it.
-        setDraft((current) => current || question);
-      })
-      .finally(() => setPendingPrompt(""))
-      .finally(() => setPromptBusy(false));
+        setStoredPromptUi((current) => failPromptSubmission(current, submissionId, question, cause instanceof Error ? cause.message : String(cause)));
+      },
+      refreshRejected: (cause) => {
+        setStoredPromptUi((current) => reportPromptRefreshFailure(current, submissionId, cause instanceof Error ? cause.message : String(cause)));
+      },
+      settled: () => setStoredPromptUi((current) => finishPromptSubmission(current, submissionId)),
+    });
   };
   const captureAnnotationSelection = useCallback(() => {
     if (annotationSelectionFrameRef.current !== undefined) window.cancelAnimationFrame(annotationSelectionFrameRef.current);
@@ -9121,6 +9153,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
     if (!path) return;
+    const promptScope = promptScopeRef.current;
     const intent = ++sessionNavigationIntentRef.current;
     pendingSessionNavigationRef.current = { intent, path, accepted: false };
     setPendingSessionUrlPath(path);
@@ -9152,11 +9185,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           pendingSessionNavigationRef.current = undefined;
           setPendingSessionUrlPath(undefined);
         }
-        setPromptError(cause instanceof Error ? cause.message : String(cause));
+        setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause));
       });
   };
   const sessionAction = async (action: () => Promise<void>) => {
     if (sessionActionBusy) return;
+    const promptScope = promptScopeRef.current;
     setSessionActionBusy(true);
     setPromptError("");
     try {
@@ -9172,7 +9206,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionSelectionMode(false);
       setSessionDialog(undefined);
     } catch (cause: unknown) {
-      setPromptError(cause instanceof Error ? cause.message : String(cause));
+      setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSessionActionBusy(false);
     }
@@ -9664,11 +9698,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   const [provider, ...modelParts] = event.target.value.split("/");
                   const model = modelParts.join("/");
                   if (!provider || !model) return;
+                  const promptScope = promptScopeRef.current;
                   setPromptError("");
                   void api
                     .selectModel(provider, model)
                     .then(refresh)
-                    .catch((cause: unknown) => setPromptError(cause instanceof Error ? cause.message : String(cause)));
+                    .catch((cause: unknown) => setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause)));
                 }}
               >
                 {data.models.length ? (
@@ -9749,7 +9784,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         }),
       );
     },
-    [draft],
+    [draft, setDraft],
   );
   return (
     <div className="app-frame" data-theme={activeTheme} style={themeStyle}>
