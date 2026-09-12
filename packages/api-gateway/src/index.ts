@@ -876,7 +876,7 @@ async function workspaceFiles(root: string): Promise<WorkspaceFileCatalogue> {
 interface EveryApiCliAuthStatus {
   configured: false;
   source: "everyapi-cli";
-  label: string;
+  status: "cli-auth-missing" | "relay-key-missing";
 }
 
 function probeEveryApiCliAuth(): Promise<EveryApiCliAuthStatus> {
@@ -886,7 +886,7 @@ function probeEveryApiCliAuth(): Promise<EveryApiCliAuthStatus> {
       resolveStatus({
         configured: false,
         source: "everyapi-cli",
-        label: error ? "未检测到 EveryAPI CLI 登录" : "EveryAPI CLI 已登录，但 relay key 未注入当前进程",
+        status: error ? "cli-auth-missing" : "relay-key-missing",
       });
     });
   });

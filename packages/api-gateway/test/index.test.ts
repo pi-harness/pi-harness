@@ -2275,7 +2275,18 @@ describe("API gateway plugin", () => {
       await expect(response.json()).resolves.toEqual({
         provider: "everyapi",
         reachable: false,
-        auth: { configured: false, source: "everyapi-cli", label: "未检测到 EveryAPI CLI 登录" },
+        auth: { configured: false, source: "everyapi-cli", status: "cli-auth-missing" },
+      });
+      process.env.EVERYAPI_CLI_PATH = "/usr/bin/true";
+      const loggedIn = await fetch(context.webServer.url + "/api/providers/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: "everyapi" }),
+      });
+      await expect(loggedIn.json()).resolves.toEqual({
+        provider: "everyapi",
+        reachable: false,
+        auth: { configured: false, source: "everyapi-cli", status: "relay-key-missing" },
       });
     } finally {
       if (previousCliPath === undefined) delete process.env.EVERYAPI_CLI_PATH;

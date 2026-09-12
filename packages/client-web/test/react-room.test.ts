@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import { themePresets } from "../../plugins/theme-studio/src/index.js";
 import { createClientApi, type ClientMarketplacePlugin, type ClientPiConfig } from "../src/control-room.js";
+import { setLocale } from "../src/i18n.js";
 import type { ConfigStatus } from "../src/react-room.js";
 import {
   PluginPanelCard,
@@ -15,6 +16,7 @@ import {
   insertCommandDraft,
   marketplaceDetailPlan,
   pluginActionErrorText,
+  providerTestAuthText,
   readRestartPendingPackages,
   reloadRuntimeConfig,
   restartRequiredNotice,
@@ -49,6 +51,19 @@ describe("provider auth readiness", () => {
     expect(render("other/model", [provider])).toBe("");
     expect(render("everyapi/model", [{ ...provider, auth: undefined }])).toBe("");
     expect(render("everyapi/model", [{ ...provider, auth: { configured: true } }])).toBe("");
+  });
+
+  test("localizes stable EveryAPI CLI auth statuses instead of rendering gateway prose", async () => {
+    await setLocale("en");
+    try {
+      expect(providerTestAuthText({ status: "cli-auth-missing", label: "未检测到 EveryAPI CLI 登录" })).toBe("No credentials detected");
+      expect(providerTestAuthText({ status: "relay-key-missing", label: "EveryAPI CLI 已登录，但 relay key 未注入当前进程" })).toBe(
+        "Start it with everyapi use pi-harness, or set EVERYAPI_RELAY_KEY and restart.",
+      );
+      expect(providerTestAuthText({ label: "Provider-specific fallback" })).toBe("Provider-specific fallback");
+    } finally {
+      await setLocale("zh-CN");
+    }
   });
 });
 

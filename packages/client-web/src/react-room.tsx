@@ -357,6 +357,14 @@ export function pluginActionErrorText(message: string): string {
   return message;
 }
 
+export function providerTestAuthText(auth: unknown): string | undefined {
+  if (auth === null || typeof auth !== "object") return undefined;
+  const status = "status" in auth ? auth.status : undefined;
+  if (status === "cli-auth-missing") return t("未检测到认证");
+  if (status === "relay-key-missing") return t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。");
+  return "label" in auth && typeof auth.label === "string" ? auth.label : undefined;
+}
+
 // Ctrl-C is the reflex for stopping a runaway agent, but the same chord is the copy shortcut everywhere else in the browser, so it only interrupts when a run is actually in flight and nothing is selected. Cmd is excluded on purpose: matching it would swallow macOS Cmd+C. A textarea or an input keeps a selection that window.getSelection() does not report, so the focused field is asked directly.
 export function shouldInterruptRun(
   event: { readonly ctrlKey: boolean; readonly metaKey: boolean; readonly shiftKey: boolean; readonly key: string; readonly target: EventTarget | null },
@@ -7188,8 +7196,7 @@ function Settings({
       void api
         .testProvider(provider)
         .then((result) => {
-          const auth = result.auth;
-          const label = auth && typeof auth === "object" && "label" in auth && typeof auth.label === "string" ? auth.label : undefined;
+          const label = providerTestAuthText(result.auth);
           setProviderState((current) => ({ ...current, [provider]: result.reachable ? t("连接正常") : (label ?? t("未检测到认证")) }));
         })
         .catch((cause: unknown) => setProviderState((current) => ({ ...current, [provider]: cause instanceof Error ? cause.message : String(cause) })))
