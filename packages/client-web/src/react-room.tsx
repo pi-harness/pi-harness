@@ -8000,6 +8000,23 @@ export function nextSessionSearchPage(currentPage: number, previousQuery: string
   return previousQuery === nextQuery ? currentPage : 0;
 }
 
+const GLOBAL_SEARCH_PAGE_SIZE = 100;
+const MAX_GLOBAL_SEARCH_SESSION_PAGES = 100;
+
+export async function listAllSessionsForGlobalSearch(
+  api: Pick<ClientApi, "listSessions">,
+  query: string,
+): Promise<readonly Record<string, unknown>[]> {
+  const first = await api.listSessions(0, GLOBAL_SEARCH_PAGE_SIZE, true, query);
+  if (!first.hasNext) return first.items;
+  // Fetch the remaining pages concurrently: global search should cover a large history without making the dialog wait on a serial request chain. The cap prevents an unexpectedly huge or inconsistent total from creating unbounded work.
+  const pageCount = Math.min(MAX_GLOBAL_SEARCH_SESSION_PAGES, Math.max(2, Math.ceil(first.total / GLOBAL_SEARCH_PAGE_SIZE)));
+  const remaining = await Promise.all(
+    Array.from({ length: pageCount - 1 }, (_, index) => api.listSessions(index + 1, GLOBAL_SEARCH_PAGE_SIZE, true, query)),
+  );
+  return [first, ...remaining].flatMap((page) => page.items);
+}
+
 export function sessionListEmptyMessage(search: string): string {
   return search ? t("没有匹配的会话") : t("暂无已保存会话");
 }
@@ -8026,6 +8043,7 @@ export function GlobalSearch({
   onUse,
   onOpenSession,
   onOpenFile,
+  onSearchSessions,
 }: {
   commands: readonly ClientCommand[];
   sessions: readonly Record<string, unknown>[];
@@ -8035,18 +8053,42 @@ export function GlobalSearch({
   onUse: (value: string) => void;
   onOpenSession: (session: Record<string, unknown>) => void;
   onOpenFile: (file: ClientFile) => void;
+  onSearchSessions?: (query: string) => Promise<readonly Record<string, unknown>[]>;
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [searchedSessions, setSearchedSessions] = useState<readonly Record<string, unknown>[]>(sessions);
+  const [sessionSearchError, setSessionSearchError] = useState("");
   const activeOptionRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus(true, onClose);
   const normalized = query.trim().toLowerCase();
   const matches = (text: string) => !normalized || text.toLowerCase().includes(normalized);
+  useEffect(() => {
+    if (!onSearchSessions || !query.trim()) {
+      setSessionSearchError("");
+      setSearchedSessions(sessions);
+      return;
+    }
+    let cancelled = false;
+    setSessionSearchError("");
+    void onSearchSessions(query)
+      .then((result) => {
+        if (!cancelled) setSearchedSessions(result);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setSearchedSessions([]);
+        setSessionSearchError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onSearchSessions, query, sessions]);
   const items: readonly GlobalSearchItem[] = [
     ...commands
       .filter((command) => matches(`${command.invocationName} ${command.description ?? ""}`))
       .map((command) => ({ kind: "command" as const, command })),
-    ...sessions
+    ...(onSearchSessions ? searchedSessions : sessions)
       .filter((session) => matches(`${value(session.name, "")} ${value(session.firstMessage, "")} ${value(session.sessionId, "")}`))
       .map((session) => ({ kind: "session" as const, session })),
     ...files.filter((file) => matches(`${file.path} ${file.label} ${file.status}`)).map((file) => ({ kind: "file" as const, file })),
@@ -8106,6 +8148,11 @@ export function GlobalSearch({
           value={query}
         />
         <div aria-label={t("全局搜索结果")} className="global-search-results" id="global-search-results" role="listbox">
+          {sessionSearchError && (
+            <p className="global-search-notice" role="status">
+              {t("会话搜索失败：{v0}", { v0: sessionSearchError })}
+            </p>
+          )}
           {items.length ? (
             (["command", "session", "file"] as const).map((kind) => {
               const group = items.filter((item) => item.kind === kind);
@@ -9457,6 +9504,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const runTelemetry =
     data.status?.status === "running" && runActivity !== undefined ? runTelemetryView(runActivity, eventStreamState, statusReachable, runClockAt) : undefined;
   const hasSelectableModel = data.models.some((model) => modelSelectable(model, data.providers));
+  const searchGlobalSessions = useCallback((query: string) => listAllSessionsForGlobalSearch(api, query), [api]);
   const content = settings ? (
     <Settings
       api={api}
@@ -10778,6 +10826,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           }}
           onOpenSession={openSession}
           onUse={insertCommand}
+          onSearchSessions={searchGlobalSessions}
           sessions={data.sessions}
         />
       )}

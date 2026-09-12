@@ -27,6 +27,7 @@ import {
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
   pinActionForSessions,
+  listAllSessionsForGlobalSearch,
   subscribeRuntimeEvents,
   toolArgumentSummary,
   toolSignature,
@@ -103,6 +104,26 @@ describe("session search requests", () => {
     expect(source).toContain("api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery)");
     expect(source).toContain("marketplaceQuery, sessionPage, sessionQuery]");
     expect(source).not.toContain("marketplaceQuery, search, sessionPage]");
+  });
+
+  test("loads every matching session page for global search", async () => {
+    const requests: Array<[number, number, boolean, string]> = [];
+    const api = {
+      listSessions: (page: number, pageSize: number, includeArchived: boolean, query: string) => {
+        requests.push([page, pageSize, includeArchived, query]);
+        return Promise.resolve(
+          page === 0
+            ? { items: [{ sessionId: "first" }], total: 2, page, pageSize, hasNext: true }
+            : { items: [{ sessionId: "second" }], total: 2, page, pageSize, hasNext: false },
+        );
+      },
+    };
+
+    await expect(listAllSessionsForGlobalSearch(api, "road map")).resolves.toEqual([{ sessionId: "first" }, { sessionId: "second" }]);
+    expect(requests).toEqual([
+      [0, 100, true, "road map"],
+      [1, 100, true, "road map"],
+    ]);
   });
 });
 
