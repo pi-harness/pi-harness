@@ -72,6 +72,7 @@ import { taskboardPanelView } from "./taskboard-view.js";
 import { promptLibraryPanelView } from "./prompt-library-view.js";
 import { memoryPanelView } from "./memory-view.js";
 import { workspaceSearchPanelView } from "./workspace-search-view.js";
+import { workspaceNavigatorPanelView } from "./workspace-navigator-view.js";
 import { LOCALES, formatLocale, setLocale, t, useLocale, writeStoredLocale } from "./i18n.js";
 
 export type { ClientApi } from "./control-room.js";
@@ -2654,100 +2655,132 @@ export function PluginPanelCard({ panel, inline = false }: { panel: ClientPlugin
           );
         })()
       ) : panel.id === "workspace-navigator-panel" ? (
-        <div className="mt-3 grid gap-3">
-          <p className="break-all text-[10px] text-[var(--color-faint)]">
-            {t("工作区：")}
-            {value(data?.cwd, "")}
-          </p>
-          {data?.latest && typeof data.latest === "object" ? (
-            (() => {
-              const latest = data.latest as Record<string, unknown>;
-              const nodes = Array.isArray(latest.nodes) ? latest.nodes : [];
-              return (
+        (() => {
+          const view = workspaceNavigatorPanelView(data);
+          if (view.malformed) {
+            return (
+              <div className="mt-3 rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]">
+                <strong className="block text-[12px]">{t("Workspace Navigator 面板数据异常")}</strong>
+                <span className="mt-1 block">{t("面板数据不完整或不一致。")}</span>
+              </div>
+            );
+          }
+          const latest = view.latest;
+          const git = view.git;
+          return (
+            <div className="mt-3 grid min-w-0 gap-3">
+              <p className="whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
+                {t("工作区：")}
+                {view.cwd}
+              </p>
+              {latest !== null ? (
                 <>
-                  <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
-                    <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(latest.path ?? ".")}</code>
-                    <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">{t("{v0} 个节点", { v0: value(nodes.length) })}</strong>
+                  <div className="flex min-w-0 items-start justify-between gap-2 rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
+                    <code className="min-w-0 whitespace-pre-wrap text-[11px] text-[var(--color-blue)] [overflow-wrap:anywhere]">{latest.path}</code>
+                    <strong className="shrink-0 text-[11px] text-[var(--color-blue)]">{t("{v0} 个节点", { v0: latest.nodes.length })}</strong>
                   </div>
-                  {nodes.length > 0 ? (
-                    <div className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2">
-                      {nodes.slice(0, 36).map((item, index) => {
-                        const node = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                        const depth = typeof node.depth === "number" ? Math.min(6, Math.max(1, node.depth)) : 1;
-                        return (
-                          <div
-                            className="flex items-center gap-2 truncate py-1 text-[10px] text-[var(--color-muted)]"
-                            key={`${value(node.path ?? "node")}-${index}`}
-                          >
-                            <span className="shrink-0 text-[var(--color-faint)]">
-                              {"· ".repeat(depth - 1)}
-                              {node.kind === "directory" ? "▾" : "·"}
-                            </span>
-                            <code className="truncate">{value(node.name ?? node.path ?? t("未命名"))}</code>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  {latest.nodes.length > 0 ? (
+                    <ul
+                      aria-label={t("工作区目录树节点")}
+                      className="grid max-h-[40rem] min-w-0 gap-1 overflow-y-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-blue)]"
+                      role="tree"
+                      tabIndex={0}
+                    >
+                      {latest.nodes.map((node) => (
+                        <li
+                          aria-label={`${node.kind === "directory" ? t("目录") : t("文件")}：${node.path}`}
+                          aria-level={node.depth}
+                          className="flex min-w-0 items-start gap-2 py-1 text-[10px] text-[var(--color-muted)]"
+                          key={node.path}
+                          role="treeitem"
+                        >
+                          <span className="shrink-0 text-[var(--color-faint)]">
+                            {"· ".repeat(node.depth - 1)}
+                            {node.kind === "directory" ? "▾" : "·"}
+                          </span>
+                          <code className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{node.path}</code>
+                        </li>
+                      ))}
+                    </ul>
                   ) : (
                     <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
                       {t("当前目录为空。")}
                     </div>
                   )}
                   <p className="text-[10px] leading-4 text-[var(--color-faint)]">
-                    {t("目录 {v0} 个，文件 {v1} 个；跳过依赖和构建目录。", { v0: value(latest.directoryCount ?? 0), v1: value(latest.fileCount ?? 0) })}
+                    {t("目录 {v0} 个，文件 {v1} 个；跳过依赖和构建目录。", { v0: latest.directoryCount, v1: latest.fileCount })}
                   </p>
-                  {latest.truncated === true || nodes.length > 36 ? (
-                    <p className="text-[10px] text-[var(--color-amber)]">
-                      {t("目录树已截断；面板显示 {v0} / {v1} 个已收集节点。", { v0: Math.min(36, nodes.length), v1: nodes.length })}
-                    </p>
+                  <p className="text-[10px] leading-4 text-[var(--color-faint)]">
+                    {t("已扫描 {v0} 个目录条目 · 深度上限 {v1} · 节点上限 {v2}", {
+                      v0: latest.scannedEntries,
+                      v1: latest.maxDepth,
+                      v2: latest.maxNodes,
+                    })}
+                  </p>
+                  {latest.truncated ? (
+                    <p className="text-[10px] text-[var(--color-amber)]">{t("目录树结果不完整：已达到发现、深度、节点或序列化上限。")}</p>
                   ) : null}
                 </>
-              );
-            })()
-          ) : (
-            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("执行 workspace_tree 后显示工作区结构。")}
-            </div>
-          )}
-          {data?.git && typeof data.git === "object"
-            ? (() => {
-                const git = data.git as Record<string, unknown>;
-                const entries = Array.isArray(git.entries) ? git.entries : [];
-                const available = git.available === true;
-                return (
-                  <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-medium text-[var(--color-ink)]">{t("Git 状态")}</span>
-                      <span
-                        className={`text-[10px] ${!available ? "text-[var(--color-faint)]" : git.clean === true ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}
-                      >
-                        {!available ? t("不可用") : git.clean === true ? "clean" : `${value(git.changedCount)} 个变更`}
-                      </span>
-                    </div>
-                    {available ? <p className="mt-1 font-mono text-[10px] text-[var(--color-muted)]">{value(git.branch ?? "detached HEAD")}</p> : null}
-                    {git.truncated === true || entries.length > 12 ? (
-                      <p className="text-[10px] text-[var(--color-amber)]">
-                        {t("显示前 {v0} 条；共有 {v1} 个变更。", { v0: Math.min(12, entries.length), v1: value(git.changedCount) })}
-                      </p>
-                    ) : null}
-                    {entries.length > 0 ? (
-                      <div className="mt-2 grid gap-1">
-                        {entries.slice(0, 12).map((item, index) => {
-                          const entry = item !== null && typeof item === "object" ? (item as Record<string, unknown>) : {};
-                          return (
-                            <code className="truncate text-[10px] text-[var(--color-muted)]" key={`${value(entry.path ?? "file")}-${index}`}>
-                              {value(entry.status ?? "??")} {entry.originalPath ? `${value(entry.originalPath)} → ` : ""}
-                              {value(entry.path ?? t("未命名"))}
-                            </code>
-                          );
-                        })}
-                      </div>
-                    ) : null}
+              ) : (
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
+                  {t("执行 workspace_tree 后显示工作区结构。")}
+                </div>
+              )}
+              {git !== null ? (
+                <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-[var(--color-ink)]">{t("Git 状态")}</span>
+                    <span
+                      className={`shrink-0 text-[10px] ${!git.available ? "text-[var(--color-faint)]" : git.clean ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}
+                    >
+                      {!git.available ? t("不可用") : git.clean ? "clean" : t("{count} 个变更", { count: git.changedCount })}
+                    </span>
                   </div>
-                );
-              })()
-            : null}
-        </div>
+                  {git.available ? (
+                    <p className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                      {git.branch ?? "detached HEAD"}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[10px] leading-4 text-[var(--color-faint)]">
+                      {git.failureReason === "not-repository"
+                        ? t("当前工作区不在 Git 仓库中。")
+                        : git.failureReason === "timeout"
+                          ? t("Git 状态读取超时；请提高 gitTimeoutMs 或缩小工作区。")
+                          : git.failureReason === "git-unavailable"
+                            ? t("未找到 Git 可执行文件。")
+                            : git.failureReason === "output-limit"
+                              ? t("Git 输出超过安全上限；请缩小工作区。")
+                              : git.failureReason === "invalid-output"
+                                ? t("Git 返回了无法安全解析的状态。")
+                                : t("Git 状态读取失败。")}
+                    </p>
+                  )}
+                  {git.truncated ? (
+                    <p className="text-[10px] text-[var(--color-amber)]">
+                      {t("Git 结果不完整：显示 {v0} / {v1} 个变更。", { v0: git.entries.length, v1: git.changedCount })}
+                    </p>
+                  ) : null}
+                  {git.entries.length > 0 ? (
+                    <ul
+                      aria-label={t("工作区 Git 变更")}
+                      className="mt-2 grid max-h-[40rem] min-w-0 gap-1 overflow-y-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-blue)]"
+                      tabIndex={0}
+                    >
+                      {git.entries.map((entry) => (
+                        <li className="min-w-0" key={`${entry.status}\0${entry.path}`}>
+                          <code className="block min-w-0 whitespace-pre-wrap text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
+                            {entry.status} {entry.originalPath === undefined ? "" : `${entry.originalPath} → `}
+                            {entry.path}
+                          </code>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })()
       ) : panel.id === "prompt-library-panel" ? (
         (() => {
           const view = promptLibraryPanelView(data);

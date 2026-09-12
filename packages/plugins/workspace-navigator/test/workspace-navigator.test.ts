@@ -1,12 +1,12 @@
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { tmpdir } from "node:os";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { Context } from "@deepseek-ai/cordis";
 import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import { describe, expect, test } from "vitest";
-import plugin, { listWorkspaceNodes } from "../src/index.js";
+import plugin, { isWorkspaceNavigatorIgnoredDirectory, listWorkspaceNodes, workspaceNavigatorRelativePath } from "../src/index.js";
 
 describe("workspace navigator", () => {
   test("uses the native current workspace and clears cached results on a new session", async () => {
@@ -156,6 +156,108 @@ describe("workspace navigator", () => {
     try {
       await expect(listWorkspaceNodes(root, { maxDepth: 1 })).resolves.toMatchObject({ truncated: false });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("snapshots bounded parameter descriptors without invoking proxy getters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-navigator-proxy-"));
+    await writeFile(join(root, "orders.ts"), "export {}\n");
+    const context = new Context(),
+      tools = new PiToolRegistry(),
+      panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(plugin, {});
+      const tree = tools.snapshot().customTools.find((tool) => tool.name === "workspace_tree")!;
+      let getterAccessed = false;
+      const params = new Proxy(
+        {},
+        {
+          ownKeys: () => [],
+          get() {
+            getterAccessed = true;
+            throw new Error("parameter getter executed");
+          },
+        },
+      );
+      await expect(tree.execute("proxy", params as never, undefined, undefined, {} as never)).resolves.toMatchObject({
+        details: { nodes: [{ path: "orders.ts" }] },
+      });
+      expect(getterAccessed).toBe(false);
+
+      let descriptorInspected = false;
+      const oversized = new Proxy(
+        {},
+        {
+          ownKeys: () => ["path", "maxDepth", "maxNodes", "extra"],
+          getOwnPropertyDescriptor() {
+            descriptorInspected = true;
+            throw new Error("descriptor trap executed");
+          },
+        },
+      );
+      await expect(tree.execute("oversized", oversized as never, undefined, undefined, {} as never)).rejects.toThrow(/parameter/iu);
+      expect(descriptorInspected).toBe(false);
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("publishes and enforces a bounded POSIX directory-path contract", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-navigator-path-"));
+    await mkdir(join(root, "node_modules", "tenant-sdk"), { recursive: true });
+    await writeFile(join(root, "orders.ts"), "export {}\n");
+    const context = new Context(),
+      tools = new PiToolRegistry(),
+      panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(plugin, {});
+      const tree = tools.snapshot().customTools.find((tool) => tool.name === "workspace_tree")!;
+      expect(tree.parameters).toMatchObject({ properties: { path: { type: "string", maxLength: 512 } } });
+      await expect(tree.execute("nul", { path: "orders\0archive" }, undefined, undefined, {} as never)).rejects.toThrow(/path.*NUL/iu);
+      await expect(tree.execute("long", { path: " ".repeat(513) }, undefined, undefined, {} as never)).rejects.toThrow(/path/iu);
+      await expect(tree.execute("file", { path: "orders.ts" }, undefined, undefined, {} as never)).rejects.toThrow(/directory/iu);
+      await expect(tree.execute("ignored", { path: "node_modules" }, undefined, undefined, {} as never)).rejects.toThrow(/ignored director/iu);
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes Windows paths and ignored directory names", () => {
+    expect(workspaceNavigatorRelativePath("C:\\repo", "C:\\repo\\apps\\tenant-a", win32)).toBe("apps/tenant-a");
+    expect(workspaceNavigatorRelativePath("C:\\repo", "C:\\repo", win32)).toBe(".");
+    expect(isWorkspaceNavigatorIgnoredDirectory("DIST", true)).toBe(true);
+    expect(isWorkspaceNavigatorIgnoredDirectory("DIST", false)).toBe(false);
+  });
+
+  test("bounds model-visible tree JSON even with escape-heavy paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-navigator-json-budget-"));
+    await Promise.all(Array.from({ length: 500 }, (_, index) => writeFile(join(root, `${String(index).padStart(3, "0")}-${'"'.repeat(220)}.txt`), "")));
+    const context = new Context(),
+      tools = new PiToolRegistry(),
+      panels = new PiPluginUiRegistry();
+    provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(plugin, {});
+      const tree = tools.snapshot().customTools.find((tool) => tool.name === "workspace_tree")!;
+      const result = await tree.execute("bounded", { maxNodes: 500 }, undefined, undefined, {} as never);
+      const content = result.content[0];
+      if (content?.type !== "text") throw new Error("Expected text");
+      expect(Buffer.byteLength(content.text, "utf8")).toBeLessThanOrEqual(128 * 1024);
+      expect(result.details).toMatchObject({ truncated: true });
+      expect((result.details as { nodes: unknown[] }).nodes.length).toBeLessThan(500);
+    } finally {
+      await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
     }
   });
