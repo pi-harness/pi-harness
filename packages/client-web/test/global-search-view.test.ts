@@ -24,3 +24,21 @@ test("gives the global search result list an accessible name", async () => {
   expect(html).toContain('id="global-search-results"');
   expect(html).toContain('aria-label="全局搜索结果"');
 });
+
+test("keeps the active search result visible while keyboard focus stays on the combobox", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    scrollActiveSearchOptionIntoView?: (option: Pick<HTMLElement, "scrollIntoView"> | null) => void;
+  };
+  let received: boolean | ScrollIntoViewOptions | undefined;
+  const option = {
+    scrollIntoView: (options?: boolean | ScrollIntoViewOptions) => {
+      received = options;
+    },
+  };
+
+  expect(module.scrollActiveSearchOptionIntoView).toBeTypeOf("function");
+  if (!module.scrollActiveSearchOptionIntoView) return;
+  module.scrollActiveSearchOptionIntoView(option);
+
+  expect(received).toEqual({ block: "nearest" });
+});

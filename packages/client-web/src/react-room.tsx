@@ -7944,6 +7944,10 @@ type GlobalSearchItem =
   | { kind: "session"; session: Record<string, unknown> }
   | { kind: "file"; file: ClientFile };
 
+export function scrollActiveSearchOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
+  option?.scrollIntoView({ block: "nearest" });
+}
+
 export function GlobalSearch({
   commands,
   sessions,
@@ -7963,6 +7967,7 @@ export function GlobalSearch({
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const activeOptionRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus(true, onClose);
   const normalized = query.trim().toLowerCase();
   const matches = (text: string) => !normalized || text.toLowerCase().includes(normalized);
@@ -7978,6 +7983,7 @@ export function GlobalSearch({
   const selectedIndex = items.length ? Math.min(activeIndex, items.length - 1) : -1;
   const activeItemId = selectedIndex >= 0 ? `global-search-option-${selectedIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [query]);
+  useEffect(() => scrollActiveSearchOptionIntoView(activeOptionRef.current), [activeItemId, query]);
   const execute = (item: GlobalSearchItem | undefined) => {
     if (!item) return;
     if (item.kind === "command") onUse(`/${item.command.invocationName}`);
@@ -8057,6 +8063,7 @@ export function GlobalSearch({
                         key={`${item.kind}:${title}:${index}`}
                         onClick={() => execute(item)}
                         onMouseEnter={() => setActiveIndex(index)}
+                        ref={index === selectedIndex ? activeOptionRef : undefined}
                         role="option"
                         type="button"
                       >
