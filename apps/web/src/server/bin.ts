@@ -14,11 +14,26 @@ type HarnessWebServer = WebServer;
 process.stdout.on("error", () => {});
 process.stderr.on("error", () => {});
 
+function commandLineValue(args: readonly string[], name: string): string | undefined {
+  const prefix = `${name}=`;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === name) {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--")) throw new Error(`${name} requires a value`);
+      return value;
+    }
+    if (argument?.startsWith(prefix)) return argument.slice(prefix.length);
+  }
+  return undefined;
+}
+
+const commandLineArgs = process.argv.slice(2);
 // Accept the bracketed URL form of an IPv6 literal (e.g. "[::1]") but bind the bare address: net.Server.listen resolves the host through getaddrinfo, which rejects brackets with ENOTFOUND.
-const rawHost = process.env.PI_HARNESS_HOST ?? "127.0.0.1";
+const rawHost = commandLineValue(commandLineArgs, "--host") ?? process.env.PI_HARNESS_HOST ?? "127.0.0.1";
 const host = rawHost.startsWith("[") && rawHost.endsWith("]") ? rawHost.slice(1, -1) : rawHost;
 const DEFAULT_PI_HARNESS_PORT = 3141;
-const port = Number(process.env.PI_HARNESS_PORT ?? DEFAULT_PI_HARNESS_PORT);
+const port = Number(commandLineValue(commandLineArgs, "--port") ?? process.env.PI_HARNESS_PORT ?? DEFAULT_PI_HARNESS_PORT);
 if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("PI_HARNESS_PORT must be an integer between 0 and 65535");
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 if (!loopbackHosts.has(host) && process.env.PI_HARNESS_ALLOW_REMOTE !== "1")
