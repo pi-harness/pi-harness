@@ -34,6 +34,7 @@ import {
   withoutInstalledPackages,
   writeRestartPendingPackages,
   nextSessionSearchPage,
+  marketplaceDetailBackHistoryMode,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
@@ -130,8 +131,15 @@ describe("session search requests", () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
     expect(source).toContain("setSessionQuery(search)");
     expect(source).toContain("api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery)");
-    expect(source).toContain("marketplaceQuery, sessionPage, sessionQuery]");
+    expect(source).toContain("marketplaceSearchQuery, sessionPage, sessionQuery]");
     expect(source).not.toContain("marketplaceQuery, search, sessionPage]");
+  });
+
+  test("debounces marketplace queries before they participate in the broad refresh", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    expect(source).toContain("setMarketplaceSearchQuery");
+    expect(source).toContain("api.listMarketplace(marketplaceSearchQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale)");
+    expect(source).not.toContain("api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale)");
   });
 
   test("loads every matching session page for global search", async () => {
@@ -638,6 +646,10 @@ const marketplaceMarkup = (options: { installed?: readonly string[]; restartPend
   );
 
 describe("marketplace install feedback", () => {
+  test("replaces the detail history entry when the in-app back link returns to the list", () => {
+    expect(marketplaceDetailBackHistoryMode()).toBe("replace");
+  });
+
   test("marks a plugin that is waiting for a restart as installed rather than offering the install again", () => {
     const pending = marketplaceMarkup({ restartPending: ["example-cordis-timer"] });
 

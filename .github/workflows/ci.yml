@@ -1,7 +1,6 @@
 name: CI
 
 on:
-  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
@@ -28,10 +27,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: |
-          rm -f package-lock.json
-          npm install --include=dev --legacy-peer-deps
-          npm install --workspaces=false --save-dev --legacy-peer-deps --force @pi-harness/plugin-agent-teams@0.1.32 @pi-harness/plugin-hol-guard@0.1.31 @pi-harness/plugin-theme-studio@0.1.31
+        run: npm ci --include=dev --legacy-peer-deps
 
       - name: Test
         run: npm test
