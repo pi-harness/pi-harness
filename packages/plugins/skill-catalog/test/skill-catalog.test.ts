@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, open, writeFile, rm } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -129,6 +130,57 @@ test("rejects cancellation, disposal and resource reload during reads", async ()
   await expect(pending).rejects.toThrow(/changed/);
   await context.fiber.dispose();
   await expect(call({ action: "list" })).rejects.toThrow(/cancelled/);
+});
+
+test("stops an in-flight bounded skill catalog read at the next chunk after cancellation", async () => {
+  const { call, context, file } = await fixture();
+  await writeFile(file, `---\nname: review\ndescription: Review code\n---\n${"x".repeat(120_000)}\n`, "utf8");
+  const probe = await open(file, "r");
+  const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+  await probe.close();
+  const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+  const firstHandles = new WeakSet<object>();
+  let markReadStarted!: () => void;
+  const readStarted = new Promise<void>((resolve) => {
+    markReadStarted = resolve;
+  });
+  let releaseRead!: () => void;
+  const readReleased = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let markClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    markClosed = resolve;
+  });
+  let readCalls = 0;
+  fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+    readCalls += 1;
+    if (!firstHandles.has(this)) {
+      firstHandles.add(this);
+      const originalClose = this.close.bind(this);
+      this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+        markClosed();
+        return originalClose(...closeArgs);
+      };
+      markReadStarted();
+      await readReleased;
+    }
+    return originalRead.call(this, ...args);
+  };
+  try {
+    const controller = new AbortController();
+    const pending = call({ action: "read", name: "review" }, controller.signal);
+    await readStarted;
+    controller.abort(new Error("catalog read cancelled"));
+    releaseRead();
+    await expect(pending).rejects.toThrow(/cancelled/iu);
+    await closed;
+    expect(readCalls).toBe(1);
+  } finally {
+    releaseRead();
+    fileHandlePrototype.read = originalRead;
+    await context.fiber.dispose();
+  }
 });
 
 test("bounds output while allowing reads beyond the list limit and returns independent snapshots", async () => {
