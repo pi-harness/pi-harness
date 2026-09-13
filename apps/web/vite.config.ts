@@ -4,6 +4,7 @@ import packageMetadata from "./package.json" with { type: "json" };
 
 export default defineConfig({
   define: { __PI_HARNESS_VERSION__: JSON.stringify(packageMetadata.version) },
+  resolve: { dedupe: ["react", "react-dom"] },
   build: {
     rolldownOptions: {
       output: {
