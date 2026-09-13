@@ -1930,6 +1930,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         (() => {
           const view = tokenGuardPanelView(data);
           const contextExceeded = view.percent !== null && view.percent >= view.maxPercent;
+          const displayPercent = view.percent === null ? null : Number(view.percent.toFixed(1));
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid gap-2 sm:grid-cols-2">
@@ -1939,13 +1940,13 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-[11px] font-semibold text-[var(--color-ink)]">{t("上下文预算")}</span>
                     <strong className="font-mono text-[12px] text-[var(--color-blue)]">
-                      {view.percent === null ? "—" : view.percent}% / {view.maxPercent}%
+                      {displayPercent === null ? "—" : `${displayPercent.toFixed(1)}%`} / {view.maxPercent}%
                     </strong>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                     <div
                       className={`h-full rounded-full ${contextExceeded ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
-                      style={{ width: `${Math.min(100, view.percent ?? 0)}%` }}
+                      style={{ width: `${Math.min(100, displayPercent ?? 0)}%` }}
                     />
                   </div>
                   <p className="mt-2 text-[11px] text-[var(--color-muted)]">
