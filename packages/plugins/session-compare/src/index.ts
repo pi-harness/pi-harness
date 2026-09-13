@@ -218,7 +218,12 @@ function headerSessionCandidate(value: unknown, path: string, modified: Date, ex
   };
 }
 
-async function readSessionHeader(path: string, expectedCwd: string, signal: AbortSignal): Promise<{ candidate: SessionCandidate; id: string } | undefined> {
+async function readSessionHeader(
+  path: string,
+  expectedCwd: string,
+  signal: AbortSignal,
+  reportMalformed = false,
+): Promise<{ candidate: SessionCandidate; id: string } | undefined> {
   throwIfCancelled(signal);
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
@@ -249,8 +254,11 @@ async function readSessionHeader(path: string, expectedCwd: string, signal: Abor
     if (newline === -1 && metadata.size > total) return undefined;
     const text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
     return headerSessionCandidate(JSON.parse(text), path, metadata.mtime, expectedCwd);
-  } catch {
+  } catch (error) {
     throwIfCancelled(signal);
+    if (reportMalformed && (error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error("Session comparison file is malformed", { cause: error });
+    }
     return undefined;
   } finally {
     await handle?.close();
@@ -306,7 +314,7 @@ async function findSessions(
       const candidate = await inspectDirectCandidate(direct.path, expectedCwd, signal);
       if (candidate !== undefined) found.set(key, candidate);
     } else if (direct !== undefined) {
-      const session = await readSessionHeader(direct.path, expectedCwd, signal);
+      const session = await readSessionHeader(direct.path, expectedCwd, signal, true);
       if (session !== undefined && sessionMatches(session, key)) found.set(key, session.candidate);
     }
     check();

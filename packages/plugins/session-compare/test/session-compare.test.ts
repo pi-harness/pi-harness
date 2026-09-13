@@ -392,6 +392,35 @@ describe("session compare", () => {
     });
   });
 
+  test("reports malformed shorthand session files instead of masking them as missing", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-malformed-cwd-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-malformed-agent-"));
+    directories.push(cwd, agentDir);
+    const sessionDir = join(agentDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "broken.jsonl"), "{not-json}\n", "utf8");
+    await writeFile(
+      join(sessionDir, "valid.jsonl"),
+      `${JSON.stringify({ type: "session", version: 3, id: "valid", timestamp: "2026-09-03T00:00:00.000Z", cwd })}\n`,
+      "utf8",
+    );
+
+    const context = new Context();
+    contexts.push(context);
+    provideLaunchContext(context, { cwd, agentDir, args: [], requestExit() {} });
+    context.provide("piSession", { manager: { getCwd: () => cwd, getSessionId: () => "active", getSessionDir: () => sessionDir } } as never);
+    const tools = new PiToolRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", new PiPluginUiRegistry());
+    await context.plugin(sessionComparePlugin);
+    const compare = tools.snapshot().customTools.find((tool) => tool.name === "session_compare");
+    if (compare === undefined) throw new Error("session_compare was not registered");
+
+    await expect(compare.execute("malformed", { left: "broken", right: "valid" }, undefined, undefined, {} as never)).rejects.toThrow(
+      /malformed|invalid.*session.*file/iu,
+    );
+  });
+
   test("reports a context change after an empty directory scan instead of not-found", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-compare-empty-cwd-"));
     const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-compare-empty-agent-"));

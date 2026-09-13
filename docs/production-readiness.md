@@ -6,6 +6,12 @@ This is the running evidence log for the plugin functional verification audit, k
 
 The audit is incomplete. The current count is 53 of 75 plugins with partial real runtime or browser evidence and 22 pending; partial evidence for a plugin is not acceptance of that plugin. Entries are appended over time, so a later dated observation supersedes an earlier one, including any numeric checkpoint.
 
+### Session Compare malformed shorthand diagnostic (2026-09-13)
+
+- A real temporary session directory reproduced a misleading failure: selecting an existing malformed `broken.jsonl` through the shorthand `broken` caused header discovery to swallow the JSON parse error and report only `Session was not found: broken`.
+- Header discovery now propagates a bounded malformed-file diagnostic for the explicitly resolved shorthand path while continuing to skip unrelated malformed files during directory scans. The regression and the complete Session Compare test suite pass 14/14; plugin API/session-compare build, typecheck, scoped lint and whitespace checks also pass.
+- This fixes error clarity only; it does not treat malformed or cross-workspace journals as valid sessions, and the overall 53/75 audit remains incomplete.
+
 ### MCP Client stdio lifecycle and protocol-boundary verification (2026-09-13)
 
 - The MCP Client boundary suite exercised direct-argv validation, one-shot and managed server startup, bounded pagination, malformed JSON-RPC and UTF-8 handling, oversized responses and inventories, structured tool results, resource/prompt bridging, stdin failures, queued cancellation, stop/dispose races, server restart ownership, workspace changes, and bounded stderr diagnostics.
