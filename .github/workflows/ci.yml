@@ -28,7 +28,8 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --include=dev --legacy-peer-deps
+        run: rm -f package-lock.json
+          npm install --include=dev --legacy-peer-deps
 
       - name: Test
         run: npm test
