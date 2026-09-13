@@ -42,10 +42,11 @@ async function runLauncher(
   extraEnv: Record<string, string> = {},
   spawnCwd?: string,
   probe?: (consoleUrl: string) => Promise<void>,
+  args: readonly string[] = [],
 ): Promise<LauncherRun> {
   const agentDir = await makeTempDir("agent");
   const harnessHome = await makeTempDir("home");
-  const child = spawn(process.execPath, [BIN], {
+  const child = spawn(process.execPath, [BIN, ...args], {
     stdio: ["ignore", "pipe", "pipe"],
     ...(spawnCwd === undefined ? {} : { cwd: spawnCwd }),
     env: {
@@ -150,6 +151,13 @@ async function reserveLoopbackPort(): Promise<number> {
 }
 
 describe("web launcher", () => {
+  test("accepts a --port argument forwarded by the local launcher", async () => {
+    const port = await reserveLoopbackPort();
+    const run = await runLauncher("SIGINT", { PI_HARNESS_PORT: "0" }, undefined, undefined, ["--port", String(port)]);
+    expect(run.consoleUrl).toBe(`http://127.0.0.1:${String(port)}`);
+    expect(run.code).toBe(130);
+  }, 30_000);
+
   test("completes graceful shutdown on SIGINT and exits with code 130 instead of dying by signal", async () => {
     const run = await runLauncher("SIGINT");
     expect(run.consoleUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/u);

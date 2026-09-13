@@ -1,7 +1,7 @@
 {
   "id": "session-insights",
   "packageName": "@pi-harness/plugin-session-insights",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "name": "Session Insights",
   "description": "发布经过校验并缓存的会话统计；压缩只在会话空闲且确认后执行，并给出模型用量与费用提示，可取消。",
   "author": "Pi Harness",
