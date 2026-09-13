@@ -1,4 +1,5 @@
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -435,6 +436,58 @@ describe("readme generator", () => {
     await disposedFixture.context.fiber.dispose();
     await expect(write.execute("disposed", { confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
     await expect(readFile(join(disposedFixture.root, "README.generated.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("stops an in-flight bounded package manifest read at the next chunk after cancellation", async () => {
+    const fixture = await pluginFixture({ name: "demo", version: "1.2.3", description: "x".repeat(200_000) });
+    const report = fixture.tools.snapshot().customTools.find((tool) => tool.name === "readme_report");
+    if (report === undefined) throw new Error("readme_report was not registered");
+    const packagePath = join(fixture.root, "package.json");
+    const probe = await open(packagePath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = report.execute("read-cancel", {}, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("README manifest read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+    }
   });
 
   test("keeps detached last-success snapshots visible when a later attempt fails", async () => {

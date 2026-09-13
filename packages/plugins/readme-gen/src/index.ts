@@ -285,12 +285,12 @@ export function renderReadme(metadata: ReadmeMetadata): string {
   ].join("\n");
 }
 
-async function generate(context: Context, cwd: string, assertCurrent: () => void): Promise<ReadmeReport> {
+async function generate(context: Context, cwd: string, signal: AbortSignal, assertCurrent: () => void): Promise<ReadmeReport> {
   assertCurrent();
   const path = join(cwd, "package.json");
   let source: string;
   try {
-    source = await readBoundedTextFile(path, maxManifestBytes, "package.json");
+    source = await readBoundedTextFile(path, maxManifestBytes, "package.json", signal);
   } catch (error) {
     assertCurrent();
     if (error instanceof BoundedFileSizeError) throw new Error("package.json exceeds the 1 MiB limit", { cause: error });
@@ -501,7 +501,7 @@ export default {
             try {
               current.assertCurrent();
               reportParameters(rawParams);
-              const report = await generate(context, current.cwd, current.assertCurrent);
+              const report = await generate(context, current.cwd, operationSignal, current.assertCurrent);
               current.assertCurrent();
               latest = structuredClone(report);
               status = { state: "completed", operation: "report", at: new Date().toISOString() };
@@ -543,7 +543,7 @@ export default {
               const params = writeParameters(rawParams);
               current.assertCurrent();
               if (!params.confirm) throw new Error("Writing a README requires confirm=true");
-              const report = await generate(context, current.cwd, current.assertCurrent);
+              const report = await generate(context, current.cwd, operationSignal, current.assertCurrent);
               current.assertCurrent();
               const write = await writeReadmeFileChecked(
                 current.cwd,
