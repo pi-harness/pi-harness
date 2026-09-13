@@ -284,7 +284,7 @@ async function workspaceFiles(root: string, current: string, state: WalkState, a
   }
 }
 
-async function scanWorkspace(root: string, requested: string, assertCurrent: () => void): Promise<AuditSummary> {
+async function scanWorkspace(root: string, requested: string, assertCurrent: () => void, signal?: AbortSignal): Promise<AuditSummary> {
   assertCurrent();
   const resolved = await resolveExistingWorkspacePath(root, requested, "Audit path must stay inside the current workspace");
   assertCurrent();
@@ -304,7 +304,7 @@ async function scanWorkspace(root: string, requested: string, assertCurrent: () 
     try {
       const checked = await resolveExistingWorkspacePath(root, resolve(root, file), "Audit file must stay inside the workspace");
       assertCurrent();
-      const bytes = await readBoundedFile(checked.target, maxFileBytes, "Audit file");
+      const bytes = await readBoundedFile(checked.target, maxFileBytes, "Audit file", signal);
       assertCurrent();
       if (bytes.includes(0)) {
         summary.skipped += 1;
@@ -332,7 +332,7 @@ async function scanWorkspace(root: string, requested: string, assertCurrent: () 
 }
 
 export async function auditWorkspace(root: string, requested = ".", signal?: AbortSignal): Promise<AuditSummary> {
-  return scanWorkspace(root, requested, () => checkCancelled(signal));
+  return scanWorkspace(root, requested, () => checkCancelled(signal), signal);
 }
 
 function emptySummary(): AuditSummary {
@@ -386,7 +386,7 @@ export default {
           const path = descriptors.path?.value as unknown;
           if (path !== undefined && (typeof path !== "string" || path.length > 4096 || path.includes("\0")))
             throw new Error("Audit path must be a string of at most 4096 characters without NUL");
-          const result = await scanWorkspace(current.cwd, path ?? ".", assertCurrent);
+          const result = await scanWorkspace(current.cwd, path ?? ".", assertCurrent, signal);
           assertCurrent();
           latest = structuredClone(result);
           return {

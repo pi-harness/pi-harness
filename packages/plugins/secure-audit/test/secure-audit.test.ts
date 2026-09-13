@@ -1,7 +1,8 @@
 import { Context } from "@deepseek-ai/cordis";
 import { PiToolRegistry, PiPluginUiRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
 import plugin from "../src/index.js";
-import { mkdir, mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, writeFile, symlink } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
@@ -323,6 +324,58 @@ test("rejects workspace escapes, skips symlink entries and honors in-flight canc
   } finally {
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("stops an in-flight bounded audit read at the next chunk after cancellation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-audit-read-cancel-"));
+  const file = join(root, "large.txt");
+  await writeFile(file, `normal: ${"x".repeat(200_000)}\n`, "utf8");
+  const probe = await open(file, "r");
+  const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+  await probe.close();
+  const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+  const firstHandles = new WeakSet<object>();
+  let markFirstReadStarted!: () => void;
+  const firstReadStarted = new Promise<void>((resolve) => {
+    markFirstReadStarted = resolve;
+  });
+  let releaseRead!: () => void;
+  const readReleased = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let markClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    markClosed = resolve;
+  });
+  let readCalls = 0;
+  fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+    readCalls += 1;
+    if (!firstHandles.has(this)) {
+      firstHandles.add(this);
+      const originalClose = this.close.bind(this);
+      this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+        markClosed();
+        return originalClose(...closeArgs);
+      };
+      markFirstReadStarted();
+      await readReleased;
+    }
+    return originalRead.call(this, ...args);
+  };
+  try {
+    const controller = new AbortController();
+    const pending = auditWorkspace(root, ".", controller.signal);
+    await firstReadStarted;
+    controller.abort(new Error("audit read cancelled"));
+    releaseRead();
+    await expect(pending).rejects.toThrow(/cancelled/iu);
+    await closed;
+    expect(readCalls).toBe(1);
+  } finally {
+    releaseRead();
+    fileHandlePrototype.read = originalRead;
+    await rm(root, { recursive: true, force: true });
   }
 });
 
