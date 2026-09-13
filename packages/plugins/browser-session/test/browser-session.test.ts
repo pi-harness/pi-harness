@@ -391,6 +391,51 @@ describe("browser session boundaries", () => {
     }
   });
 
+  test("times out a tab-list body that stalls after the HTTP response", async () => {
+    const originalFetch = globalThis.fetch;
+    let cancelCalled = false;
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<{ done: true; value?: undefined }>((resolve) => {
+      releaseRead = () => resolve({ done: true });
+    });
+    globalThis.fetch = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              read: () => pendingRead,
+              cancel() {
+                cancelCalled = true;
+                releaseRead();
+                return Promise.resolve();
+              },
+              releaseLock() {},
+            };
+          },
+        },
+      } as unknown as Response);
+    vi.useFakeTimers();
+    const context = await createBrowserSession();
+    let execution: Promise<unknown> | undefined;
+    try {
+      execution = browserTool(context, "browser_tabs").execute("call-1", {}, undefined, undefined, {} as never);
+      const timedOut = expect(execution).rejects.toThrow(/timed out after 15000 ms/iu);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(15_000);
+      await timedOut;
+      expect(cancelCalled).toBe(true);
+    } finally {
+      releaseRead();
+      vi.useRealTimers();
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+      await execution?.catch(() => undefined);
+    }
+  });
+
   test("rejects navigation URLs containing credentials before tab discovery", async () => {
     const originalFetch = globalThis.fetch;
     let fetches = 0;

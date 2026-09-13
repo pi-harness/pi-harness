@@ -204,7 +204,11 @@ async function tabs(endpoint: URL, signal?: AbortSignal): Promise<BrowserTab[]> 
       await cancelResponseBody(response);
       throw new Error(`Chrome DevTools returned HTTP ${response.status}`);
     }
-    payload = await readTabList(response, signal);
+    // The request timeout is owned by this controller, so the body reader must
+    // observe it too. Passing only the caller signal would leave a response
+    // that stalls after headers pending forever when the internal deadline
+    // aborts the fetch.
+    payload = await readTabList(response, controller.signal);
   } catch (error) {
     if (timedOut) throw new Error(`Chrome DevTools discovery timed out after ${requestTimeoutMs} ms`, { cause: error });
     if (controller.signal.aborted) throw cancelledError("Chrome DevTools discovery", error);
