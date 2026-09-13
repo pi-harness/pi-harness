@@ -1,5 +1,6 @@
 import type * as FsPromises from "node:fs/promises";
-import { lstat, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -241,6 +242,57 @@ describe("tab manager", () => {
     await context.fiber.dispose();
     expect(tools.snapshot().customTools).toHaveLength(0);
     await expect(panels.snapshot()).resolves.toHaveLength(0);
+  });
+
+  test("stops an in-flight bounded tab store read at the next chunk after cancellation", async () => {
+    const { root, tool } = await fixture();
+    const storePath = join(root, "session-tabs.json");
+    await writeFile(storePath, JSON.stringify({ tabs: [], selectedId: null, padding: "x".repeat(200_000) }), "utf8");
+    const probe = await open(storePath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("list-cancel", { action: "list" }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("tab store read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+    }
   });
 });
 
