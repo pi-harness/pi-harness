@@ -1,4 +1,5 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -207,6 +208,63 @@ describe("memory", () => {
       details: { memories: [{ valueBytes: 64 * 1024, shownValueBytes: 8 * 1024, valueTruncated: true }] },
     });
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { memories: [{ value }] } }]);
+  });
+
+  test("stops an in-flight bounded memory read at the next chunk after cancellation", async () => {
+    const { root, context, search } = await fixture({ maxEntries: 1 });
+    const memoryPath = join(root, "memory.json");
+    const now = new Date().toISOString();
+    await writeFile(
+      memoryPath,
+      JSON.stringify({ version: 1, memories: [{ id: "large", key: "large", value: "x".repeat(64 * 1024), tags: [], createdAt: now, updatedAt: now }] }),
+      "utf8",
+    );
+    const probe = await open(memoryPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = search.execute("in-flight", { query: "large" }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("memory read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+      await context.fiber.dispose();
+    }
   });
 
   test("reports every eviction after reducing the configured capacity", async () => {
