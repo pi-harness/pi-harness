@@ -1,0 +1,10 @@
+{
+  "name": "@pi-harness/desktop",
+  "private": true,
+  "version": "0.1.102",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build -w @pi-harness/web && tauri build",
+    "dev": "npm run build -w @pi-harness/web && tauri dev"
+  }
+}

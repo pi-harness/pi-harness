@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pi Harness",
+  "version": "0.1.102",
+  "identifier": "ai.everyapi.piharness",
+  "build": { "frontendDist": "../../web/dist" },
+  "app": { "windows": [{ "title": "Pi Harness", "width": 1280, "height": 800, "resizable": true }] },
+  "bundle": { "active": true, "targets": "all" }
+}
