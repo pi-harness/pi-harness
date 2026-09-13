@@ -78,6 +78,12 @@ The audit is incomplete. The current count is 53 of 75 plugins with partial real
 - A headed Chromium reload of the isolated session rendered the complete assistant report and queued-import result. No page or console errors were observed and the final screenshot was inspected. The isolated agent/profile directories and browser artifacts were removed afterward; the default profile was not modified.
 - This adds authenticated model and browser evidence for idle/queue delivery; it does not establish attachment transfer or restart/reload through the browser UI.
 
+### Session Bridge browser reload duplicate protection (2026-09-13)
+
+- An isolated `PI_HARNESS_HOME` profile installed the source-built Session Bridge plugin and loaded the current web bundle through `pih-local`; the model catalog was copied into a disposable `PI_AGENT_DIR` without copying credentials. A synthetic JSONL session containing one persisted Session Bridge custom entry was opened through `/api/session/open` in Chromium.
+- A real model prompt requested `session_bridge_import` with the exact already-imported package. The model-visible response reported the duplicate refusal, while `/api/session` still contained exactly one `pi-harness/session-bridge` entry and the panel moved to the bounded failed-import state. After `page.reload()`, the same session still had exactly one bridge entry and the panel retained the failure state; no page or console errors were observed.
+- This closes the headed browser restart/reload duplicate-protection gate. The fixture, isolated profile and launcher were disposable and no user session or credential was touched. Attachment transfer remains the only explicit Session Bridge follow-up in this ledger.
+
 ### Session Compare archived inventory reachability (2026-09-12)
 
 - A real 201-session `SessionManager` regression reproduced a false “Session was not found” result for an explicitly requested archived session. The SDK had already loaded and sorted the complete inventory, but Session Compare discarded everything after the first 200 entries before resolving either requested ID, path or filename. This limit saved no discovery I/O or memory and exposed no continuation route.
