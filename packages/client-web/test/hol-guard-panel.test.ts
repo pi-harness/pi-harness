@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { inspectGuardInput } from "../../plugins/hol-guard/src/index.js";
+import { inspectGuardInput } from "@pi-harness/plugin-hol-guard";
 import { PluginPanelCard } from "../src/react-room.js";
 
 test("shows why a real HOL Guard report requires review without retaining the input", () => {
