@@ -1240,5 +1240,11 @@
   "更早的历史事件已省略": "Les événements historiques antérieurs ont été omis",
   "全局搜索结果": "Résultats de la recherche globale",
   "会话操作失败": "Échec de l’action de session",
-  "运行时没有接受这次会话操作，请重试。": "Le runtime n’a pas accepté cette action de session ; réessayez."
+  "运行时没有接受这次会话操作，请重试。": "Le runtime n’a pas accepté cette action de session ; réessayez.",
+  "在上下文接近阈值时自动压缩历史消息。": "Compresse automatiquement l’historique lorsque le contexte approche du seuil.",
+  "在工作区内安全检索文本，跳过依赖、构建产物和版本库目录。": "Recherche du texte en toute sécurité dans l’espace de travail en ignorant les dépendances, les artefacts de build et les répertoires de contrôle de version.",
+  "查看当前会话的消息、工具、token、成本和上下文统计，并可触发确认后的会话压缩。": "Consultez les statistiques de messages, d’outils, de jetons, de coûts et de contexte de la session actuelle, et déclenchez une compression confirmée.",
+  "安全审计上下文压力、超大或不可测量消息和工具错误，并展示确认压缩的生命周期。": "Audite en toute sécurité la pression du contexte, les messages trop volumineux ou non mesurables et les erreurs d’outils, et affiche le cycle de vie de la compression confirmée.",
+  "查看当前上下文占用、消息规模和压缩事件。": "Consultez l’utilisation actuelle du contexte, le volume de messages et les événements de compression.",
+  "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。": "Arrête automatiquement l’exécution lorsque le contexte atteint le seuil budgétaire afin d’éviter une consommation supplémentaire."
 }

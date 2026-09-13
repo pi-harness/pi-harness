@@ -1334,6 +1334,28 @@ test("rounds Token Guard context budget percentages for display", () => {
   expect(html).not.toContain("0.8467674255371094%");
 });
 
+test("localizes live plugin panel descriptions", async () => {
+  await setLocale("en");
+  try {
+    const html = renderToStaticMarkup(
+      createElement(PluginPanelCard, {
+        panel: {
+          id: "token-guard-panel",
+          pluginId: "@pi-harness/plugin-token-guard",
+          title: "Token Guard",
+          description: "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。",
+          data: { maxPercent: 90, percent: 0, tokens: 0, contextWindow: 1_000, aborts: 0 },
+        },
+      }),
+    );
+
+    expect(html).toContain("Automatically stop the current run when the context reaches its budget threshold to avoid further context consumption.");
+    expect(html).not.toContain("在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。");
+  } finally {
+    await setLocale("zh-CN");
+  }
+});
+
 test("does not render Context Insights metrics from another active session", () => {
   const panel = {
     id: "context-insight-panel",

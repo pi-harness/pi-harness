@@ -1365,7 +1365,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         </span>
         <div className="min-w-0 flex-1">
           <strong className="block text-[13px] font-semibold text-[var(--color-ink)]">{panel.title}</strong>
-          <p className="mt-1 text-[11px] leading-4 text-[var(--color-faint)]">{panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime")}</p>
+          <p className="mt-1 text-[11px] leading-4 text-[var(--color-faint)]">{t(panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime"))}</p>
         </div>
       </header>
       {panel.error ? (
