@@ -67,6 +67,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "22.19.19",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
@@ -88,5 +89,14 @@
   ],
   "engines": {
     "node": ">=22.19.0"
-  }
+  },
+  "bundleDependencies": [
+    "@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-coding-agent",
+    "@pi-harness/api-gateway",
+    "@pi-harness/cli",
+    "@pi-harness/host-webserver",
+    "@pi-harness/web-app"
+  ]
 }
