@@ -115,3 +115,13 @@ The reference documents the selected plugin catalog, every HTTP API route, confi
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Community
+
+- [Contributing](CONTRIBUTING.md) — development setup and pull request guidance.
+- [Roadmap](ROADMAP.md) — planned work and priorities.
+- [Security policy](SECURITY.md) — private vulnerability reporting.
+- [Support](SUPPORT.md) — troubleshooting and bug report guidance.
+- [Governance](GOVERNANCE.md) — how technical decisions and maintenance work.
+
+Use [GitHub Discussions](https://github.com/pi-harness/pi-harness/discussions) for questions and proposals. Use an [RFC](RFC.md) for changes that affect public APIs, plugin compatibility, security, or release behavior.
