@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test, vi } from "vitest";
-import { themePresets } from "../../plugins/theme-studio/src/index.js";
+import { themePresets } from "@pi-harness/plugin-theme-studio";
 import { createClientApi, type ClientMarketplacePlugin, type ClientPiConfig } from "../src/control-room.js";
 import { setLocale } from "../src/i18n.js";
 import type { ConfigStatus } from "../src/react-room.js";
