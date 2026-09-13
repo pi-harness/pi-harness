@@ -7202,6 +7202,7 @@ function Settings({
   const [configSourceDraft, setConfigSourceDraft] = useState("");
   const [configBusy, setConfigBusy] = useState(false);
   const [configState, setConfigState] = useState<ConfigStatus>();
+  const [sendShortcut, setSendShortcut] = useState(() => globalThis.localStorage?.getItem("pi-harness.sendShortcut") ?? "enter");
   const notifierActive = data.plugins.some((plugin) => plugin.name.endsWith("/cli-notifier") && plugin.enabled);
   const providerDialogRef = useModalFocus(providerAddOpen, () => setProviderAddOpen(false), providerBusy.__add !== undefined);
   useEffect(() => {
@@ -7620,6 +7621,13 @@ function Settings({
                           <strong>{t("模型默认值")}</strong>
                           <small>{t("新会话启动时使用的模型和思考级别")}</small>
                         </header>
+                        <label className="config-field">
+                          <span>{t("发送消息快捷键")}</span>
+                          <select value={sendShortcut} onChange={(event) => { setSendShortcut(event.target.value); globalThis.localStorage?.setItem("pi-harness.sendShortcut", event.target.value); }}>
+                            <option value="enter">{t("Enter")}</option>
+                            <option value="mod-enter">{t("Cmd/Ctrl+Enter")}</option>
+                          </select>
+                        </label>
                         <label className="config-field">
                           <span>{t("提供商")}</span>
                           <select
@@ -9894,7 +9902,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setPromptCompletionSuppressed(true);
                   return;
                 }
-                if (event.key === "Enter" && !event.shiftKey) {
+                const sendOnModifier = globalThis.localStorage?.getItem("pi-harness.sendShortcut") === "mod-enter";
+                if (event.key === "Enter" && !event.shiftKey && (sendOnModifier ? (event.metaKey || event.ctrlKey) : !event.metaKey && !event.ctrlKey)) {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
                 }
