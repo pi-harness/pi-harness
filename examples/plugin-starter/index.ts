@@ -1,10 +1,12 @@
-export const plugin = (ctx: any) => {
+import type { PluginContext } from "@pi-harness/plugin-api";
+
+export const plugin = (ctx: PluginContext) => {
   ctx.registerTool({
     name: "example_hello",
     description: "Return a greeting from the example plugin.",
     parameters: {},
-    async execute() {
-      return { content: [{ type: "text", text: "Hello from Pi Harness." }] };
+    execute() {
+      return Promise.resolve({ content: [{ type: "text", text: "Hello from Pi Harness." }] });
     },
   });
 };
