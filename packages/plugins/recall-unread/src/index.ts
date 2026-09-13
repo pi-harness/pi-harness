@@ -1,0 +1,560 @@
+import { lstat, opendir } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
+import type { Context } from "@deepseek-ai/cordis";
+import z from "@deepseek-ai/schemastery";
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool, parseSessionEntries, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { assertKnownConfigKeys, readBoundedFile } from "@pi-harness/plugin-api";
+
+const defaultMaxSessions = 100;
+const maxAllowedSessions = 500;
+const maxPreviewChars = 500;
+const maxContentParts = 1_000;
+const maxSessionFileBytes = 4 * 1024 * 1024;
+const sessionReadConcurrency = 8;
+const maxDirectoryEntries = 4_096;
+const maxPanelItems = 50;
+const maxToolItems = 100;
+const maxResultBytes = 128 * 1024;
+const maxSessionIdChars = 256;
+const maxSessionNameChars = 256;
+const maxSessionPathChars = 4_096;
+const maxQueryLength = 120;
+const maxStatusErrorChars = 2_000;
+const queryParameterNames = new Set(["query", "offset", "limit"]);
+
+export interface RecallUnreadPluginConfig {
+  maxSessions?: number;
+}
+
+export const Config: z<RecallUnreadPluginConfig> = z.object({
+  maxSessions: z.number().min(1).max(maxAllowedSessions).step(1).default(defaultMaxSessions),
+});
+
+export interface UnreadSession {
+  id: string;
+  path: string;
+  cwd: string;
+  name: string;
+  modified: string;
+  messageCount: number;
+  message: string;
+}
+
+type DataProperty = { found: true; value: unknown } | { found: false };
+
+function record(value: unknown): object | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+
+function dataProperty(value: unknown, name: string): DataProperty {
+  const item = record(value);
+  if (item === undefined) return { found: false };
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(item, name);
+    return descriptor !== undefined && "value" in descriptor ? { found: true, value: descriptor.value } : { found: false };
+  } catch {
+    return { found: false };
+  }
+}
+
+function arrayData(value: readonly unknown[], index: number): DataProperty {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    return descriptor !== undefined && "value" in descriptor ? { found: true, value: descriptor.value } : { found: false };
+  } catch {
+    return { found: false };
+  }
+}
+
+function appendBoundedText(state: { text: string; started: boolean; hasContentAfterLimit: boolean }, value: string): void {
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] ?? "";
+    if (!state.started) {
+      if (/\s/u.test(character)) continue;
+      state.started = true;
+    }
+    if (state.text.length < maxPreviewChars) state.text += character;
+    else if (!/\s/u.test(character)) state.hasContentAfterLimit = true;
+  }
+}
+
+function contentText(value: unknown): string {
+  const state = { text: "", started: false, hasContentAfterLimit: false };
+  if (typeof value === "string") appendBoundedText(state, value);
+  else if (Array.isArray(value)) {
+    let textParts = 0;
+    for (let index = 0; index < Math.min(value.length, maxContentParts); index += 1) {
+      const part = arrayData(value, index);
+      if (!part.found) continue;
+      const type = dataProperty(part.value, "type");
+      const text = dataProperty(part.value, "text");
+      if (!type.found || type.value !== "text" || !text.found || typeof text.value !== "string") continue;
+      if (textParts > 0) appendBoundedText(state, "\n");
+      appendBoundedText(state, text.value);
+      textParts += 1;
+    }
+  }
+  return state.text.length < maxPreviewChars || !state.hasContentAfterLimit ? state.text.trimEnd() : state.text;
+}
+
+export function unreadUserMessage(entries: readonly unknown[]): string | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = arrayData(entries, index);
+    if (!entry.found) continue;
+    const entryType = dataProperty(entry.value, "type");
+    if (!entryType.found || entryType.value !== "message") continue;
+    const messageProperty = dataProperty(entry.value, "message");
+    if (!messageProperty.found) continue;
+    const message = record(messageProperty.value);
+    if (message === undefined) continue;
+    const role = dataProperty(message, "role");
+    if (!role.found || typeof role.value !== "string") continue;
+    if (role.value !== "user") return undefined;
+    const content = dataProperty(message, "content");
+    if (!content.found) continue;
+    const text = contentText(content.value);
+    return text === "" ? undefined : text;
+  }
+  return undefined;
+}
+
+type SessionCandidate = { path: string; modified: Date };
+type RecallInventory = {
+  available: number;
+  candidates: number;
+  scanned: number;
+  unread: number;
+  shown: number;
+  truncated: boolean;
+  discoveryTruncated: boolean;
+  scanTruncated: boolean;
+  displayTruncated: boolean;
+};
+type SessionDiscovery = { candidates: SessionCandidate[]; available: number; truncated: boolean };
+type RecallStatus = { state: "idle" | "running" | "completed" | "failed" | "cancelled"; at?: string; error?: string };
+
+interface RecallPage {
+  total: number;
+  items: UnreadSession[];
+  offset: number;
+  returned: number;
+  nextOffset: number | null;
+  previewCharacters: number;
+  inventory: RecallInventory & { matched: number; shown: number; resultTruncated: boolean };
+}
+
+function recallPage(matches: readonly UnreadSession[], inventory: RecallInventory, offset: number, limit: number): AgentToolResult<RecallPage> {
+  const shown: UnreadSession[] = [];
+  const page = (): RecallPage => ({
+    total: matches.length,
+    items: shown,
+    offset,
+    returned: shown.length,
+    nextOffset: offset + shown.length < matches.length ? offset + shown.length : null,
+    previewCharacters: maxPreviewChars,
+    inventory: {
+      ...inventory,
+      matched: matches.length,
+      shown: shown.length,
+      resultTruncated: shown.length < matches.length,
+      truncated: inventory.truncated || shown.length < matches.length,
+    },
+  });
+  for (const item of matches.slice(offset, offset + limit)) {
+    shown.push(item);
+    if (Buffer.byteLength(JSON.stringify(page()), "utf8") > maxResultBytes) {
+      shown.pop();
+      if (shown.length === 0) throw new Error("Recall Unread entry exceeds the model-visible page limit");
+      break;
+    }
+  }
+  const details = structuredClone(page());
+  return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+}
+
+function boundedMetadataText(value: unknown, maximum: number): string | undefined {
+  if (typeof value !== "string" || value.includes("\0")) return undefined;
+  const normalized = value.trim();
+  return normalized === "" ? undefined : normalized.slice(0, maximum);
+}
+
+function sessionId(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxSessionIdChars || value.includes("\0")) return undefined;
+  return /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(value) ? value : undefined;
+}
+
+function sessionCwd(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxSessionPathChars || value.includes("\0") || !isAbsolute(value)) return undefined;
+  return value;
+}
+
+function queryParameter(value: unknown): { query: string; offset: number; limit: number } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Recall Unread parameters must be an object");
+  let prototype: unknown;
+  let descriptors: PropertyDescriptorMap;
+  try {
+    prototype = Object.getPrototypeOf(value) as unknown;
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch {
+    throw new Error("Recall Unread parameters must be a plain object with data properties");
+  }
+  if (prototype !== Object.prototype && prototype !== null) throw new Error("Recall Unread parameters must be a plain object");
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string" || !queryParameterNames.has(key)))
+    throw new Error("Recall Unread parameters contain an unknown property");
+  if (Object.values(descriptors).some((descriptor) => !("value" in descriptor))) throw new Error("Recall Unread parameters must use data properties");
+  const query = descriptors.query?.value as unknown;
+  if (query !== undefined && typeof query !== "string") throw new Error("Recall Unread query must be a string");
+  const normalized = (query ?? "").trim();
+  if (normalized.length > maxQueryLength) throw new Error(`Recall unread query must contain 0-${maxQueryLength} characters`);
+  if (normalized.includes("\0")) throw new Error("Recall Unread query must not contain NUL characters");
+  const offset: unknown = descriptors.offset?.value === undefined ? 0 : descriptors.offset.value;
+  const limit: unknown = descriptors.limit?.value === undefined ? maxToolItems : descriptors.limit.value;
+  if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > maxAllowedSessions)
+    throw new Error(`Recall Unread offset must be an integer from 0 to ${maxAllowedSessions}`);
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > maxToolItems)
+    throw new Error(`Recall Unread limit must be an integer from 1 to ${maxToolItems}`);
+  return { query: normalized.toLocaleLowerCase(), offset, limit };
+}
+
+function boundedError(error: unknown): string {
+  if (typeof error === "string") return error.slice(0, maxStatusErrorChars);
+  if (error !== null && typeof error === "object") {
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+      if (descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string") return descriptor.value.slice(0, maxStatusErrorChars);
+    } catch {
+      // Fall through to the stable message below.
+    }
+  }
+  return "Unknown Recall Unread error";
+}
+
+function throwIfCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error("Recall Unread scan was cancelled", { cause: signal.reason });
+}
+
+async function discoverSessionCandidates(sessionDir: string, activePath: string | undefined, signal: AbortSignal): Promise<SessionDiscovery> {
+  throwIfCancelled(signal);
+  let directory: Awaited<ReturnType<typeof opendir>>;
+  try {
+    directory = await opendir(sessionDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { candidates: [], available: 0, truncated: false };
+    throw error;
+  }
+  const candidates: SessionCandidate[] = [];
+  let available = 0;
+  let inspected = 0;
+  let truncated = false;
+  for await (const entry of directory) {
+    throwIfCancelled(signal);
+    inspected += 1;
+    if (inspected > maxDirectoryEntries) {
+      truncated = true;
+      break;
+    }
+    if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+    const path = join(sessionDir, entry.name);
+    try {
+      const metadata = await lstat(path);
+      throwIfCancelled(signal);
+      if (!metadata.isFile() || !Number.isFinite(metadata.mtimeMs)) continue;
+      available += 1;
+      if (path.length > maxSessionPathChars || (activePath !== undefined && resolve(path) === resolve(activePath))) continue;
+      candidates.push({ path, modified: metadata.mtime });
+    } catch {
+      // Files may disappear or change type while the directory is being scanned.
+    }
+  }
+  return {
+    candidates: candidates.sort(
+      (left, right) => right.modified.getTime() - left.modified.getTime() || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
+    ),
+    available,
+    truncated,
+  };
+}
+
+function sessionMetadata(entries: readonly unknown[], candidate: SessionCandidate, expectedCwd: string): Omit<UnreadSession, "message"> | undefined {
+  const headerEntry = arrayData(entries, 0);
+  if (!headerEntry.found) return undefined;
+  const headerType = dataProperty(headerEntry.value, "type");
+  if (!headerType.found || headerType.value !== "session") return undefined;
+  const idProperty = dataProperty(headerEntry.value, "id");
+  const cwdProperty = dataProperty(headerEntry.value, "cwd");
+  const id = sessionId(idProperty.found ? idProperty.value : undefined);
+  const cwd = sessionCwd(cwdProperty.found ? cwdProperty.value : undefined);
+  if (id === undefined || cwd === undefined || resolve(cwd) !== resolve(expectedCwd)) return undefined;
+
+  let name: string | undefined;
+  let firstMessage: string | undefined;
+  let messageCount = 0;
+  for (let index = 1; index < entries.length; index += 1) {
+    const entry = arrayData(entries, index);
+    if (!entry.found) continue;
+    const type = dataProperty(entry.value, "type");
+    if (!type.found) continue;
+    if (type.value === "session_info") {
+      const rawName = dataProperty(entry.value, "name");
+      name = boundedMetadataText(rawName.found ? rawName.value : undefined, maxSessionNameChars);
+      continue;
+    }
+    if (type.value !== "message") continue;
+    messageCount += 1;
+    if (firstMessage !== undefined) continue;
+    const messageProperty = dataProperty(entry.value, "message");
+    if (!messageProperty.found) continue;
+    const role = dataProperty(messageProperty.value, "role");
+    const content = dataProperty(messageProperty.value, "content");
+    if (!role.found || role.value !== "user" || !content.found) continue;
+    firstMessage = contentText(content.value);
+  }
+  return {
+    id,
+    path: candidate.path,
+    cwd,
+    name: name ?? boundedMetadataText(firstMessage, maxSessionNameChars) ?? id,
+    modified: candidate.modified.toISOString(),
+    messageCount,
+  };
+}
+
+async function unreadSession(candidate: SessionCandidate, activeId: string, expectedCwd: string, signal: AbortSignal): Promise<UnreadSession | undefined> {
+  try {
+    throwIfCancelled(signal);
+    const bytes = await readBoundedFile(candidate.path, maxSessionFileBytes, "Pi session file", signal);
+    throwIfCancelled(signal);
+    const entries = parseSessionEntries(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    const metadata = sessionMetadata(entries, candidate, expectedCwd);
+    if (metadata === undefined || metadata.id === activeId) return undefined;
+    const message = unreadUserMessage(entries);
+    return message === undefined ? undefined : { ...metadata, message };
+  } catch {
+    throwIfCancelled(signal);
+    return undefined;
+  }
+}
+
+async function unreadSessions(candidates: readonly SessionCandidate[], activeId: string, expectedCwd: string, signal: AbortSignal): Promise<UnreadSession[]> {
+  const results: UnreadSession[] = [];
+  for (let index = 0; index < candidates.length; index += sessionReadConcurrency) {
+    throwIfCancelled(signal);
+    const batch = await Promise.all(
+      candidates.slice(index, index + sessionReadConcurrency).map((candidate) => unreadSession(candidate, activeId, expectedCwd, signal)),
+    );
+    throwIfCancelled(signal);
+    results.push(...batch.filter((item): item is UnreadSession => item !== undefined));
+  }
+  return results;
+}
+
+export default {
+  name: "pi-recall-unread",
+  inject: ["piHarnessLaunch", "piSession", "piPluginUi", "piTools"],
+  Config,
+  async apply(context: Context, config: RecallUnreadPluginConfig) {
+    assertKnownConfigKeys("pi-recall-unread", config, ["maxSessions"]);
+    const configuredMaxSessions = config.maxSessions ?? defaultMaxSessions;
+    const maxSessions = Number.isFinite(configuredMaxSessions)
+      ? Math.max(1, Math.min(maxAllowedSessions, Math.trunc(configuredMaxSessions)))
+      : defaultMaxSessions;
+    const lifecycle = new AbortController();
+    let items: UnreadSession[] = [];
+    let scans = 0;
+    const emptyInventory: RecallInventory = {
+      available: 0,
+      candidates: 0,
+      scanned: 0,
+      unread: 0,
+      shown: 0,
+      truncated: false,
+      discoveryTruncated: false,
+      scanTruncated: false,
+      displayTruncated: false,
+    };
+    let inventory = { ...emptyInventory };
+    let status: RecallStatus = { state: "running" };
+    let scanQueue: Promise<void> = Promise.resolve();
+    let operationSequence = 0;
+    const runExclusive = <T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> => {
+      const result = scanQueue.then(
+        async () => {
+          throwIfCancelled(signal);
+          return operation();
+        },
+        async () => {
+          throwIfCancelled(signal);
+          return operation();
+        },
+      );
+      scanQueue = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    };
+    const capture = () => {
+      const session = context.get("piRuntime")?.session;
+      const manager = session?.sessionManager ?? context.piSession.manager;
+      return { session, manager, id: manager.getSessionId(), path: manager.getSessionFile(), cwd: manager.getCwd(), directory: manager.getSessionDir() };
+    };
+    type Scope = ReturnType<typeof capture>;
+    const sameScope = (left: Scope, right: Scope) =>
+      left.session === right.session &&
+      left.manager === right.manager &&
+      left.id === right.id &&
+      left.path === right.path &&
+      left.cwd === right.cwd &&
+      left.directory === right.directory;
+    let inventoryScope: Scope | undefined;
+    const refreshScope = (scope: Scope) => {
+      if (inventoryScope !== undefined && !sameScope(inventoryScope, scope)) {
+        items = [];
+        inventory = { ...emptyInventory };
+        status = { state: "idle" };
+      }
+      inventoryScope = scope;
+    };
+    const checkScope = (scope: Scope, signal: AbortSignal) => {
+      throwIfCancelled(signal);
+      if (!sameScope(scope, capture())) throw new Error("Recall Unread session changed during scanning; run the scan again");
+    };
+    const scan = async (scope: Scope, signal: AbortSignal): Promise<UnreadSession[]> => {
+      checkScope(scope, signal);
+      const discovery = await discoverSessionCandidates(scope.directory, scope.path, signal);
+      checkScope(scope, signal);
+      const scannedCandidates = discovery.candidates.slice(0, maxSessions);
+      const nextItems = await unreadSessions(scannedCandidates, scope.id, scope.cwd, signal);
+      checkScope(scope, signal);
+      const shown = Math.min(nextItems.length, maxPanelItems);
+      const scanTruncated = discovery.candidates.length > scannedCandidates.length;
+      const displayTruncated = nextItems.length > shown;
+      const nextInventory: RecallInventory = {
+        available: discovery.available,
+        candidates: discovery.candidates.length,
+        scanned: scannedCandidates.length,
+        unread: nextItems.length,
+        shown,
+        truncated: discovery.truncated || scanTruncated || displayTruncated,
+        discoveryTruncated: discovery.truncated,
+        scanTruncated,
+        displayTruncated,
+      };
+      throwIfCancelled(signal);
+      items = structuredClone(nextItems);
+      inventory = { ...nextInventory };
+      scans += 1;
+      return structuredClone(items);
+    };
+    const unregister = context.piTools.register(
+      defineTool({
+        name: "session_recall_unread",
+        label: "Recall unread sessions",
+        description:
+          "Find unanswered persisted Pi sessions without modifying them. Returns bounded JSON pages with IDs, paths, 500-character message previews and scan-completeness metadata. Follow nextOffset with the same query and limit for more scanned matches; each call rescans.",
+        promptSnippet: "find previous sessions with unanswered user messages",
+        parameters: Type.Object(
+          {
+            query: Type.Optional(Type.String({ maxLength: maxQueryLength })),
+            offset: Type.Optional(Type.Integer({ minimum: 0, maximum: maxAllowedSessions, description: "Matched-result offset; follow nextOffset" })),
+            limit: Type.Optional(
+              Type.Integer({ minimum: 1, maximum: maxToolItems, description: "Maximum results per page; defaults to 100, also bounded by 128 KiB JSON" }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        executionMode: "sequential",
+        async execute(_toolCallId, params, signal): Promise<AgentToolResult<RecallPage>> {
+          const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
+          throwIfCancelled(lifecycle.signal);
+          const sequence = ++operationSequence;
+          let scope: Scope | undefined;
+          try {
+            scope = capture();
+            refreshScope(scope);
+            const requestedScope = scope;
+            checkScope(requestedScope, operationSignal);
+            const { query, offset, limit } = queryParameter(params);
+            checkScope(requestedScope, operationSignal);
+            status = { state: "running" };
+            const result = await runExclusive(operationSignal, async () => {
+              const scanned = await scan(requestedScope, operationSignal);
+              checkScope(requestedScope, operationSignal);
+              const matches = scanned.filter((item) => query === "" || `${item.name} ${item.message} ${item.cwd}`.toLocaleLowerCase().includes(query));
+              return recallPage(matches, inventory, offset, limit);
+            });
+            checkScope(requestedScope, operationSignal);
+            if (sequence === operationSequence) status = { state: "completed", at: new Date().toISOString() };
+            return result;
+          } catch (error) {
+            if (!lifecycle.signal.aborted && sequence === operationSequence && (scope === undefined || sameScope(scope, capture())))
+              status = {
+                state: operationSignal.aborted ? "cancelled" : "failed",
+                at: new Date().toISOString(),
+                error: boundedError(error),
+              };
+            throw error;
+          }
+        },
+      }),
+    );
+    let disposePanel: () => void;
+    try {
+      disposePanel = context.piPluginUi.register({
+        id: "recall-unread-panel",
+        pluginId: "@pi-harness/plugin-recall-unread",
+        title: "Recall Unread",
+        description: "查看以未回答用户消息结束的原生 Pi 会话，只读不修改。",
+        icon: "◌",
+        read: () => {
+          throwIfCancelled(lifecycle.signal);
+          refreshScope(capture());
+          return {
+            scans,
+            total: items.length,
+            items: structuredClone(items.slice(0, maxPanelItems)),
+            inventory: { ...inventory },
+            status: { ...status },
+            limits: {
+              directoryEntries: maxDirectoryEntries,
+              sessionBytes: maxSessionFileBytes,
+              sessions: maxSessions,
+              allowedSessions: maxAllowedSessions,
+              readConcurrency: sessionReadConcurrency,
+              contentParts: maxContentParts,
+              previewCharacters: maxPreviewChars,
+              panelItems: maxPanelItems,
+              toolItems: maxToolItems,
+              queryCharacters: maxQueryLength,
+              sessionIdCharacters: maxSessionIdChars,
+              sessionNameCharacters: maxSessionNameChars,
+              sessionPathCharacters: maxSessionPathChars,
+              statusErrorCharacters: maxStatusErrorChars,
+            },
+          };
+        },
+      });
+    } catch (error) {
+      lifecycle.abort(new Error("Recall Unread plugin activation failed", { cause: error }));
+      unregister();
+      throw error;
+    }
+    context.effect(() => () => {
+      lifecycle.abort(new Error("Recall Unread plugin was disposed"));
+      unregister();
+      disposePanel();
+    });
+    let startupScope: Scope | undefined;
+    try {
+      startupScope = capture();
+      refreshScope(startupScope);
+      await scan(startupScope, lifecycle.signal);
+      checkScope(startupScope, lifecycle.signal);
+      status = { state: "completed", at: new Date().toISOString() };
+    } catch (error) {
+      if (!lifecycle.signal.aborted && (startupScope === undefined || sameScope(startupScope, capture())))
+        status = { state: "failed", at: new Date().toISOString(), error: boundedError(error) };
+    }
+  },
+};

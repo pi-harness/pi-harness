@@ -1,0 +1,43 @@
+{
+  "source": "Pi Harness Plugin Stars public-transport fixture",
+  "generatedAt": "2026-09-12T00:00:00Z",
+  "plugins": [
+    {
+      "id": "workflow-engine",
+      "name": "Workflow Engine",
+      "fullName": "pi-harness/workflow-engine-fixture",
+      "description": "Durable workflow orchestration for complex product delivery",
+      "htmlUrl": "https://github.com/pi-harness/workflow-engine-fixture",
+      "homepage": "https://example.invalid/workflow-engine",
+      "npmName": "@fixture/workflow-engine",
+      "stars": 840,
+      "updatedAt": "2026-09-11T12:00:00Z",
+      "license": "MIT",
+      "topics": ["pi-harness-plugin", "workflow", "productivity"]
+    },
+    {
+      "id": "design-review",
+      "name": "Design Review",
+      "fullName": "pi-harness/design-review-fixture",
+      "description": "Review product specifications and interaction decisions",
+      "htmlUrl": "https://github.com/pi-harness/design-review-fixture",
+      "npmName": "@fixture/design-review",
+      "stars": 630,
+      "updatedAt": "2026-09-10T10:30:00Z",
+      "license": "Apache-2.0",
+      "topics": ["pi-harness-plugin", "design", "review"]
+    },
+    {
+      "id": "test-matrix",
+      "name": "Test Matrix",
+      "fullName": "pi-harness/test-matrix-fixture",
+      "description": "Browser, API and accessibility verification matrix",
+      "htmlUrl": "https://github.com/pi-harness/test-matrix-fixture",
+      "npmName": "@fixture/test-matrix",
+      "stars": 510,
+      "updatedAt": "2026-09-09T09:15:00Z",
+      "license": "MIT",
+      "topics": ["pi-harness-plugin", "testing", "accessibility"]
+    }
+  ]
+}

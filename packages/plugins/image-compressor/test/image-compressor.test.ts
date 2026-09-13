@@ -1,0 +1,328 @@
+import { mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { win32 } from "node:path";
+import { Context } from "@deepseek-ai/cordis";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import imageCompressorPlugin, { isImageCompressorPathInside } from "../src/index.js";
+import { PiPluginUiRegistry, PiToolRegistry, provideLaunchContext } from "@pi-harness/plugin-api";
+
+import type * as FsPromises from "node:fs/promises";
+
+// Pause after a real staging fsync so a session change can be observed before atomic publication.
+const writeHooks = vi.hoisted(() => ({ afterSync: undefined as (() => Promise<void>) | undefined }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  const open: typeof actual.open = async (...args) => {
+    const handle = await actual.open(...args);
+    if (typeof args[0] === "string" && args[0].endsWith(".tmp")) {
+      const sync = handle.sync.bind(handle);
+      Object.defineProperty(handle, "sync", {
+        value: async () => {
+          await sync();
+          await writeHooks.afterSync?.();
+        },
+      });
+    }
+    return handle;
+  };
+  return { ...actual, open };
+});
+
+const contexts: Context[] = [];
+const roots: string[] = [];
+const onePixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+
+function pngCrc32(input: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of input) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, "ascii");
+  const result = Buffer.allocUnsafe(12 + data.length);
+  result.writeUInt32BE(data.length, 0);
+  typeBytes.copy(result, 4);
+  data.copy(result, 8);
+  result.writeUInt32BE(pngCrc32(Buffer.concat([typeBytes, data])), 8 + data.length);
+  return result;
+}
+
+const largePng = Buffer.concat([onePixelPng.subarray(0, onePixelPng.length - 12), pngChunk("tEXt", Buffer.alloc(200_000, 0x61)), onePixelPng.subarray(-12)]);
+
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), "pi-harness-image-"));
+  roots.push(root);
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(imageCompressorPlugin);
+  contexts.push(context);
+  const tool = tools.snapshot().customTools.find((item) => item.name === "image_compress");
+  if (tool === undefined) throw new Error("image_compress was not registered");
+  return { root, context, tools, panels, tool };
+}
+
+afterEach(async () => {
+  await Promise.all(contexts.splice(0).map((context) => context.fiber.dispose()));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe("image compressor", () => {
+  test.each(["IHDR", "IDAT", "IEND"])("rejects a corrupted %s CRC without overwriting output or the last receipt", async (type) => {
+    const { root, tool, panels } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    await tool.execute("valid", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+    const previousOutput = await readFile(join(root, "input.min.png"));
+    const previousPanel = await panels.snapshot();
+    const damaged = Buffer.from(onePixelPng);
+    let offset = 8;
+    while (damaged.subarray(offset + 4, offset + 8).toString("ascii") !== type) {
+      offset += 12 + damaged.readUInt32BE(offset);
+    }
+    const crcOffset = offset + 8 + damaged.readUInt32BE(offset);
+    damaged[crcOffset] = damaged[crcOffset]! ^ 1;
+    await writeFile(join(root, "corrupt.png"), damaged);
+    await expect(
+      tool.execute("corrupt", { path: "corrupt.png", outputPath: "input.min.png", confirm: true }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/CRC/iu);
+    expect(await readFile(join(root, "input.min.png"))).toEqual(previousOutput);
+    expect(await readFile(join(root, "corrupt.png"))).toEqual(damaged);
+    expect(await panels.snapshot()).toEqual(previousPanel);
+    expect((await readdir(root)).sort()).toEqual(["corrupt.png", "input.min.png", "input.png"]);
+  });
+
+  test("rejects Windows paths outside the workspace using native path semantics", () => {
+    expect(isImageCompressorPathInside("C:\\repo", "C:\\outside", win32)).toBe(false);
+    expect(isImageCompressorPathInside("C:\\repo", "C:\\repo\\asset.png", win32)).toBe(true);
+  });
+
+  test("losslessly recompresses a workspace PNG after confirmation", async () => {
+    const { root, tool, panels } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    expect(tool.executionMode).toBe("sequential");
+    expect(tool.parameters).toMatchObject({ type: "object", additionalProperties: false });
+    const result = await tool.execute("compress", { path: "input.png", outputPath: "out.png", confirm: true }, undefined, undefined, {} as never);
+    expect(result.details).toMatchObject({ inputPath: "input.png", outputPath: "out.png", format: "png", saved: true });
+    expect((await stat(join(root, "out.png"))).isFile()).toBe(true);
+    expect((await readFile(join(root, "out.png"))).subarray(0, 8)).toEqual(onePixelPng.subarray(0, 8));
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: { outputPath: "out.png" } } }]);
+  });
+
+  test("rejects unconfirmed or escaping writes and disposes registrations", async () => {
+    const { root, context, tools, panels, tool } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    await expect(tool.execute("no", { path: "input.png", confirm: false }, undefined, undefined, {} as never)).rejects.toThrow(/confirm=true/iu);
+    await expect(tool.execute("escape", { path: "../input.png", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/inside/iu);
+    await context.fiber.dispose();
+    expect(tools.snapshot().customTools).toHaveLength(0);
+    await expect(panels.snapshot()).resolves.toHaveLength(0);
+  });
+  test("rejects an escaping output ancestor before creating directories", async () => {
+    const { root, tool } = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-image-outside-"));
+    roots.push(outside);
+    await writeFile(join(root, "input.png"), onePixelPng);
+    await symlink(outside, join(root, "linked"));
+    await expect(
+      tool.execute("escape", { path: "input.png", outputPath: "linked/new/out.png", confirm: true }, undefined, undefined, {} as never),
+    ).rejects.toThrow(/inside/iu);
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  test("rejects cancelled and disposed writes without creating output", async () => {
+    const { root, context, tool } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    const controller = new AbortController();
+    controller.abort(new Error("Image request cancelled"));
+    await expect(tool.execute("cancel", { path: "input.png", confirm: true }, controller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+    await context.fiber.dispose();
+    await expect(tool.execute("disposed", { path: "input.png", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    expect(await readdir(root)).toEqual(["input.png"]);
+  });
+
+  test("stops an in-flight bounded image read at the next chunk after cancellation", async () => {
+    const { root, context, tool } = await fixture();
+    const inputPath = join(root, "large.png");
+    await writeFile(inputPath, largePng);
+    const probe = await open(inputPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", { path: "large.png", outputPath: "compressed.png", confirm: true }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("image read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+      await context.fiber.dispose();
+    }
+  });
+
+  test("keeps the compression receipt independent from returned details", async () => {
+    const { root, tool, panels } = await fixture();
+    await writeFile(join(root, "input.png"), onePixelPng);
+    const result = await tool.execute("compress", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+    const before = await panels.snapshot();
+    (result.details as { savedBytes: number }).savedBytes = 999999;
+    expect(await panels.snapshot()).toEqual(before);
+  });
+
+  test("writes the default output next to the input and refuses to replace an existing derived file", async () => {
+    const { root, tool } = await fixture();
+    await mkdir(join(root, "assets", "icons"), { recursive: true });
+    await mkdir(join(root, "docs", "img"), { recursive: true });
+    await writeFile(join(root, "assets", "icons", "logo.png"), onePixelPng);
+    await writeFile(join(root, "docs", "img", "logo.png"), onePixelPng);
+
+    const first = await tool.execute("first", { path: "assets/icons/logo.png", confirm: true }, undefined, undefined, {} as never);
+    expect(first.details).toMatchObject({ inputPath: join("assets", "icons", "logo.png"), outputPath: join("assets", "icons", "logo.min.png") });
+    expect((await stat(join(root, "assets", "icons", "logo.min.png"))).isFile()).toBe(true);
+    await expect(stat(join(root, "logo.min.png"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const second = await tool.execute("second", { path: "docs/img/logo.png", confirm: true }, undefined, undefined, {} as never);
+    expect(second.details).toMatchObject({ outputPath: join("docs", "img", "logo.min.png") });
+    expect((await stat(join(root, "docs", "img", "logo.min.png"))).isFile()).toBe(true);
+    expect((await stat(join(root, "assets", "icons", "logo.min.png"))).isFile()).toBe(true);
+
+    await expect(tool.execute("again", { path: "assets/icons/logo.png", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /already exists.*assets\/icons\/logo\.min\.png.*outputPath/iu,
+    );
+    await expect(
+      tool.execute("explicit", { path: "assets/icons/logo.png", outputPath: "assets/icons/logo.min.png", confirm: true }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({ details: { outputPath: join("assets", "icons", "logo.min.png") } });
+  });
+});
+
+test("compresses in the current native workspace and invalidates old operations", async () => {
+  const { root, context, panels, tool } = await fixture();
+  const active = join(root, "active");
+  await mkdir(active);
+  await writeFile(join(root, "input.png"), onePixelPng);
+  await writeFile(join(active, "input.png"), onePixelPng);
+  let id = "first";
+  let session = { sessionId: id, sessionManager: { getCwd: () => root } };
+  context.provide("piRuntime", {
+    get session() {
+      return session;
+    },
+  } as never);
+  await tool.execute("first", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+  session = {
+    get sessionId() {
+      return id;
+    },
+    sessionManager: { getCwd: () => active },
+  };
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  await tool.execute("active", { path: "input.png", confirm: true }, undefined, undefined, {} as never);
+  expect((await readFile(join(active, "input.min.png"))).subarray(0, 8)).toEqual(onePixelPng.subarray(0, 8));
+  const pending = tool.execute("pending", { path: "input.png", outputPath: "old.png", confirm: true }, undefined, undefined, {} as never);
+  id = "second";
+  await expect(pending).rejects.toThrow(/workspace changed/iu);
+  await expect(readFile(join(active, "old.png"))).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  await expect(
+    tool.execute(
+      "getter",
+      {
+        get path() {
+          id = "third";
+          return "input.png";
+        },
+        confirm: true,
+      },
+      undefined,
+      undefined,
+      {} as never,
+    ),
+  ).rejects.toThrow(/workspace changed/iu);
+});
+
+test.each([false, true])("rejects session changes after staging without publishing, overwrite=%s", async (overwrite) => {
+  const { root, context, tool, panels } = await fixture();
+  await writeFile(join(root, "input.png"), onePixelPng);
+  const target = overwrite ? "explicit.png" : "input.min.png";
+  if (overwrite) await writeFile(join(root, target), "original target");
+  let id = "first";
+  context.provide("piRuntime", {
+    session: {
+      get sessionId() {
+        return id;
+      },
+      sessionManager: { getCwd: () => root },
+    },
+  } as never);
+  let reached!: () => void, release!: () => void;
+  const staged = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  writeHooks.afterSync = async () => {
+    reached();
+    await held;
+  };
+  try {
+    const result = tool
+      .execute("staged", { path: "input.png", ...(overwrite ? { outputPath: target } : {}), confirm: true }, undefined, undefined, {} as never)
+      .then(
+        () => "unexpected success",
+        (error: unknown) => String(error),
+      );
+    await staged;
+    id = "replacement";
+    release();
+    expect(await result).toMatch(/workspace changed/iu);
+    if (overwrite) expect(await readFile(join(root, target), "utf8")).toBe("original target");
+    else await expect(readFile(join(root, target))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await readdir(root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { last: null } }]);
+  } finally {
+    writeHooks.afterSync = undefined;
+    release();
+  }
+});

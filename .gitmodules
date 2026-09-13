@@ -1,3 +1,0 @@
-[submodule "packages/plugins"]
-	path = packages/plugins
-	url = https://github.com/pi-harness/pi-harness-plugins.git
