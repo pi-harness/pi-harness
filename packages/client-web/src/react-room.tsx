@@ -8067,6 +8067,10 @@ export function createGlobalSearchDebouncer(delayMs = GLOBAL_SEARCH_DEBOUNCE_MS)
   };
 }
 
+export function marketplaceDetailBackHistoryMode(): "replace" {
+  return "replace";
+}
+
 export async function listAllSessionsForGlobalSearch(api: Pick<ClientApi, "listSessions">, query: string): Promise<readonly Record<string, unknown>[]> {
   const first = await api.listSessions(0, GLOBAL_SEARCH_PAGE_SIZE, true, query);
   if (!first.hasNext) return first.items;
@@ -8631,6 +8635,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const sessionQueryRef = useRef("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
+  const [marketplaceSearchQuery, setMarketplaceSearchQuery] = useState(initialQueryState.marketplaceQuery);
   const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
   const [marketplaceCategory, setMarketplaceCategory] = useState(initialQueryState.marketplaceCategory);
   const [marketplacePluginId, setMarketplacePluginId] = useState<string | undefined>(initialQueryState.marketplacePlugin);
@@ -8677,6 +8682,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refreshQueuedRef = useRef(false);
   const refreshSequenceRef = useRef({ requested: 0, applied: 0 });
   const liveRefreshSequenceRef = useRef({ status: 0, session: 0, pluginPanels: 0 });
+  const marketplaceSearchDebouncerRef = useRef(createGlobalSearchDebouncer());
   const resolvedMarketplaceDetailRef = useRef<MarketplaceDetailResolution | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
@@ -8708,6 +8714,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     }, 180);
     return () => window.clearTimeout(timer);
   }, [search]);
+  useEffect(() => {
+    marketplaceSearchDebouncerRef.current.schedule(marketplaceQuery, setMarketplaceSearchQuery);
+    return () => marketplaceSearchDebouncerRef.current.cancel();
+  }, [marketplaceQuery]);
   const searchableFiles = useMemo(() => mergeSearchableFiles(data.workspaceFiles, data.files), [data.files, data.workspaceFiles]);
   const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
   const promptCompletionItems = useMemo(() => {
@@ -8885,6 +8895,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSettings(next.settings);
       setSelectedSessionPath(next.sessionPath);
       setMarketplaceQuery(next.marketplaceQuery);
+      setMarketplaceSearchQuery(next.marketplaceQuery);
       setMarketplaceCapability(next.marketplaceCapability);
       setMarketplaceCategory(next.marketplaceCategory);
       setMarketplacePage(next.marketplacePage);
@@ -8980,7 +8991,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listModels(),
       api.listProviders(),
       api.listPlugins(),
-      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale),
+      api.listMarketplace(marketplaceSearchQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale),
       api.listCommands(),
       api.listWorkspaces(),
     ] as const;
@@ -9067,7 +9078,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
-  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage, sessionQuery]);
+  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery, sessionPage, sessionQuery]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -9541,14 +9552,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setInstalledPluginId(pluginId);
     setMarketplacePluginId(undefined);
   };
-  const pushMarketplacePluginRoute = (pluginId: string | undefined) => {
+  const pushMarketplacePluginRoute = (pluginId: string | undefined, historyMode: "push" | "replace" = "push") => {
     const params = new URLSearchParams(window.location.search);
     params.set("page", "marketplace");
     params.delete("settings");
     if (pluginId) params.set("plugin", pluginId);
     else params.delete("plugin");
     const query = params.toString();
-    window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    const route = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+    if (historyMode === "replace") window.history.replaceState(null, "", route);
+    else window.history.pushState(null, "", route);
     setSettings(undefined);
     setDetails(undefined);
     setCommandOpen(false);
@@ -9646,7 +9659,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         capabilityLabel={capabilityLabel}
         installed={installedPackages.has(marketplaceDetail.packageName)}
         restartPending={restartPendingPackages.has(marketplaceDetail.packageName)}
-        onBack={() => pushMarketplacePluginRoute(undefined)}
+        onBack={() => pushMarketplacePluginRoute(undefined, marketplaceDetailBackHistoryMode())}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
@@ -9662,7 +9675,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               href="?page=marketplace"
               onClick={(event) => {
                 event.preventDefault();
-                pushMarketplacePluginRoute(undefined);
+                pushMarketplacePluginRoute(undefined, marketplaceDetailBackHistoryMode());
               }}
             >
               {t("← 插件市场")}
