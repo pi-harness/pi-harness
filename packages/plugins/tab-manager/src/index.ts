@@ -21,11 +21,12 @@ function emptyState(): TabState {
   return { tabs: [], selectedId: null };
 }
 
-async function readState(path: string): Promise<TabState> {
+async function readState(path: string, signal?: AbortSignal): Promise<TabState> {
   let source: string;
   try {
-    source = await readBoundedTextFile(path, maxStateFileBytes, "Session tab store");
+    source = await readBoundedTextFile(path, maxStateFileBytes, "Session tab store", signal);
   } catch (error) {
+    signal?.throwIfAborted();
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyState();
     throw error;
   }
@@ -100,7 +101,7 @@ function sameFile(left: Awaited<ReturnType<typeof lstat>>, right: Awaited<Return
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-async function reclaimStaleTabLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
+async function reclaimStaleTabLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>, signal?: AbortSignal): Promise<boolean> {
   if (Date.now() - Number(lockMetadata.mtimeMs) <= staleLockMs) return false;
   let directory;
   try {
@@ -127,8 +128,9 @@ async function reclaimStaleTabLock(lockPath: string, lockMetadata: Awaited<Retur
   if (!ownerMetadata.isFile() || ownerMetadata.isSymbolicLink() || Date.now() - Number(ownerMetadata.mtimeMs) <= staleLockMs) return false;
   let owner: unknown;
   try {
-    owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Session tab lock owner")) as unknown;
+    owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Session tab lock owner", signal)) as unknown;
   } catch (error) {
+    signal?.throwIfAborted();
     if (!(error instanceof SyntaxError)) return false;
   }
   if (tabLockOwnerIsAlive(owner) === true) return false;
@@ -149,7 +151,7 @@ async function reclaimStaleTabLock(lockPath: string, lockMetadata: Awaited<Retur
   }
 }
 
-async function acquireTabLock(lockPath: string, check: () => void): Promise<() => Promise<void>> {
+async function acquireTabLock(lockPath: string, check: () => void, signal?: AbortSignal): Promise<() => Promise<void>> {
   await mkdir(dirname(lockPath), { recursive: true });
   const deadline = Date.now() + lockTimeoutMs;
   while (true) {
@@ -188,7 +190,7 @@ async function acquireTabLock(lockPath: string, check: () => void): Promise<() =
       }
       if (metadata.isSymbolicLink()) throw new Error("Session tab store lock must not be a symbolic link", { cause: error });
       if (!metadata.isDirectory()) throw new Error("Session tab store lock must be a directory", { cause: error });
-      if (await reclaimStaleTabLock(lockPath, metadata)) continue;
+      if (await reclaimStaleTabLock(lockPath, metadata, signal)) continue;
       if (Date.now() >= deadline) throw new Error("Timed out waiting for session tab store lock", { cause: error });
       await new Promise<void>((resolve) => setTimeout(resolve, lockRetryMs));
     }
@@ -240,13 +242,13 @@ export default {
       current.selectedId = tab.id;
       return tab;
     };
-    const mutate = async <T>(check: () => void, operation: (current: TabState) => T): Promise<T> => {
+    const mutate = async <T>(check: () => void, operation: (current: TabState) => T, signal?: AbortSignal): Promise<T> => {
       let result: T | undefined;
       const run = async (): Promise<void> => {
         check();
-        const release = await acquireTabLock(`${path}.lock`, check);
+        const release = await acquireTabLock(`${path}.lock`, check, signal);
         try {
-          const current = await readState(path);
+          const current = await readState(path, signal);
           check();
           result = operation(current);
           await persist(path, current, check);
@@ -316,7 +318,7 @@ export default {
             throw new Error("List parameters cannot include a session path or label");
           if (!["pin", "rename"].includes(params.action) && params.label !== undefined) throw new Error("Label parameter is only supported by pin and rename");
           if (params.action === "list") {
-            const next = await readState(path);
+            const next = await readState(path, signal);
             check();
             state = next;
             const report = {
@@ -342,7 +344,7 @@ export default {
             checkActivationAvailable();
             const source = runtime.session;
             const sourceId = source.sessionId;
-            const current = await readState(path);
+            const current = await readState(path, signal);
             check();
             if (!current.tabs.some((tab) => tab.sessionPath === targetPath)) throw new Error("Session tab not found");
             checkActivationAvailable();
@@ -363,9 +365,9 @@ export default {
                 check();
                 if (context.get("piRuntime") !== runtime || runtime.session !== source || source.sessionId !== sourceId || !source.isIdle)
                   throw new Error("Session context changed before activation");
-                const latest = await readState(path);
+                const latest = await readState(path, combined);
                 if (!latest.tabs.some((tab) => tab.sessionPath === targetPath)) throw new Error("Session tab was removed before activation");
-                const text = await readBoundedTextFile(targetPath, 4 * 1024 * 1024, "Session activation file");
+                const text = await readBoundedTextFile(targetPath, 4 * 1024 * 1024, "Session activation file", combined);
                 const header = JSON.parse(text.split("\n", 1)[0] ?? "") as Record<string, unknown>;
                 if (header.type !== "session" || header.version !== 3 || typeof header.id !== "string" || typeof header.cwd !== "string")
                   throw new Error("Session activation requires a native Pi session file");
@@ -392,36 +394,48 @@ export default {
             return { content: [{ type: "text", text: JSON.stringify(accepted) }], details: accepted };
           }
           if (params.action === "remove") {
-            await mutate(checkContext, (current) => {
-              const target = current.tabs.find((tab) => tab.sessionPath === targetPath);
-              if (target === undefined) throw new Error("Session tab not found");
-              current.tabs = current.tabs.filter((tab) => tab !== target);
-              if (current.selectedId === target.id) current.selectedId = current.tabs[0]?.id ?? null;
-            });
+            await mutate(
+              checkContext,
+              (current) => {
+                const target = current.tabs.find((tab) => tab.sessionPath === targetPath);
+                if (target === undefined) throw new Error("Session tab not found");
+                current.tabs = current.tabs.filter((tab) => tab !== target);
+                if (current.selectedId === target.id) current.selectedId = current.tabs[0]?.id ?? null;
+              },
+              signal,
+            );
           } else if (params.action === "rename") {
             const label = params.label?.trim() ?? "";
             if (label.length === 0 || label.length > 120) throw new Error("Tab label must be 1 to 120 characters");
-            await mutate(checkContext, (current) => {
-              const target = current.tabs.find((tab) => tab.sessionPath === targetPath);
-              if (target === undefined) throw new Error("Session tab not found");
-              target.label = label;
-              target.updatedAt = new Date().toISOString();
-              current.selectedId = target.id;
-            });
+            await mutate(
+              checkContext,
+              (current) => {
+                const target = current.tabs.find((tab) => tab.sessionPath === targetPath);
+                if (target === undefined) throw new Error("Session tab not found");
+                target.label = label;
+                target.updatedAt = new Date().toISOString();
+                current.selectedId = target.id;
+              },
+              signal,
+            );
           } else if (params.action === "pin") {
             // Only the active session is keyed by its session id; other sessions are keyed by their file name so the tab describes the requested path.
             const id = active !== undefined ? active.id : basename(targetPath, extname(targetPath)).trim();
             if (id.length === 0 || id.length > 512) throw new Error("Session tab path must name a session file");
-            const tab = await mutate(checkContext, (current) => upsert(current, id, targetPath, params.label, true));
+            const tab = await mutate(checkContext, (current) => upsert(current, id, targetPath, params.label, true), signal);
             return { content: [{ type: "text", text: JSON.stringify(tab) }], details: structuredClone(tab) };
           } else if (params.action === "unpin") {
-            await mutate(checkContext, (current) => {
-              const target = current.tabs.find((tab) => tab.sessionPath === targetPath);
-              if (target === undefined) throw new Error("Session tab not found");
-              target.pinned = false;
-              target.updatedAt = new Date().toISOString();
-              current.selectedId = target.id;
-            });
+            await mutate(
+              checkContext,
+              (current) => {
+                const target = current.tabs.find((tab) => tab.sessionPath === targetPath);
+                if (target === undefined) throw new Error("Session tab not found");
+                target.pinned = false;
+                target.updatedAt = new Date().toISOString();
+                current.selectedId = target.id;
+              },
+              signal,
+            );
           } else throw new Error("session_tab_manage action must be pin, unpin, rename, activate, remove, or list");
           return { content: [{ type: "text", text: JSON.stringify(state) }], details: structuredClone(state) };
         },
@@ -436,7 +450,7 @@ export default {
         description: "管理命名会话标签；移除标签不会删除会话文件。",
         icon: "▣",
         read: async () => {
-          state = await readState(path);
+          state = await readState(path, lifecycle.signal);
           return {
             selectedId: state.selectedId,
             tabs: state.tabs,
