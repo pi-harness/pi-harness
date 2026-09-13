@@ -1261,7 +1261,7 @@ test("does not render History Compressor state from another active session", () 
       enabled: true,
       thresholdPercent: 85,
       compactions: 17,
-      lastUsagePercent: 92,
+      lastUsagePercent: 92.3456,
       queued: false,
       lastError: "previous session error",
     },
@@ -1274,7 +1274,8 @@ test("does not render History Compressor state from another active session", () 
   expect(staleHtml).not.toContain("previous session error");
   expect(staleHtml).not.toContain("92%");
   expect(activeHtml).toContain("previous session error");
-  expect(activeHtml).toContain("92%");
+  expect(activeHtml).toContain("92.3%");
+  expect(activeHtml).not.toContain("92.3456%");
 });
 
 test("does not render Context Doctor findings from another active session", () => {
