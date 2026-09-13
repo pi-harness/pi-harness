@@ -156,7 +156,13 @@ export default {
           const skill = skills.find((candidate) => candidate.name === name);
           if (skill === undefined) throw new Error(`Skill was not found: ${name}`);
           const filePath = skill.filePath;
-          const content = await readBoundedTextFile(filePath, maxSkillBytes, "Skill file");
+          let content: string;
+          try {
+            content = await readBoundedTextFile(filePath, maxSkillBytes, "Skill file", combined);
+          } catch (error) {
+            if (combined.aborted) throw new Error("Skill catalog was cancelled", { cause: error });
+            throw error;
+          }
           checkCancelled();
           if (
             currentLoader(context) !== loader ||
