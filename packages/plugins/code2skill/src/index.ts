@@ -119,7 +119,12 @@ async function resolveWorkspaceFile(cwd: string, input: string): Promise<{ absol
   return { absolute: resolved.target, display: resolved.relativePath.split(sep).join("/") };
 }
 
-async function createSkill(cwd: string, params: { name: string; description: string; files: string[] }, assertCurrent: () => void): Promise<SkillReport> {
+async function createSkill(
+  cwd: string,
+  params: { name: string; description: string; files: string[] },
+  assertCurrent: () => void,
+  signal: AbortSignal,
+): Promise<SkillReport> {
   assertCurrent();
   const displayName = params.name.trim().replace(/\s+/gu, " ");
   const slug = slugify(displayName);
@@ -135,7 +140,7 @@ async function createSkill(cwd: string, params: { name: string; description: str
   const loaded: Array<SkillFile & { content: Buffer }> = [];
   for (const source of sources) {
     assertCurrent();
-    const content = await readBoundedFile(source.absolute, maxFileBytes, `Skill file ${source.display}`);
+    const content = await readBoundedFile(source.absolute, maxFileBytes, `Skill file ${source.display}`, signal);
     bytes += content.byteLength;
     if (bytes > maxTotalBytes) throw new Error(`Skill sources exceed ${maxTotalBytes} bytes`);
     loaded.push({ path: source.display, bytes: content.byteLength, content });
@@ -226,7 +231,7 @@ export default {
           };
           assertCurrent();
           const operation = creationQueue.then(async () => {
-            const report = await createSkill(operationScope.cwd, validated, assertCurrent);
+            const report = await createSkill(operationScope.cwd, validated, assertCurrent, actionSignal);
             assertCurrent();
             latest = report;
             generated += 1;
