@@ -1286,7 +1286,7 @@ test("does not render Context Doctor findings from another active session", () =
     data: {
       sessionId: "previous-session",
       status: "warning",
-      usagePercent: 92,
+      usagePercent: 92.3456,
       messageCount: 20,
       scannedMessages: 20,
       oversizedMessages: 2,
@@ -1302,6 +1302,11 @@ test("does not render Context Doctor findings from another active session", () =
   expect(html).toContain("面板数据不完整或不一致。");
   expect(html).not.toContain("old recommendation");
   expect(html).not.toContain("92%");
+
+  const activeHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "previous-session", panel }));
+
+  expect(activeHtml).toContain("92.3%");
+  expect(activeHtml).not.toContain("92.3456%");
 });
 
 test("does not render Context Insights metrics from another active session", () => {
