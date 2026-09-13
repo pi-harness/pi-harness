@@ -1,5 +1,6 @@
-import { mkdtemp, opendir, readFile, writeFile, truncate, symlink, rm } from "node:fs/promises";
+import { mkdtemp, open, opendir, readFile, writeFile, truncate, symlink, rm } from "node:fs/promises";
 import { Dir } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -153,6 +154,46 @@ test("rejects cancellation, session changes, disposal and malformed parameters b
   await context.fiber.dispose();
   await expect(disposed).rejects.toThrow(/cancelled/);
   await expect(search()).rejects.toThrow(/cancelled/);
+});
+
+test("stops a bounded journal read at the next chunk after cancellation", async () => {
+  const { manager, search } = await fixture();
+  const file = manager.getSessionFile()!;
+  await writeFile(file, `${await readFile(file, "utf8")}${JSON.stringify({ type: "custom", data: "x".repeat(200_000) })}\n`, "utf8");
+
+  const probe = await open(file, "r");
+  const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+  await probe.close();
+  const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+  let markReadStarted!: () => void;
+  const readStarted = new Promise<void>((resolve) => {
+    markReadStarted = resolve;
+  });
+  let releaseRead!: () => void;
+  const readReleased = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let readCalls = 0;
+  fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+    readCalls += 1;
+    if (readCalls === 1) {
+      markReadStarted();
+      await readReleased;
+    }
+    return originalRead.call(this, ...args);
+  };
+  try {
+    const controller = new AbortController();
+    const pending = search("needle", controller.signal);
+    await readStarted;
+    controller.abort();
+    releaseRead();
+    await expect(pending).rejects.toThrow(/cancelled/);
+    expect(readCalls).toBe(1);
+  } finally {
+    releaseRead();
+    fileHandlePrototype.read = originalRead;
+  }
 });
 
 test("bounds candidate and result counts independently and keeps full matching-message totals", async () => {

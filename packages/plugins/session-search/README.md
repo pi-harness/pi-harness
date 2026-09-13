@@ -32,6 +32,6 @@ Only one opaque, single-use cursor is retained per plugin instance. It is tied t
 
 Native context replacement is detected on the next tool execution or panel read, before the old cursor can be used or displayed. With no further interaction, the idle expiry closes the one retained directory handle within five minutes; cleanup is not an immediate native-navigation event subscription.
 
-The complete bounded report is model-visible. Search is read-only and does not create an atomic snapshot across journals; avoid concurrent journal edits when repeatable results matter. Cancellation, plugin disposal and changes to the active manager/session/workspace prevent publication of the pending report. In-flight bounded file reads finish before cancellation is observed.
+The complete bounded report is model-visible. Search is read-only and does not create an atomic snapshot across journals; avoid concurrent journal edits when repeatable results matter. Cancellation, plugin disposal and changes to the active manager/session/workspace prevent publication of the pending report. Bounded file reads observe cancellation between their open, metadata and 64 KiB chunk boundaries; an individual filesystem operation already in flight must settle first.
 
 The invocation captures its native session before parameter inspection. Replacing that session or its manager, ID, workspace or journal directory clears the cached report; stale operations cannot publish into the new session.

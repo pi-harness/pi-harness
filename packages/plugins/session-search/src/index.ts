@@ -102,7 +102,7 @@ export interface SessionSearchReport {
 const scope =
   "User and assistant text in persisted native journals, including historical branches. Images, thinking and tool output are excluded. Per page: directory order, up to 200 files / 4096 entries / 32 MiB read budget (failed reads charge their allowance) / 4 MiB per file / 100 matching sessions. Counts describe this page only. Use nextCursor with the same query until null, even after a page with no hits. One cursor per native session; expires after five idle minutes or a new search. Up to 10 previews per session, 500 characters each. Read-only, not an atomic snapshot; skipped files and clipped previews are not recovered by continuation.";
 
-async function searchSessions(directory: string, cwd: string, scan: SearchScan, check: () => void): Promise<SessionSearchReport> {
+async function searchSessions(directory: string, cwd: string, scan: SearchScan, signal: AbortSignal, check: () => void): Promise<SessionSearchReport> {
   const query = scan.query;
   const report: SessionSearchReport = {
     query,
@@ -157,7 +157,7 @@ async function searchSessions(directory: string, cwd: string, scan: SearchScan, 
     try {
       const allowance = Math.min(maxSessionFileBytes, maxTotalBytes - report.byteBudgetUsed);
       report.byteBudgetUsed += allowance;
-      const bytes = await readBoundedFile(path, allowance, "Session search file");
+      const bytes = await readBoundedFile(path, allowance, "Session search file", signal);
       report.byteBudgetUsed -= allowance - bytes.length;
       const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       entries = text
@@ -295,7 +295,7 @@ export default {
             }
             scan = activeScan!;
             clearTimeout(scan.timer);
-            const report = await searchSessions(operationContext.directory, operationContext.cwd, scan, () => {
+            const report = await searchSessions(operationContext.directory, operationContext.cwd, scan, combined, () => {
               check();
               if (scan!.invalid) throw new Error("Session search cursor was invalidated");
             });
