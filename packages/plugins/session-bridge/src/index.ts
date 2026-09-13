@@ -46,6 +46,7 @@ export interface BridgePackage {
   messageCount: number;
   messages: BridgeMessage[];
   unresolvedAttachments: string[];
+  truncated?: boolean;
 }
 
 export interface HandoffPreview {
@@ -172,7 +173,7 @@ function serializedBytes(value: BridgePackage): number {
 function fitSerializedPackage(packageValue: BridgePackage): BridgePackage {
   if (serializedBytes(packageValue) <= maxPackageBytes) return packageValue;
   const messages = packageValue.messages.map((message) => ({ ...message, text: "" }));
-  const bounded = { ...packageValue, messages };
+  const bounded: BridgePackage = { ...packageValue, truncated: true, messages };
   let remainingBytes = maxPackageBytes - serializedBytes(bounded);
   if (remainingBytes < 0) throw new Error("Session Bridge package metadata exceeds the serialized byte limit");
 
@@ -300,8 +301,9 @@ export function parseBridgePackage(raw: string): BridgePackage {
   }
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Session bridge package must be an object");
   const packageValue = value as Record<string, unknown>;
-  assertKeys(packageValue, ["version", "source", "createdAt", "messageCount", "messages", "unresolvedAttachments"], "Session bridge package");
+  assertKeys(packageValue, ["version", "source", "createdAt", "messageCount", "messages", "unresolvedAttachments", "truncated"], "Session bridge package");
   if (packageValue.version !== bridgeVersion) throw new Error("Session bridge package version must be 1");
+  if (packageValue.truncated !== undefined && typeof packageValue.truncated !== "boolean") throw new Error("Session bridge package truncated flag is invalid");
   const source = packageValue.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) throw new Error("Session bridge package source is required");
   const sourceValue = source as Record<string, unknown>;
@@ -369,6 +371,7 @@ export function parseBridgePackage(raw: string): BridgePackage {
     messageCount: normalized.length,
     messages: normalized,
     unresolvedAttachments: [...attachments],
+    ...(packageValue.truncated === undefined ? {} : { truncated: packageValue.truncated }),
   };
 }
 
@@ -381,6 +384,7 @@ function importedText(packageValue: BridgePackage): string {
     lines.push("");
   }
   if (packageValue.unresolvedAttachments.length > 0) lines.push(`Unresolved attachments: ${packageValue.unresolvedAttachments.join(", ")}`);
+  if (packageValue.truncated === true) lines.push("[Handoff text was truncated to fit the package size limit]");
   return lines.join("\n").trim();
 }
 
