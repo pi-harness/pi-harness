@@ -58,7 +58,7 @@
     "@deepseek-ai/schemastery": "3.18.1",
     "@earendil-works/pi-agent-core": "0.84.4",
     "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@pi-harness/api-gateway": "0.1.107",
     "@pi-harness/cli": "0.1.107",
     "@pi-harness/core": "^0.1.107",
