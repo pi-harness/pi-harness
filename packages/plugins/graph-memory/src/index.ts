@@ -454,7 +454,7 @@ function sameFile(left: Awaited<ReturnType<typeof lstat>>, right: Awaited<Return
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-async function reclaimStaleGraphLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
+async function reclaimStaleGraphLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>, signal?: AbortSignal): Promise<boolean> {
   if (Date.now() - Number(lockMetadata.mtimeMs) <= staleLockMs) return false;
   let directory;
   try {
@@ -476,12 +476,13 @@ async function reclaimStaleGraphLock(lockPath: string, lockMetadata: Awaited<Ret
   try {
     ownerMetadata = await lstat(ownerPath);
     if (!ownerMetadata.isFile() || ownerMetadata.isSymbolicLink() || Date.now() - Number(ownerMetadata.mtimeMs) <= staleLockMs) return false;
-    const owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Graph memory lock owner")) as unknown;
+    const owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Graph memory lock owner", signal)) as unknown;
     if (graphLockOwnerIsAlive(owner) === true) return false;
     const [currentLockMetadata, currentOwnerMetadata] = await Promise.all([lstat(lockPath), lstat(ownerPath)]);
     if (!sameFile(lockMetadata, currentLockMetadata) || !sameFile(ownerMetadata, currentOwnerMetadata)) return false;
     await unlink(ownerPath);
   } catch (error) {
+    signal?.throwIfAborted();
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     if (!(error instanceof SyntaxError)) return false;
     const [currentLockMetadata, currentOwnerMetadata] = await Promise.all([lstat(lockPath), lstat(ownerPath)]).catch(() => []);
@@ -534,7 +535,7 @@ async function acquireGraphLock(lockPath: string, signal: AbortSignal): Promise<
       }
       if (metadata.isSymbolicLink()) throw new Error("Graph memory file lock must not be a symbolic link", { cause: error });
       if (!metadata.isDirectory()) throw new Error("Graph memory file lock must be a directory", { cause: error });
-      if (await reclaimStaleGraphLock(lockPath, metadata)) continue;
+      if (await reclaimStaleGraphLock(lockPath, metadata, signal)) continue;
       if (performance.now() - startedAt >= lockTimeoutMs) throw new Error("Timed out waiting for graph memory file lock", { cause: error });
       await waitForLockRetry(signal);
     }
