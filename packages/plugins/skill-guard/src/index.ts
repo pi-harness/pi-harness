@@ -207,7 +207,7 @@ async function scanLoadedSkills(context: Context, signal: AbortSignal, query = "
       continue;
     }
     try {
-      const bytes = await readBoundedFile(metadata.path, maxSkillBytes, "Skill file");
+      const bytes = await readBoundedFile(metadata.path, maxSkillBytes, "Skill file", signal);
       throwIfCancelled(signal);
       let content: string;
       try {
