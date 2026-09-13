@@ -585,6 +585,63 @@ test("reports a committed import instead of cancellation when cancellation arriv
   }
 });
 
+test("quarantines a queued import when native flush fails after the queued receipt", async () => {
+  const context = new Context();
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  const entries: unknown[] = [];
+  const header = {};
+  let failFlush = true;
+  const manager = {
+    getHeader: () => header,
+    getEntries: () => entries,
+    getSessionId: () => "queued-target",
+    getCwd: () => "/workspace",
+    buildSessionContext: () => ({ model: null, messages: [] }),
+    appendCustomMessageEntry(customType: string, content: string, display: boolean, details: unknown) {
+      if (failFlush) throw new Error("disk full during queued flush");
+      entries.push({ type: "custom_message", customType, content, display, details });
+    },
+  };
+  const queued: Array<{ customType: string; content: string; display: boolean; details: unknown }> = [];
+  const runtimeSession = {
+    sessionManager: manager,
+    isStreaming: true,
+    sendCustomMessage(message: (typeof queued)[number]) {
+      queued.push(message);
+    },
+  };
+  context.provide("piSession", { manager });
+  context.provide("piRuntime", { session: runtimeSession } as never);
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  await context.plugin(sessionBridge);
+  const importer = tools.snapshot().customTools.find((tool) => tool.name === "session_bridge_import");
+  if (importer === undefined) throw new Error("Session Bridge import tool was not registered");
+  const packageValue = buildBridgePackage({ sessionId: "source", cwd: "/source" }, [{ role: "user", content: "queued handoff" }]);
+  try {
+    await expect(
+      importer.execute("queued", { package: JSON.stringify(packageValue), confirm: true }, undefined, undefined, {} as never),
+    ).resolves.toMatchObject({
+      details: { accepted: true, delivery: "queued", messages: 1 },
+    });
+    expect(queued).toHaveLength(1);
+
+    context.emit("pi/session-event", { type: "turn_end" } as never);
+    expect(() => manager.appendCustomMessageEntry(queued[0]!.customType, queued[0]!.content, queued[0]!.display, queued[0]!.details)).toThrow("disk full");
+    queued.length = 0;
+    await Promise.resolve();
+
+    expect((await panels.snapshot())[0]?.error).toMatch(/write failed|reload/iu);
+    await expect(importer.execute("blocked", { package: JSON.stringify(packageValue), confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(
+      /write failed|reload/iu,
+    );
+  } finally {
+    failFlush = false;
+    await context.fiber.dispose();
+  }
+});
+
 test("quarantines a real journal write failure until session reload", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-bridge-failure-"));
   const manager = SessionManager.create(root, join(root, "sessions"));
