@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -441,6 +442,63 @@ describe("modlens plugin", () => {
     for (const image of images) {
       const result = await tool.execute(`inspect-${image.path}`, { path: image.path }, undefined, undefined, { model: { input: ["image"] } } as never);
       expect(result.content).toEqual([{ type: "image", data: image.bytes.toString("base64"), mimeType: image.mimeType }]);
+    }
+  });
+
+  test("stops an in-flight bounded image read at the next chunk after cancellation", async () => {
+    const { context, cwd, tools } = await fixture();
+    const imagePath = join(cwd, "large.png");
+    const cliPath = join(cwd, "modlens-fixture.mjs");
+    await writeFile(imagePath, Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(200_000, 0x61)]));
+    await writeFile(cliPath, "", "utf8");
+    await context.plugin(modlensPlugin, { cliPath });
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "vision_inspect");
+    if (tool === undefined) throw new Error("vision_inspect was not registered");
+    const probe = await open(imagePath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", { path: "large.png" }, controller.signal, undefined, { model: { input: ["image"] } } as never);
+      await readStarted;
+      controller.abort(new Error("image read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+      await context.fiber.dispose();
     }
   });
 
