@@ -182,7 +182,7 @@ export default {
       const input = await realpath(workspacePath(root, requestedPath));
       if (!isImageCompressorPathInside(root, input)) throw new Error("Image path must stay inside the current workspace");
       assertOperationCurrent();
-      const inputBytes = await readBoundedFile(input, maxInputBytes, "Input image");
+      const inputBytes = await readBoundedFile(input, maxInputBytes, "Input image", signal);
       assertOperationCurrent();
       const compressed = optimizePng(inputBytes);
       assertOperationCurrent();
