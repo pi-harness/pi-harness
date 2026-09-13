@@ -8067,6 +8067,10 @@ export function createGlobalSearchDebouncer(delayMs = GLOBAL_SEARCH_DEBOUNCE_MS)
   };
 }
 
+export function marketplaceDetailBackHistoryMode(): "replace" {
+  return "replace";
+}
+
 export async function listAllSessionsForGlobalSearch(api: Pick<ClientApi, "listSessions">, query: string): Promise<readonly Record<string, unknown>[]> {
   const first = await api.listSessions(0, GLOBAL_SEARCH_PAGE_SIZE, true, query);
   if (!first.hasNext) return first.items;
@@ -9548,14 +9552,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setInstalledPluginId(pluginId);
     setMarketplacePluginId(undefined);
   };
-  const pushMarketplacePluginRoute = (pluginId: string | undefined) => {
+  const pushMarketplacePluginRoute = (pluginId: string | undefined, historyMode: "push" | "replace" = "push") => {
     const params = new URLSearchParams(window.location.search);
     params.set("page", "marketplace");
     params.delete("settings");
     if (pluginId) params.set("plugin", pluginId);
     else params.delete("plugin");
     const query = params.toString();
-    window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    const route = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+    if (historyMode === "replace") window.history.replaceState(null, "", route);
+    else window.history.pushState(null, "", route);
     setSettings(undefined);
     setDetails(undefined);
     setCommandOpen(false);
@@ -9653,7 +9659,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         capabilityLabel={capabilityLabel}
         installed={installedPackages.has(marketplaceDetail.packageName)}
         restartPending={restartPendingPackages.has(marketplaceDetail.packageName)}
-        onBack={() => pushMarketplacePluginRoute(undefined)}
+        onBack={() => pushMarketplacePluginRoute(undefined, marketplaceDetailBackHistoryMode())}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
@@ -9669,7 +9675,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               href="?page=marketplace"
               onClick={(event) => {
                 event.preventDefault();
-                pushMarketplacePluginRoute(undefined);
+                pushMarketplacePluginRoute(undefined, marketplaceDetailBackHistoryMode());
               }}
             >
               {t("← 插件市场")}
