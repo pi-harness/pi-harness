@@ -8631,6 +8631,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const sessionQueryRef = useRef("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [marketplaceQuery, setMarketplaceQuery] = useState(initialQueryState.marketplaceQuery);
+  const [marketplaceSearchQuery, setMarketplaceSearchQuery] = useState(initialQueryState.marketplaceQuery);
   const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
   const [marketplaceCategory, setMarketplaceCategory] = useState(initialQueryState.marketplaceCategory);
   const [marketplacePluginId, setMarketplacePluginId] = useState<string | undefined>(initialQueryState.marketplacePlugin);
@@ -8677,6 +8678,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refreshQueuedRef = useRef(false);
   const refreshSequenceRef = useRef({ requested: 0, applied: 0 });
   const liveRefreshSequenceRef = useRef({ status: 0, session: 0, pluginPanels: 0 });
+  const marketplaceSearchDebouncerRef = useRef(createGlobalSearchDebouncer());
   const resolvedMarketplaceDetailRef = useRef<MarketplaceDetailResolution | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
   const [promptCompletionSuppressed, setPromptCompletionSuppressed] = useState(false);
@@ -8708,6 +8710,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     }, 180);
     return () => window.clearTimeout(timer);
   }, [search]);
+  useEffect(() => {
+    marketplaceSearchDebouncerRef.current.schedule(marketplaceQuery, setMarketplaceSearchQuery);
+    return () => marketplaceSearchDebouncerRef.current.cancel();
+  }, [marketplaceQuery]);
   const searchableFiles = useMemo(() => mergeSearchableFiles(data.workspaceFiles, data.files), [data.files, data.workspaceFiles]);
   const promptCompletion = useMemo(() => getPromptCompletion(draft, promptCaret), [draft, promptCaret]);
   const promptCompletionItems = useMemo(() => {
@@ -8885,6 +8891,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSettings(next.settings);
       setSelectedSessionPath(next.sessionPath);
       setMarketplaceQuery(next.marketplaceQuery);
+      setMarketplaceSearchQuery(next.marketplaceQuery);
       setMarketplaceCapability(next.marketplaceCapability);
       setMarketplaceCategory(next.marketplaceCategory);
       setMarketplacePage(next.marketplacePage);
@@ -8980,7 +8987,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listModels(),
       api.listProviders(),
       api.listPlugins(),
-      api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale),
+      api.listMarketplace(marketplaceSearchQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale),
       api.listCommands(),
       api.listWorkspaces(),
     ] as const;
@@ -9067,7 +9074,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionTotal(sessions.value.total);
       setSessionHasNext(sessions.value.hasNext);
     }
-  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceQuery, sessionPage, sessionQuery]);
+  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery, sessionPage, sessionQuery]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
