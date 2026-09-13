@@ -9894,7 +9894,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setPromptCompletionSuppressed(true);
                   return;
                 }
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
                 }
