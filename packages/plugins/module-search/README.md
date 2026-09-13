@@ -22,7 +22,7 @@ The Pi Harness plugin marketplace installs and enables this package for you; the
 
 ## Native sessions
 
-Searches use the active native session workspace, or the harness launch directory when no runtime exists. Session, manager, session ID, or cwd changes clear the last report. A pending search rejects on a session change or cancellation instead of returning or caching stale results; retained tools reject after plugin disposal.
+Searches use the active native session workspace, or the harness launch directory when no runtime exists. Session, manager, session ID, or cwd changes clear the last report. A pending search rejects on a session change or cancellation instead of returning or caching stale results; retained tools reject after plugin disposal. Bounded source reads observe cancellation between their open, metadata and 64 KiB chunk boundaries; an individual filesystem operation already in flight must settle first.
 
 ## Incomplete results
 

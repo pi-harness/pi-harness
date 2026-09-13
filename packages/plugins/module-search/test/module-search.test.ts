@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Context } from "@deepseek-ai/cordis";
@@ -216,6 +217,59 @@ describe("module search", () => {
       await expect(tool.execute("retained", { query: "read" }, undefined, undefined, {} as never)).rejects.toThrow("Module search plugin disposed");
       expect(tools.snapshot().customTools).toHaveLength(0);
       expect(await panels.snapshot()).toHaveLength(0);
+    } finally {
+      await context.fiber.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("stops a bounded source read at the next chunk after cancellation", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-module-search-read-cancel-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const file = join(cwd, "large.ts");
+    try {
+      await writeFile(file, `export const needle = 1;\n${"x".repeat(200_000)}`, "utf8");
+      provideLaunchContext(context, { cwd, agentDir: cwd, args: [], requestExit() {} });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(moduleSearchPlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "module_search");
+      if (tool === undefined) throw new Error("module_search was not registered");
+
+      const probe = await open(file, "r");
+      const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+      await probe.close();
+      const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+      let markReadStarted!: () => void;
+      const readStarted = new Promise<void>((resolve) => {
+        markReadStarted = resolve;
+      });
+      let releaseRead!: () => void;
+      const readReleased = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      let readCalls = 0;
+      fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+        readCalls += 1;
+        if (readCalls === 1) {
+          markReadStarted();
+          await readReleased;
+        }
+        return originalRead.call(this, ...args);
+      };
+      try {
+        const controller = new AbortController();
+        const pending = tool.execute("in-flight", { query: "needle", path: "large.ts" }, controller.signal, undefined, {} as never);
+        await readStarted;
+        controller.abort(new Error("module search cancelled"));
+        releaseRead();
+        await expect(pending).rejects.toThrow("module search cancelled");
+        expect(readCalls).toBe(1);
+      } finally {
+        releaseRead();
+        fileHandlePrototype.read = originalRead;
+      }
     } finally {
       await context.fiber.dispose();
       await rm(cwd, { recursive: true, force: true });
