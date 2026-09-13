@@ -323,7 +323,7 @@ function sessionMetadata(entries: readonly unknown[], candidate: SessionCandidat
 async function unreadSession(candidate: SessionCandidate, activeId: string, expectedCwd: string, signal: AbortSignal): Promise<UnreadSession | undefined> {
   try {
     throwIfCancelled(signal);
-    const bytes = await readBoundedFile(candidate.path, maxSessionFileBytes, "Pi session file");
+    const bytes = await readBoundedFile(candidate.path, maxSessionFileBytes, "Pi session file", signal);
     throwIfCancelled(signal);
     const entries = parseSessionEntries(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     const metadata = sessionMetadata(entries, candidate, expectedCwd);

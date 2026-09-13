@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -79,6 +80,62 @@ describe("recall unread", () => {
         inventory: { scanned: 1, scanTruncated: true, truncated: true },
       });
     } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("stops an in-flight bounded session read at the next chunk after cancellation", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "pi-recall-read-cancel-"));
+    temporaryDirectories.push(sessionDir);
+    const { context, tools } = await loadPlugin(sessionDir, { id: "active" });
+    const sessionPath = join(sessionDir, "large.jsonl");
+    await writeSession(sessionPath, "large", [{ role: "user", text: "x".repeat(200_000) }]);
+    const tool = tools.snapshot().customTools.find((item) => item.name === "session_recall_unread");
+    if (tool === undefined) throw new Error("session_recall_unread was not registered");
+    const probe = await open(sessionPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", {}, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("session read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
       await context.fiber.dispose();
     }
   });
