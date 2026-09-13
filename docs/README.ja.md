@@ -13,6 +13,8 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
+Use `pih` as the canonical command-line interface. Use `pi-harness` to start the web console.
+
 通常はメインパッケージだけをインストールします。`@pi-harness/core` などの依存パッケージは自動的に入ります。
 
 ## ソースから実行

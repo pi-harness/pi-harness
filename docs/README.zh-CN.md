@@ -13,6 +13,8 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
+Use `pih` as the canonical command-line interface. Use `pi-harness` to start the web console.
+
 用户只需安装主包；`@pi-harness/core` 等实现依赖会自动安装。
 
 ## 从源码运行
