@@ -187,6 +187,30 @@ describe("session bridge", () => {
     expect(parseBridgePackage(JSON.stringify(packageValue))).toMatchObject({ truncated: true });
   });
 
+  test("discloses truncation when previewing a bounded package", async () => {
+    const context = new Context();
+    const manager = SessionManager.inMemory("/workspace");
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piSession", { manager });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    await context.plugin(sessionBridge);
+    const previewer = tools.snapshot().customTools.find((tool) => tool.name === "session_bridge_preview");
+    if (previewer === undefined) throw new Error("Session Bridge preview tool was not registered");
+    const packageValue = buildBridgePackage(
+      { sessionId: "large-session", cwd: "/workspace" },
+      Array.from({ length: 4 }, () => ({ role: "user", content: "\0".repeat(16_000) })),
+    );
+    try {
+      await expect(previewer.execute("truncated-preview", { package: JSON.stringify(packageValue) }, undefined, undefined, {} as never)).resolves.toMatchObject(
+        { details: { truncated: true } },
+      );
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("rejects malformed bridge packages and oversized message lists", () => {
     expect(() => parseBridgePackage(JSON.stringify({ version: 2 }))).toThrow(/version/);
     const tooMany = {

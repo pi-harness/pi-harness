@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { sessionBridgePanelView } from "../src/session-bridge-view.js";
 
 describe("Session Bridge view", () => {
+  it("preserves the package truncation marker for the control-room warning", () => {
+    const view = sessionBridgePanelView({
+      latestPreview: {
+        source: { sessionId: "source", cwd: "/workspace" },
+        preview: { goal: "Goal", currentState: "State", decisions: [], keyFiles: [], nextStep: "Test" },
+        truncated: true,
+        at: "2026-09-05T10:01:00.000Z",
+      },
+      currentPreview: { goal: "", currentState: "", decisions: [], keyFiles: [], nextStep: "" },
+    });
+    expect(view.previewTruncated).toBe(true);
+  });
+
   it("normalizes the latest handoff preview and operation summary", () => {
     expect(
       sessionBridgePanelView({

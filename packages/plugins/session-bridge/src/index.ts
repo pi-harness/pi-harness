@@ -416,7 +416,7 @@ export default {
   apply(context: Context) {
     const lifecycle = new AbortController();
     let latest: { direction: "export" | "import"; sessionId: string; messages: number; attachments: number; at: string } | undefined;
-    let latestPreview: { source: BridgeSource; preview: HandoffPreview; at: string } | undefined;
+    let latestPreview: { source: BridgeSource; preview: HandoffPreview; at: string; truncated?: boolean } | undefined;
     let status: BridgeStatus = { state: "idle" };
     let currentPreviewCache: HandoffPreview | undefined;
     let currentPreviewManager: SessionManager | undefined;
@@ -565,7 +565,7 @@ export default {
           { additionalProperties: false },
         ),
         executionMode: "sequential",
-        execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ source: BridgeSource; preview: HandoffPreview }>> {
+        execute(_toolCallId, rawParams, signal): Promise<AgentToolResult<{ source: BridgeSource; preview: HandoffPreview; truncated?: boolean }>> {
           return runOperation("preview", signal, (check) => {
             const descriptors = parameterDescriptors(rawParams, previewParameterNames);
             check();
@@ -573,10 +573,24 @@ export default {
             const packageValue = packageText === undefined ? exportCurrentSession() : parseBridgePackage(packageText);
             check();
             const preview = buildHandoffPreview(packageValue);
-            latestPreview = { source: cloneSource(packageValue.source), preview: structuredClone(preview), at: new Date().toISOString() };
+            latestPreview = {
+              source: cloneSource(packageValue.source),
+              preview: structuredClone(preview),
+              at: new Date().toISOString(),
+              ...(packageValue.truncated === true ? { truncated: true } : {}),
+            };
             return {
-              content: [{ type: "text" as const, text: JSON.stringify({ source: packageValue.source, preview }) }],
-              details: { source: cloneSource(packageValue.source), preview: structuredClone(preview) },
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({ source: packageValue.source, preview, ...(packageValue.truncated === true ? { truncated: true } : {}) }),
+                },
+              ],
+              details: {
+                source: cloneSource(packageValue.source),
+                preview: structuredClone(preview),
+                ...(packageValue.truncated === true ? { truncated: true } : {}),
+              },
             };
           });
         },
@@ -691,7 +705,12 @@ export default {
             latestPreview:
               latestPreview === undefined
                 ? null
-                : { source: cloneSource(latestPreview.source), preview: structuredClone(latestPreview.preview), at: latestPreview.at },
+                : {
+                    source: cloneSource(latestPreview.source),
+                    preview: structuredClone(latestPreview.preview),
+                    at: latestPreview.at,
+                    ...(latestPreview.truncated === true ? { truncated: true } : {}),
+                  },
             status: { ...status },
             currentPreview: currentPreview(),
             formatVersion: bridgeVersion,
