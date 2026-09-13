@@ -763,12 +763,17 @@ async function gitStatus(cwd: string): Promise<GitStatusResult> {
   return { entries: parseGitStatus(output, prefix.code === 0 ? prefix.stdout.trim() : ""), truncated };
 }
 
-function gitDiff(cwd: string, path: string): Promise<string> {
-  return new Promise((resolveOutput) => {
-    execFile("git", ["diff", "--no-ext-diff", "--", path], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (error, stdout) =>
-      resolveOutput(error && stdout.length === 0 ? "" : stdout),
-    );
-  });
+async function gitDiff(cwd: string, path: string): Promise<string> {
+  const trackedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "--", path]);
+  if (trackedDiff.stdout.length > 0) return trackedDiff.stdout;
+
+  // `git diff` intentionally omits untracked files, but the file status view
+  // exposes them with a diff action. Generate the same patch a staged add
+  // would show, without changing the index or working tree.
+  const status = await gitCommand(cwd, ["status", "--porcelain=v1", "--untracked-files=all", "--", path]);
+  if (status.code !== 0 || !/^\?\? /u.test(status.stdout)) return "";
+  const untrackedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "--no-index", "--", "/dev/null", path]);
+  return untrackedDiff.stdout;
 }
 
 interface GitCommandResult {
