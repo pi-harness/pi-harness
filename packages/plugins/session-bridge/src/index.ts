@@ -477,20 +477,24 @@ export default {
     const runOperation = async <T>(
       operation: BridgeOperation,
       callerSignal: AbortSignal | undefined,
-      action: (check: () => void) => T | Promise<T>,
+      action: (check: () => void, markCommitted: () => void) => T | Promise<T>,
     ): Promise<T> => {
       const operationSignal = callerSignal === undefined ? lifecycle.signal : AbortSignal.any([callerSignal, lifecycle.signal]);
       throwIfCancelled(operationSignal);
       const requestedContext = refreshContext();
+      let committed = false;
+      const markCommitted = () => {
+        committed = true;
+      };
       const check = () => {
-        throwIfCancelled(operationSignal);
+        if (!committed) throwIfCancelled(operationSignal);
         if (refreshContext() !== requestedContext) throw new Error("Session Bridge target session changed during execution");
       };
       status = { state: "running", operation };
       try {
         const result = await Promise.resolve().then(() => {
           check();
-          return action(check);
+          return action(check, markCommitted);
         });
         check();
         status = { state: "completed", operation, at: new Date().toISOString() };
@@ -581,7 +585,7 @@ export default {
           const requestedManager = activeManager();
           const requestedHeader = requestedManager.getHeader();
           const requestedSession = context.get("piRuntime")?.session;
-          return runOperation("import", signal, async (check) => {
+          return runOperation("import", signal, async (check, markCommitted) => {
             if (
               activeManager() !== requestedManager ||
               requestedManager.getHeader() !== requestedHeader ||
@@ -620,6 +624,7 @@ export default {
                   { triggerTurn: false },
                 );
               }
+              markCommitted();
             } catch (error) {
               queued?.digests.delete(digest);
               failedManagers.set(targetManager, requestedHeader);

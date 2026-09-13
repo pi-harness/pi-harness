@@ -541,6 +541,50 @@ test("rejects a queued import after its target session changes and refreshes sam
   }
 });
 
+test("reports a committed import instead of cancellation when cancellation arrives during persistence", async () => {
+  const context = new Context();
+  const manager = SessionManager.inMemory("/workspace");
+  const tools = new PiToolRegistry();
+  const panels = new PiPluginUiRegistry();
+  context.provide("piSession", { manager });
+  context.provide("piTools", tools);
+  context.provide("piPluginUi", panels);
+  let entered!: () => void;
+  const persistenceStarted = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: () => void;
+  const persistence = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const runtimeSession = {
+    sessionManager: manager,
+    isStreaming: false,
+    async sendCustomMessage(message: { customType: string; content: string; display: boolean; details: unknown }) {
+      manager.appendCustomMessageEntry(message.customType, message.content, message.display, message.details);
+      entered();
+      await persistence;
+    },
+  };
+  context.provide("piRuntime", { session: runtimeSession } as never);
+  await context.plugin(sessionBridge);
+  const importer = tools.snapshot().customTools.find((tool) => tool.name === "session_bridge_import");
+  if (importer === undefined) throw new Error("Session Bridge import tool was not registered");
+  const packageValue = buildBridgePackage({ sessionId: "source", cwd: "/source" }, [{ role: "user", content: "committed handoff" }]);
+  const caller = new AbortController();
+  try {
+    const pending = importer.execute("cancel-during-write", { package: JSON.stringify(packageValue), confirm: true }, caller.signal, undefined, {} as never);
+    await persistenceStarted;
+    caller.abort(new Error("cancel after commit started"));
+    release();
+    await expect(pending).resolves.toMatchObject({ details: { accepted: true, delivery: "appended", messages: 1 } });
+    expect(manager.getEntries().filter((entry) => entry.type === "custom_message")).toHaveLength(1);
+    expect((await panels.snapshot())[0]?.data).toMatchObject({ status: { state: "completed", operation: "import" } });
+  } finally {
+    await context.fiber.dispose();
+  }
+});
+
 test("quarantines a real journal write failure until session reload", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-bridge-failure-"));
   const manager = SessionManager.create(root, join(root, "sessions"));
