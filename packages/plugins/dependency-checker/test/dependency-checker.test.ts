@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -614,6 +615,57 @@ describe("dependency checker", () => {
     await assertion;
     expect(tools.snapshot().customTools).toEqual([]);
     await expect(panels.snapshot()).resolves.toEqual([]);
+  });
+
+  test("stops an in-flight bounded manifest read at the next chunk after cancellation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-dependency-checker-read-cancel-"));
+    temporaryDirectories.push(root);
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, description: "x".repeat(200_000) }), "utf8");
+    const probe = await open(join(root, "package.json"), "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = inspectManifest(root, "package.json", controller.signal);
+      await readStarted;
+      controller.abort(new Error("manifest read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+    }
   });
 
   test("rejects unknown configuration before registering surfaces", async () => {
