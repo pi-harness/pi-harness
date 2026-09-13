@@ -130,8 +130,15 @@ describe("session search requests", () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
     expect(source).toContain("setSessionQuery(search)");
     expect(source).toContain("api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery)");
-    expect(source).toContain("marketplaceQuery, sessionPage, sessionQuery]");
+    expect(source).toContain("marketplaceSearchQuery, sessionPage, sessionQuery]");
     expect(source).not.toContain("marketplaceQuery, search, sessionPage]");
+  });
+
+  test("debounces marketplace queries before they participate in the broad refresh", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    expect(source).toContain("setMarketplaceSearchQuery");
+    expect(source).toContain("api.listMarketplace(marketplaceSearchQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale)");
+    expect(source).not.toContain("api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale)");
   });
 
   test("loads every matching session page for global search", async () => {
