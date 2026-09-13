@@ -2517,9 +2517,10 @@ describe("API gateway plugin", () => {
     await writeFile(join(workspace, "README.md"), "tracked\n");
     await writeFile(join(workspace, "src", "app.ts"), "export {};\n");
     await writeFile(join(workspace, "draft.md"), "untracked\n");
+    await writeFile(join(workspace, "staged.md"), "staged\n");
     await writeFile(join(workspace, "ignored.log"), "ignored\n");
     await writeFile(join(workspace, "node_modules", "dependency.js"), "ignored\n");
-    await execFile("git", ["add", ".gitignore", "README.md", "src/app.ts"], { cwd: workspace });
+    await execFile("git", ["add", ".gitignore", "README.md", "src/app.ts", "staged.md"], { cwd: workspace });
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const session = { sessionId: "workspace-files-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
@@ -2536,9 +2537,22 @@ describe("API gateway plugin", () => {
         { path: "README.md", status: "", label: "workspace" },
         { path: "draft.md", status: "", label: "workspace" },
         { path: "src/app.ts", status: "", label: "workspace" },
+        { path: "staged.md", status: "", label: "workspace" },
       ],
       truncated: false,
     });
+
+    const untrackedDiff = await fetch(context.webServer.url + "/api/files/diff?path=draft.md");
+    expect(untrackedDiff.status).toBe(200);
+    const untrackedPayload = (await untrackedDiff.json()) as { path?: unknown; diff?: unknown };
+    expect(untrackedPayload.path).toBe("draft.md");
+    expect(untrackedPayload.diff).toContain("+untracked");
+
+    const stagedDiff = await fetch(context.webServer.url + "/api/files/diff?path=staged.md");
+    expect(stagedDiff.status).toBe(200);
+    const stagedPayload = (await stagedDiff.json()) as { path?: unknown; diff?: unknown };
+    expect(stagedPayload.path).toBe("staged.md");
+    expect(stagedPayload.diff).toContain("+staged");
   });
 
   test("lists bounded files in a non-Git workspace without following symlinks or generated directories", async () => {

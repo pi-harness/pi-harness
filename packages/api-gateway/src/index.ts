@@ -763,12 +763,26 @@ async function gitStatus(cwd: string): Promise<GitStatusResult> {
   return { entries: parseGitStatus(output, prefix.code === 0 ? prefix.stdout.trim() : ""), truncated };
 }
 
-function gitDiff(cwd: string, path: string): Promise<string> {
-  return new Promise((resolveOutput) => {
-    execFile("git", ["diff", "--no-ext-diff", "--", path], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (error, stdout) =>
-      resolveOutput(error && stdout.length === 0 ? "" : stdout),
-    );
-  });
+async function gitDiff(cwd: string, path: string): Promise<string> {
+  // Compare against HEAD so both staged and unstaged edits are visible in the
+  // review pane. A plain `git diff` silently hides anything already staged.
+  const trackedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "HEAD", "--", path]);
+  if (trackedDiff.stdout.length > 0) return trackedDiff.stdout;
+  // A freshly initialized repository may not have a HEAD yet. In that case,
+  // staged additions are still reviewable through the index even though the
+  // HEAD comparison exits with code 128.
+  if (trackedDiff.code !== 0) {
+    const stagedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "--cached", "--", path]);
+    if (stagedDiff.stdout.length > 0) return stagedDiff.stdout;
+  }
+
+  // `git diff` intentionally omits untracked files, but the file status view
+  // exposes them with a diff action. Generate the same patch a staged add
+  // would show, without changing the index or working tree.
+  const status = await gitCommand(cwd, ["status", "--porcelain=v1", "--untracked-files=all", "--", path]);
+  if (status.code !== 0 || !/^\?\? /u.test(status.stdout)) return "";
+  const untrackedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "--no-index", "--", "/dev/null", path]);
+  return untrackedDiff.stdout;
 }
 
 interface GitCommandResult {
