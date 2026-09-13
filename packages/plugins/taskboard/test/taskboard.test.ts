@@ -223,7 +223,7 @@ test.each(["ABORT", "ROLLBACK"])("preserves the original SQLite %s failure, roll
     );
     expect((await list.execute("after", {}, undefined, undefined, {} as never)).details).toEqual(before);
     const failedPanel = (await panels.snapshot())[0]!;
-    expect(failedPanel.data).toMatchObject(panelBefore);
+    expect(failedPanel.data).toMatchObject(panelBefore as object);
     expect((failedPanel.data as { lastError?: string }).lastError).toMatch(/Owned SQLite write failure/);
     database.exec("DROP TRIGGER owned_write_failure");
     await expect(update.execute("recover", { key: "TST-2", title: "Recovered", dependsOn: [] }, undefined, undefined, {} as never)).resolves.toMatchObject({
