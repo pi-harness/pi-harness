@@ -110,7 +110,7 @@ export default {
       throwIfAborted(signal);
       const location = await resolveExistingWorkspacePath(cwd, requested, "YAML path must stay inside the current workspace");
       throwIfAborted(signal);
-      const bytes = await readBoundedFile(location.target, maxBytes, "YAML file");
+      const bytes = await readBoundedFile(location.target, maxBytes, "YAML file", signal);
       throwIfAborted(signal);
       let source: string;
       try {
