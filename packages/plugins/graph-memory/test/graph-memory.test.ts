@@ -698,6 +698,72 @@ describe("graph memory production boundaries", () => {
     }
   });
 
+  test("stops an in-flight stale-lock owner read at the next chunk after cancellation", async () => {
+    const fixture = await createFixture();
+    const lockPath = join(fixture.agentDir, "graph-memory.json.lock");
+    const ownerPath = join(lockPath, "abandoned.owner");
+    await mkdir(lockPath);
+    const owner = JSON.stringify({ pid: 999_999_999, token: "x".repeat(850) });
+    expect(Buffer.byteLength(owner, "utf8")).toBeLessThanOrEqual(1024);
+    await writeFile(ownerPath, owner, "utf8");
+    const old = new Date(Date.now() - 60_000);
+    await utimes(ownerPath, old, old);
+    await utimes(lockPath, old, old);
+    const record = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_record");
+    if (record === undefined) throw new Error("graph_memory_record was not registered");
+    const probe = await open(ownerPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (readCalls === 1) {
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = record.execute(
+        "stale-lock-cancel",
+        { kind: "event", label: "Cancelled stale lock", summary: "Cancel owner inspection" },
+        controller.signal,
+        undefined,
+        {} as never,
+      );
+      await readStarted;
+      controller.abort(new Error("stale lock owner read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+      await rm(lockPath, { recursive: true, force: true });
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("does not reclaim a stale graph lock owned by a live process", async () => {
     const fixture = await createFixture();
     const lockPath = join(fixture.agentDir, "graph-memory.json.lock");
