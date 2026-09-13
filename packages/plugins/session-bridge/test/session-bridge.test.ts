@@ -177,6 +177,16 @@ describe("session bridge", () => {
     expect(parseBridgePackage(serialized)).toEqual(packageValue);
   });
 
+  test("marks exports that are truncated to fit the serialized byte limit", () => {
+    const packageValue = buildBridgePackage(
+      { sessionId: "large-session", cwd: "/workspace" },
+      Array.from({ length: 4 }, () => ({ role: "user", content: "\0".repeat(16_000) })),
+    );
+    expect(Buffer.byteLength(JSON.stringify(packageValue), "utf8")).toBeLessThanOrEqual(256 * 1_024);
+    expect(packageValue.truncated).toBe(true);
+    expect(parseBridgePackage(JSON.stringify(packageValue))).toMatchObject({ truncated: true });
+  });
+
   test("rejects malformed bridge packages and oversized message lists", () => {
     expect(() => parseBridgePackage(JSON.stringify({ version: 2 }))).toThrow(/version/);
     const tooMany = {
