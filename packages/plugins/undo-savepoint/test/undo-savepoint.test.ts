@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -163,6 +164,62 @@ describe("undo savepoint", () => {
     caller.abort();
     await expect(tool.execute("cancelled", { action: "save" }, caller.signal, undefined, {} as never)).rejects.toBe(caller.signal.reason);
     await expect(stat(join(root, "savepoints"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("stops an in-flight bounded savepoint read at the next chunk after cancellation", async () => {
+    const { root, context, tool } = await fixture({
+      config: { trackedPaths: ["large.txt"], maxFileBytes: 256 * 1024 },
+      async prepare(workspace) {
+        await writeFile(join(workspace, "large.txt"), "x".repeat(200_000), "utf8");
+      },
+    });
+    const sourcePath = join(root, "large.txt");
+    const probe = await open(sourcePath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", { action: "save", reason: "large read" }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("savepoint read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+      await context.fiber.dispose();
+    }
   });
 
   test("preflights every restore target before overwriting any file", async () => {
