@@ -44,7 +44,8 @@
     "test": "npm run build && vitest run",
     "typecheck": "npm run build && npm run typecheck:workspaces",
     "typecheck:workspaces": "npm run typecheck -w @pi-harness/plugin-api && npm run typecheck -w @pi-harness/core && node scripts/build-plugins.mjs --typecheck && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web",
-    "build:plugins": "node scripts/build-plugins.mjs"
+    "build:plugins": "node scripts/build-plugins.mjs",
+    "create-plugin": "node create-plugin.mjs"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
