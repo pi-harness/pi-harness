@@ -178,6 +178,7 @@ export default {
       requestedPath: string | undefined,
       kind: ModuleSearchKind,
       requestedLimit: number | undefined,
+      signal: AbortSignal,
       cwd: string,
       assertCurrent: () => void,
     ): Promise<ModuleSearchReport> => {
@@ -215,7 +216,7 @@ export default {
         }
         let source: string;
         try {
-          source = new TextDecoder("utf-8", { fatal: true }).decode(await readBoundedFile(file, maxFileBytes, "Module search file"));
+          source = new TextDecoder("utf-8", { fatal: true }).decode(await readBoundedFile(file, maxFileBytes, "Module search file", signal));
         } catch {
           assertCurrent();
           skippedFiles += 1;
@@ -264,7 +265,7 @@ export default {
             operationSignal.throwIfAborted();
             if (refreshScope() !== current) throw new Error("Module search workspace changed during execution");
           };
-          const report = await search(params.query, params.path, params.kind ?? "all", params.maxResults, current.cwd, assertCurrent);
+          const report = await search(params.query, params.path, params.kind ?? "all", params.maxResults, operationSignal, current.cwd, assertCurrent);
           assertCurrent();
           latest = report;
           const matchesText = report.matches.map((match) => `${match.path}:${match.line} ${match.kind} ${match.name}`).join("\n") || "No module matches found.";
