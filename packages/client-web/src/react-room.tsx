@@ -8043,6 +8043,29 @@ export function nextSessionSearchPage(currentPage: number, previousQuery: string
 
 const GLOBAL_SEARCH_PAGE_SIZE = 100;
 const MAX_GLOBAL_SEARCH_SESSION_PAGES = 100;
+const GLOBAL_SEARCH_DEBOUNCE_MS = 150;
+
+export function createGlobalSearchDebouncer(delayMs = GLOBAL_SEARCH_DEBOUNCE_MS): {
+  schedule: (query: string, callback: (query: string) => void) => void;
+  cancel: () => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cancel = () => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+  };
+  return {
+    schedule(query, callback) {
+      cancel();
+      timer = setTimeout(() => {
+        timer = undefined;
+        callback(query);
+      }, Math.max(0, delayMs));
+    },
+    cancel,
+  };
+}
 
 export async function listAllSessionsForGlobalSearch(api: Pick<ClientApi, "listSessions">, query: string): Promise<readonly Record<string, unknown>[]> {
   const first = await api.listSessions(0, GLOBAL_SEARCH_PAGE_SIZE, true, query);
@@ -8096,6 +8119,7 @@ export function GlobalSearch({
   const [searchedSessions, setSearchedSessions] = useState<readonly Record<string, unknown>[]>(sessions);
   const [sessionSearchError, setSessionSearchError] = useState("");
   const activeOptionRef = useRef<HTMLButtonElement>(null);
+  const searchDebouncerRef = useRef(createGlobalSearchDebouncer());
   const dialogRef = useModalFocus(true, onClose);
   const normalized = query.trim().toLowerCase();
   const matches = (text: string) => !normalized || text.toLowerCase().includes(normalized);
@@ -8107,17 +8131,20 @@ export function GlobalSearch({
     }
     let cancelled = false;
     setSessionSearchError("");
-    void onSearchSessions(query)
-      .then((result) => {
-        if (!cancelled) setSearchedSessions(result);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        setSearchedSessions([]);
-        setSessionSearchError(cause instanceof Error ? cause.message : String(cause));
-      });
+    searchDebouncerRef.current.schedule(query, (scheduledQuery) => {
+      void onSearchSessions(scheduledQuery)
+        .then((result) => {
+          if (!cancelled) setSearchedSessions(result);
+        })
+        .catch((cause: unknown) => {
+          if (cancelled) return;
+          setSearchedSessions([]);
+          setSessionSearchError(cause instanceof Error ? cause.message : String(cause));
+        });
+    });
     return () => {
       cancelled = true;
+      searchDebouncerRef.current.cancel();
     };
   }, [onSearchSessions, query, sessions]);
   const items: readonly GlobalSearchItem[] = [
