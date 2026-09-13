@@ -464,9 +464,7 @@ describe("session-insights", () => {
     await panels.snapshot();
     await expect(execution).rejects.toThrow(/session changed/iu);
     expect(aborts).toBe(1);
-    await expect
-      .poll(async () => ((await panels.snapshot())[0]?.data as { compaction?: { status?: unknown } } | undefined)?.compaction?.status)
-      .toBe("idle");
+    await expect.poll(async () => ((await panels.snapshot())[0]?.data as { compaction?: { status?: unknown } } | undefined)?.compaction?.status).toBe("idle");
     const replacement = (await panels.snapshot())[0]?.data as { sessionId: string; compaction: { status: string } };
     expect(replacement.sessionId).toBe("replacement");
     expect(replacement.compaction).toEqual({ status: "idle" });

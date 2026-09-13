@@ -45,10 +45,7 @@ test("keeps the active search result visible while keyboard focus stays on the c
 
 test("merges the workspace catalogue with live Git changes for file discovery", async () => {
   const module = (await import("../src/react-room.js")) as unknown as {
-    mergeSearchableFiles?: (
-      workspace: readonly Record<string, string>[],
-      changed: readonly Record<string, string>[],
-    ) => readonly Record<string, string>[];
+    mergeSearchableFiles?: (workspace: readonly Record<string, string>[], changed: readonly Record<string, string>[]) => readonly Record<string, string>[];
   };
 
   expect(module.mergeSearchableFiles).toBeTypeOf("function");

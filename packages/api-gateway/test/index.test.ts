@@ -2082,11 +2082,7 @@ describe("API gateway plugin", () => {
     const launchCwd = join(directory, "launch");
     const activeCwd = join(directory, "active");
     const path = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
-    await writeFile(
-      path,
-      persistedUserSession("active-session", activeCwd, "active workspace"),
-      "utf8",
-    );
+    await writeFile(path, persistedUserSession("active-session", activeCwd, "active workspace"), "utf8");
     const manager = SessionManager.create(activeCwd, directory);
     let openedPath = "";
     const session = {
@@ -2137,11 +2133,7 @@ describe("API gateway plugin", () => {
     const launchCwd = join(directory, "launch");
     const activeCwd = join(directory, "active");
     const path = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
-    await writeFile(
-      path,
-      persistedUserSession("active-session", activeCwd, "active workspace"),
-      "utf8",
-    );
+    await writeFile(path, persistedUserSession("active-session", activeCwd, "active workspace"), "utf8");
     const manager = SessionManager.create(activeCwd, directory);
     const session = { sessionId: "current", sessionFile: undefined, messages: [], isStreaming: false, sessionManager: manager, subscribe: () => () => {} };
     context.provide("piRuntime", { session, sessionRuntime: { cwd: activeCwd }, prompt: () => Promise.resolve() } as never);
@@ -2590,11 +2582,7 @@ describe("API gateway plugin", () => {
     const calls = join(workspace, "git-calls.txt");
     await mkdir(shimDirectory);
     await writeFile(join(workspace, "README.md"), "cached\n");
-    await writeFile(
-      join(shimDirectory, "git"),
-      `#!/bin/sh\nprintf x >> ${JSON.stringify(calls)}\nprintf 'README.md\\0'\n`,
-      { mode: 0o755 },
-    );
+    await writeFile(join(shimDirectory, "git"), `#!/bin/sh\nprintf x >> ${JSON.stringify(calls)}\nprintf 'README.md\\0'\n`, { mode: 0o755 });
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const session = { sessionId: "workspace-file-cache-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);

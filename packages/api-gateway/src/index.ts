@@ -1660,7 +1660,11 @@ export default {
             if (packageLockBefore !== undefined) await writeFile(packageLockPath, packageLockBefore, "utf8").catch(() => {});
             const options = entry.options as { name: string; config?: unknown; group?: boolean | null };
             await loader
-              .create({ id: entry.options.id, name: options.name, config: options.config, ...(options.group ? { group: true } : {}) } as never, restoreParent, restorePosition)
+              .create(
+                { id: entry.options.id, name: options.name, config: options.config, ...(options.group ? { group: true } : {}) } as never,
+                restoreParent,
+                restorePosition,
+              )
               .catch(() => {});
             sendJson(response, 502, { error: errorText(error) });
           }

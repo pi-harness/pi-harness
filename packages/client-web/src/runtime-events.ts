@@ -88,9 +88,7 @@ export function historicalTrajectoryEvents(entries: readonly unknown[]): readonl
 export function mergeTrajectoryEvents(entries: readonly unknown[], liveEvents: readonly RuntimeEvent[]): readonly RuntimeEvent[] {
   const historical = historicalTrajectoryEvents(entries);
   if (liveEvents.length === 0) return historical;
-  const liveToolCallIds = new Set(
-    liveEvents.map((event) => event.toolCallId).filter((toolCallId): toolCallId is string => typeof toolCallId === "string"),
-  );
+  const liveToolCallIds = new Set(liveEvents.map((event) => event.toolCallId).filter((toolCallId): toolCallId is string => typeof toolCallId === "string"));
   const liveClocks = liveEvents.map(eventClock).filter((clock): clock is number => clock !== undefined);
   const firstLiveAt = liveClocks.length === 0 ? undefined : Math.min(...liveClocks);
   const retainedHistory = historical.filter((event) => {
