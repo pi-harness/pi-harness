@@ -375,10 +375,10 @@ function isGraphRelation(value: unknown): value is GraphRelation {
   );
 }
 
-async function readGraphFile(filePath: string, nodeLimit: number, relationLimit: number): Promise<GraphState> {
+async function readGraphFile(filePath: string, nodeLimit: number, relationLimit: number, signal?: AbortSignal): Promise<GraphState> {
   let raw: Buffer;
   try {
-    raw = await readBoundedFile(filePath, maxFileBytes, "Graph memory file");
+    raw = await readBoundedFile(filePath, maxFileBytes, "Graph memory file", signal);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { nodes: [], relations: [] };
     throw error;
@@ -555,9 +555,9 @@ export default {
     let lastSearch: GraphSearchReport | undefined;
     const lifecycle = new AbortController();
 
-    const load = async (): Promise<void> => {
+    const load = async (signal?: AbortSignal): Promise<void> => {
       const pending = mutationQueue.then(async () => {
-        const state = await readGraphFile(filePath, nodeLimit, relationLimit);
+        const state = await readGraphFile(filePath, nodeLimit, relationLimit, signal);
         if (lastSearch !== undefined && JSON.stringify({ nodes, relations }) !== JSON.stringify(state)) lastSearch = undefined;
         nodes = state.nodes;
         relations = state.relations;
@@ -576,7 +576,7 @@ export default {
         throwIfAborted(signal);
         const release = await acquireGraphLock(`${filePath}.lock`, signal);
         try {
-          const state = await readGraphFile(filePath, nodeLimit, relationLimit);
+          const state = await readGraphFile(filePath, nodeLimit, relationLimit, signal);
           throwIfAborted(signal);
           result = operation(state);
           throwIfAborted(signal);
@@ -705,7 +705,7 @@ export default {
         const params = searchParameters(rawParams);
         const operationSignal = signal === undefined ? lifecycle.signal : AbortSignal.any([signal, lifecycle.signal]);
         throwIfAborted(operationSignal);
-        await withCancellation(load(), operationSignal);
+        await withCancellation(load(operationSignal), operationSignal);
         throwIfAborted(operationSignal);
         const query = normalizeText(params.query, "Graph memory query", maxQueryLength);
         const needle = query.toLocaleLowerCase();
@@ -794,7 +794,7 @@ export default {
           description: "显式记录任务、技能与事件关系，保留来源并跨会话查询。",
           icon: "⌬",
           read: async () => {
-            await load();
+            await load(lifecycle.signal);
             return {
               filePath,
               nodes: nodes.length,

@@ -1,4 +1,5 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -246,6 +247,69 @@ describe("graph memory production boundaries", () => {
       if (timeout !== undefined) clearTimeout(timeout);
       writer.abort();
       await pending;
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("stops an in-flight graph search read at the next chunk after cancellation", async () => {
+    const fixture = await createFixture();
+    const graphPath = join(fixture.agentDir, "graph-memory.json");
+    const now = new Date().toISOString();
+    const nodes = Array.from({ length: 8 }, (_, index) => ({
+      id: `node-${index}`,
+      kind: "task",
+      label: `Node ${index}`,
+      summary: "x".repeat(16 * 1024),
+      createdAt: now,
+      updatedAt: now,
+    }));
+    await writeFile(graphPath, JSON.stringify({ version: 1, nodes, relations: [] }), "utf8");
+    const search = fixture.tools.snapshot().customTools.find((tool) => tool.name === "graph_memory_search");
+    if (search === undefined) throw new Error("graph_memory_search was not registered");
+    const probe = await open(graphPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = search.execute("in-flight", { query: "node" }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("graph search read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
       await fixture.context.fiber.dispose();
     }
   });
