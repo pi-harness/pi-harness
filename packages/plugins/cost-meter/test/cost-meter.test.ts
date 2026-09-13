@@ -1,4 +1,5 @@
-import { access, mkdtemp, readFile, readdir, rm, unlink, utimes, writeFile } from "node:fs/promises";
+import { access, mkdtemp, open, readFile, readdir, rm, unlink, utimes, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -196,6 +197,64 @@ describe("cost meter production boundaries", () => {
 
     await refreshAssertion;
     await expect(access(costPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("stops an in-flight bounded cost ledger read at the next chunk after cancellation", async () => {
+    const { costPath, tool } = await setup();
+    await writeFile(
+      costPath,
+      JSON.stringify({
+        version: 2,
+        entries: [{ sessionId: "session-1", cost: 1, sessionCost: 1, tokens: 20, messages: 2, recordedAt: new Date().toISOString() }],
+        padding: "x".repeat(200_000),
+      }),
+      "utf8",
+    );
+    const probe = await open(costPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("read-cancel", {}, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("cost ledger read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+    }
   });
 
   test("does not steal an old lock owned by a live process", async () => {

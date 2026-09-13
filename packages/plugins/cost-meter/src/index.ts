@@ -153,11 +153,12 @@ function parseCostEntry(value: unknown, legacy: boolean): CostEntry | undefined 
   };
 }
 
-async function readCostEntries(filePath: string): Promise<CostEntry[]> {
+async function readCostEntries(filePath: string, signal?: AbortSignal): Promise<CostEntry[]> {
   let source: string;
   try {
-    source = await readBoundedTextFile(filePath, maxCostFileBytes, "Cost meter file");
+    source = await readBoundedTextFile(filePath, maxCostFileBytes, "Cost meter file", signal);
   } catch (error) {
+    if (signal !== undefined) throwIfCancelled(signal);
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
@@ -275,12 +276,13 @@ function lockOwnerIsAlive(value: unknown): boolean | undefined {
   }
 }
 
-async function mayReclaimLock(lockPath: string, age: number): Promise<boolean> {
+async function mayReclaimLock(lockPath: string, age: number, signal?: AbortSignal): Promise<boolean> {
   if (age <= staleLockMs) return false;
   try {
-    const owner = JSON.parse(await readBoundedTextFile(lockPath, maxLockFileBytes, "Cost meter persistence lock")) as unknown;
+    const owner = JSON.parse(await readBoundedTextFile(lockPath, maxLockFileBytes, "Cost meter persistence lock", signal)) as unknown;
     return lockOwnerIsAlive(owner) !== true;
   } catch (error) {
+    if (signal !== undefined) throwIfCancelled(signal);
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
     if (error instanceof SyntaxError) return true;
     return false;
@@ -355,7 +357,7 @@ export default {
               const lockAge = await stat(lockPath)
                 .then((metadata) => Date.now() - metadata.mtimeMs)
                 .catch(() => 0);
-              if (await mayReclaimLock(lockPath, lockAge)) await unlink(lockPath).catch(() => {});
+              if (await mayReclaimLock(lockPath, lockAge, signal)) await unlink(lockPath).catch(() => {});
               await waitForLockRetry(signal);
             }
           }
@@ -366,7 +368,7 @@ export default {
             await lock.writeFile(lockOwner, { encoding: "utf8" });
             ownerWritten = true;
             throwIfCancelled(signal);
-            const diskEntries = await readCostEntries(filePath);
+            const diskEntries = await readCostEntries(filePath, signal);
             throwIfCancelled(signal);
             const candidate = costEntryFor(diskEntries, snapshot, recordedAt);
             const key = `${candidate.sessionId}\0${todayKey(new Date(candidate.recordedAt))}`;
@@ -426,7 +428,7 @@ export default {
       const pending = pendingRecord;
       if (pending !== undefined) await waitForPromise(pending, signal);
       throwIfCancelled(signal);
-      entries = await readCostEntries(filePath);
+      entries = await readCostEntries(filePath, signal);
       throwIfCancelled(signal);
       return reportFor(entries, currentStats(), budgetValue, entryLimit, lastError);
     };
