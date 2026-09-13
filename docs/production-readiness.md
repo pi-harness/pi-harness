@@ -34,6 +34,13 @@ The audit is incomplete. The current count is 53 of 75 plugins with partial real
 - A second call with `confirm: false` rejected the overwrite and left the original bytes unchanged. A confirmed overwrite then regenerated the file with the expanded conversation, and the Session Export panel retained the source session ID and workspace after switching to a fresh empty session.
 - The workflow completed with no page or console errors. This adds authenticated model evidence for normal export, overwrite protection and provenance display; oversized output, cancellation, path-escape and filesystem-failure boundaries remain explicit follow-ups.
 
+### Taskboard authenticated dependency and tenant-isolation workflow (2026-09-13)
+
+- An isolated authenticated Chromium session loaded Taskboard against a dedicated AUD-key SQLite database. The real model created a prerequisite with a valid leap-day deadline and a dependent task, then attempted a cycle-forming update that also changed the title; the rejected transaction left both the original task fields and dependency edges unchanged.
+- The same workflow rejected the invalid calendar date `2027-02-29`, refused acceptance while the prerequisite was unfinished, cleared the deadline explicitly, and accepted the prerequisite before the dependent. A final model-visible list contained exactly two `done` tasks with the dependency preserved, and the Taskboard panel rendered both titles.
+- A second isolated workspace returned an empty list, rejected an update for the first workspace's key, and rejected a create that referenced that foreign prerequisite. No partial row appeared in the second workspace. The browser run finished with no page or console errors.
+- This adds authenticated dependency, date, acceptance-gate and cross-workspace evidence without a production code change; SQLite write-failure, concurrent workspace-change and additional resource boundaries remain explicit follow-ups.
+
 ### Session Bridge persisted duplicate protection (2026-09-13)
 
 - Added a native persisted-session regression that seeds a real on-disk Pi journal, imports an idle handoff through `AgentSession.sendCustomMessage`, disposes the runtime, reopens the same JSONL with `SessionManager.open`, and retries the exact package.
