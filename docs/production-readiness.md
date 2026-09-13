@@ -6,6 +6,12 @@ This is the running evidence log for the plugin functional verification audit, k
 
 The audit is incomplete. The current count is 53 of 75 plugins with partial real runtime or browser evidence and 22 pending; partial evidence for a plugin is not acceptance of that plugin. Entries are appended over time, so a later dated observation supersedes an earlier one, including any numeric checkpoint.
 
+### Session Export session-switch publication guard (2026-09-13)
+
+- A controlled delayed atomic-write regression reproduced stale state: switching the native session while an export was being committed still returned success for the old session and could publish its Markdown file without checking the replacement session.
+- Session Export now captures the session manager, ID and workspace, checks them before preparation, uses the atomic writer's `beforeCommit` hook to prevent stale publication, and checks again after the write. The original destination is left untouched when the session changes during staging, and the panel does not receive stale provenance.
+- The regression plus the existing Session Export tests pass 9/9; plugin API/Session Export build, typecheck, scoped ESLint and whitespace checks pass. The overall 53/75 audit remains incomplete.
+
 ### Session Compare malformed shorthand diagnostic (2026-09-13)
 
 - A real temporary session directory reproduced a misleading failure: selecting an existing malformed `broken.jsonl` through the shorthand `broken` caused header discovery to swallow the JSON parse error and report only `Session was not found: broken`.

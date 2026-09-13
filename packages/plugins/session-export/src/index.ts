@@ -99,25 +99,44 @@ export default {
           const runtime = context.get("piRuntime");
           if (runtime === undefined) throw new Error("Pi runtime is not ready");
           const session = runtime.session;
+          const sessionManager = session.sessionManager;
           const workspace = session.sessionManager.getCwd();
           const sessionId = session.sessionManager.getSessionId();
           const sourceMessages = session.messages.length;
           const rendered = renderSession(session.messages);
           const bytes = Buffer.byteLength(rendered.markdown, "utf8");
+          const assertCurrent = (): void => {
+            check();
+            const currentSession = context.get("piRuntime")?.session;
+            if (
+              currentSession !== session ||
+              currentSession?.sessionManager !== sessionManager ||
+              sessionManager.getCwd() !== workspace ||
+              sessionManager.getSessionId() !== sessionId
+            )
+              throw new Error("Session export session changed during execution");
+          };
           const prepared = await prepareWorkspaceFile(
             workspace,
             normalizedOutputPath(path ?? defaultFileName),
             "Session export path must stay inside the current workspace and target a regular file",
           );
-          check();
+          assertCurrent();
           if (prepared.exists && confirm !== true) throw new Error("Session export would overwrite an existing file; retry with confirm=true");
           try {
-            await atomicWriteFile(prepared.target, rendered.markdown, { encoding: "utf8", mode: 0o600, overwrite: confirm === true, signal: combined });
+            await atomicWriteFile(prepared.target, rendered.markdown, {
+              encoding: "utf8",
+              mode: 0o600,
+              overwrite: confirm === true,
+              signal: combined,
+              beforeCommit: assertCurrent,
+            });
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "EEXIST")
               throw new Error("Session export would overwrite an existing file; retry with confirm=true", { cause: error });
             throw error;
           }
+          assertCurrent();
           const result = {
             path: prepared.relativePath,
             bytes,
