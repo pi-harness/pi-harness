@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { themePresets } from "../../plugins/theme-studio/src/index.js";
 import { createClientApi, type ClientMarketplacePlugin, type ClientPiConfig } from "../src/control-room.js";
 import { setLocale } from "../src/i18n.js";
@@ -73,6 +73,32 @@ describe("provider auth readiness", () => {
 });
 
 describe("session search requests", () => {
+  test("coalesces rapid global search queries before invoking the session search", async () => {
+    const module = (await import("../src/react-room.js")) as unknown as {
+      createGlobalSearchDebouncer?: (delayMs?: number) => {
+        schedule: (query: string, callback: (query: string) => void) => void;
+        cancel: () => void;
+      };
+    };
+    expect(module.createGlobalSearchDebouncer).toBeTypeOf("function");
+    if (!module.createGlobalSearchDebouncer) return;
+
+    vi.useFakeTimers();
+    try {
+      const calls: string[] = [];
+      const debouncer = module.createGlobalSearchDebouncer(100);
+      debouncer.schedule("w", (query) => calls.push(query));
+      debouncer.schedule("wo", (query) => calls.push(query));
+      debouncer.schedule("workspace", (query) => calls.push(query));
+      await vi.advanceTimersByTimeAsync(99);
+      expect(calls).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls).toEqual(["workspace"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("distinguishes an empty search result from an empty session history", () => {
     expect(sessionListEmptyMessage("missing")).toBe("没有匹配的会话");
     expect(sessionListEmptyMessage("")).toBe("暂无已保存会话");
