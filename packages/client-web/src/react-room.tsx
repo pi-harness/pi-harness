@@ -9738,7 +9738,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             )}
             {!streamingAssistant?.thinking && !streamingAssistant?.text && (
               <div className="streaming-placeholder">
-                <span className="streaming-spinner" />
+                <span className={`streaming-logo streaming-logo-${runTelemetry.phase}`} aria-hidden="true">
+                  <img src="/icons/svg/mark-white.svg" alt="" />
+                </span>
                 {runPhaseText(runTelemetry.phase)}
                 <span className="streaming-elapsed">{formatRunClock(runTelemetry.elapsedSeconds)}</span>
               </div>
