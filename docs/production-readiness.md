@@ -6,6 +6,12 @@ This is the running evidence log for the plugin functional verification audit, k
 
 The audit is incomplete. The current count is 53 of 75 plugins with partial real runtime or browser evidence and 22 pending; partial evidence for a plugin is not acceptance of that plugin. Entries are appended over time, so a later dated observation supersedes an earlier one, including any numeric checkpoint.
 
+### MCP Client stdio lifecycle and protocol-boundary verification (2026-09-13)
+
+- The MCP Client boundary suite exercised direct-argv validation, one-shot and managed server startup, bounded pagination, malformed JSON-RPC and UTF-8 handling, oversized responses and inventories, structured tool results, resource/prompt bridging, stdin failures, queued cancellation, stop/dispose races, server restart ownership, workspace changes, and bounded stderr diagnostics.
+- The current implementation passed all 68 focused MCP Client tests. Local verification also passed the plugin API prerequisite build, MCP Client build and typecheck, scoped ESLint, and `git diff --check`; no new defect was reproduced in this checkpoint.
+- The suite does not replace authenticated model or headed-browser evidence. Long-running remote-server timeout behavior and external-service interoperability remain explicit follow-ups for the incomplete 53/75 audit.
+
 ### EveryAPI local launcher guidance correction (2026-09-13)
 
 - The current EveryAPI CLI handbook lists `pi-web` as the supported browser tool, while the repository's startup guard, stdio diagnostics, README files and provider-auth notices told users to run the nonexistent `everyapi use pi-harness`. The local `pih-local` launcher already uses the supported `pi-web` integration and was the source-of-truth comparison.
