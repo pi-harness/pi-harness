@@ -143,11 +143,11 @@ function isMemory(value: unknown): value is Memory {
   );
 }
 
-async function readMemoryFile(filePath: string): Promise<Memory[]> {
+async function readMemoryFile(filePath: string, signal?: AbortSignal): Promise<Memory[]> {
   let source: string;
   try {
     const maxFileBytes = memoryFileOverheadBytes + maxEntries * memoryEntryOverheadBytes;
-    source = await readBoundedTextFile(filePath, maxFileBytes, "Memory file");
+    source = await readBoundedTextFile(filePath, maxFileBytes, "Memory file", signal);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
@@ -260,7 +260,7 @@ function sameFile(left: Awaited<ReturnType<typeof lstat>>, right: Awaited<Return
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-async function reclaimStaleMemoryLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
+async function reclaimStaleMemoryLock(lockPath: string, lockMetadata: Awaited<ReturnType<typeof lstat>>, signal?: AbortSignal): Promise<boolean> {
   if (Date.now() - Number(lockMetadata.mtimeMs) <= staleLockMs) return false;
   let directory;
   try {
@@ -287,7 +287,7 @@ async function reclaimStaleMemoryLock(lockPath: string, lockMetadata: Awaited<Re
   if (!ownerMetadata.isFile() || ownerMetadata.isSymbolicLink() || Date.now() - Number(ownerMetadata.mtimeMs) <= staleLockMs) return false;
   let owner: unknown;
   try {
-    owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Memory lock owner")) as unknown;
+    owner = JSON.parse(await readBoundedTextFile(ownerPath, maxLockOwnerBytes, "Memory lock owner", signal)) as unknown;
   } catch (error) {
     if (!(error instanceof SyntaxError)) return false;
   }
@@ -348,7 +348,7 @@ async function acquireMemoryLock(lockPath: string, signal: AbortSignal): Promise
       }
       if (metadata.isSymbolicLink()) throw new Error("Memory file lock must not be a symbolic link", { cause: error });
       if (!metadata.isDirectory()) throw new Error("Memory file lock must be a directory", { cause: error });
-      if (await reclaimStaleMemoryLock(lockPath, metadata)) continue;
+      if (await reclaimStaleMemoryLock(lockPath, metadata, signal)) continue;
       if (performance.now() - startedAt >= lockTimeoutMs) throw new Error("Timed out waiting for memory file lock", { cause: error });
       await delay(lockRetryMs, undefined, { signal });
     }
@@ -373,7 +373,7 @@ export default {
     let last: LastMemorySearchReport | undefined;
     const refresh = async (signal: AbortSignal = lifecycle.signal): Promise<void> => {
       signal.throwIfAborted();
-      const current = await readMemoryFile(filePath);
+      const current = await readMemoryFile(filePath, signal);
       signal.throwIfAborted();
       memories = current.slice(0, entryLimit);
     };
@@ -383,7 +383,7 @@ export default {
       const run = async (): Promise<void> => {
         const release = await acquireMemoryLock(`${filePath}.lock`, signal);
         try {
-          const current = await readMemoryFile(filePath);
+          const current = await readMemoryFile(filePath, signal);
           signal.throwIfAborted();
           const next = operation(current);
           await writeMemoryFile(filePath, next.memories, signal);
