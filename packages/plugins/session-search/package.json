@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-session-search",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Search persisted Pi JSONL sessions for matching user or assistant text without modifying session files.",
   "keywords": [
     "cordis",
