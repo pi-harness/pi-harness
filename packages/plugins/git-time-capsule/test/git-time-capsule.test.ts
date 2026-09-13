@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
@@ -292,6 +293,59 @@ require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(work
     await writeFile(capsule, Buffer.alloc(8 * 1024 * 1024 + 1, 0x78));
 
     await expect(applyCapsule(workspace, capsule)).rejects.toThrow(/exceeds.*8388608-byte limit/iu);
+  });
+
+  test("stops an in-flight bounded capsule read at the next chunk after cancellation", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-capsule-read-cancel-workspace-"));
+    const capsules = await mkdtemp(join(tmpdir(), "pi-capsule-read-cancel-input-"));
+    temporaryDirectories.push(workspace, capsules);
+    const capsule = join(capsules, "large.patch");
+    await writeFile(capsule, "x".repeat(200_000), "utf8");
+    const probe = await open(capsule, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = applyCapsule(workspace, capsule, 500, controller.signal);
+      await readStarted;
+      controller.abort(new Error("capsule read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+    }
   });
 
   test("preserves caller cancellation while checking a restore", async () => {

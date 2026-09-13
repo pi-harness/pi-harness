@@ -167,7 +167,7 @@ async function applyCapsuleWithMetadata(
 ): Promise<{ bytes: number; files: number }> {
   if (signal !== undefined) throwIfAborted(signal);
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
-  const capsule = await readBoundedFile(capsulePath, maxCapsuleBytes, "Git capsule");
+  const capsule = await readBoundedFile(capsulePath, maxCapsuleBytes, "Git capsule", signal);
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-harness-capsule-"));
   const verifiedPath = join(temporaryDirectory, "capsule.patch");
   let writeStarted = false;
