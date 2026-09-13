@@ -1309,6 +1309,31 @@ test("does not render Context Doctor findings from another active session", () =
   expect(activeHtml).not.toContain("92.3456%");
 });
 
+test("rounds Token Guard context budget percentages for display", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "token-guard-panel",
+        pluginId: "@pi-harness/plugin-token-guard",
+        title: "Token Guard",
+        data: {
+          maxPercent: 90,
+          percent: 0.8467674255371094,
+          tokens: 8_887,
+          contextWindow: 1_048_576,
+          maxRunTokens: 0,
+          runTokens: null,
+          aborts: 0,
+          lastError: null,
+        },
+      },
+    }),
+  );
+
+  expect(html).toContain("0.8% / 90%");
+  expect(html).not.toContain("0.8467674255371094%");
+});
+
 test("does not render Context Insights metrics from another active session", () => {
   const panel = {
     id: "context-insight-panel",
