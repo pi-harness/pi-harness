@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -150,6 +151,56 @@ describe("YAML validator boundaries", () => {
       await expect(tool.execute("call-1", { path: "valid.yml" }, caller.signal, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
       await expect(context.piPluginUi.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
     } finally {
+      await context.fiber.dispose();
+    }
+  });
+
+  test("stops an in-flight bounded YAML read at the next chunk after cancellation", async () => {
+    const { context, cwd, tool } = await createValidator();
+    const path = join(cwd, "large.yml");
+    await writeFile(path, `value: ${"x".repeat(200_000)}\n`, "utf8");
+    const probe = await open(path, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (readCalls === 1) {
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", { path: "large.yml" }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("YAML read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
       await context.fiber.dispose();
     }
   });
