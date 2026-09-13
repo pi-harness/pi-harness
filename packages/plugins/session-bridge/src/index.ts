@@ -465,6 +465,15 @@ export default {
       }
       return structuredClone(currentPreviewCache);
     };
+    const reconcileQueuedImport = (manager: SessionManager, header: object | null) => {
+      const queued = queuedImports.get(manager);
+      if (queued === undefined || queued.header !== header || queued.digests.size === 0) return;
+      for (const digest of queued.digests) if (wasImported(manager, digest)) queued.digests.delete(digest);
+      if (queued.digests.size === 0) return;
+      failedManagers.set(manager, header);
+      currentPreviewDirty = true;
+      status = { state: "failed", operation: "import", at: new Date().toISOString(), error: writeFailureMessage };
+    };
     const invalidatePreview = context.on("pi/session-event", (event) => {
       currentPreviewDirty = true;
       const manager = context.get("piRuntime")?.session.sessionManager ?? context.piSession.manager;
@@ -472,6 +481,13 @@ export default {
       if (queued !== undefined && event.type === "message_end" && event.message.role === "custom") {
         const digest = importedBridgeDigest({ type: "custom_message", customType: event.message.customType, details: event.message.details });
         if (digest !== undefined) queued.digests.delete(digest);
+      }
+      if (event.type === "turn_end") {
+        const header = manager.getHeader();
+        queueMicrotask(() => {
+          const current = readContext();
+          if (current.manager === manager && current.header === header) reconcileQueuedImport(manager, header);
+        });
       }
     });
     const runOperation = async <T>(
