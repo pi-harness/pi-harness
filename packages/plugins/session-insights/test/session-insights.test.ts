@@ -271,6 +271,30 @@ describe("session-insights", () => {
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", totalMessages: 1 } }]);
   });
 
+  test("does not carry a prior session compaction result into a replacement session", async () => {
+    const { context, panels, tool } = await fixture({
+      sessionId: "session-1",
+      isIdle: true,
+      getSessionStats: () => stats({ sessionId: "session-1" }),
+      compact: () => Promise.reject(new Error("old session compaction failed")),
+      abortCompaction: () => undefined,
+    });
+
+    await expect(tool.execute("old", { compact: true, confirm: true }, undefined, undefined, {} as never)).rejects.toThrow("old session compaction failed");
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-1", compaction: { status: "failed" } } }]);
+
+    context.reflect.set("piRuntime", {
+      session: {
+        sessionId: "session-2",
+        isIdle: true,
+        getSessionStats: () => stats({ sessionId: "session-2", userMessages: 1, assistantMessages: 0, toolCalls: 0, toolResults: 0, totalMessages: 1 }),
+        compact: () => Promise.resolve(),
+        abortCompaction: () => undefined,
+      },
+    });
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "session-2", compaction: { status: "idle" } } }]);
+  });
+
   test("runs confirmed compaction only while idle and refreshes its completed report", async () => {
     let current = stats();
     let compactions = 0;
@@ -363,7 +387,7 @@ describe("session-insights", () => {
     context.reflect.set("piRuntime", {
       session: { isIdle: true, getSessionStats: () => stats({ sessionId: "replacement" }), compact: () => Promise.resolve() },
     });
-    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "replacement", compaction: { status: "cancelled" } } }]);
+    await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: "replacement", compaction: { status: "idle" } } }]);
     context.emit("pi/session-event", { type: "agent_settled" } as never);
     expect(compactions).toBe(0);
   });
@@ -442,10 +466,10 @@ describe("session-insights", () => {
     expect(aborts).toBe(1);
     await expect
       .poll(async () => ((await panels.snapshot())[0]?.data as { compaction?: { status?: unknown } } | undefined)?.compaction?.status)
-      .toBe("cancelled");
-    const replacement = (await panels.snapshot())[0]?.data as { sessionId: string; compaction: { error: string } };
+      .toBe("idle");
+    const replacement = (await panels.snapshot())[0]?.data as { sessionId: string; compaction: { status: string } };
     expect(replacement.sessionId).toBe("replacement");
-    expect(replacement.compaction.error).toMatch(/session changed/iu);
+    expect(replacement.compaction).toEqual({ status: "idle" });
     resolveCompact?.();
   });
 
@@ -525,7 +549,7 @@ test("refreshes statistics and cancels queued compaction when the same runtime c
   const { tool, context, panels } = await fixture(session);
   await tool.execute("queue", { compact: true, confirm: true }, undefined, undefined, {} as never);
   id = "new-session";
-  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: id, compaction: { status: "cancelled" } } }]);
+  await expect(panels.snapshot()).resolves.toMatchObject([{ data: { sessionId: id, compaction: { status: "idle" } } }]);
   context.emit("pi/session-event", { type: "agent_settled" } as never);
   await Promise.resolve();
   expect(compactions).toBe(0);

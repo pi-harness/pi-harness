@@ -254,16 +254,31 @@ export default {
     const runtime = () => context.get("piRuntime");
     const lifecycle = new AbortController();
     const uninitializedSession = Symbol("uninitialized session");
+    type RuntimeSession = NonNullable<ReturnType<typeof runtime>>["session"];
     let cachedSession: unknown = uninitializedSession;
     let cachedSessionId: string | undefined;
     let cachedStats: SessionInsightsStats | undefined;
     let cachedError: string | undefined;
-    let compaction: SessionInsightsCompactionState = { status: "idle" };
+    const compactions = new WeakMap<RuntimeSession, { sessionId: string; state: SessionInsightsCompactionState }>();
+    const compactionFor = (session: RuntimeSession | undefined): SessionInsightsCompactionState => {
+      if (session === undefined) return { status: "idle" };
+      const sessionId = session.sessionId;
+      const existing = compactions.get(session);
+      if (existing !== undefined && existing.sessionId === sessionId) return existing.state;
+      const initial: SessionInsightsCompactionState = { status: "idle" };
+      compactions.set(session, { sessionId, state: initial });
+      return initial;
+    };
+    const setCompaction = (session: RuntimeSession, sessionId: string, state: SessionInsightsCompactionState): void => {
+      const existing = compactions.get(session);
+      if (existing !== undefined && existing.sessionId !== sessionId) return;
+      compactions.set(session, { sessionId, state });
+    };
     let active: Promise<void> | undefined;
-    let activeRequest: { session: NonNullable<ReturnType<typeof runtime>>["session"]; sessionId: string; controller: AbortController } | undefined;
+    let activeRequest: { session: RuntimeSession; sessionId: string; controller: AbortController } | undefined;
     let queued:
       | {
-          session: NonNullable<ReturnType<typeof runtime>>["session"];
+          session: RuntimeSession;
           sessionId: string;
           signal: AbortSignal;
           requestedAt: string;
@@ -291,12 +306,12 @@ export default {
         const request = queued;
         queued = undefined;
         request.removeAbortListener();
-        compaction = {
+        setCompaction(request.session, request.sessionId, {
           status: "cancelled",
           requestedAt: request.requestedAt,
           finishedAt: new Date().toISOString(),
           error: "Session changed before the queued session compaction could start",
-        };
+        });
       }
       if (
         activeRequest !== undefined &&
@@ -312,20 +327,20 @@ export default {
       if (session !== cachedSession || session?.sessionId !== cachedSessionId) refreshStats();
       if (cachedError !== undefined) throw new Error(cachedError);
       if (cachedStats === undefined) throw new Error("Session statistics are unavailable");
-      return cloneDetails(cachedStats, compaction);
+      return cloneDetails(cachedStats, compactionFor(session));
     };
-    const startCompaction = (session: NonNullable<ReturnType<typeof runtime>>["session"], callerSignal: AbortSignal, requestedAt: string): Promise<void> => {
+    const startCompaction = (session: RuntimeSession, callerSignal: AbortSignal, requestedAt: string): Promise<void> => {
       const releaseCompaction = session.isCompacting ? undefined : tryAcquireSessionCompaction(session);
       if (releaseCompaction === undefined) {
         const error = new Error("A session compaction is already in progress");
-        compaction = { status: "failed", requestedAt, finishedAt: new Date().toISOString(), error: error.message };
+        setCompaction(session, session.sessionId, { status: "failed", requestedAt, finishedAt: new Date().toISOString(), error: error.message });
         return Promise.reject(error);
       }
       const sessionId = session.sessionId;
       const controller = new AbortController();
       const signal = AbortSignal.any([callerSignal, controller.signal]);
       const startedAt = new Date().toISOString();
-      compaction = { status: "running", requestedAt, startedAt };
+      setCompaction(session, sessionId, { status: "running", requestedAt, startedAt });
       const operation = Promise.resolve().then(async () => {
         let nativeStarted = false;
         let unsubscribeCompaction: (() => void) | undefined;
@@ -365,16 +380,16 @@ export default {
             controller.abort(new Error("Session changed while session compaction was running"));
             throwIfCancelled(signal);
           }
-          compaction = { status: "completed", requestedAt, startedAt, finishedAt: new Date().toISOString() };
+          setCompaction(session, sessionId, { status: "completed", requestedAt, startedAt, finishedAt: new Date().toISOString() });
           if (runtime()?.session === session) refreshStats();
         } catch (error) {
-          compaction = {
+          setCompaction(session, sessionId, {
             status: signal.aborted ? "cancelled" : "failed",
             requestedAt,
             startedAt,
             finishedAt: new Date().toISOString(),
             error: boundedError(signal.aborted ? cancellationError(signal, "Session compaction was cancelled") : error),
-          };
+          });
           if (runtime()?.session === session) refreshStats();
           throw error;
         } finally {
@@ -414,12 +429,12 @@ export default {
       queued = undefined;
       request.removeAbortListener();
       if (service === undefined || service.session !== request.session) {
-        compaction = {
+        setCompaction(request.session, request.sessionId, {
           status: "cancelled",
           requestedAt: request.requestedAt,
           finishedAt: new Date().toISOString(),
           error: "Session changed before the queued session compaction could start",
-        };
+        });
         return;
       }
       void startCompaction(service.session, request.signal, request.requestedAt).catch(() => undefined);
@@ -451,25 +466,27 @@ export default {
           if (service.session.isCompacting) throw new Error("A session compaction is already in progress");
           const requestedAt = new Date().toISOString();
           if (service.session.isIdle === false) {
+            const queuedSession = service.session;
+            const queuedSessionId = queuedSession.sessionId;
             const onAbort = (): void => {
               if (queued?.signal !== actionSignal) return;
               queued = undefined;
-              compaction = {
+              setCompaction(queuedSession, queuedSessionId, {
                 status: "cancelled",
                 requestedAt,
                 finishedAt: new Date().toISOString(),
                 error: "Session compaction was cancelled before it started",
-              };
+              });
             };
             actionSignal.addEventListener("abort", onAbort, { once: true });
             queued = {
-              session: service.session,
-              sessionId: service.session.sessionId,
+              session: queuedSession,
+              sessionId: queuedSessionId,
               signal: actionSignal,
               requestedAt,
               removeAbortListener: () => actionSignal.removeEventListener("abort", onAbort),
             };
-            compaction = { status: "queued", requestedAt };
+            setCompaction(queuedSession, queuedSessionId, { status: "queued", requestedAt });
             const queuedReport = readDetails();
             return {
               content: [{ type: "text", text: "Session compaction queued until the current agent run settles." }],
