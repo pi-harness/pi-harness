@@ -5,6 +5,7 @@
 [![npm downloads](https://img.shields.io/npm/dt/%40pi-harness%2Fpi-harness?label=npm%20downloads)](https://www.npmjs.com/package/@pi-harness/pi-harness)
 [![GitHub stars](https://img.shields.io/github/stars/pi-harness/pi-harness?label=GitHub%20stars&logo=github)](https://github.com/pi-harness/pi-harness/stargazers)
 [![License](https://img.shields.io/github/license/pi-harness/pi-harness?label=License)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/pi-harness/pi-harness?label=release)](https://github.com/pi-harness/pi-harness/releases)
 
 Pi Harness is a plugin-first web host and CLI for [Pi](https://github.com/earendil-works/pi), built on [DeepSeek Cordis](https://github.com/DeepAgentsLab/cordis). It provides a local browser console, HTTP API, stdio workflows, and a composable plugin runtime. The primary command-line interface is `pih`; `pi-harness` is the companion command for starting the web console.
 
