@@ -1318,7 +1318,7 @@ test("does not render Context Insights metrics from another active session", () 
       sessionId: "previous-session",
       tokens: 800,
       contextWindow: 8_000,
-      percent: 10,
+      percent: 10.3456,
       messages: 1,
       scannedMessages: 1,
       messagesTruncated: false,
@@ -1335,6 +1335,11 @@ test("does not render Context Insights metrics from another active session", () 
   expect(html).not.toContain("previous-session");
   expect(html).not.toContain("800 tokens");
   expect(html).not.toContain("10%");
+
+  const activeHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "previous-session", panel }));
+
+  expect(activeHtml).toContain("10.3%");
+  expect(activeHtml).not.toMatch(/>10\.3456%</u);
 });
 
 test("does not render retained Context Insights metrics when there is no active session", () => {
