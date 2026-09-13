@@ -411,10 +411,11 @@ function hasInstalledPythonPackage(entries: ReadonlySet<string>, name: string): 
   return entries.has(normalizePythonDistributionName(name));
 }
 
-async function readManifestText(target: string): Promise<string> {
+async function readManifestText(target: string, signal?: AbortSignal): Promise<string> {
   try {
-    return await readBoundedTextFile(target, maxManifestBytes, "Dependency manifest");
+    return await readBoundedTextFile(target, maxManifestBytes, "Dependency manifest", signal);
   } catch (error) {
+    if (signal?.aborted) throwIfCancelled(signal);
     if (error instanceof BoundedFileSizeError) throw new Error("Dependency manifest exceeds the 1 MiB limit", { cause: error });
     if (error instanceof BoundedFileTypeError) throw error;
     throw new Error("Could not read dependency manifest", { cause: error });
@@ -458,7 +459,7 @@ export async function inspectManifest(workspace: string, requested = "package.js
   const fileName = basename(target).toLowerCase();
   const requirements = fileName.startsWith("requirements") && fileName.endsWith(".txt");
   if (!requirements && fileName !== "package.json") throw new Error("Dependency manifest must be package.json or requirements*.txt");
-  const source = await readManifestText(target);
+  const source = await readManifestText(target, signal);
   throwIfCancelled(signal);
   if (requirements) return inspectRequirements(workspace, target, source, signal);
   let parsed: unknown;
