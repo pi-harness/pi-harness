@@ -1,0 +1,341 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		057946FE68F6F8EEE9C01BBB /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 72AD059215FB733791E3A94B /* MetalKit.framework */; };
+		3D5BAF8944D9380340EF7DBC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F35147B7B4F67D01ED3A1FF1 /* Assets.xcassets */; };
+		4625C102E1024FADE2932D39 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 37BB1E0D48FD4C60C68626F1 /* libapp.a */; };
+		590EEFF89486CF64581FCA02 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = B7EF26384D435D86FF47D95B /* assets */; };
+		826B0B619846D70C70AFD538 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EED9287C06EF1D9FEC9561C /* QuartzCore.framework */; };
+		946183086F9E77AB0808B2C3 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 4007A73203AF49AD69DC2C8B /* LaunchScreen.storyboard */; };
+		95D2CA5205006B5BD2679C24 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D3CD3BE7FF55A6932388AB5 /* WebKit.framework */; };
+		95F07CB2C7BCABAC22BE093D /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CD7310FC23E5F1475FC8A768 /* Metal.framework */; };
+		AE9AEA87ABE24E389569C644 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C8FAC4430B5C14551C9E5631 /* CoreGraphics.framework */; };
+		BB63064D3C6490E71CF0E06C /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = F9143AE43836544606B38DB3 /* main.mm */; };
+		C7A252B57AB22201A433D3C5 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0AD998A3D1FA2167F9AE1607 /* Security.framework */; };
+		E0442EAF2506583C379DB315 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5EC695391C10EA9244C59581 /* UIKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0AD998A3D1FA2167F9AE1607 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		2EED9287C06EF1D9FEC9561C /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		37BB1E0D48FD4C60C68626F1 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		4007A73203AF49AD69DC2C8B /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		5815DD0C6CEE9B3809FA2FC9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5A48155E0087BDB5B5FB03AA /* pi-harness_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "pi-harness_iOS.entitlements"; sourceTree = "<group>"; };
+		5EC695391C10EA9244C59581 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		72AD059215FB733791E3A94B /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		8D3CD3BE7FF55A6932388AB5 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		B7EF26384D435D86FF47D95B /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		BC45D7963949B2E27DD3089F /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		C0F47AFB71D4812BF8D32D70 /* pi-harness_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "pi-harness_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8FAC4430B5C14551C9E5631 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		CD6129C2E6E74F2CD099796D /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		CD7310FC23E5F1475FC8A768 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		E37CB1CF201FBC03FDBC4993 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		F35147B7B4F67D01ED3A1FF1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F9143AE43836544606B38DB3 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		081F05AF2864FDC376893348 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4625C102E1024FADE2932D39 /* libapp.a in Frameworks */,
+				AE9AEA87ABE24E389569C644 /* CoreGraphics.framework in Frameworks */,
+				95F07CB2C7BCABAC22BE093D /* Metal.framework in Frameworks */,
+				057946FE68F6F8EEE9C01BBB /* MetalKit.framework in Frameworks */,
+				826B0B619846D70C70AFD538 /* QuartzCore.framework in Frameworks */,
+				C7A252B57AB22201A433D3C5 /* Security.framework in Frameworks */,
+				E0442EAF2506583C379DB315 /* UIKit.framework in Frameworks */,
+				95D2CA5205006B5BD2679C24 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1345A7E66A8F8A57F1521D7A = {
+			isa = PBXGroup;
+			children = (
+				B7EF26384D435D86FF47D95B /* assets */,
+				F35147B7B4F67D01ED3A1FF1 /* Assets.xcassets */,
+				4007A73203AF49AD69DC2C8B /* LaunchScreen.storyboard */,
+				3C7F62419FB81AD5CE8755C6 /* Externals */,
+				F4F63A03FDC239D7CBA9F24B /* pi-harness_iOS */,
+				C36DCDA5168D786F6C9C5A24 /* Sources */,
+				E797C7AFEBA11487D93ACBA7 /* src */,
+				EC528A25E1B62C12CD733A24 /* Frameworks */,
+				A9A8D516A8032B70FED27F2C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3C7F62419FB81AD5CE8755C6 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		A9A8D516A8032B70FED27F2C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C0F47AFB71D4812BF8D32D70 /* pi-harness_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BB9CE07305659A1A9D11B7BE /* pi-harness */ = {
+			isa = PBXGroup;
+			children = (
+				F9143AE43836544606B38DB3 /* main.mm */,
+				F11B492A48F8DDF2AFAE4E4A /* bindings */,
+			);
+			path = "pi-harness";
+			sourceTree = "<group>";
+		};
+		C36DCDA5168D786F6C9C5A24 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				BB9CE07305659A1A9D11B7BE /* pi-harness */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		E797C7AFEBA11487D93ACBA7 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				BC45D7963949B2E27DD3089F /* lib.rs */,
+				E37CB1CF201FBC03FDBC4993 /* main.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		EC528A25E1B62C12CD733A24 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				C8FAC4430B5C14551C9E5631 /* CoreGraphics.framework */,
+				37BB1E0D48FD4C60C68626F1 /* libapp.a */,
+				CD7310FC23E5F1475FC8A768 /* Metal.framework */,
+				72AD059215FB733791E3A94B /* MetalKit.framework */,
+				2EED9287C06EF1D9FEC9561C /* QuartzCore.framework */,
+				0AD998A3D1FA2167F9AE1607 /* Security.framework */,
+				5EC695391C10EA9244C59581 /* UIKit.framework */,
+				8D3CD3BE7FF55A6932388AB5 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		F11B492A48F8DDF2AFAE4E4A /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				CD6129C2E6E74F2CD099796D /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		F4F63A03FDC239D7CBA9F24B /* pi-harness_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				5815DD0C6CEE9B3809FA2FC9 /* Info.plist */,
+				5A48155E0087BDB5B5FB03AA /* pi-harness_iOS.entitlements */,
+			);
+			path = "pi-harness_iOS";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		696F4EDF8D8E21818F7C6268 /* pi-harness_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 956152F2AFB165791D310A44 /* Build configuration list for PBXNativeTarget "pi-harness_iOS" */;
+			buildPhases = (
+				EEF37ACE8D8A432049AA0EC7 /* Build Rust Code */,
+				DDD5B2D0E68AF9DFBDC8486C /* Sources */,
+				8A8C6FDB52B0E7676D8A8716 /* Resources */,
+				081F05AF2864FDC376893348 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "pi-harness_iOS";
+			packageProductDependencies = (
+			);
+			productName = "pi-harness_iOS";
+			productReference = C0F47AFB71D4812BF8D32D70 /* pi-harness_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D265DBDADA65444628F13995 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = F49E92B107A58AD6F14438A9 /* Build configuration list for PBXProject "pi-harness" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1345A7E66A8F8A57F1521D7A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A9A8D516A8032B70FED27F2C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				696F4EDF8D8E21818F7C6268 /* pi-harness_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8A8C6FDB52B0E7676D8A8716 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3D5BAF8944D9380340EF7DBC /* Assets.xcassets in Resources */,
+				946183086F9E77AB0808B2C3 /* LaunchScreen.storyboard in Resources */,
+				590EEFF89486CF64581FCA02 /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		EEF37ACE8D8A432049AA0EC7 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DDD5B2D0E68AF9DFBDC8486C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB63064D3C6490E71CF0E06C /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3D9BCE50A534526D34363948 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = iphoneos;
+			};
+			name = release;
+		};
+		43D572136F9BD646A26B6BE8 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = iphoneos;
+			};
+			name = debug;
+		};
+		9C12AD79EE78983ED6AF5FB9 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = "pi-harness_iOS/pi-harness_iOS.entitlements";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "pi-harness_iOS/Info.plist";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.everyapi.piharness;
+				PRODUCT_NAME = "Pi Harness";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		A4AA5AF1088E40C1F793F70F /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = "pi-harness_iOS/pi-harness_iOS.entitlements";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "pi-harness_iOS/Info.plist";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.everyapi.piharness;
+				PRODUCT_NAME = "Pi Harness";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		956152F2AFB165791D310A44 /* Build configuration list for PBXNativeTarget "pi-harness_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9C12AD79EE78983ED6AF5FB9 /* debug */,
+				A4AA5AF1088E40C1F793F70F /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		F49E92B107A58AD6F14438A9 /* Build configuration list for PBXProject "pi-harness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				43D572136F9BD646A26B6BE8 /* debug */,
+				3D9BCE50A534526D34363948 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D265DBDADA65444628F13995 /* Project object */;
+}
