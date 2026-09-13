@@ -118,8 +118,9 @@ export default {
             throw new Error("Resolved context file path is not safe to display");
           let source: Buffer;
           try {
-            source = await readBoundedFile(resolved.target, maxBytes, "Context file");
+            source = await readBoundedFile(resolved.target, maxBytes, "Context file", operationSignal);
           } catch (error) {
+            if (operationSignal.aborted) throwIfCancelled(operationSignal);
             if (error instanceof BoundedFileTypeError) throw new Error("Context path is not a file", { cause: error });
             if (error instanceof BoundedFileSizeError) throw new Error("Context file exceeds the 256 KiB attachment limit", { cause: error });
             throw new Error("Could not read context file", { cause: error });
