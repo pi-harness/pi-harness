@@ -431,7 +431,7 @@ export default {
             assertCurrent();
             const mimeType = mimeByExtension[extname(resolved.target).toLowerCase()];
             if (mimeType === undefined) throw new Error("Unsupported image type; use png, jpeg, gif, or webp");
-            const data = await readBoundedFile(resolved.target, maxImageBytes, "Image");
+            const data = await readBoundedFile(resolved.target, maxImageBytes, "Image", operationSignal);
             if (detectedMimeType(data) !== mimeType) throw new Error(`Image bytes do not match the ${mimeType.slice("image/".length)} file extension`);
             assertCurrent();
             if (mode === "native") {
