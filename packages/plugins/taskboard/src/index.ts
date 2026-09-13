@@ -38,7 +38,7 @@ type Task = {
   dependsOn: string[];
 };
 type TaskReport = { workspace: string; truncated: boolean; status?: TaskStatus; query?: string; total: number; tasks: Task[] };
-type TaskboardPanel = { workspace: string; total: number; counts: Record<TaskStatus, number>; recent: Task[] };
+type TaskboardPanel = { workspace: string; total: number; counts: Record<TaskStatus, number>; recent: Task[]; lastError?: string };
 
 export interface TaskboardPluginConfig {
   fileName?: string;
@@ -153,6 +153,11 @@ function withTransaction<T>(database: DatabaseSync, operation: () => T): T {
   }
 }
 
+function errorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replaceAll("\0", "�").slice(0, 2_000);
+}
+
 async function prepareDatabasePath(filePath: string): Promise<{ dev: number; ino: number }> {
   try {
     const handle = await open(filePath, "wx", 0o600);
@@ -190,7 +195,7 @@ export default {
         if (currentManager() !== manager || manager?.getSessionId() !== id || resolve(manager?.getCwd() ?? context.piHarnessLaunch.cwd) !== workspace)
           throw new Error("Taskboard context changed during execution");
       };
-      return { workspace, check };
+      return { manager, workspace, check };
     };
     const validate = (params: unknown, allowed: string[]) => {
       if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Taskboard parameters must be an object");
@@ -246,10 +251,17 @@ export default {
       }
     };
 
-    const mutate = async <T>(check: () => void, operation: (database: DatabaseSync) => T): Promise<T> => {
+    let lastError: { manager: object | undefined; workspace: string; message: string } | undefined;
+    const mutate = async <T>(scope: ReturnType<typeof capture>, operation: (database: DatabaseSync) => T): Promise<T> => {
       let result: T | undefined;
       const run = async (): Promise<void> => {
-        result = await withDatabase(check, (database) => withTransaction(database, () => operation(database)));
+        try {
+          result = await withDatabase(scope.check, (database) => withTransaction(database, () => operation(database)));
+          if (lastError !== undefined && lastError.manager === scope.manager && lastError.workspace === scope.workspace) lastError = undefined;
+        } catch (error) {
+          lastError = { manager: scope.manager, workspace: scope.workspace, message: errorMessage(error) };
+          throw error;
+        }
       };
       writeQueue = writeQueue.catch(() => undefined).then(run);
       await writeQueue;
@@ -325,7 +337,8 @@ export default {
       ),
       executionMode: "sequential",
       async execute(_toolCallId, params, signal): Promise<AgentToolResult<Task>> {
-        const { workspace, check } = capture(signal);
+        const scope = capture(signal);
+        const { workspace } = scope;
         validate(params, ["title", "description", "priority", "dueDate", "dependsOn"]);
         const title = normalizeText(params.title, "Taskboard title", maxTitleLength);
         const description = normalizeDescription(params.description);
@@ -333,7 +346,7 @@ export default {
         if (!isTaskPriority(priority)) throw new Error("Invalid Taskboard priority");
         const dueDate = normalizeDueDate(params.dueDate);
         const dependsOn = dependencyKeys(params.dependsOn);
-        const task = await mutate(check, (database) => {
+        const task = await mutate(scope, (database) => {
           let lastNumber = 0;
           const pattern = new RegExp(`^${keyPrefix}-(\\d+)$`, "u");
           for (const row of database.prepare("SELECT task_key FROM tasks WHERE task_key LIKE ?").iterate(`${keyPrefix}-%`)) {
@@ -465,7 +478,8 @@ export default {
       ),
       executionMode: "sequential",
       async execute(_toolCallId, params, signal): Promise<AgentToolResult<Task>> {
-        const { workspace, check } = capture(signal);
+        const scope = capture(signal);
+        const { workspace } = scope;
         validate(params, ["key", "title", "description", "status", "priority", "dueDate", "clearDueDate", "dependsOn"]);
         const key = normalizeText(params.key, "Taskboard key", 32).toUpperCase();
         if (params.status !== undefined && !isTaskStatus(params.status)) throw new Error("Invalid Taskboard status");
@@ -487,7 +501,7 @@ export default {
         const description = params.description === undefined ? undefined : normalizeDescription(params.description);
         const dueDate = normalizeDueDate(params.dueDate);
         const dependsOn = dependencyKeys(params.dependsOn);
-        const task = await mutate(check, (database) => {
+        const task = await mutate(scope, (database) => {
           const current = findTask(database, workspace, key);
           if (current === undefined) throw new Error(`Taskboard task not found: ${key}`);
           if (current.status === "done" || current.status === "canceled") throw new Error(`Taskboard task ${key} is ${current.status} and cannot be updated`);
@@ -523,11 +537,12 @@ export default {
       parameters: Type.Object({ key: Type.String(), confirm: Type.Boolean() }, { additionalProperties: false }),
       executionMode: "sequential",
       async execute(_toolCallId, params, signal): Promise<AgentToolResult<Task>> {
-        const { workspace, check } = capture(signal);
+        const scope = capture(signal);
+        const { workspace } = scope;
         validate(params, ["key", "confirm"]);
         const key = normalizeText(params.key, "Taskboard key", 32).toUpperCase();
         if (params.confirm !== true) throw new Error("Accepting a task requires confirm=true");
-        const task = await mutate(check, (database) => {
+        const task = await mutate(scope, (database) => {
           const current = findTask(database, workspace, key);
           if (current === undefined) throw new Error(`Taskboard task not found: ${key}`);
           if (current.status !== "in_review") throw new Error(`Taskboard task ${key} must be in_review before acceptance`);
@@ -561,7 +576,8 @@ export default {
           description: "本工作区的本地任务、状态流转与验收队列。",
           icon: "▦",
           read: async (): Promise<TaskboardPanel> => {
-            const { workspace, check } = capture();
+            const scope = capture();
+            const { workspace, check } = scope;
             const report = await withDatabase(check, (database) => {
               const counts = Object.fromEntries(statuses.map((status) => [status, 0])) as Record<TaskStatus, number>;
               for (const row of database.prepare("SELECT status, COUNT(*) AS count FROM tasks WHERE workspace = ? GROUP BY status").all(workspace)) {
@@ -574,7 +590,9 @@ export default {
                 .map((row) => taskFromRow(database, row));
               return { workspace, total: Object.values(counts).reduce((a, b) => a + b, 0), counts, recent };
             });
-            return report;
+            return lastError !== undefined && lastError.manager === scope.manager && lastError.workspace === workspace
+              ? { ...report, lastError: lastError.message }
+              : report;
           },
         }),
       );

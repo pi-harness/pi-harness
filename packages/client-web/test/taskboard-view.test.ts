@@ -39,6 +39,15 @@ describe("Taskboard panel view", () => {
     ).toMatchObject({ workspace, malformed: false });
   });
 
+  test("retains a bounded write failure alongside the last valid board", () => {
+    expect(taskboardPanelView({ ...report, lastError: "attempt to write a readonly database" })).toMatchObject({
+      malformed: false,
+      total: 1,
+      lastError: "attempt to write a readonly database",
+    });
+    expect(taskboardPanelView({ ...report, lastError: "x".repeat(2_001) }).malformed).toBe(true);
+  });
+
   test("compares canonical timestamps chronologically across expanded years", () => {
     expect(
       taskboardPanelView({
