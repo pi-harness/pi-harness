@@ -1,1 +1,0 @@
-{"name":"@pi-harness/example-plugin-starter","private":true,"type":"module","scripts":{"build":"tsc -p tsconfig.json"},"dependencies":{"@pi-harness/plugin-api":"0.1.102"},"devDependencies":{"typescript":"5.9.3"}}
