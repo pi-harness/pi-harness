@@ -6,7 +6,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/pi-harness/pi-harness?label=GitHub%20stars&logo=github)](https://github.com/pi-harness/pi-harness/stargazers)
 [![License](https://img.shields.io/github/license/pi-harness/pi-harness?label=License)](LICENSE)
 
-Pi Harness is a plugin-first web host and CLI for [Pi](https://github.com/earendil-works/pi), built on [DeepSeek Cordis](https://github.com/DeepAgentsLab/cordis). It provides a local browser console, HTTP API, stdio workflows, and a composable plugin runtime.
+Pi Harness is a plugin-first web host and CLI for [Pi](https://github.com/earendil-works/pi), built on [DeepSeek Cordis](https://github.com/DeepAgentsLab/cordis). It provides a local browser console, HTTP API, stdio workflows, and a composable plugin runtime. The primary command-line interface is `pih`; `pi-harness` is the companion command for starting the web console.
 
 > Languages: [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md) · [Español](docs/README.es.md) · [Français](docs/README.fr.md) · [Deutsch](docs/README.de.md) · [Português (Brasil)](docs/README.pt-BR.md) · [Русский](docs/README.ru.md) · [Italiano](docs/README.it.md) · [العربية](docs/README.ar.md)
 
@@ -19,7 +19,7 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
-The web console listens on `http://127.0.0.1:3141` by default. It boots with `everyapi/deepseek-v4-flash` and model selection is fail-closed, so the provider must be registered in `PI_AGENT_DIR` first: provision it with `everyapi use pi-web`, or set `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` to a model that agent directory already knows. For a terminal workflow:
+`pi-harness` starts the web console, which listens on `http://127.0.0.1:3141` by default. It boots with `everyapi/deepseek-v4-flash` and model selection is fail-closed, so the provider must be registered in `PI_AGENT_DIR` first: provision it with `everyapi use pi-web`, or set `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` to a model that agent directory already knows. For the terminal workflow, use the shorter `pih` command:
 
 ```sh
 pih "Summarize the current directory"
@@ -32,6 +32,8 @@ npm ci
 npm run build
 npm run web
 ```
+
+For local development with EveryAPI relay authentication, use `npm run pih-local`. It builds the current workspace and launches the local web entry point through a temporary `pi-web` shim, so an older globally installed Pi Harness is not used.
 
 ## Web console
 
@@ -46,6 +48,8 @@ npm run web
 - Safe defaults: loopback-only web hosting, explicit project trust for executable resources, bounded operations, cancellation, and lifecycle rollback. The unauthenticated API also rejects requests whose `Host` header does not name the bound address and port and cross-site requests whose `Origin` does not match it, which blocks CSRF and DNS rebinding; a reverse proxy must forward the original `Host` header over plain HTTP.
 
 ## CLI and profiles
+
+`pih` is the canonical CLI entry point. Use `pi-harness` when you want the browser console.
 
 ```sh
 pih --profile default "Summarize the current directory"
@@ -97,6 +101,8 @@ npm run lint
 npm run build
 npm run test:package
 ```
+
+Run `npx vitest run scripts/pih-local.test.ts` to verify the local launcher specifically. Keep `pih` as the stable terminal interface and use `pi-harness` when testing the browser console.
 
 CI runs these on Node 22, and `.tool-versions` pins the same major for anyone using asdf or mise. The package only requires Node 22.19+, so a newer runtime works — but built-in modules do change behaviour between majors, and a test that passes locally on Node 24 can still fail in CI.
 
