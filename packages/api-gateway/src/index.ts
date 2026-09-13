@@ -764,8 +764,17 @@ async function gitStatus(cwd: string): Promise<GitStatusResult> {
 }
 
 async function gitDiff(cwd: string, path: string): Promise<string> {
-  const trackedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "--", path]);
+  // Compare against HEAD so both staged and unstaged edits are visible in the
+  // review pane. A plain `git diff` silently hides anything already staged.
+  const trackedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "HEAD", "--", path]);
   if (trackedDiff.stdout.length > 0) return trackedDiff.stdout;
+  // A freshly initialized repository may not have a HEAD yet. In that case,
+  // staged additions are still reviewable through the index even though the
+  // HEAD comparison exits with code 128.
+  if (trackedDiff.code !== 0) {
+    const stagedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "--cached", "--", path]);
+    if (stagedDiff.stdout.length > 0) return stagedDiff.stdout;
+  }
 
   // `git diff` intentionally omits untracked files, but the file status view
   // exposes them with a diff action. Generate the same patch a staged add
