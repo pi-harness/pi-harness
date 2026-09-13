@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test } from "vitest";
-import { themePresets } from "../../plugins/theme-studio/src/index.js";
+import { describe, expect, test, vi } from "vitest";
+import { themePresets } from "@pi-harness/plugin-theme-studio";
 import { createClientApi, type ClientMarketplacePlugin, type ClientPiConfig } from "../src/control-room.js";
 import { setLocale } from "../src/i18n.js";
 import type { ConfigStatus } from "../src/react-room.js";
@@ -34,6 +34,7 @@ import {
   withoutInstalledPackages,
   writeRestartPendingPackages,
   nextSessionSearchPage,
+  marketplaceDetailBackHistoryMode,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
@@ -73,6 +74,32 @@ describe("provider auth readiness", () => {
 });
 
 describe("session search requests", () => {
+  test("coalesces rapid global search queries before invoking the session search", async () => {
+    const module = (await import("../src/react-room.js")) as unknown as {
+      createGlobalSearchDebouncer?: (delayMs?: number) => {
+        schedule: (query: string, callback: (query: string) => void) => void;
+        cancel: () => void;
+      };
+    };
+    expect(module.createGlobalSearchDebouncer).toBeTypeOf("function");
+    if (!module.createGlobalSearchDebouncer) return;
+
+    vi.useFakeTimers();
+    try {
+      const calls: string[] = [];
+      const debouncer = module.createGlobalSearchDebouncer(100);
+      debouncer.schedule("w", (query) => calls.push(query));
+      debouncer.schedule("wo", (query) => calls.push(query));
+      debouncer.schedule("workspace", (query) => calls.push(query));
+      await vi.advanceTimersByTimeAsync(99);
+      expect(calls).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls).toEqual(["workspace"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("distinguishes an empty search result from an empty session history", () => {
     expect(sessionListEmptyMessage("missing")).toBe("没有匹配的会话");
     expect(sessionListEmptyMessage("")).toBe("暂无已保存会话");
@@ -104,8 +131,15 @@ describe("session search requests", () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
     expect(source).toContain("setSessionQuery(search)");
     expect(source).toContain("api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery)");
-    expect(source).toContain("marketplaceQuery, sessionPage, sessionQuery]");
+    expect(source).toContain("marketplaceSearchQuery, sessionPage, sessionQuery]");
     expect(source).not.toContain("marketplaceQuery, search, sessionPage]");
+  });
+
+  test("debounces marketplace queries before they participate in the broad refresh", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    expect(source).toContain("setMarketplaceSearchQuery");
+    expect(source).toContain("api.listMarketplace(marketplaceSearchQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale)");
+    expect(source).not.toContain("api.listMarketplace(marketplaceQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale)");
   });
 
   test("loads every matching session page for global search", async () => {
@@ -612,6 +646,10 @@ const marketplaceMarkup = (options: { installed?: readonly string[]; restartPend
   );
 
 describe("marketplace install feedback", () => {
+  test("replaces the detail history entry when the in-app back link returns to the list", () => {
+    expect(marketplaceDetailBackHistoryMode()).toBe("replace");
+  });
+
   test("marks a plugin that is waiting for a restart as installed rather than offering the install again", () => {
     const pending = marketplaceMarkup({ restartPending: ["example-cordis-timer"] });
 

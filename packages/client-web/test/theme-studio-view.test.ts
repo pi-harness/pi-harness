@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { themeStudioView } from "../src/theme-studio-view.js";
-import { themePresets } from "../../plugins/theme-studio/src/index.js";
+import { themePresets } from "@pi-harness/plugin-theme-studio";
 function report(theme: keyof typeof themePresets = "midnight") {
   return { ...themePresets[theme], tokens: { ...themePresets[theme].tokens }, theme, sessionId: "session-1", changed: false, changedAt: null };
 }
