@@ -222,11 +222,35 @@ test.each(["ABORT", "ROLLBACK"])("preserves the original SQLite %s failure, roll
       "Owned SQLite write failure",
     );
     expect((await list.execute("after", {}, undefined, undefined, {} as never)).details).toEqual(before);
-    expect((await panels.snapshot())[0]!.data).toEqual(panelBefore);
+    const failedPanel = (await panels.snapshot())[0]!;
+    expect(failedPanel.data).toMatchObject(panelBefore);
+    expect((failedPanel.data as { lastError?: string }).lastError).toMatch(/Owned SQLite write failure/);
     database.exec("DROP TRIGGER owned_write_failure");
     await expect(update.execute("recover", { key: "TST-2", title: "Recovered", dependsOn: [] }, undefined, undefined, {} as never)).resolves.toMatchObject({
       details: { title: "Recovered", dependsOn: [], version: 2 },
     });
+  } finally {
+    database.close();
+  }
+});
+
+test("exposes the latest write failure on the panel without replacing the last valid board", async () => {
+  const { root, create, update, panels } = await fixture();
+  await create.execute("create", { title: "Write failure" }, undefined, undefined, {} as never);
+  const database = new DatabaseSync(join(root, "tasks.sqlite"));
+  try {
+    database.exec("CREATE TRIGGER owned_panel_failure BEFORE UPDATE ON tasks BEGIN SELECT RAISE(ABORT, 'Owned panel write failure'); END");
+    await expect(update.execute("fail", { key: "TST-1", title: "Must not persist" }, undefined, undefined, {} as never)).rejects.toThrow(
+      "Owned panel write failure",
+    );
+    const failed = (await panels.snapshot())[0]!;
+    expect(failed.data).toMatchObject({ total: 1, recent: [expect.objectContaining({ title: "Write failure" })] });
+    expect((failed.data as { lastError?: string }).lastError).toMatch(/Owned panel write failure/);
+    database.exec("DROP TRIGGER owned_panel_failure");
+    await expect(update.execute("recover", { key: "TST-1", title: "Recovered" }, undefined, undefined, {} as never)).resolves.toMatchObject({
+      details: { title: "Recovered" },
+    });
+    expect((await panels.snapshot())[0]?.data).not.toHaveProperty("lastError");
   } finally {
     database.close();
   }

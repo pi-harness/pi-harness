@@ -77,6 +77,42 @@ test("keeps all eight backend-bounded recent tasks accessible", () => {
   expect(html).toContain("最近任务 8 / 8");
 });
 
+test("shows a write failure while retaining the last valid board", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "taskboard-panel",
+        pluginId: "@pi-harness/plugin-taskboard",
+        title: "Taskboard",
+        data: {
+          workspace: "/workspace",
+          total: 1,
+          counts: { backlog: 1, todo: 0, in_progress: 0, in_review: 0, blocked: 0, canceled: 0, done: 0 },
+          recent: [
+            {
+              id: "task-1",
+              key: "OPS-1",
+              workspace: "/workspace",
+              title: "Write failure",
+              description: "",
+              status: "backlog",
+              priority: "medium",
+              createdAt: "2026-09-12T03:00:00.000Z",
+              updatedAt: "2026-09-12T03:00:00.000Z",
+              version: 1,
+              dependsOn: [],
+            },
+          ],
+          lastError: "attempt to write a readonly database",
+        },
+      },
+    }),
+  );
+
+  expect(html).toContain("操作失败：attempt to write a readonly database");
+  expect(html).toContain("Write failure");
+});
+
 test("rejects contradictory taskboard data instead of rendering invented healthy counts", () => {
   const html = renderToStaticMarkup(
     createElement(PluginPanelCard, {

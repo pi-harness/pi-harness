@@ -3574,6 +3574,14 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           ] as const;
           return (
             <div className="mt-3 grid gap-3">
+              {view.lastError ? (
+                <p
+                  role="alert"
+                  className="break-words rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-3 text-[11px] text-[var(--color-red)]"
+                >
+                  {t("操作失败：{v0}", { v0: view.lastError })}
+                </p>
+              ) : null}
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
                 <span className="text-[var(--color-muted)]">
                   {t("当前工作区任务：")}

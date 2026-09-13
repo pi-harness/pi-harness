@@ -21,12 +21,14 @@ export interface TaskboardPanelView {
   readonly total: number;
   readonly counts: Readonly<Record<TaskboardStatus, number>>;
   readonly recent: readonly TaskboardTaskView[];
+  readonly lastError?: string;
   readonly malformed: boolean;
 }
 
 const statuses = ["backlog", "todo", "in_progress", "in_review", "blocked", "canceled", "done"] as const;
 const priorities = new Set<TaskboardPriority>(["low", "medium", "high", "urgent"]);
-const rootKeys = new Set(["workspace", "total", "counts", "recent"]);
+const rootKeys = new Set(["workspace", "total", "counts", "recent", "lastError"]);
+const requiredRootKeys = new Set(["workspace", "total", "counts", "recent"]);
 const countKeys = new Set(statuses);
 const taskKeys = new Set(["id", "key", "workspace", "title", "description", "status", "priority", "dueDate", "createdAt", "updatedAt", "version", "dependsOn"]);
 const requiredTaskKeys = new Set([...taskKeys].filter((key) => key !== "dueDate"));
@@ -54,6 +56,11 @@ function ownDataRecord(value: unknown, allowed: ReadonlySet<string>): Record<str
 function hasExactly(source: Record<string, unknown>, keys: ReadonlySet<string>): boolean {
   const own = Object.keys(source);
   return own.length === keys.size && own.every((key) => keys.has(key));
+}
+
+function hasRequired(source: Record<string, unknown>, required: ReadonlySet<string>, allowed: ReadonlySet<string>): boolean {
+  const own = Object.keys(source);
+  return own.length >= required.size && own.every((key) => allowed.has(key)) && [...required].every((key) => own.includes(key));
 }
 
 function safeInteger(value: unknown, minimum = 0): number | undefined {
@@ -175,12 +182,20 @@ function malformedView(): TaskboardPanelView {
 
 export function taskboardPanelView(data: unknown): TaskboardPanelView {
   const source = ownDataRecord(data, rootKeys);
-  if (source === undefined || !hasExactly(source, rootKeys)) return malformedView();
+  if (source === undefined || !hasRequired(source, requiredRootKeys, rootKeys)) return malformedView();
   const workspace = safeText(source.workspace, 4_096, false, true);
   const total = safeInteger(source.total);
   const rawCounts = ownDataRecord(source.counts, countKeys);
   const rawRecent = ownDataArray(source.recent, maxRecent);
-  if (workspace === undefined || total === undefined || rawCounts === undefined || !hasExactly(rawCounts, countKeys) || rawRecent === undefined)
+  const lastError = source.lastError === undefined ? undefined : source.lastError === null ? undefined : safeText(source.lastError, 2_000);
+  if (
+    workspace === undefined ||
+    total === undefined ||
+    rawCounts === undefined ||
+    !hasExactly(rawCounts, countKeys) ||
+    rawRecent === undefined ||
+    (source.lastError !== undefined && source.lastError !== null && lastError === undefined)
+  )
     return malformedView();
   const counts = {} as Record<TaskboardStatus, number>;
   for (const status of statuses) {
@@ -205,5 +220,5 @@ export function taskboardPanelView(data: unknown): TaskboardPanelView {
     const currentTime = Date.parse(current.updatedAt);
     if (previousTime < currentTime || (previousTime === currentTime && previous.key < current.key)) return malformedView();
   }
-  return { workspace, total, counts, recent: tasks, malformed: false };
+  return { workspace, total, counts, recent: tasks, ...(lastError === undefined ? {} : { lastError }), malformed: false };
 }
