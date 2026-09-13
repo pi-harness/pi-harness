@@ -2539,6 +2539,12 @@ describe("API gateway plugin", () => {
       ],
       truncated: false,
     });
+
+    const untrackedDiff = await fetch(context.webServer.url + "/api/files/diff?path=draft.md");
+    expect(untrackedDiff.status).toBe(200);
+    const untrackedPayload = (await untrackedDiff.json()) as { path?: unknown; diff?: unknown };
+    expect(untrackedPayload.path).toBe("draft.md");
+    expect(untrackedPayload.diff).toContain("+untracked");
   });
 
   test("lists bounded files in a non-Git workspace without following symlinks or generated directories", async () => {
