@@ -41,3 +41,28 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/**/*.dmg
             apps/desktop/src-tauri/target/release/bundle/**/*.msi
             apps/desktop/src-tauri/target/release/bundle/**/*.exe
+
+  android:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm run mobile:android -w @pi-harness/desktop
+      - uses: actions/upload-artifact@v4
+        with: { name: piharness-android, path: apps/desktop/src-tauri/gen/android/app/build/outputs/ }
+
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run mobile:ios -w @pi-harness/desktop
+      - uses: actions/upload-artifact@v4
+        with: { name: piharness-ios, path: apps/desktop/src-tauri/gen/apple/build/ }

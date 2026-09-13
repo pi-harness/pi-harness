@@ -9,5 +9,7 @@
     "bundle": "npm run build",
     "bundle:macos": "npm run build -w @pi-harness/web && npx tauri build --bundles app,dmg",
     "bundle:check": "npx tauri info"
+    ,"mobile:android": "npm run build -w @pi-harness/web && npx tauri android build"
+    ,"mobile:ios": "npm run build -w @pi-harness/web && npx tauri ios build"
   }
 }
