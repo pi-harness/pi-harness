@@ -5,5 +5,5 @@
   "identifier": "ai.everyapi.piharness",
   "build": { "frontendDist": "../../web/dist" },
   "app": { "windows": [{ "title": "Pi Harness", "width": 1280, "height": 800, "resizable": true }] },
-  "bundle": { "active": false }
+  "bundle": { "active": true, "targets": "all", "icon": ["icons/icon.png"], "resources": ["../../web/server-dist", "../../web/dist", "../../web/profile"] }
 }
