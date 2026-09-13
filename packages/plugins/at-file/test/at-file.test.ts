@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -596,6 +597,59 @@ describe("at-file", () => {
       await expect(tool.execute("caller", { path: "notes.md" }, caller.signal, undefined, {} as never)).rejects.toThrow(/cancelled by caller/iu);
       await context.fiber.dispose();
       await expect(tool.execute("disposed", { path: "notes.md" }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
+    } finally {
+      await context.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("stops a bounded attachment read at the next chunk after cancellation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-at-file-"));
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const file = join(root, "large.txt");
+    try {
+      await writeFile(file, `needle\n${"x".repeat(200_000)}`, "utf8");
+      provideLaunchContext(context, { cwd: root, agentDir: root, args: [], requestExit() {} });
+      context.provide("piTools", tools);
+      context.provide("piPluginUi", new PiPluginUiRegistry());
+      await context.plugin(atFilePlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "file_context");
+      if (tool === undefined) throw new Error("file_context was not registered");
+
+      const probe = await open(file, "r");
+      const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+      await probe.close();
+      const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+      let markReadStarted!: () => void;
+      const readStarted = new Promise<void>((resolve) => {
+        markReadStarted = resolve;
+      });
+      let releaseRead!: () => void;
+      const readReleased = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      let readCalls = 0;
+      fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+        readCalls += 1;
+        if (readCalls === 1) {
+          markReadStarted();
+          await readReleased;
+        }
+        return originalRead.call(this, ...args);
+      };
+      try {
+        const controller = new AbortController();
+        const pending = tool.execute("in-flight", { path: "large.txt" }, controller.signal, undefined, {} as never);
+        await readStarted;
+        controller.abort();
+        releaseRead();
+        await expect(pending).rejects.toThrow(/File context operation was cancelled|This operation was aborted/iu);
+        expect(readCalls).toBe(1);
+      } finally {
+        releaseRead();
+        fileHandlePrototype.read = originalRead;
+      }
     } finally {
       await context.fiber.dispose();
       await rm(root, { recursive: true, force: true });
