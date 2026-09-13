@@ -1365,7 +1365,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         </span>
         <div className="min-w-0 flex-1">
           <strong className="block text-[13px] font-semibold text-[var(--color-ink)]">{panel.title}</strong>
-          <p className="mt-1 text-[11px] leading-4 text-[var(--color-faint)]">{panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime")}</p>
+          <p className="mt-1 text-[11px] leading-4 text-[var(--color-faint)]">{t(panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime"))}</p>
         </div>
       </header>
       {panel.error ? (
@@ -1930,6 +1930,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
         (() => {
           const view = tokenGuardPanelView(data);
           const contextExceeded = view.percent !== null && view.percent >= view.maxPercent;
+          const displayPercent = view.percent === null ? null : Number(view.percent.toFixed(1));
           return (
             <div className="mt-3 grid gap-3">
               <div className="grid gap-2 sm:grid-cols-2">
@@ -1939,13 +1940,13 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-[11px] font-semibold text-[var(--color-ink)]">{t("上下文预算")}</span>
                     <strong className="font-mono text-[12px] text-[var(--color-blue)]">
-                      {view.percent === null ? "—" : view.percent}% / {view.maxPercent}%
+                      {displayPercent === null ? "—" : `${displayPercent.toFixed(1)}%`} / {view.maxPercent}%
                     </strong>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                     <div
                       className={`h-full rounded-full ${contextExceeded ? "bg-[#d64545]" : "bg-[#5d8bea]"}`}
-                      style={{ width: `${Math.min(100, view.percent ?? 0)}%` }}
+                      style={{ width: `${Math.min(100, displayPercent ?? 0)}%` }}
                     />
                   </div>
                   <p className="mt-2 text-[11px] text-[var(--color-muted)]">
@@ -2410,7 +2411,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
-                  [t("占用"), view.usagePercent === null ? "—" : `${view.usagePercent}%`],
+                  [t("占用"), view.usagePercent === null ? "—" : `${view.usagePercent.toFixed(1)}%`],
                   [t("超限/不可测"), view.oversizedMessages],
                   [t("无法安全检查"), view.uninspectableMessages],
                   [t("工具错误"), view.toolErrors],
@@ -2469,7 +2470,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                 <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
                   <span className="block text-[10px] text-[var(--color-faint)]">{t("当前占用")}</span>
                   <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">
-                    {view.lastUsagePercent === null ? "—" : `${view.lastUsagePercent}%`}
+                    {view.lastUsagePercent === null ? "—" : `${view.lastUsagePercent.toFixed(1)}%`}
                   </strong>
                 </div>
               </div>
@@ -6045,7 +6046,9 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)]">{t("上下文占用")}</span>
-                  <strong className="text-[13px] font-semibold text-[var(--color-blue)]">{view.percent === null ? "—" : `${view.percent}%`}</strong>
+                  <strong className="text-[13px] font-semibold text-[var(--color-blue)]">
+                    {view.percent === null ? "—" : `${view.percent.toFixed(1)}%`}
+                  </strong>
                 </div>
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                   <div className="h-full rounded-full bg-[#5d8bea] transition-[width] duration-300" style={{ width: `${Math.min(100, view.percent ?? 0)}%` }} />

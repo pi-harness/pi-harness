@@ -1240,5 +1240,11 @@
   "更早的历史事件已省略": "Earlier historical events omitted",
   "全局搜索结果": "Global search results",
   "会话操作失败": "Session action failed",
-  "运行时没有接受这次会话操作，请重试。": "The runtime did not accept this session action; try again."
+  "运行时没有接受这次会话操作，请重试。": "The runtime did not accept this session action; try again.",
+  "在上下文接近阈值时自动压缩历史消息。": "Automatically compact history messages as context approaches the threshold.",
+  "在工作区内安全检索文本，跳过依赖、构建产物和版本库目录。": "Safely search text in the workspace while skipping dependencies, build artifacts and version-control directories.",
+  "查看当前会话的消息、工具、token、成本和上下文统计，并可触发确认后的会话压缩。": "View current-session message, tool, token, cost and context statistics, and trigger confirmed session compaction.",
+  "安全审计上下文压力、超大或不可测量消息和工具错误，并展示确认压缩的生命周期。": "Safely audit context pressure, oversized or unmeasurable messages and tool errors, with the confirmed compaction lifecycle.",
+  "查看当前上下文占用、消息规模和压缩事件。": "View current context usage, message volume and compaction events.",
+  "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。": "Automatically stop the current run when the context reaches its budget threshold to avoid further context consumption."
 }

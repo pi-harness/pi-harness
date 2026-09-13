@@ -1261,7 +1261,7 @@ test("does not render History Compressor state from another active session", () 
       enabled: true,
       thresholdPercent: 85,
       compactions: 17,
-      lastUsagePercent: 92,
+      lastUsagePercent: 92.3456,
       queued: false,
       lastError: "previous session error",
     },
@@ -1274,7 +1274,8 @@ test("does not render History Compressor state from another active session", () 
   expect(staleHtml).not.toContain("previous session error");
   expect(staleHtml).not.toContain("92%");
   expect(activeHtml).toContain("previous session error");
-  expect(activeHtml).toContain("92%");
+  expect(activeHtml).toContain("92.3%");
+  expect(activeHtml).not.toContain("92.3456%");
 });
 
 test("does not render Context Doctor findings from another active session", () => {
@@ -1285,7 +1286,7 @@ test("does not render Context Doctor findings from another active session", () =
     data: {
       sessionId: "previous-session",
       status: "warning",
-      usagePercent: 92,
+      usagePercent: 92.3456,
       messageCount: 20,
       scannedMessages: 20,
       oversizedMessages: 2,
@@ -1301,6 +1302,58 @@ test("does not render Context Doctor findings from another active session", () =
   expect(html).toContain("面板数据不完整或不一致。");
   expect(html).not.toContain("old recommendation");
   expect(html).not.toContain("92%");
+
+  const activeHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "previous-session", panel }));
+
+  expect(activeHtml).toContain("92.3%");
+  expect(activeHtml).not.toContain("92.3456%");
+});
+
+test("rounds Token Guard context budget percentages for display", () => {
+  const html = renderToStaticMarkup(
+    createElement(PluginPanelCard, {
+      panel: {
+        id: "token-guard-panel",
+        pluginId: "@pi-harness/plugin-token-guard",
+        title: "Token Guard",
+        data: {
+          maxPercent: 90,
+          percent: 0.8467674255371094,
+          tokens: 8_887,
+          contextWindow: 1_048_576,
+          maxRunTokens: 0,
+          runTokens: null,
+          aborts: 0,
+          lastError: null,
+        },
+      },
+    }),
+  );
+
+  expect(html).toContain("0.8% / 90%");
+  expect(html).not.toContain("0.8467674255371094%");
+});
+
+test("localizes live plugin panel descriptions", async () => {
+  await setLocale("en");
+  try {
+    const html = renderToStaticMarkup(
+      createElement(PluginPanelCard, {
+        panel: {
+          id: "token-guard-panel",
+          pluginId: "@pi-harness/plugin-token-guard",
+          title: "Token Guard",
+          description: "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。",
+          data: { maxPercent: 90, percent: 0, tokens: 0, contextWindow: 1_000, aborts: 0 },
+        },
+      }),
+    );
+
+    expect(html).toContain("Automatically stop the current run when the context reaches its budget threshold to avoid further context consumption.");
+    expect(html).not.toContain("在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。");
+  } finally {
+    await setLocale("zh-CN");
+  }
 });
 
 test("does not render Context Insights metrics from another active session", () => {
@@ -1312,7 +1365,7 @@ test("does not render Context Insights metrics from another active session", () 
       sessionId: "previous-session",
       tokens: 800,
       contextWindow: 8_000,
-      percent: 10,
+      percent: 10.3456,
       messages: 1,
       scannedMessages: 1,
       messagesTruncated: false,
@@ -1329,6 +1382,11 @@ test("does not render Context Insights metrics from another active session", () 
   expect(html).not.toContain("previous-session");
   expect(html).not.toContain("800 tokens");
   expect(html).not.toContain("10%");
+
+  const activeHtml = renderToStaticMarkup(createElement(PluginPanelCard, { activeSessionId: "previous-session", panel }));
+
+  expect(activeHtml).toContain("10.3%");
+  expect(activeHtml).not.toMatch(/>10\.3456%</u);
 });
 
 test("does not render retained Context Insights metrics when there is no active session", () => {
