@@ -75,9 +75,9 @@ function topLevelComponents(nodes: readonly WorkspaceNode[]): { components: Arch
   return { components, truncated: directories.length > maxComponents };
 }
 
-async function packageDependencies(root: string): Promise<{ dependencies: string[]; truncated: boolean }> {
+async function packageDependencies(root: string, signal?: AbortSignal): Promise<{ dependencies: string[]; truncated: boolean }> {
   try {
-    const source = await readBoundedTextFile(resolve(root, "package.json"), maxManifestBytes, "Architecture package manifest");
+    const source = await readBoundedTextFile(resolve(root, "package.json"), maxManifestBytes, "Architecture package manifest", signal);
     const parsed: unknown = JSON.parse(source);
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return { dependencies: [], truncated: true };
     const record = parsed as Record<string, unknown>;
@@ -92,6 +92,7 @@ async function packageDependencies(root: string): Promise<{ dependencies: string
       truncated: invalidSection || valid.length !== all.length || valid.length > maxDependencies,
     };
   } catch (error) {
+    signal?.throwIfAborted();
     const missing = error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT";
     return { dependencies: [], truncated: !missing };
   }
@@ -118,7 +119,7 @@ export async function buildArchitectureReport(root: string, maxNodes = defaultMa
   const tree = await listWorkspaceNodes(workspace, { maxDepth: 4, maxNodes: normalizeMaxNodes(maxNodes) }, signal);
   const componentScan = topLevelComponents(tree.nodes);
   signal?.throwIfAborted();
-  const dependencyScan = await packageDependencies(workspace);
+  const dependencyScan = await packageDependencies(workspace, signal);
   signal?.throwIfAborted();
   return {
     workspace,
