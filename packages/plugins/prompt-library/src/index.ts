@@ -104,14 +104,33 @@ type Parameters = { action: "save" | "list" | "get" | "delete"; id?: string; tit
 function parameters(value: unknown): Parameters {
   const item = ownRecord(value);
   if (item.action !== "save" && item.action !== "list" && item.action !== "get" && item.action !== "delete") throw new Error("Unknown prompt library action");
-  const allowed = item.action === "save" ? ["action", "id", "title", "prompt", "tags"] : item.action === "list" ? ["action", "query"] : ["action", "id"];
-  if (Object.keys(item).some((key) => !allowed.includes(key))) throw new Error("Unknown property for prompt library action");
+  const allowed =
+    item.action === "save"
+      ? ["action", "id", "title", "prompt", "tags", "query"]
+      : item.action === "list"
+        ? ["action", "query", "id", "title", "prompt", "tags"]
+        : ["action", "id", "title", "prompt", "tags", "query"];
+  for (const key of Object.keys(item)) {
+    if (allowed.includes(key)) continue;
+    throw new Error("Unknown property for prompt library action");
+  }
   for (const key of ["id", "title", "prompt", "query"] as const) {
     if (item[key] !== undefined && typeof item[key] !== "string") throw new Error(`${key} must be a string`);
+    if (typeof item[key] === "string" && item[key].trim() === "") item[key] = undefined;
   }
   if (item.id !== undefined) item.id = bounded(item.id, "id", 128);
   if (typeof item.query === "string" && item.query.length > 120) throw new Error("query must be 120 characters or fewer");
-  if (item.tags !== undefined) item.tags = normalizeTags(item.tags as string[]);
+  if (item.tags !== undefined) {
+    if (!Array.isArray(item.tags)) throw new Error("tags must be an array");
+    if (item.tags.length === 0) item.tags = undefined;
+    else item.tags = normalizeTags(item.tags as string[]);
+  }
+  const actionFields = item.action === "save" ? ["id", "title", "prompt", "tags"] : item.action === "list" ? ["query"] : ["id"];
+  for (const key of Object.keys(item)) {
+    if (key === "action" || actionFields.includes(key)) continue;
+    const candidate = item[key];
+    if (candidate !== undefined) throw new Error("Unknown property for prompt library action");
+  }
   return item as Parameters;
 }
 
