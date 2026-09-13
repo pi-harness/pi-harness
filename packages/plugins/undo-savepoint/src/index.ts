@@ -206,6 +206,7 @@ async function collectFiles(
   maxFileBytes: number,
   store: string,
   check: () => void,
+  signal?: AbortSignal,
 ): Promise<{ files: SavepointFile[]; truncated: boolean }> {
   const files: SavepointFile[] = [];
   const seen = new Set<string>();
@@ -248,7 +249,7 @@ async function collectFiles(
       truncated = true;
       return;
     }
-    const content = await readBoundedFile(path, Math.min(maxFileBytes, maxTotalSnapshotBytes - totalBytes), "Savepoint file").catch(() => undefined);
+    const content = await readBoundedFile(path, Math.min(maxFileBytes, maxTotalSnapshotBytes - totalBytes), "Savepoint file", signal).catch(() => undefined);
     if (content === undefined || content.byteLength > maxTotalSnapshotBytes - totalBytes) {
       truncated = true;
       return;
@@ -317,8 +318,8 @@ function isSavepointFile(value: unknown, seenPaths: Set<string>, totalBytes: { v
   return true;
 }
 
-async function readManifest(path: string, maxFiles: number): Promise<SavepointManifest> {
-  const source = await readBoundedTextFile(path, maxManifestBytes, "Savepoint manifest");
+async function readManifest(path: string, maxFiles: number, signal?: AbortSignal): Promise<SavepointManifest> {
+  const source = await readBoundedTextFile(path, maxManifestBytes, "Savepoint manifest", signal);
   let parsed: unknown;
   try {
     parsed = JSON.parse(source) as unknown;
@@ -364,7 +365,7 @@ async function readManifest(path: string, maxFiles: number): Promise<SavepointMa
   };
 }
 
-async function listManifests(directory: string, maxFiles: number, cwd: string, check: () => void): Promise<SavepointSummary[]> {
+async function listManifests(directory: string, maxFiles: number, cwd: string, check: () => void, signal?: AbortSignal): Promise<SavepointSummary[]> {
   const names: string[] = [];
   try {
     const handle = await opendir(directory);
@@ -383,7 +384,7 @@ async function listManifests(directory: string, maxFiles: number, cwd: string, c
   names.sort().reverse();
   const summaries: SavepointSummary[] = [];
   for (const name of names.slice(0, maxManifestCount)) {
-    const manifest = await readManifest(join(directory, name), maxFiles).catch(() => undefined);
+    const manifest = await readManifest(join(directory, name), maxFiles, signal).catch(() => undefined);
     check();
     if (manifest?.cwd === cwd)
       summaries.push({
@@ -397,7 +398,7 @@ async function listManifests(directory: string, maxFiles: number, cwd: string, c
   return summaries;
 }
 
-async function diffManifest(root: string, manifest: SavepointManifest, check: () => void): Promise<SavepointDiff> {
+async function diffManifest(root: string, manifest: SavepointManifest, check: () => void, signal?: AbortSignal): Promise<SavepointDiff> {
   const changed: string[] = [];
   const missing: string[] = [];
   let unchanged = 0;
@@ -408,7 +409,7 @@ async function diffManifest(root: string, manifest: SavepointManifest, check: ()
       missing.push(file.path);
       continue;
     }
-    const content = await readBoundedFile(path.target, maxSnapshotBytes, "Current workspace file").catch(() => undefined);
+    const content = await readBoundedFile(path.target, maxSnapshotBytes, "Current workspace file", signal).catch(() => undefined);
     if (content === undefined) {
       missing.push(file.path);
     } else if (hash(content) === file.sha256) {
@@ -507,8 +508,8 @@ export default {
       if (!/^\d{17}-[0-9a-f]{8}$/u.test(id)) throw new Error("Invalid savepoint id");
       return join(store, `${id}.json`);
     };
-    const load = async (id: string, cwd: string): Promise<SavepointManifest> => {
-      const manifest = await readManifest(manifestPath(id), maxFiles);
+    const load = async (id: string, cwd: string, signal?: AbortSignal): Promise<SavepointManifest> => {
+      const manifest = await readManifest(manifestPath(id), maxFiles, signal);
       if (manifest.cwd !== cwd) throw new Error("Savepoint belongs to another workspace");
       return manifest;
     };
@@ -518,7 +519,7 @@ export default {
       const createdAt = new Date().toISOString();
       const id = `${createdAt.replace(/[-:.TZ]/gu, "").slice(0, 17)}-${randomUUID().slice(0, 8)}`;
       const trackedPaths = await normalizedTrackedPaths(cwd, config.trackedPaths ?? defaultTrackedPaths);
-      const snapshot = await collectFiles(cwd, trackedPaths, maxFiles, maxFileBytes, store, check);
+      const snapshot = await collectFiles(cwd, trackedPaths, maxFiles, maxFileBytes, store, check, signal);
       const manifest: SavepointManifest = {
         version: 1,
         cwd,
@@ -651,9 +652,9 @@ export default {
       }
       return { restored, skipped, ...(cleanupPending.length === 0 ? {} : { cleanupPending }) };
     };
-    const report = async () => {
-      const { cwd, check } = await capture();
-      const savepoints = await listManifests(store, maxFiles, cwd, check);
+    const report = async (signal?: AbortSignal) => {
+      const { cwd, check, signal: operationSignal } = await capture(signal);
+      const savepoints = await listManifests(store, maxFiles, cwd, check, operationSignal);
       check();
       return {
         cwd,
@@ -698,14 +699,14 @@ export default {
               const manifest = await save(cwd, params.reason ?? "manual savepoint", check, operationSignal);
               details = { action: "save", cwd, id: manifest.id, fileCount: manifest.files.length, truncated: manifest.truncated };
             } else if (params.action === "list") {
-              details = { action: "list", ...(await report()) };
+              details = { action: "list", ...(await report(operationSignal)) };
             } else {
               if (params.action === "restore" && params.confirm !== true) throw new Error("Restoring a savepoint requires confirm=true");
-              const manifest = await load(params.id!, cwd);
+              const manifest = await load(params.id!, cwd, operationSignal);
               check();
               details =
                 params.action === "diff"
-                  ? { action: "diff", cwd, ...(await diffManifest(cwd, manifest, check)) }
+                  ? { action: "diff", cwd, ...(await diffManifest(cwd, manifest, check, operationSignal)) }
                   : { action: "restore", cwd, id: manifest.id, ...(await restore(cwd, manifest, check, operationSignal)) };
             }
             if (params.action !== "restore") check();
