@@ -2410,7 +2410,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
-                  [t("占用"), view.usagePercent === null ? "—" : `${view.usagePercent}%`],
+                  [t("占用"), view.usagePercent === null ? "—" : `${view.usagePercent.toFixed(1)}%`],
                   [t("超限/不可测"), view.oversizedMessages],
                   [t("无法安全检查"), view.uninspectableMessages],
                   [t("工具错误"), view.toolErrors],
