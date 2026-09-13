@@ -111,6 +111,7 @@ export function sessionBridgePanelView(data: unknown) {
     source: rawLatestPreview === undefined ? null : latestSource,
     preview: preview(selectedPreview, limits.previewTextCharacters, limits.previewListItems),
     previewAt: rawLatestPreview === undefined ? null : timestamp(rawLatestPreview.at),
+    previewTruncated: rawLatestPreview?.truncated === true,
     status: operationStatus(source.status, limits.operationErrorCharacters),
     formatVersion: 1 as const,
     limits,

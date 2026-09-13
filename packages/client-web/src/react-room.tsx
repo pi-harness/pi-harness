@@ -2170,6 +2170,11 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                 <div className="rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3 text-[11px] leading-5 text-[var(--color-blue)]">
                   {t("预览不会创建目标会话，也不会修改源会话。运行中的导入先排队，当前轮结束后追加到会话，后续模型轮可见；排队不代表已保存。")}
                 </div>
+                {view.previewTruncated ? (
+                  <div className="rounded-lg border border-[#f4d8a8] bg-[var(--color-amber-soft)] px-3 py-3 text-[11px] leading-5 text-[var(--color-amber)]">
+                    {t("面板内容已按安全显示上限截断。")}
+                  </div>
+                ) : null}
                 {view.status.state === "failed" || view.status.state === "cancelled" ? (
                   <div
                     className={`rounded-lg border px-3 py-3 text-[11px] leading-5 ${
