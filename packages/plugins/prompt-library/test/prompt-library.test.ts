@@ -260,6 +260,35 @@ describe("prompt library", () => {
     }
   });
 
+  test("accepts empty model placeholders on save while rejecting non-empty unrelated fields", async () => {
+    const f = await fixture();
+    try {
+      await expect(f.call({ action: "save", id: "", query: "", title: "Placeholder", prompt: "Body", tags: [] })).resolves.toMatchObject({
+        details: { templates: [{ title: "Placeholder", prompt: "Body", tags: [] }] },
+      });
+      await expect(f.call({ action: "save", query: "other", title: "Another", prompt: "Body" })).rejects.toThrow("Unknown property");
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+
+  test("treats empty update placeholders as omitted fields", async () => {
+    const f = await fixture();
+    try {
+      const saved = await f.call({ action: "save", title: "Keep this title", prompt: "Keep this prompt", tags: ["keep"] });
+      const id = (saved.details as { selected: PromptTemplate }).selected.id;
+      const updated = await f.call({ action: "save", id, title: "", prompt: "", tags: [] });
+      expect((updated.details as { selected: PromptTemplate }).selected).toMatchObject({
+        id,
+        title: "Keep this title",
+        prompt: "Keep this prompt",
+        tags: ["keep"],
+      });
+    } finally {
+      await f.context.fiber.dispose();
+    }
+  });
+
   test("quarantines a failed append and does not silently evict templates", async () => {
     const f = await fixture();
     try {
