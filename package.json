@@ -73,7 +73,7 @@
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@types/semver": "7.8.0",
-    "eslint": "10.9.1",
+    "eslint": "10.10.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.68.0",
     "vite-plus": "0.3.0",
