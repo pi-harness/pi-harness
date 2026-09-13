@@ -100,8 +100,8 @@ function hasNpmProfileExample(readme: string, packageName: string): boolean {
   return false;
 }
 
-async function readBoundedText(path: string): Promise<string> {
-  return readBoundedTextFile(path, maxMetadataBytes, "Plugin metadata file");
+async function readBoundedText(path: string, signal?: AbortSignal): Promise<string> {
+  return readBoundedTextFile(path, maxMetadataBytes, "Plugin metadata file", signal);
 }
 
 // Bounded-file failures describe the inspected file, so they become a per-file diagnostic instead of being reported as a missing or malformed file.
@@ -146,7 +146,7 @@ async function scanTypeScriptSources(
       continue;
     }
     try {
-      const source = await readBoundedTextFile(join(entry.parentPath, entry.name), Math.min(maxSourceFileBytes, remaining), "Plugin source file");
+      const source = await readBoundedTextFile(join(entry.parentPath, entry.name), Math.min(maxSourceFileBytes, remaining), "Plugin source file", signal);
       sources.push(source);
       checked += 1;
       totalBytes += Buffer.byteLength(source, "utf8");
@@ -176,10 +176,11 @@ async function checkRepository(path: string, strict: boolean, signal: AbortSigna
   let sourceScan: PluginCheckReport["sourceScan"];
   let manifest: Record<string, unknown> | undefined;
   try {
-    const parsed = JSON.parse(await readBoundedText(join(root, "package.json"))) as unknown;
+    const parsed = JSON.parse(await readBoundedText(join(root, "package.json"), signal)) as unknown;
     manifest = asObject(parsed);
     if (manifest === undefined) throw new Error("Manifest must be an object");
   } catch (error) {
+    signal.throwIfAborted();
     addIssue(checks, "no-manifest", "failed", metadataFailure("package.json", error) ?? "package.json is missing or invalid JSON");
   }
   if (manifest !== undefined) checks.push({ code: "no-manifest", status: "passed", message: "package.json is readable" });
@@ -200,8 +201,9 @@ async function checkRepository(path: string, strict: boolean, signal: AbortSigna
   let readme: string;
   let readmeIssue: string | undefined;
   try {
-    readme = await readBoundedText(join(root, "README.md"));
+    readme = await readBoundedText(join(root, "README.md"), signal);
   } catch (error) {
+    signal.throwIfAborted();
     readme = "";
     readmeIssue = metadataFailure("README.md", error);
   }
@@ -326,7 +328,7 @@ export default {
         let recognized = isPluginRepositoryName(entry.name);
         if (!recognized) {
           try {
-            recognized = isNpmPlugin(asObject(JSON.parse(await readBoundedText(join(candidate, "package.json")))));
+            recognized = isNpmPlugin(asObject(JSON.parse(await readBoundedText(join(candidate, "package.json"), signal))));
           } catch {
             signal.throwIfAborted();
           }
