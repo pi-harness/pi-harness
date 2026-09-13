@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, open, rm, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -325,6 +326,70 @@ describe("skill guard", () => {
 
     await context.fiber.dispose();
     await expect(tool.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow(/cancelled/iu);
+  });
+
+  test("stops an in-flight bounded skill read at the next chunk after cancellation", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-skill-guard-read-cancel-"));
+    temporaryDirectories.push(cwd);
+    const skillPath = join(cwd, "SKILL.md");
+    await writeFile(skillPath, `Read this guidance: ${"x".repeat(120_000)}\n`, "utf8");
+    let skills: unknown[] = [];
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    context.provide("piResources", { resourceLoader: { getSkills: () => ({ skills, diagnostics: [] }) } } as never);
+    await context.plugin(skillGuard);
+    skills = [{ name: "large-skill", filePath: skillPath, sourceInfo: { source: "test", scope: "project" } }];
+    const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "skill_guard_scan");
+    if (tool === undefined) throw new Error("Skill Guard tool was not registered");
+    const probe = await open(skillPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", {}, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("skill read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+      await context.fiber.dispose();
+    }
   });
 
   test("does not expose mutable reports through tool results or panel snapshots", async () => {
