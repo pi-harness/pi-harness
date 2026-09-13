@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/api-gateway",
-  "version": "0.1.100",
+  "version": "0.1.101",
   "private": true,
   "description": "Cordis HTTP API routes for the Pi Harness browser client",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
@@ -53,7 +53,7 @@
     "@pi-harness/plugin-skill-guard": "0.1.31",
     "@pi-harness/plugin-sql-lens": "0.1.31",
     "@pi-harness/plugin-token-guard": "0.1.30",
-    "@pi-harness/plugin-turn-rewind": "0.1.30",
+    "@pi-harness/plugin-turn-rewind": "0.1.31",
     "@pi-harness/plugin-yaml-validator": "0.1.30"
   },
   "engines": {
