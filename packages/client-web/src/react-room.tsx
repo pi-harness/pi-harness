@@ -2469,7 +2469,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                 <div className="rounded-lg bg-[var(--color-soft)] px-3 py-2">
                   <span className="block text-[10px] text-[var(--color-faint)]">{t("当前占用")}</span>
                   <strong className="mt-1 block text-[17px] text-[var(--color-ink)]">
-                    {view.lastUsagePercent === null ? "—" : `${view.lastUsagePercent}%`}
+                    {view.lastUsagePercent === null ? "—" : `${view.lastUsagePercent.toFixed(1)}%`}
                   </strong>
                 </div>
               </div>
