@@ -248,7 +248,7 @@ export default {
           }
           const allowance = Math.min(maxFileBytes, remainingReadBudget);
           remainingReadBudget -= allowance;
-          const bytes = await readBoundedFile(resolvedFile.target, allowance, "Workspace search file");
+          const bytes = await readBoundedFile(resolvedFile.target, allowance, "Workspace search file", signal);
           remainingReadBudget += allowance - bytes.length;
           readBytes += bytes.length;
           throwIfAborted(signal);

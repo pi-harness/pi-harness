@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { win32 } from "node:path";
@@ -301,6 +302,46 @@ describe("workspace search", () => {
     caller.abort(new Error("workspace search aborted"));
     await expect(pending).rejects.toThrow(/workspace search aborted/iu);
     await expect(panels.snapshot()).resolves.toMatchObject([{ data: { latest: null } }]);
+  });
+
+  test("stops a bounded file read at the next chunk after cancellation", async () => {
+    const { root, tool } = await fixture();
+    const file = join(root, "large.txt");
+    await writeFile(file, `needle\n${"x".repeat(200_000)}`, "utf8");
+
+    const probe = await open(file, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (readCalls === 1) {
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", { query: "needle", path: "large.txt" }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort();
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled|aborted/iu);
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+    }
   });
 
   test("rejects unknown plugin configuration before activation", async () => {
