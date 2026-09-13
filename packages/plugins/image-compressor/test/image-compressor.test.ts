@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { win32 } from "node:path";
@@ -32,6 +33,27 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 const contexts: Context[] = [];
 const roots: string[] = [];
 const onePixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+
+function pngCrc32(input: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of input) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, "ascii");
+  const result = Buffer.allocUnsafe(12 + data.length);
+  result.writeUInt32BE(data.length, 0);
+  typeBytes.copy(result, 4);
+  data.copy(result, 8);
+  result.writeUInt32BE(pngCrc32(Buffer.concat([typeBytes, data])), 8 + data.length);
+  return result;
+}
+
+const largePng = Buffer.concat([onePixelPng.subarray(0, onePixelPng.length - 12), pngChunk("tEXt", Buffer.alloc(200_000, 0x61)), onePixelPng.subarray(-12)]);
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "pi-harness-image-"));
@@ -125,6 +147,58 @@ describe("image compressor", () => {
     await context.fiber.dispose();
     await expect(tool.execute("disposed", { path: "input.png", confirm: true }, undefined, undefined, {} as never)).rejects.toThrow(/disposed/iu);
     expect(await readdir(root)).toEqual(["input.png"]);
+  });
+
+  test("stops an in-flight bounded image read at the next chunk after cancellation", async () => {
+    const { root, context, tool } = await fixture();
+    const inputPath = join(root, "large.png");
+    await writeFile(inputPath, largePng);
+    const probe = await open(inputPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let markReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve;
+    });
+    let releaseRead!: () => void;
+    const readReleased = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    let readCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          markClosed();
+          return originalClose(...closeArgs);
+        };
+        markReadStarted();
+        await readReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = tool.execute("in-flight", { path: "large.png", outputPath: "compressed.png", confirm: true }, controller.signal, undefined, {} as never);
+      await readStarted;
+      controller.abort(new Error("image read cancelled"));
+      releaseRead();
+      await expect(pending).rejects.toThrow(/cancelled/iu);
+      await closed;
+      expect(readCalls).toBe(1);
+    } finally {
+      releaseRead();
+      fileHandlePrototype.read = originalRead;
+      await context.fiber.dispose();
+    }
   });
 
   test("keeps the compression receipt independent from returned details", async () => {
