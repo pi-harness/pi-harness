@@ -229,7 +229,7 @@ async function readLocale(workspace: string, requested: string, signal: AbortSig
   throwIfAborted(signal);
   let source: Buffer;
   try {
-    source = await readBoundedFile(resolved.target, maxLocaleBytes, "Locale file");
+    source = await readBoundedFile(resolved.target, maxLocaleBytes, "Locale file", signal);
   } catch (error) {
     if (error instanceof BoundedFileSizeError) throw new Error("Locale file exceeds the 4 MiB limit", { cause: error });
     if (error instanceof BoundedFileTypeError) throw error;

@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, open, rm, symlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
@@ -276,6 +277,64 @@ describe("i18n pair production boundaries", () => {
     await expect(lifecycleFixture.tool.execute("disposed", {}, undefined, undefined, {} as never)).rejects.toThrow("I18n pair plugin disposed");
     expect(lifecycleFixture.tools.snapshot().customTools).toEqual([]);
     await expect(lifecycleFixture.panels.snapshot()).resolves.toEqual([]);
+  });
+
+  test("stops both bounded locale reads at the next chunk after cancellation", async () => {
+    const fixture = await createFixture();
+    const basePath = join(fixture.cwd, "locales", "en.json");
+    const targetPath = join(fixture.cwd, "locales", "zh-CN.json");
+    await writeFile(basePath, JSON.stringify({ greeting: "x".repeat(200_000) }), "utf8");
+    await writeFile(targetPath, "{}", "utf8");
+    const probe = await open(basePath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalRead = Object.getOwnPropertyDescriptor(fileHandlePrototype, "read")?.value as FileHandle["read"];
+    const firstHandles = new WeakSet<object>();
+    let firstReadsStarted = 0;
+    let markFirstReadsStarted!: () => void;
+    const firstReadsReady = new Promise<void>((resolve) => {
+      markFirstReadsStarted = resolve;
+    });
+    let releaseReads!: () => void;
+    const readsReleased = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    let markAllClosed!: () => void;
+    const allClosed = new Promise<void>((resolve) => {
+      markAllClosed = resolve;
+    });
+    let readCalls = 0;
+    let closeCalls = 0;
+    fileHandlePrototype.read = async function (...args: Parameters<FileHandle["read"]>): Promise<Awaited<ReturnType<FileHandle["read"]>>> {
+      readCalls += 1;
+      if (!firstHandles.has(this)) {
+        firstHandles.add(this);
+        const originalClose = this.close.bind(this);
+        this.close = async (...closeArgs: Parameters<FileHandle["close"]>): Promise<Awaited<ReturnType<FileHandle["close"]>>> => {
+          closeCalls += 1;
+          if (closeCalls === 2) markAllClosed();
+          return originalClose(...closeArgs);
+        };
+        firstReadsStarted += 1;
+        if (firstReadsStarted === 2) markFirstReadsStarted();
+        await readsReleased;
+      }
+      return originalRead.call(this, ...args);
+    };
+    try {
+      const controller = new AbortController();
+      const pending = fixture.tool.execute("in-flight", {}, controller.signal, undefined, {} as never);
+      await firstReadsReady;
+      controller.abort(new Error("i18n pair cancelled"));
+      releaseReads();
+      await expect(pending).rejects.toThrow("i18n pair cancelled");
+      await allClosed;
+      expect(readCalls).toBe(2);
+    } finally {
+      releaseReads();
+      fileHandlePrototype.read = originalRead;
+      await fixture.context.fiber.dispose();
+    }
   });
 
   test("publishes sanitized character- and UTF-8-bounded cancellation errors", async () => {
