@@ -1,0 +1,22 @@
+changelog:
+  categories:
+    - title: User-facing changes
+      labels: ["feature", "enhancement"]
+    - title: Fixes
+      labels: ["bug", "fix"]
+    - title: Desktop and mobile
+      labels: ["desktop", "mobile"]
+    - title: Documentation and maintenance
+      labels: ["documentation", "chore"]
+    - title: Other changes
+      labels: ["*"]
+  exclude:
+    labels: ["skip-changelog"]
+template: |
+  ## What's changed
+
+  $CHANGES
+
+  ## Upgrade notes
+
+  Check the documentation for configuration or migration changes before upgrading.

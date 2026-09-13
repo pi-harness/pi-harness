@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: npm-release-${{ github.ref }}
@@ -132,7 +133,7 @@ jobs:
             package_version=$(node -p "require('./$workspace/package.json').version")
             if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
               echo "$package_name@$package_version already exists; skipping"
-            elif if [ "$workspace" = "." ]; then npm publish --access public; else npm publish --workspace "$package_name" --access public; fi; then
+            elif if [ "$workspace" = "." ]; then npm publish --access public --provenance; else npm publish --workspace "$package_name" --access public --provenance; fi; then
               echo "$package_name@$package_version published"
             elif npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
               echo "$package_name@$package_version is already published; continuing"

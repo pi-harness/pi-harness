@@ -33,6 +33,15 @@ jobs:
         with:
           name: piharness-${{ matrix.os }}
           path: apps/desktop/src-tauri/target/release/bundle/
+      - name: Generate checksums
+        shell: bash
+        run: |
+          find apps/desktop/src-tauri/target/release/bundle -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.apk' -o -name '*.ipa' \) -print0 | xargs -0 -r shasum -a 256 > apps/desktop/src-tauri/target/release/bundle/SHA256SUMS
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: piharness-${{ matrix.os }}-checksums
+          path: apps/desktop/src-tauri/target/release/bundle/SHA256SUMS
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/') && runner.os != 'Linux'
         uses: softprops/action-gh-release@v2
