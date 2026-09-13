@@ -163,7 +163,7 @@ export default {
           throw new Error("MCP profile patch target must be a regular file and cannot be a symbolic link");
         let existing = "";
         if (metadata !== undefined) {
-          existing = await readBoundedTextFile(patchTarget, maxPatchBytes, "MCP profile patch");
+          existing = await readBoundedTextFile(patchTarget, maxPatchBytes, "MCP profile patch", signal);
         }
         const next = mergePatch(existing, fragment, serverId);
         if (Buffer.byteLength(next, "utf8") > maxPatchBytes) throw new Error("MCP profile patch exceeds the 2 MiB output limit");
