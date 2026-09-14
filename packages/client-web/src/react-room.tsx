@@ -86,6 +86,7 @@ import { matchesPluginQuery } from "./plugin-search.js";
 import {
   navigateBackFromPluginDetail,
   pluginRoutePath,
+  pushSessionRoute,
   pushSessionViewRoute,
   readInstalledPluginDetailId,
   settingsCloseAction,
@@ -96,6 +97,7 @@ import {
   type PluginCollectionPage,
 } from "./plugin-navigation.js";
 import { installedPluginCardContent } from "./plugin-card.js";
+import { enqueueSessionNavigation } from "./session-navigation.js";
 import { costMeterPanelView } from "./cost-meter-view.js";
 import { dependencyCheckerPanelView } from "./dependency-checker-view.js";
 import { dockerSandboxPanelView } from "./docker-sandbox-view.js";
@@ -127,6 +129,7 @@ import { betterSidebarPanelView, type BetterSidebarGitFailureReason } from "./be
 import { LOCALES, formatLocale, setLocale, t, useLocale, writeStoredLocale } from "./i18n.js";
 
 export type { ClientApi } from "./control-room.js";
+export { enqueueSessionNavigation } from "./session-navigation.js";
 
 type View = "chat" | "trajectory" | "files";
 type SettingsTab = "general" | "providers" | "toml";
@@ -9072,30 +9075,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     view,
   ]);
   useEffect(() => {
-    const onPopState = () => {
-      pluginDetailBackPendingRef.current = false;
-      settingsBackPendingRef.current = false;
-      const next = readQueryState();
-      setCommandOpen(false);
-      setGlobalSearchOpen(false);
-      setSessionMenuOpen(false);
-      setDetails(undefined);
-      setPage(next.page);
-      setView(next.view);
-      setSettings(next.settings);
-      setSelectedSessionPath(next.sessionPath);
-      setMarketplaceQuery(next.marketplaceQuery);
-      setMarketplaceSearchQuery(next.marketplaceQuery);
-      setMarketplaceCapability(next.marketplaceCapability);
-      setMarketplaceCategory(next.marketplaceCategory);
-      setMarketplacePage(next.marketplacePage);
-      setInstalledPluginId(next.installedPlugin);
-      setMarketplacePluginId(next.marketplacePlugin);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
-  useEffect(() => {
     const plan = marketplaceDetailPlan(
       marketplacePluginId,
       [
@@ -9634,44 +9613,82 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       input?.setSelectionRange(value.length, value.length);
     });
   };
+  const navigateSession = useCallback(
+    (path: string, source: "user" | "history") => {
+      if (!path) return;
+      setSessionActionError("");
+      if (source === "user") {
+        pushSessionRoute(window.history, window.location, path);
+        setSettings(undefined);
+        setCommandOpen(false);
+        setGlobalSearchOpen(false);
+        setPage("session");
+        setView("chat");
+        setDetails(undefined);
+      }
+      setPendingSessionUrlPath(path);
+      setSelectedSessionPath(path);
+      // Check the runtime, not the cached page snapshot: a newly created session
+      // can be active before refresh has painted it. Reopening the actual active
+      // session would discard session-scoped plugin state just to navigate back.
+      // Serialize navigation, including browser history traversal, so an earlier
+      // slow switch cannot finish after the user's latest intent and replace it.
+      void enqueueSessionNavigation({
+        path,
+        refs: {
+          intent: sessionNavigationIntentRef,
+          pending: pendingSessionNavigationRef,
+          queue: sessionNavigationRef,
+        },
+        getSession: () => api.getSession(),
+        openSession: (targetPath) => api.openSession(targetPath),
+        onAccepted: async (opened) => {
+          refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+          setData((previous) => ({ ...previous, session: opened }));
+          await refresh();
+        },
+        onRejected: (cause, current) => {
+          setPendingSessionUrlPath(undefined);
+          if (current) {
+            refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+            setData((previous) => ({ ...previous, session: current }));
+            setSelectedSessionPath(current.sessionFile);
+          }
+          setSessionActionError(cause instanceof Error ? cause.message : String(cause));
+        },
+      });
+    },
+    [api, refresh],
+  );
   const openSession = (session: Record<string, unknown>) => {
     const path = typeof session.path === "string" ? session.path : "";
-    if (!path) return;
-    const promptScope = promptScopeRef.current;
-    const intent = ++sessionNavigationIntentRef.current;
-    pendingSessionNavigationRef.current = { intent, path, accepted: false };
-    setPendingSessionUrlPath(path);
-    setSettings(undefined);
-    setCommandOpen(false);
-    setGlobalSearchOpen(false);
-    setPage("session");
-    setView("chat");
-    setDetails(undefined);
-    setSelectedSessionPath(path);
-    // Check the runtime, not the cached page snapshot: a newly created session
-    // can be active before refresh has painted it. Reopening the actual active
-    // session would discard session-scoped plugin state just to navigate back.
-    // Serialize navigation, including the read, so an earlier slow switch
-    // cannot finish after the user's latest selection and replace it.
-    sessionNavigationRef.current = sessionNavigationRef.current
-      .then(async () => {
-        const current = await api.getSession();
-        const opened = path !== current.sessionFile ? await api.openSession(path) : current;
-        refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
-        setData((previous) => ({ ...previous, session: opened }));
-        if (pendingSessionNavigationRef.current?.intent === intent) {
-          pendingSessionNavigationRef.current = { intent, path, accepted: true };
-        }
-      })
-      .then(refresh)
-      .catch((cause: unknown) => {
-        if (pendingSessionNavigationRef.current?.intent === intent) {
-          pendingSessionNavigationRef.current = undefined;
-          setPendingSessionUrlPath(undefined);
-        }
-        setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause));
-      });
+    navigateSession(path, "user");
   };
+  useEffect(() => {
+    const onPopState = () => {
+      pluginDetailBackPendingRef.current = false;
+      settingsBackPendingRef.current = false;
+      const next = readQueryState();
+      setCommandOpen(false);
+      setGlobalSearchOpen(false);
+      setSessionMenuOpen(false);
+      setDetails(undefined);
+      setPage(next.page);
+      setView(next.view);
+      setSettings(next.settings);
+      setSelectedSessionPath(next.sessionPath);
+      setMarketplaceQuery(next.marketplaceQuery);
+      setMarketplaceSearchQuery(next.marketplaceQuery);
+      setMarketplaceCapability(next.marketplaceCapability);
+      setMarketplaceCategory(next.marketplaceCategory);
+      setMarketplacePage(next.marketplacePage);
+      setInstalledPluginId(next.installedPlugin);
+      setMarketplacePluginId(next.marketplacePlugin);
+      if (next.sessionPath) navigateSession(next.sessionPath, "history");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [navigateSession]);
   const sessionAction = async (action: () => Promise<void>) => {
     if (sessionActionBusy) return;
     const promptScope = promptScopeRef.current;
