@@ -5,6 +5,17 @@
 # checkout's server rather than a potentially stale global installation.
 set -eu
 
+case "${1:-}" in
+  -h|--help)
+    printf '%s\n' \
+      'Usage: npm run pih-local -- [pi-web options]' \
+      '' \
+      'Build and launch this checkout through EveryAPI authenticated pi-web.' \
+      'All options are forwarded to the local Pi Harness server.'
+    exit 0
+    ;;
+esac
+
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root_dir"
 

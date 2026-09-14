@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
@@ -40,7 +41,9 @@ const manifestPaths = ["package.json"];
 
 for (const root of roots) {
   for (const entry of await readdir(root, { withFileTypes: true })) {
-    if (entry.isDirectory() && join(root, entry.name) !== pluginsRoot) manifestPaths.push(join(root, entry.name, "package.json"));
+    const directory = join(root, entry.name);
+    const manifestPath = join(directory, "package.json");
+    if (entry.isDirectory() && directory !== pluginsRoot && existsSync(manifestPath)) manifestPaths.push(manifestPath);
   }
 }
 

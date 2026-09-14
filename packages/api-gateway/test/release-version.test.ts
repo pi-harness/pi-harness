@@ -39,6 +39,8 @@ describe("release version preparation", () => {
     });
     const formattedInternalEntry = `{\n  "packageName": "@pi-harness/core/plugins/example",\n  "version": "0.1.2",\n  "hooks": ["tool", "panel"],\n  "profile": { "config": { "version": "keep-me" } }\n}\n`;
     await mkdir(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official"), { recursive: true });
+    await mkdir(resolve(fixture, "examples/api-client"), { recursive: true });
+    await writeFile(resolve(fixture, "examples/api-client/client.mjs"), "export {};\n");
     await writeFile(resolve(fixture, "packages/api-gateway/src/marketplace-entries/official/internal.json"), formattedInternalEntry);
     await writeJson(fixture, "packages/api-gateway/src/marketplace-entries/official/external.json", { packageName: "external-plugin", version: "4.5.6" });
 

@@ -1,10 +1,34 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 describe("pih-local launcher", () => {
+  test("prints help without building or invoking EveryAPI", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pih-local-help-test-"));
+    const fakeBin = join(directory, "bin");
+    const marker = join(directory, "build-invoked");
+    const fakeNpm = join(fakeBin, "npm");
+    try {
+      mkdirSync(fakeBin);
+      writeFileSync(fakeNpm, '#!/bin/sh\nprintf invoked > "$PIH_LOCAL_MARKER"\nexit 42\n');
+      chmodSync(fakeNpm, 0o755);
+
+      const result = spawnSync("sh", [join(process.cwd(), "scripts", "pih-local.sh"), "--help"], {
+        cwd: process.cwd(),
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, PIH_LOCAL_MARKER: marker },
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Usage:");
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("builds and makes the authenticated pi-web launcher run the local server", () => {
     const directory = mkdtempSync(join(tmpdir(), "pih-local-test-"));
     const fakeBin = join(directory, "bin");
