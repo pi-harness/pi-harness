@@ -8071,6 +8071,10 @@ export function marketplaceDetailBackHistoryMode(): "replace" {
   return "replace";
 }
 
+export function installedPluginDetailBackHistoryMode(): "replace" {
+  return "replace";
+}
+
 export async function listAllSessionsForGlobalSearch(api: Pick<ClientApi, "listSessions">, query: string): Promise<readonly Record<string, unknown>[]> {
   const first = await api.listSessions(0, GLOBAL_SEARCH_PAGE_SIZE, true, query);
   if (!first.hasNext) return first.items;
@@ -9534,14 +9538,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setSessionMenuPath(undefined);
     setSessionMenuPosition(undefined);
   };
-  const pushInstalledPluginRoute = (pluginId: string | undefined) => {
+  const pushInstalledPluginRoute = (pluginId: string | undefined, historyMode: "push" | "replace" = "push") => {
     const params = new URLSearchParams(window.location.search);
     params.set("page", "plugins");
     params.delete("settings");
     if (pluginId) params.set("plugin", pluginId);
     else params.delete("plugin");
     const query = params.toString();
-    window.history.pushState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    const route = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+    if (historyMode === "replace") window.history.replaceState(null, "", route);
+    else window.history.pushState(null, "", route);
     setSettings(undefined);
     setDetails(undefined);
     setCommandOpen(false);
@@ -9597,7 +9603,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       activeSessionId={data.session?.sessionId}
       metadata={installedPluginMetadata}
       capabilityLabel={capabilityLabel}
-      onBack={() => pushInstalledPluginRoute(undefined)}
+      onBack={() => pushInstalledPluginRoute(undefined, installedPluginDetailBackHistoryMode())}
       onToggle={async (plugin) => {
         const result = await api.togglePlugin(plugin.id, !plugin.enabled);
         await refresh();
@@ -9607,7 +9613,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         await api.uninstallPlugin(plugin.id);
         const plugins = await api.listPlugins();
         setData((current) => ({ ...current, plugins: plugins.filter((item) => item.id !== plugin.id) }));
-        pushInstalledPluginRoute(undefined);
+        pushInstalledPluginRoute(undefined, installedPluginDetailBackHistoryMode());
       }}
       panel={installedPluginPanel}
       plugin={installedPlugin}
@@ -9619,7 +9625,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           href="?page=plugins"
           onClick={(event) => {
             event.preventDefault();
-            pushInstalledPluginRoute(undefined);
+            pushInstalledPluginRoute(undefined, installedPluginDetailBackHistoryMode());
           }}
         >
           {t("← 已安装插件")}

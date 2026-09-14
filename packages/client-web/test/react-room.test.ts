@@ -35,6 +35,7 @@ import {
   writeRestartPendingPackages,
   nextSessionSearchPage,
   marketplaceDetailBackHistoryMode,
+  installedPluginDetailBackHistoryMode,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
@@ -683,6 +684,10 @@ describe("marketplace install feedback", () => {
     // The region has to be in the markup before the message lands in it, otherwise a screen reader announces nothing.
     expect(markup).toContain('aria-live="polite" class="marketplace-toolbar-message"');
   });
+});
+
+test("replaces the installed-plugin detail history entry on the in-app back link", () => {
+  expect(installedPluginDetailBackHistoryMode()).toBe("replace");
 });
 
 describe("plugin action error text", () => {
