@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
@@ -2585,6 +2585,161 @@ describe("API gateway plugin", () => {
       ],
       truncated: false,
     });
+  });
+
+  test("lists successful active-branch file mutations in a non-Git workspace instead of reporting it as clean", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-files-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-outside-"));
+    temporaryDirectories.push(workspace, outside);
+    await writeFile(join(workspace, "index.html"), "<h1>RelayOps</h1>\n", "utf8");
+    await writeFile(join(workspace, "styles.css"), "body {}\n", "utf8");
+    await writeFile(join(outside, "secret.txt"), "private\n", "utf8");
+    await symlink(join(outside, "secret.txt"), join(workspace, "linked-secret.txt"));
+    await symlink(outside, join(workspace, "linked-outside"));
+    const successfulCall = "write-success";
+    const editCall = "edit-success";
+    const deleteCall = "delete-success";
+    const outsideCall = "outside-success";
+    const symlinkCall = "symlink-success";
+    const nestedSymlinkCall = "nested-symlink-success";
+    const nestedSymlinkDeleteCall = "nested-symlink-delete-success";
+    const failedCall = "write-failure";
+    const branchMessages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: successfulCall, name: "write", arguments: { path: join(workspace, "index.html"), content: "<h1>RelayOps</h1>\n" } },
+          { type: "toolCall", id: editCall, name: "edit", arguments: { path: "styles.css", oldText: "body {}", newText: "body { color: navy; }" } },
+          { type: "toolCall", id: deleteCall, name: "delete", arguments: { path: "obsolete.txt" } },
+          { type: "toolCall", id: outsideCall, name: "write", arguments: { path: join(outside, "secret.txt"), content: "private\n" } },
+          { type: "toolCall", id: symlinkCall, name: "write", arguments: { path: "linked-secret.txt", content: "private\n" } },
+          { type: "toolCall", id: nestedSymlinkCall, name: "write", arguments: { path: "linked-outside/secret.txt", content: "private\n" } },
+          { type: "toolCall", id: nestedSymlinkDeleteCall, name: "delete", arguments: { path: "linked-outside/missing.txt" } },
+          { type: "toolCall", id: failedCall, name: "write", arguments: { path: join(workspace, "failed.txt"), content: "nope\n" } },
+        ],
+      },
+      { role: "toolResult", toolCallId: successfulCall, toolName: "write", content: [], isError: false },
+      { role: "toolResult", toolCallId: editCall, toolName: "edit", content: [], isError: false },
+      { role: "toolResult", toolCallId: deleteCall, toolName: "delete", content: [], isError: false },
+      { role: "toolResult", toolCallId: outsideCall, toolName: "write", content: [], isError: false },
+      { role: "toolResult", toolCallId: symlinkCall, toolName: "write", content: [], isError: false },
+      { role: "toolResult", toolCallId: nestedSymlinkCall, toolName: "write", content: [], isError: false },
+      { role: "toolResult", toolCallId: nestedSymlinkDeleteCall, toolName: "delete", content: [], isError: false },
+      { role: "toolResult", toolCallId: failedCall, toolName: "write", content: [], isError: true },
+    ];
+    const session = {
+      sessionId: "plain-session-files-session",
+      sessionFile: undefined,
+      messages: [],
+      sessionManager: {
+        getBranch: () =>
+          branchMessages.map((message, index) => ({
+            type: "message",
+            id: String(index),
+            parentId: index === 0 ? null : String(index - 1),
+            timestamp: 1,
+            message,
+          })),
+      },
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/files");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        { path: "index.html", status: "A", label: "generated" },
+        { path: "obsolete.txt", status: "D", label: "deleted" },
+        { path: "styles.css", status: "M", label: "modified" },
+      ],
+      repository: false,
+    });
+  });
+
+  test("returns a reviewable snapshot diff for session output in a non-Git workspace", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-diff-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-diff-outside-"));
+    temporaryDirectories.push(workspace, outside);
+    await writeFile(join(workspace, "index.html"), "<h1>RelayOps</h1>\n", "utf8");
+    await writeFile(join(outside, "secret.txt"), "private\n", "utf8");
+    await symlink(outside, join(workspace, "linked-outside"));
+    const callId = "write-index";
+    const session = {
+      sessionId: "plain-session-diff-session",
+      sessionFile: undefined,
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: callId, name: "write", arguments: { path: "index.html", content: "<h1>RelayOps</h1>\n" } }],
+        },
+        { role: "toolResult", toolCallId: callId, toolName: "write", content: [], isError: false },
+      ],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/files/diff?path=index.html");
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { path: string; diff: string };
+    expect(payload.path).toBe("index.html");
+    expect(payload.diff).toContain("+++ b/index.html");
+    expect(payload.diff).toContain("+<h1>RelayOps</h1>");
+
+    const escaped = await fetch(context.webServer.url + "/api/files/diff?path=linked-outside%2Fsecret.txt");
+    expect(escaped.status).toBe(400);
+    await expect(escaped.json()).resolves.toEqual({ error: "path must stay inside the workspace" });
+  });
+
+  test("keeps Git diffs for a tracked final symlink without reading its external target", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-git-symlink-diff-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-git-symlink-outside-"));
+    temporaryDirectories.push(workspace, outside);
+    const first = join(outside, "first.txt");
+    const second = join(outside, "second.txt");
+    await writeFile(first, "first secret\n", "utf8");
+    await writeFile(second, "second secret\n", "utf8");
+    await execFile("git", ["init", "-q"], { cwd: workspace });
+    await execFile("git", ["config", "user.email", "pi-harness@test.invalid"], { cwd: workspace });
+    await execFile("git", ["config", "user.name", "Pi Harness Test"], { cwd: workspace });
+    const link = join(workspace, "external-link.txt");
+    await symlink(first, link);
+    await execFile("git", ["add", "external-link.txt"], { cwd: workspace });
+    await execFile("git", ["commit", "-qm", "initial"], { cwd: workspace });
+    await unlink(link);
+    await symlink(second, link);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "git-symlink-diff-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/files/diff?path=external-link.txt");
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { diff: string };
+    expect(payload.diff).toContain("first.txt");
+    expect(payload.diff).toContain("second.txt");
+    expect(payload.diff).not.toContain("secret");
   });
 
   test("shares a short workspace catalogue cache across rapid console refreshes", async () => {

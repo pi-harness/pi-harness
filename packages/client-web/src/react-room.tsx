@@ -114,6 +114,7 @@ interface RoomData {
   session?: ClientSession;
   sessions: readonly Record<string, unknown>[];
   files: readonly ClientFile[];
+  fileRepository: boolean;
   workspaceFiles: readonly ClientFile[];
   workspaceFilesTruncated: boolean;
   models: readonly ClientModel[];
@@ -1253,11 +1254,13 @@ export function Trajectory({
 
 export function Files({
   files,
+  repository = true,
   api,
   onDiff,
   onRefresh,
 }: {
   files: readonly ClientFile[];
+  repository?: boolean;
   api: ClientApi;
   onDiff: (path: string) => Promise<void>;
   onRefresh: () => void;
@@ -1309,8 +1312,8 @@ export function Files({
     <section className="view-panel files-view">
       <div className="files-content">
         <div className="files-title">
-          <strong>{t("本次会话改动")}</strong>
-          <span>{t("由 /api/files 提供")}</span>
+          <strong>{repository ? t("本次会话改动") : t("本次会话产出")}</strong>
+          <span>{repository ? t("由 /api/files 提供") : t("根据成功的文件工具调用识别")}</span>
         </div>
         <div className="file-summary">
           {t("{files} 个文件 · {additions} 个新增文件 · {deletions} 个删除文件", { files: files.length, additions, deletions })}
@@ -1334,10 +1337,10 @@ export function Files({
               </div>
             ))
           ) : (
-            <div className="empty-state">{t("工作区没有未提交改动。")}</div>
+            <div className="empty-state">{repository ? t("工作区没有未提交改动。") : t("本次会话还没有可识别的文件产出。")}</div>
           )}
         </div>
-        {files.length > 0 && (
+        {repository && files.length > 0 && (
           <div className="file-actions">
             <input aria-label={t("提交说明")} onChange={(event) => setMessage(event.target.value)} placeholder={t("提交说明")} value={message} />
             <button className="primary" disabled={busy || !message.trim()} onClick={commit} type="button">
@@ -8586,6 +8589,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [data, setData] = useState<RoomData>({
     sessions: [],
     files: [],
+    fileRepository: true,
     workspaceFiles: [],
     workspaceFilesTruncated: false,
     models: [],
@@ -9106,7 +9110,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       status: current.status,
       session: current.session,
       sessions: sessions.status === "fulfilled" ? sessions.value.items : current.sessions,
-      files: files.status === "fulfilled" ? files.value : current.files,
+      files: files.status === "fulfilled" ? files.value.items : current.files,
+      fileRepository: files.status === "fulfilled" ? files.value.repository : current.fileRepository,
       workspaceFiles: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.items : current.workspaceFiles,
       workspaceFilesTruncated: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.truncated : current.workspaceFilesTruncated,
       models: models.status === "fulfilled" ? models.value : current.models,
@@ -10128,6 +10133,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     <Files
       api={api}
       files={data.files}
+      repository={data.fileRepository}
       onDiff={async (file) => {
         const diff = await api.getFileDiff(file);
         setDetails({
