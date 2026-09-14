@@ -5,6 +5,7 @@ import {
   pluginDetailBackAction,
   pluginDetailHistoryState,
   pluginRoutePath,
+  pushSessionRoute,
   pushSessionViewRoute,
   readInstalledPluginDetailId,
   settingsRoutePath,
@@ -49,6 +50,21 @@ class MemoryHistory {
 }
 
 describe("client navigation", () => {
+  it("pushes session switches so browser history can return to the previous session", () => {
+    const history = new MemoryHistory("/console?page=session&session=relay-a.jsonl&view=files&settings=general&plugin=prompt-guard#events", {
+      unrelated: "keep",
+    });
+    const location = new URL(history.url, "https://example.test");
+    expect(pushSessionRoute(history, location, "relay-b.jsonl")).toBe(true);
+    expect(history.entries).toHaveLength(2);
+    expect(history.state).toEqual({ unrelated: "keep" });
+    expect(history.url).toBe("/console?page=session&session=relay-b.jsonl#events");
+    expect(pushSessionRoute(history, new URL(history.url, "https://example.test"), "relay-b.jsonl")).toBe(false);
+    expect(history.entries).toHaveLength(2);
+    history.back();
+    expect(history.url).toBe("/console?page=session&session=relay-a.jsonl&view=files&settings=general&plugin=prompt-guard#events");
+  });
+
   it("pushes session view changes so browser history traverses each tab", () => {
     const history = new MemoryHistory("/console?page=session&session=relay.jsonl#events", { unrelated: "keep" });
     const location = () => new URL(history.url, "https://example.test");

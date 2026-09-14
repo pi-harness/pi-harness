@@ -47,6 +47,24 @@ export function settingsRoutePath(location: PluginRouteLocation, tab: string | u
   return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
 }
 
+export function sessionRoutePath(location: PluginRouteLocation, path: string): string {
+  const params = new URLSearchParams(location.search);
+  params.set("page", "session");
+  params.set("session", path);
+  params.delete("view");
+  params.delete("settings");
+  params.delete("plugin");
+  const query = params.toString();
+  return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+}
+
+export function pushSessionRoute(history: PluginHistory, location: PluginRouteLocation, path: string): boolean {
+  const route = sessionRoutePath(location, path);
+  if (route === `${location.pathname}${location.search}${location.hash}`) return false;
+  history.pushState(history.state, "", route);
+  return true;
+}
+
 export function pushSessionViewRoute(history: PluginHistory, location: PluginRouteLocation, view: "chat" | "trajectory" | "files"): boolean {
   const params = new URLSearchParams(location.search);
   params.set("page", "session");

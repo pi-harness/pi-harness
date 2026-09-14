@@ -39,6 +39,146 @@ import {
 const config = (source: string): ClientPiConfig =>
   ({ path: "~/.pi/agent/settings.json", scope: "global", source, settings: { transport: "stdio" } }) as unknown as ClientPiConfig;
 
+type NavigationSession = { sessionFile?: string };
+type NavigationRefs = {
+  intent: { current: number };
+  pending: { current: { intent: number; path?: string; accepted: boolean } | undefined };
+  queue: { current: Promise<void> };
+};
+type EnqueueSessionNavigation = (input: {
+  path: string;
+  refs: NavigationRefs;
+  getSession: () => Promise<NavigationSession>;
+  openSession: (path: string) => Promise<NavigationSession>;
+  onAccepted: (session: NavigationSession) => void | Promise<void>;
+  onRejected: (cause: unknown, current: NavigationSession | undefined) => void;
+}) => Promise<void>;
+
+async function sessionNavigationQueue(): Promise<EnqueueSessionNavigation> {
+  const module = (await import("../src/react-room.js")) as unknown as { enqueueSessionNavigation?: EnqueueSessionNavigation };
+  expect(module.enqueueSessionNavigation).toBeTypeOf("function");
+  return module.enqueueSessionNavigation as EnqueueSessionNavigation;
+}
+
+function navigationRefs(): NavigationRefs {
+  return {
+    intent: { current: 0 },
+    pending: { current: undefined },
+    queue: { current: Promise.resolve() },
+  };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (cause: unknown) => void } {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+test("does not reopen the runtime when session navigation targets the active session", async () => {
+  const enqueueSessionNavigation = await sessionNavigationQueue();
+  const refs = navigationRefs();
+  const openSession = vi.fn<(path: string) => Promise<NavigationSession>>();
+  const accepted: string[] = [];
+
+  await enqueueSessionNavigation({
+    path: "session-b.jsonl",
+    refs,
+    getSession: () => Promise.resolve({ sessionFile: "session-b.jsonl" }),
+    openSession,
+    onAccepted: (session) => accepted.push(session.sessionFile ?? ""),
+    onRejected: () => {},
+  });
+
+  expect(openSession).not.toHaveBeenCalled();
+  expect(accepted).toEqual(["session-b.jsonl"]);
+  expect(refs.pending.current).toEqual({ intent: 1, path: "session-b.jsonl", accepted: true });
+});
+
+test("keeps the final Forward intent when a slow Back session switch completes late", async () => {
+  const enqueueSessionNavigation = await sessionNavigationQueue();
+  const refs = navigationRefs();
+  const sessionAStarted = deferred<void>();
+  const sessionAResult = deferred<NavigationSession>();
+  let active: NavigationSession = { sessionFile: "session-b.jsonl" };
+  const accepted: string[] = [];
+  const openSession = vi.fn(async (path: string) => {
+    if (path === "session-a.jsonl") {
+      sessionAStarted.resolve();
+      active = await sessionAResult.promise;
+      return active;
+    }
+    active = { sessionFile: path };
+    return active;
+  });
+
+  const back = enqueueSessionNavigation({
+    path: "session-a.jsonl",
+    refs,
+    getSession: () => Promise.resolve(active),
+    openSession,
+    onAccepted: (session) => accepted.push(session.sessionFile ?? ""),
+    onRejected: () => {},
+  });
+  await sessionAStarted.promise;
+  const forward = enqueueSessionNavigation({
+    path: "session-b.jsonl",
+    refs,
+    getSession: () => Promise.resolve(active),
+    openSession,
+    onAccepted: (session) => accepted.push(session.sessionFile ?? ""),
+    onRejected: () => {},
+  });
+  sessionAResult.resolve({ sessionFile: "session-a.jsonl" });
+  await Promise.all([back, forward]);
+
+  expect(openSession.mock.calls).toEqual([["session-a.jsonl"], ["session-b.jsonl"]]);
+  expect(accepted).toEqual(["session-b.jsonl"]);
+  expect(active.sessionFile).toBe("session-b.jsonl");
+  expect(refs.pending.current).toEqual({ intent: 2, path: "session-b.jsonl", accepted: true });
+});
+
+test("restores the active session state and reports a session error when runtime navigation is rejected", async () => {
+  const enqueueSessionNavigation = await sessionNavigationQueue();
+  const refs = navigationRefs();
+  const current = { sessionFile: "session-b.jsonl" };
+  const drafts = new Map([
+    ["session-a.jsonl", "draft-a"],
+    ["session-b.jsonl", "draft-b"],
+  ]);
+  const view = {
+    urlSession: "session-a.jsonl",
+    activeSession: "session-a.jsonl",
+    draft: drafts.get("session-a.jsonl"),
+    error: "",
+  };
+
+  await enqueueSessionNavigation({
+    path: "session-a.jsonl",
+    refs,
+    getSession: () => Promise.resolve(current),
+    openSession: () => Promise.reject(new Error("forced navigation failure")),
+    onAccepted: () => {},
+    onRejected: (cause, active) => {
+      view.urlSession = active?.sessionFile ?? "";
+      view.activeSession = active?.sessionFile ?? "";
+      view.draft = drafts.get(active?.sessionFile ?? "");
+      view.error = `session: ${cause instanceof Error ? cause.message : String(cause)}`;
+    },
+  });
+
+  expect(refs.pending.current).toBeUndefined();
+  expect(view).toEqual({
+    urlSession: "session-b.jsonl",
+    activeSession: "session-b.jsonl",
+    draft: "draft-b",
+    error: "session: forced navigation failure",
+  });
+});
+
 test("localizes an empty session title in the sidebar", async () => {
   const module = (await import("../src/react-room.js")) as unknown as {
     sessionListTitle?: (session: Record<string, unknown>) => string;
