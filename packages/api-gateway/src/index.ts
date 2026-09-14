@@ -1,5 +1,5 @@
 import { execFile, type ExecFileException } from "node:child_process";
-import { constants, existsSync, lstatSync, writeFileSync } from "node:fs";
+import { constants, existsSync, lstatSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
@@ -305,7 +305,7 @@ function sessionPathInDirectory(path: string, manager: SessionManager): boolean 
   const root = resolve(manager.getSessionDir());
   const target = resolve(path);
   const relativePath = relative(root, target);
-  if (relativePath === "" || escapesRoot(relativePath) || !target.endsWith(".jsonl")) return false;
+  if (relativePath === "" || relativePath.includes(sep) || escapesRoot(relativePath) || !target.endsWith(".jsonl")) return false;
   // Session paths are supplied by the browser and are later opened, renamed, exported or unlinked. A lexical containment check is not enough: a symlinked component could redirect those operations outside the session directory. Missing final paths are allowed for the active session's deferred persistence, but every existing component must be a real directory/file.
   let current = root;
   for (const component of relativePath.split(sep)) {
@@ -318,6 +318,44 @@ function sessionPathInDirectory(path: string, manager: SessionManager): boolean 
     }
   }
   return true;
+}
+
+function canonicalSessionPath(path: string, manager: SessionManager): string | undefined {
+  if (!sessionPathInDirectory(path, manager)) return undefined;
+  const root = resolve(manager.getSessionDir());
+  const target = resolve(path);
+  try {
+    const canonicalRoot = realpathSync.native(root);
+    const canonicalTarget = realpathSync.native(target);
+    if (dirname(canonicalTarget) !== canonicalRoot) return undefined;
+    return join(root, basename(canonicalTarget));
+  } catch (error) {
+    // Pi can defer creating the active session file until its first entry. Its resolved direct-child path is still the unique identity while absent.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return target;
+    return undefined;
+  }
+}
+
+interface SessionRootIdentity {
+  readonly path: string;
+  readonly device: number;
+  readonly inode: number;
+}
+
+function sessionRootIdentity(manager: SessionManager): SessionRootIdentity | undefined {
+  const path = resolve(manager.getSessionDir());
+  try {
+    const details = statSync(path);
+    if (!details.isDirectory()) return undefined;
+    return { path, device: details.dev, inode: details.ino };
+  } catch {
+    return undefined;
+  }
+}
+
+function sessionRootMatches(manager: SessionManager, expected: SessionRootIdentity): boolean {
+  const current = sessionRootIdentity(manager);
+  return current !== undefined && current.path === expected.path && current.device === expected.device && current.inode === expected.inode;
 }
 
 function persistSessionBeforeFirstAssistant(manager: SessionManager): void {
@@ -1147,6 +1185,23 @@ export default {
     };
     const disposePluginPanels = registerPluginPanels(context, services);
     let busy = false;
+    let sessionOperationBusy = false;
+    const runSessionOperation = async (response: ServerResponse, streamingError: string, action: () => Promise<void>): Promise<void> => {
+      if (busy || services.runtime.session.isStreaming) {
+        sendJson(response, 409, { error: streamingError });
+        return;
+      }
+      if (sessionOperationBusy) {
+        sendJson(response, 409, { error: "Another session operation is already running" });
+        return;
+      }
+      sessionOperationBusy = true;
+      try {
+        await action();
+      } finally {
+        sessionOperationBusy = false;
+      }
+    };
     let workspaceFileCache: { readonly cwd: string; readonly expiresAt: number; readonly catalogue: WorkspaceFileCatalogue } | undefined;
     let workspaceFileRequest: { readonly cwd: string; readonly promise: Promise<WorkspaceFileCatalogue> } | undefined;
     const readWorkspaceFiles = (cwd: string): Promise<WorkspaceFileCatalogue> => {
@@ -2277,6 +2332,10 @@ export default {
             sendJson(response, 400, { error: 'streamingBehavior must be "steer" or "followUp"' });
             return;
           }
+          if (sessionOperationBusy) {
+            sendJson(response, 409, { error: "Another session operation is already running" });
+            return;
+          }
           const streamingBehavior = payload.streamingBehavior;
           if (services.runtime.session.isStreaming) {
             if (!streamingBehavior) {
@@ -2354,53 +2413,51 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
-        if (services.runtime.session.isStreaming) {
-          sendJson(response, 409, { error: "Cannot create a session while a prompt is running" });
-          return;
-        }
         try {
           const raw = await bodyText(request);
           const payload = raw.trim() ? (JSON.parse(raw) as { cwd?: unknown }) : {};
-          const currentCwd = activeCwd(services);
-          const requestedCwd = typeof payload.cwd === "string" ? resolve(payload.cwd) : resolve(currentCwd);
-          const workspaces = await listWorkspaces(currentCwd);
-          const workspace =
-            workspaces.find((item) => item.path === requestedCwd) ??
-            (typeof payload.cwd === "string" && (await isDirectory(requestedCwd))
-              ? { path: requestedCwd, branch: "directory", current: false, name: basename(requestedCwd) || requestedCwd }
-              : undefined);
-          if (!workspace) {
-            sendJson(response, 400, { error: "Workspace is not available" });
-            return;
-          }
-          if (services.runtime.sessionRuntime) {
-            let result;
-            if (workspace.current) {
-              result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.newSession());
-            } else {
-              const manager = services.runtime.session.sessionManager;
-              if (!manager || typeof manager.isPersisted !== "function" || !manager.isPersisted()) {
-                sendJson(response, 409, { error: "Workspace switching requires JSONL session storage" });
-                return;
-              }
-              const created = SessionManager.create(workspace.path, manager.getSessionDir());
-              const sessionFile = created.newSession();
-              if (!sessionFile) throw new Error("Unable to create a workspace session");
-              result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(sessionFile, { cwdOverride: workspace.path }));
-            }
-            if (result.cancelled) {
-              sendJson(response, 409, { error: "Session creation was cancelled by an extension" });
+          await runSessionOperation(response, "Cannot create a session while a prompt is running", async () => {
+            const currentCwd = activeCwd(services);
+            const requestedCwd = typeof payload.cwd === "string" ? resolve(payload.cwd) : resolve(currentCwd);
+            const workspaces = await listWorkspaces(currentCwd);
+            const workspace =
+              workspaces.find((item) => item.path === requestedCwd) ??
+              (typeof payload.cwd === "string" && (await isDirectory(requestedCwd))
+                ? { path: requestedCwd, branch: "directory", current: false, name: basename(requestedCwd) || requestedCwd }
+                : undefined);
+            if (!workspace) {
+              sendJson(response, 400, { error: "Workspace is not available" });
               return;
             }
-          } else {
+            if (services.runtime.sessionRuntime) {
+              let result;
+              if (workspace.current) {
+                result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.newSession());
+              } else {
+                const manager = services.runtime.session.sessionManager;
+                if (!manager || typeof manager.isPersisted !== "function" || !manager.isPersisted()) {
+                  sendJson(response, 409, { error: "Workspace switching requires JSONL session storage" });
+                  return;
+                }
+                const created = SessionManager.create(workspace.path, manager.getSessionDir());
+                const sessionFile = created.newSession();
+                if (!sessionFile) throw new Error("Unable to create a workspace session");
+                result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(sessionFile, { cwdOverride: workspace.path }));
+              }
+              if (result.cancelled) {
+                sendJson(response, 409, { error: "Session creation was cancelled by an extension" });
+                return;
+              }
+            } else {
+              const session = services.runtime.session;
+              session.sessionManager.newSession();
+              session.agent.state.messages = [];
+            }
+            events.length = 0;
             const session = services.runtime.session;
-            session.sessionManager.newSession();
-            session.agent.state.messages = [];
-          }
-          events.length = 0;
-          const session = services.runtime.session;
-          for (const client of eventClients) writeSse(client, { type: "session", sessionId: session.sessionId, events: [] });
-          sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, [], context.logger, services.runtime.sessionRuntime ? undefined : [])));
+            for (const client of eventClients) writeSse(client, { type: "session", sessionId: session.sessionId, events: [] });
+            sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, [], context.logger, services.runtime.sessionRuntime ? undefined : [])));
+          });
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
         }
@@ -2413,10 +2470,6 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
-        if (services.runtime.session.isStreaming) {
-          sendJson(response, 409, { error: "Cannot switch sessions while a prompt is running" });
-          return;
-        }
         try {
           const payload = JSON.parse(await bodyText(request)) as { path?: unknown; sessionId?: unknown };
           const manager = services.runtime.session.sessionManager;
@@ -2424,29 +2477,33 @@ export default {
             sendJson(response, 409, { error: "Session switching requires JSONL session storage" });
             return;
           }
-          const items = (await SessionManager.list(activeCwd(services), manager.getSessionDir())).filter((item) => sessionPathInDirectory(item.path, manager));
-          const target = items.find(
-            (item) =>
-              (typeof payload.path === "string" && item.path === payload.path) || (typeof payload.sessionId === "string" && item.id === payload.sessionId),
-          );
-          if (target === undefined) {
-            sendJson(response, 404, { error: "Session not found" });
-            return;
-          }
-          if (services.runtime.sessionRuntime) {
-            const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(target.path, { cwdOverride: target.cwd }));
-            if (result.cancelled) {
-              sendJson(response, 409, { error: "Session switch was cancelled by an extension" });
+          await runSessionOperation(response, "Cannot switch sessions while a prompt is running", async () => {
+            const items = (await SessionManager.list(activeCwd(services), manager.getSessionDir())).filter((item) =>
+              sessionPathInDirectory(item.path, manager),
+            );
+            const target = items.find(
+              (item) =>
+                (typeof payload.path === "string" && item.path === payload.path) || (typeof payload.sessionId === "string" && item.id === payload.sessionId),
+            );
+            if (target === undefined) {
+              sendJson(response, 404, { error: "Session not found" });
               return;
             }
-          } else {
-            manager.setSessionFile(target.path);
-            if (typeof services.runtime.session.reload === "function") await services.runtime.session.reload();
-            else services.runtime.session.agent.state.messages = manager.buildSessionContext().messages;
-          }
-          events.length = 0;
-          for (const client of eventClients) writeSse(client, { type: "session", sessionId: services.runtime.session.sessionId, events: [] });
-          sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, [], context.logger)));
+            if (services.runtime.sessionRuntime) {
+              const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(target.path, { cwdOverride: target.cwd }));
+              if (result.cancelled) {
+                sendJson(response, 409, { error: "Session switch was cancelled by an extension" });
+                return;
+              }
+            } else {
+              manager.setSessionFile(target.path);
+              if (typeof services.runtime.session.reload === "function") await services.runtime.session.reload();
+              else services.runtime.session.agent.state.messages = manager.buildSessionContext().messages;
+            }
+            events.length = 0;
+            for (const client of eventClients) writeSse(client, { type: "session", sessionId: services.runtime.session.sessionId, events: [] });
+            sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, [], context.logger)));
+          });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
         }
@@ -2494,35 +2551,49 @@ export default {
         try {
           const payload = JSON.parse(await bodyText(request)) as { path?: unknown; confirm?: unknown };
           const manager = services.runtime.session.sessionManager;
-          const path = typeof payload.path === "string" ? payload.path : "";
+          const requestedPath = typeof payload.path === "string" ? payload.path : "";
           if (payload.confirm !== true) {
             sendJson(response, 400, { error: "confirm must be true to delete a session" });
             return;
           }
-          if (!sessionPathInDirectory(path, manager)) {
+          const path = canonicalSessionPath(requestedPath, manager);
+          if (!path) {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
-          if (path === services.runtime.session.sessionFile) {
-            if (services.runtime.session.isStreaming) {
-              sendJson(response, 409, { error: "Cannot delete the active session while a prompt is running" });
+          await runSessionOperation(response, "Cannot delete the active session while a prompt is running", async () => {
+            const rootIdentity = sessionRootIdentity(manager);
+            if (!rootIdentity) {
+              sendJson(response, 400, { error: "Invalid session directory" });
               return;
             }
-            const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.newSession());
-            if (result.cancelled) {
-              sendJson(response, 409, { error: "Session deletion was cancelled by an extension" });
+            const activeSessionPath = services.runtime.session.sessionFile;
+            const canonicalActiveSessionPath = activeSessionPath ? canonicalSessionPath(activeSessionPath, manager) : undefined;
+            if (path === canonicalActiveSessionPath) {
+              const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.newSession());
+              if (result.cancelled) {
+                sendJson(response, 409, { error: "Session deletion was cancelled by an extension" });
+                return;
+              }
+              events.length = 0;
+            }
+            if (!sessionRootMatches(manager, rootIdentity) || canonicalSessionPath(path, manager) !== path) {
+              sendJson(response, 409, { error: "Session path changed before deletion" });
               return;
             }
-            events.length = 0;
-          }
-          // A newly created active session may not have a JSONL file yet: Pi defers persistence until the first entry. Treat that missing file as already deleted, while preserving failures for unexpected paths such as directories.
-          await unlink(path).catch((error: unknown) => {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            // A newly created active session may not have a JSONL file yet: Pi defers persistence until the first entry. Treat that missing file as already deleted, while preserving failures for unexpected paths such as directories.
+            await unlink(path).catch((error: unknown) => {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            });
+            if (!sessionRootMatches(manager, rootIdentity)) {
+              sendJson(response, 409, { error: "Session directory changed before metadata cleanup" });
+              return;
+            }
+            await mutateSessionMetadata(manager, context.logger, (metadata) => {
+              delete metadata[path];
+            });
+            sendJson(response, 200, { deleted: true, path, sessionFile: services.runtime.session.sessionFile });
           });
-          await mutateSessionMetadata(manager, context.logger, (metadata) => {
-            delete metadata[path];
-          });
-          sendJson(response, 200, { deleted: true, path, sessionFile: services.runtime.session.sessionFile });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
         }
@@ -2569,12 +2640,12 @@ export default {
         try {
           const payload = JSON.parse(await bodyText(request)) as { action?: unknown; paths?: unknown; confirm?: unknown };
           const action = payload.action;
-          const paths = Array.isArray(payload.paths) ? payload.paths.filter((path): path is string => typeof path === "string") : [];
+          const requestedPaths = Array.isArray(payload.paths) ? payload.paths.filter((path): path is string => typeof path === "string") : [];
           const manager = services.runtime.session.sessionManager;
           if (
             (action !== "delete" && action !== "archive" && action !== "unarchive" && action !== "pin" && action !== "unpin") ||
-            paths.length === 0 ||
-            paths.length > 100
+            requestedPaths.length === 0 ||
+            requestedPaths.length > 100
           ) {
             sendJson(response, 400, { error: "action and 1-100 session paths are required" });
             return;
@@ -2583,41 +2654,63 @@ export default {
             sendJson(response, 400, { error: "confirm must be true to delete sessions" });
             return;
           }
-          if (paths.some((path) => !sessionPathInDirectory(path, manager))) {
+          const canonicalPaths = requestedPaths.map((path) => canonicalSessionPath(path, manager));
+          if (canonicalPaths.some((path) => path === undefined)) {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
-          if (action === "delete" && paths.includes(services.runtime.session.sessionFile ?? "")) {
-            sendJson(response, 409, { error: "Cannot batch-delete the active session" });
-            return;
-          }
+          const paths = [...new Set(canonicalPaths as string[])];
           if (action === "delete") {
-            // The unlinks run outside the metadata mutation: a failure halfway through must not discard the key removals for the files that are already gone from disk.
-            const removed: string[] = [];
-            const failed: { path: string; error: string }[] = [];
-            for (const path of paths) {
-              try {
-                await unlink(path);
-                removed.push(path);
-              } catch (error) {
-                // A session another tab already deleted leaves nothing to unlink, but its metadata entry still has to go.
-                if ((error as NodeJS.ErrnoException).code === "ENOENT") removed.push(path);
-                else failed.push({ path, error: errorText(error) });
+            await runSessionOperation(response, "Cannot delete the active session while a prompt is running", async () => {
+              const rootIdentity = sessionRootIdentity(manager);
+              if (!rootIdentity) {
+                sendJson(response, 400, { error: "Invalid session directory" });
+                return;
               }
-            }
-            await mutateSessionMetadata(manager, context.logger, (metadata) => {
-              for (const path of removed) delete metadata[path];
+              const activeSessionPath = services.runtime.session.sessionFile;
+              const canonicalActiveSessionPath = activeSessionPath ? canonicalSessionPath(activeSessionPath, manager) : undefined;
+              if (canonicalActiveSessionPath && paths.includes(canonicalActiveSessionPath)) {
+                const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.newSession());
+                if (result.cancelled) {
+                  sendJson(response, 409, { error: "Session deletion was cancelled by an extension" });
+                  return;
+                }
+                events.length = 0;
+              }
+              // The unlinks run outside the metadata mutation: a failure halfway through must not discard the key removals for the files that are already gone from disk.
+              const removed: string[] = [];
+              const failed: { path: string; error: string }[] = [];
+              for (const path of paths) {
+                try {
+                  if (!sessionRootMatches(manager, rootIdentity) || canonicalSessionPath(path, manager) !== path)
+                    throw new Error("Session path changed before deletion");
+                  await unlink(path);
+                  removed.push(path);
+                } catch (error) {
+                  // A session another tab already deleted leaves nothing to unlink, but its metadata entry still has to go.
+                  if ((error as NodeJS.ErrnoException).code === "ENOENT") removed.push(path);
+                  else failed.push({ path, error: errorText(error) });
+                }
+              }
+              const rootUnchanged = sessionRootMatches(manager, rootIdentity);
+              if (removed.length > 0 && rootUnchanged) {
+                await mutateSessionMetadata(manager, context.logger, (metadata) => {
+                  for (const path of removed) delete metadata[path];
+                });
+              } else if (!rootUnchanged && failed.length === 0) {
+                failed.push({ path: rootIdentity.path, error: "Session directory changed before metadata cleanup" });
+              }
+              if (failed.length > 0) {
+                sendJson(response, 409, {
+                  error: `Some sessions could not be deleted: ${failed.map((item) => item.path).join(", ")}`,
+                  action,
+                  count: removed.length,
+                  failed,
+                });
+                return;
+              }
+              sendJson(response, 200, { action, count: removed.length });
             });
-            if (failed.length > 0) {
-              sendJson(response, 409, {
-                error: `Some sessions could not be deleted: ${failed.map((item) => item.path).join(", ")}`,
-                action,
-                count: removed.length,
-                failed,
-              });
-              return;
-            }
-            sendJson(response, 200, { action, count: removed.length });
             return;
           }
           await mutateSessionMetadata(manager, context.logger, (metadata) => {
@@ -2646,29 +2739,34 @@ export default {
         try {
           const payload = JSON.parse(await bodyText(request)) as { path?: unknown; cwd?: unknown };
           const manager = services.runtime.session.sessionManager;
-          const sourcePath = typeof payload.path === "string" ? payload.path : "";
-          if (!sessionPathInDirectory(sourcePath, manager)) {
+          const requestedSourcePath = typeof payload.path === "string" ? payload.path : "";
+          const sourcePath = canonicalSessionPath(requestedSourcePath, manager);
+          if (!sourcePath) {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
-          // Pi defers creating a JSONL file for a new empty session until its first assistant response. A duplicate is still a durable action, so materialize the active session before listing it; missing non-active paths remain a 404.
-          if (sourcePath === services.runtime.session.sessionFile && !existsSync(sourcePath)) {
-            try {
-              persistSessionBeforeFirstAssistant(manager);
-            } catch (error) {
-              // Another tab may win the first-persistence race between existsSync and writeFileSync; its file is the same fork source, so continue with the list.
-              if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          await runSessionOperation(response, "Cannot fork a session while a prompt is running", async () => {
+            const activeSessionPath = services.runtime.session.sessionFile;
+            const canonicalActiveSessionPath = activeSessionPath ? canonicalSessionPath(activeSessionPath, manager) : undefined;
+            // Pi defers creating a JSONL file for a new empty session until its first assistant response. A duplicate is still a durable action, so materialize the active session before listing it; missing non-active paths remain a 404.
+            if (sourcePath === canonicalActiveSessionPath && !existsSync(sourcePath)) {
+              try {
+                persistSessionBeforeFirstAssistant(manager);
+              } catch (error) {
+                // Another tab may win the first-persistence race between existsSync and writeFileSync; its file is the same fork source, so continue with the list.
+                if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+              }
             }
-          }
-          const sessions = await SessionManager.list(activeCwd(services), manager.getSessionDir());
-          const source = sessions.find((item) => item.path === sourcePath);
-          if (!source) {
-            sendJson(response, 404, { error: "Session not found" });
-            return;
-          }
-          const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : source.cwd || activeCwd(services);
-          const forked = SessionManager.forkFrom(source.path, targetCwd, manager.getSessionDir());
-          sendJson(response, 200, { sessionId: forked.getSessionId(), sessionFile: forked.getSessionFile(), cwd: targetCwd });
+            const sessions = await SessionManager.list(activeCwd(services), manager.getSessionDir());
+            const source = sessions.find((item) => canonicalSessionPath(item.path, manager) === sourcePath);
+            if (!source) {
+              sendJson(response, 404, { error: "Session not found" });
+              return;
+            }
+            const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : source.cwd || activeCwd(services);
+            const forked = SessionManager.forkFrom(source.path, targetCwd, manager.getSessionDir());
+            sendJson(response, 200, { sessionId: forked.getSessionId(), sessionFile: forked.getSessionFile(), cwd: targetCwd });
+          });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
         }
@@ -2679,10 +2777,6 @@ export default {
       async handler(request, response) {
         if (request.method !== "POST") {
           sendJson(response, 405, { error: "Method not allowed" });
-          return;
-        }
-        if (services.runtime.session.isStreaming) {
-          sendJson(response, 409, { error: "Cannot import a session while a prompt is running" });
           return;
         }
         try {
@@ -2709,35 +2803,37 @@ export default {
             return;
           }
           const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : activeCwd(services);
-          const temporaryDirectory = content === undefined ? undefined : await mkdtemp(join(tmpdir(), "pi-harness-import-"));
-          const requestedName = basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl");
-          const importName = requestedName === "" || requestedName === "." || requestedName === ".." ? "import.jsonl" : requestedName;
-          const importPath = temporaryDirectory === undefined ? suppliedPath : join(temporaryDirectory, importName);
-          try {
-            if (content !== undefined) {
-              if (Buffer.byteLength(content, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
-                sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
+          await runSessionOperation(response, "Cannot import a session while a prompt is running", async () => {
+            const temporaryDirectory = content === undefined ? undefined : await mkdtemp(join(tmpdir(), "pi-harness-import-"));
+            const requestedName = basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl");
+            const importName = requestedName === "" || requestedName === "." || requestedName === ".." ? "import.jsonl" : requestedName;
+            const importPath = temporaryDirectory === undefined ? suppliedPath : join(temporaryDirectory, importName);
+            try {
+              if (content !== undefined) {
+                if (Buffer.byteLength(content, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
+                  sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
+                  return;
+                }
+                await writeFile(importPath, content, "utf8");
+              }
+              const imported = SessionManager.forkFrom(importPath, targetCwd, manager.getSessionDir());
+              const importedPath = imported.getSessionFile();
+              if (!importedPath) throw new Error("Unable to persist imported session");
+              const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(importedPath, { cwdOverride: targetCwd }));
+              if (result.cancelled) {
+                sendJson(response, 409, { error: "Session import was cancelled by an extension" });
                 return;
               }
-              await writeFile(importPath, content, "utf8");
+              events.length = 0;
+              sendJson(response, 200, {
+                sessionId: services.runtime.session.sessionId,
+                sessionFile: services.runtime.session.sessionFile,
+                messages: services.runtime.session.messages.length,
+              });
+            } finally {
+              if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
             }
-            const imported = SessionManager.forkFrom(importPath, targetCwd, manager.getSessionDir());
-            const importedPath = imported.getSessionFile();
-            if (!importedPath) throw new Error("Unable to persist imported session");
-            const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(importedPath, { cwdOverride: targetCwd }));
-            if (result.cancelled) {
-              sendJson(response, 409, { error: "Session import was cancelled by an extension" });
-              return;
-            }
-            events.length = 0;
-            sendJson(response, 200, {
-              sessionId: services.runtime.session.sessionId,
-              sessionFile: services.runtime.session.sessionFile,
-              messages: services.runtime.session.messages.length,
-            });
-          } finally {
-            if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
-          }
+          });
         } catch (error) {
           sendJson(response, error instanceof PayloadTooLargeError ? 413 : 400, { error: errorText(error) });
         }
