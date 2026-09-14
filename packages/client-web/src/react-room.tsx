@@ -80,7 +80,10 @@ import {
   navigateBackFromPluginDetail,
   pluginRoutePath,
   readInstalledPluginDetailId,
+  settingsCloseAction,
   syncPluginRouteHistory,
+  settingsRoutePath,
+  writeSettingsRouteHistory,
   writePluginRouteHistory,
   type PluginCollectionPage,
 } from "./plugin-navigation.js";
@@ -8709,6 +8712,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [modelSelectionError, setModelSelectionError] = useState("");
   const promptScopeRef = useRef<{ sessionId: string | undefined }>({ sessionId: data.session?.sessionId });
   const promptSubmissionIdRef = useRef(0);
+  const settingsBackPendingRef = useRef(false);
   const setDraft = useCallback((value: string | ((current: string) => string)) => {
     setStoredPromptUi((current) => updatePromptDraft(current, promptScopeRef.current.sessionId, value));
   }, []);
@@ -8721,6 +8725,36 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setModelSelectionError("");
     setStoredPromptUi((current) => (current.sessionId === scope.sessionId ? { ...current, error } : current));
   }, []);
+  const openSettings = useCallback(
+    (tab: SettingsTab) => {
+      if (settings === undefined && typeof window !== "undefined") {
+        settingsBackPendingRef.current = false;
+        writeSettingsRouteHistory(window.history, settingsRoutePath(window.location, tab), "push");
+      }
+      setCommandOpen(false);
+      setGlobalSearchOpen(false);
+      setSessionMenuOpen(false);
+      setSessionMenuPath(undefined);
+      setDetails(undefined);
+      setSettings(tab);
+    },
+    [settings],
+  );
+  const closeSettings = useCallback(() => {
+    if (settings === undefined) return;
+    if (typeof window !== "undefined") {
+      const action = settingsCloseAction(window.history.state, settingsBackPendingRef.current);
+      if (action === "ignore") return;
+      if (action === "back") {
+        settingsBackPendingRef.current = true;
+        window.history.back();
+        return;
+      }
+    }
+    settingsBackPendingRef.current = false;
+    setSettings(undefined);
+    setDetails(undefined);
+  }, [settings]);
   useLayoutEffect(() => {
     promptScopeRef.current = { sessionId: data.session?.sessionId };
     setStoredPromptUi((current) => promptUiForSession(current, data.session?.sessionId));
@@ -9024,6 +9058,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   useEffect(() => {
     const onPopState = () => {
       pluginDetailBackPendingRef.current = false;
+      settingsBackPendingRef.current = false;
       const next = readQueryState();
       setCommandOpen(false);
       setGlobalSearchOpen(false);
@@ -9456,7 +9491,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         setSessionMenuOpen(false);
         setSessionToolsOpen(false);
         setWorkspaceChooserOpen(false);
-        setSettings(undefined);
+        closeSettings();
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -9468,12 +9503,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         setCommandOpen(false);
         setGlobalSearchOpen(false);
         setDetails(undefined);
-        setSettings("general");
+        openSettings("general");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commandOpen, data.status?.status, details, globalSearchOpen, sessionDialog, stopRun]);
+  }, [closeSettings, commandOpen, data.status?.status, details, globalSearchOpen, openSettings, sessionDialog, stopRun]);
   const events = useMemo(() => mergeTrajectoryEvents(data.session?.entries ?? [], data.session?.events ?? []), [data.session?.entries, data.session?.events]);
   const displayEvents = useMemo(() => compactThinkingEvents(events), [events]);
   const chatTurns = useMemo(() => projectChatTurns(data.session?.messages ?? []), [data.session?.messages]);
@@ -9729,10 +9764,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       onTab={setSettings}
       onRefresh={refresh}
       onClose={() => {
-        setSettings(undefined);
-        setPage("session");
-        setView("chat");
-        setDetails(undefined);
+        closeSettings();
       }}
     />
   ) : page === "plugins" && installedPluginId && installedPlugin ? (
@@ -9780,10 +9812,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       catalog={marketplaceCatalog.length ? marketplaceCatalog : marketplacePagePlugins}
       onMarketplace={() => pushMarketplacePluginRoute(undefined)}
       onOpenDetail={(plugin) => pushInstalledPluginRoute(plugin.name)}
-      onToml={() => {
-        setDetails(undefined);
-        setSettings("toml");
-      }}
+      onToml={() => openSettings("toml")}
       onToggle={async (plugin) => {
         const result = await api.togglePlugin(plugin.id, !plugin.enabled);
         await refresh();
@@ -9858,10 +9887,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         onOpenDetail={(plugin) => pushMarketplacePluginRoute(plugin.id)}
         onPageChange={setMarketplacePage}
         onBack={() => pushInstalledPluginRoute(undefined)}
-        onToml={() => {
-          setDetails(undefined);
-          setSettings("toml");
-        }}
+        onToml={() => openSettings("toml")}
         installedPackages={installedPackages}
         dependencyRepairPackages={dependencyRepairPackages}
         restartPendingPackages={restartPendingPackages}
@@ -9902,10 +9928,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             workspaces={data.workspaces}
             onCreate={(workspace) => void createNewSession(workspace)}
             onStarter={applyStarter}
-            onToml={() => {
-              setDetails(undefined);
-              setSettings("toml");
-            }}
+            onToml={() => openSettings("toml")}
           />
         ) : null}
         {runTelemetry && data.status?.status === "running" && (
@@ -9969,7 +9992,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           </div>
         </div>
         <div className="composer-stack">
-          <ProviderAuthNotice model={data.status?.model} providers={data.providers} onConfigure={() => setSettings("providers")} />
+          <ProviderAuthNotice model={data.status?.model} providers={data.providers} onConfigure={() => openSettings("providers")} />
           {modelSelectionError ? (
             <PromptError action="model" message={modelSelectionError} />
           ) : promptError ? (
@@ -10789,14 +10812,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           <button
             aria-label={t("设置")}
             className={`sidebar-link ${settings ? "active" : ""}`}
-            onClick={() => {
-              setCommandOpen(false);
-              setGlobalSearchOpen(false);
-              setSessionMenuOpen(false);
-              setSessionMenuPath(undefined);
-              setDetails(undefined);
-              setSettings("general");
-            }}
+            onClick={() => openSettings("general")}
             title={t("设置")}
             type="button"
           >

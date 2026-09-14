@@ -6,13 +6,17 @@ import {
   pluginDetailHistoryState,
   pluginRoutePath,
   readInstalledPluginDetailId,
+  settingsRoutePath,
+  settingsCloseAction,
   syncPluginRouteHistory,
   writePluginRouteHistory,
+  writeSettingsRouteHistory,
   type PluginCollectionPage,
 } from "../src/plugin-navigation.js";
 
 class MemoryHistory {
   readonly entries: { state: unknown; url: string }[];
+  backCalls = 0;
   index = 0;
 
   constructor(url = "/?page=session&session=relay.jsonl", state: unknown = null) {
@@ -38,6 +42,7 @@ class MemoryHistory {
   }
 
   back(): void {
+    this.backCalls += 1;
     this.index = Math.max(0, this.index - 1);
   }
 }
@@ -145,5 +150,32 @@ describe("installed plugin navigation", () => {
       plugin: "prompt-guard",
     });
     expect(url.hash).toBe("#events");
+  });
+
+  it("adds settings to the current in-app route without dropping plugin context", () => {
+    const history = new MemoryHistory("/console?page=plugins&session=relay.jsonl#events");
+    const settings = settingsRoutePath({ pathname: "/console", search: "?page=plugins&session=relay.jsonl", hash: "#events" }, "general");
+
+    writeSettingsRouteHistory(history, settings, "push");
+
+    expect(history.entries).toHaveLength(2);
+    expect(settingsCloseAction(history.state, false)).toBe("back");
+    expect(settingsCloseAction(history.state, true)).toBe("ignore");
+    expect(history.state).toMatchObject({ piHarnessSettingsEntry: true });
+    expect(history.url).toBe("/console?page=plugins&session=relay.jsonl&settings=general#events");
+    history.back();
+    expect(history.backCalls).toBe(1);
+    expect(history.url).toBe("/console?page=plugins&session=relay.jsonl#events");
+  });
+
+  it("retains plugin detail state while marking a pushed settings entry", () => {
+    const history = new MemoryHistory("/console?page=plugins&plugin=prompt-guard", { piHarnessPluginDetailParent: "plugins" });
+    writeSettingsRouteHistory(history, "/console?page=plugins&plugin=prompt-guard&settings=general", "push");
+    expect(history.state).toMatchObject({ piHarnessPluginDetailParent: "plugins", piHarnessSettingsEntry: true });
+  });
+
+  it("replaces direct settings links instead of leaving the console", () => {
+    expect(settingsCloseAction(null, false)).toBe("replace");
+    expect(settingsCloseAction({ piHarnessSettingsEntry: false }, false)).toBe("replace");
   });
 });
