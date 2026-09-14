@@ -1,9 +1,9 @@
-import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
@@ -5087,6 +5087,374 @@ describe("API gateway plugin", () => {
     expect(response.headers.get("content-type")).toContain("application/x-ndjson");
     expect(await response.text()).toContain('"type":"session"');
     await expect(stat(target)).resolves.toBeDefined();
+  });
+
+  test.each([
+    { label: "single", endpoint: "/api/session/delete" },
+    { label: "batch", endpoint: "/api/sessions/batch" },
+  ])("preserves a streaming active session addressed through an aliased $label delete path", async ({ endpoint }) => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-aliased-active-delete-"));
+    temporaryDirectories.push(directory);
+    const target = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
+    const other = join(directory, "2026-08-30T00-00-01-000Z_other.jsonl");
+    const aliasedTarget = `${directory}${sep}.${sep}${basename(target)}`;
+    expect(aliasedTarget).not.toBe(target);
+    await writeFile(target, "{}\n", "utf8");
+    await writeFile(other, "{}\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const manager = SessionManager.create("/tmp", directory);
+    const session = {
+      sessionId: "aliased-active-delete-session",
+      sessionFile: target,
+      messages: [],
+      isStreaming: true,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const newSession = vi.fn(() => Promise.resolve({ cancelled: false }));
+    context.provide("piRuntime", { session, sessionRuntime: { newSession }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        endpoint.endsWith("/batch") ? { action: "delete", paths: [aliasedTarget, other], confirm: true } : { path: aliasedTarget, confirm: true },
+      ),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Cannot delete the active session while a prompt is running" });
+    expect(newSession).not.toHaveBeenCalled();
+    await expect(readFile(target, "utf8")).resolves.toBe("{}\n");
+    await expect(readFile(other, "utf8")).resolves.toBe("{}\n");
+  });
+
+  test("batch-deletes the active session after switching to a new session", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-active-batch-delete-"));
+    temporaryDirectories.push(directory);
+    const target = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
+    const other = join(directory, "2026-08-30T00-00-01-000Z_other.jsonl");
+    await writeFile(target, "{}\n", "utf8");
+    await writeFile(other, "{}\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const manager = SessionManager.create("/tmp", directory);
+    let activePath: string | undefined = target;
+    const session = {
+      sessionId: "active-batch-delete-session",
+      get sessionFile() {
+        return activePath;
+      },
+      messages: [],
+      isStreaming: false,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const newSession = vi.fn(async () => {
+      await expect(stat(target)).resolves.toBeDefined();
+      await expect(stat(other)).resolves.toBeDefined();
+      activePath = undefined;
+      return { cancelled: false };
+    });
+    context.provide("piRuntime", { session, sessionRuntime: { newSession }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    for (const path of [target, other]) {
+      const pinned = await fetch(context.webServer.url + "/api/session/metadata", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, pinned: true }),
+      });
+      expect(pinned.status).toBe(200);
+    }
+
+    const response = await fetch(context.webServer.url + "/api/sessions/batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", paths: [target, other], confirm: true }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ action: "delete", count: 2 });
+    expect(newSession).toHaveBeenCalledOnce();
+    await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(other)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(JSON.parse(await readFile(join(directory, ".pi-harness-session-meta.json"), "utf8"))).toEqual({});
+  });
+
+  test("blocks prompt startup until active batch deletion finishes", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-locked-active-batch-delete-"));
+    temporaryDirectories.push(directory);
+    const target = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
+    const other = join(directory, "2026-08-30T00-00-01-000Z_other.jsonl");
+    await writeFile(target, "{}\n", "utf8");
+    await writeFile(other, "{}\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const manager = SessionManager.create("/tmp", directory);
+    let activePath: string | undefined = target;
+    let releaseSwitch: ((result: { cancelled: false }) => void) | undefined;
+    let signalSwitchStarted: (() => void) | undefined;
+    const switchStarted = new Promise<void>((resolveStarted) => {
+      signalSwitchStarted = resolveStarted;
+    });
+    const session = {
+      sessionId: "locked-active-batch-delete-session",
+      get sessionFile() {
+        return activePath;
+      },
+      messages: [],
+      isStreaming: false,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const prompt = vi.fn(() => Promise.resolve());
+    const newSession = vi.fn(() =>
+      new Promise<{ cancelled: false }>((resolveSwitch) => {
+        releaseSwitch = resolveSwitch;
+        signalSwitchStarted?.();
+      }).then((result) => {
+        activePath = undefined;
+        return result;
+      }),
+    );
+    context.provide("piRuntime", { session, sessionRuntime: { newSession }, prompt } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const deletion = fetch(context.webServer.url + "/api/sessions/batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", paths: [target, other], confirm: true }),
+    });
+    await switchStarted;
+    const competingPrompt = await fetch(context.webServer.url + "/api/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "do not start during deletion" }),
+    });
+    releaseSwitch?.({ cancelled: false });
+    const deletionResponse = await deletion;
+
+    expect(competingPrompt.status).toBe(409);
+    await expect(competingPrompt.json()).resolves.toEqual({ error: "Another session operation is already running" });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(deletionResponse.status).toBe(200);
+  });
+
+  test("refuses deletion when the session root identity changes during the active-session switch", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-swapped-session-root-"));
+    temporaryDirectories.push(directory);
+    const sessionDir = join(directory, "sessions");
+    const movedSessionDir = join(directory, "sessions-original");
+    const outsideDir = join(directory, "outside");
+    await mkdir(sessionDir);
+    await mkdir(outsideDir);
+    const filename = "2026-08-30T00-00-00-000Z_active.jsonl";
+    const target = join(sessionDir, filename);
+    const outside = join(outsideDir, filename);
+    const outsideMetadata = join(outsideDir, ".pi-harness-session-meta.json");
+    await writeFile(target, "keep original\n", "utf8");
+    await writeFile(outside, "keep outside\n", "utf8");
+    await writeFile(outsideMetadata, "do not touch\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const manager = SessionManager.create("/tmp", sessionDir);
+    let activePath: string | undefined = target;
+    const session = {
+      sessionId: "swapped-root-batch-delete-session",
+      get sessionFile() {
+        return activePath;
+      },
+      messages: [],
+      isStreaming: false,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const newSession = vi.fn(async () => {
+      await rename(sessionDir, movedSessionDir);
+      await symlink(outsideDir, sessionDir);
+      activePath = undefined;
+      return { cancelled: false } as const;
+    });
+    context.provide("piRuntime", { session, sessionRuntime: { newSession }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/sessions/batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", paths: [target], confirm: true }),
+    });
+    expect(response.status).toBe(409);
+    await expect(readFile(join(movedSessionDir, filename), "utf8")).resolves.toBe("keep original\n");
+    await expect(readFile(outside, "utf8")).resolves.toBe("keep outside\n");
+    await expect(readFile(outsideMetadata, "utf8")).resolves.toBe("do not touch\n");
+    expect((await readdir(outsideDir)).filter((name) => name.includes(".corrupt-"))).toEqual([]);
+  });
+
+  test.each([
+    {
+      label: "a prompt is streaming",
+      isStreaming: true,
+      cancelled: false,
+      expectedError: "Cannot delete the active session while a prompt is running",
+      expectedSwitches: 0,
+    },
+    {
+      label: "an extension cancels the session change",
+      isStreaming: false,
+      cancelled: true,
+      expectedError: "Session deletion was cancelled by an extension",
+      expectedSwitches: 1,
+    },
+  ])("preserves every batch target when $label", async ({ isStreaming, cancelled, expectedError, expectedSwitches }) => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-blocked-active-batch-delete-"));
+    temporaryDirectories.push(directory);
+    const target = join(directory, "2026-08-30T00-00-00-000Z_active.jsonl");
+    const other = join(directory, "2026-08-30T00-00-01-000Z_other.jsonl");
+    await writeFile(target, "{}\n", "utf8");
+    await writeFile(other, "{}\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const manager = SessionManager.create("/tmp", directory);
+    const session = {
+      sessionId: "blocked-active-batch-delete-session",
+      sessionFile: target,
+      messages: [],
+      isStreaming,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const newSession = vi.fn(() => Promise.resolve({ cancelled }));
+    context.provide("piRuntime", { session, sessionRuntime: { newSession }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    for (const path of [target, other]) {
+      const pinned = await fetch(context.webServer.url + "/api/session/metadata", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, pinned: true }),
+      });
+      expect(pinned.status).toBe(200);
+    }
+
+    const response = await fetch(context.webServer.url + "/api/sessions/batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", paths: [target, other], confirm: true }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: expectedError });
+    expect(newSession).toHaveBeenCalledTimes(expectedSwitches);
+    await expect(readFile(target, "utf8")).resolves.toBe("{}\n");
+    await expect(readFile(other, "utf8")).resolves.toBe("{}\n");
+    expect(JSON.parse(await readFile(join(directory, ".pi-harness-session-meta.json"), "utf8"))).toEqual({
+      [target]: { pinned: true },
+      [other]: { pinned: true },
+    });
+  });
+
+  test("rejects every batch target before switching when one path escapes the session directory", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-invalid-active-batch-delete-"));
+    temporaryDirectories.push(directory);
+    const sessionDir = join(directory, "sessions");
+    await mkdir(sessionDir);
+    const target = join(sessionDir, "2026-08-30T00-00-00-000Z_active.jsonl");
+    const outside = join(directory, "outside.jsonl");
+    await writeFile(target, "{}\n", "utf8");
+    await writeFile(outside, "keep me\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const manager = SessionManager.create("/tmp", sessionDir);
+    const session = {
+      sessionId: "invalid-active-batch-delete-session",
+      sessionFile: target,
+      messages: [],
+      isStreaming: false,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const newSession = vi.fn(() => Promise.resolve({ cancelled: false }));
+    context.provide("piRuntime", { session, sessionRuntime: { newSession }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const pinned = await fetch(context.webServer.url + "/api/session/metadata", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: target, pinned: true }),
+    });
+    expect(pinned.status).toBe(200);
+
+    const response = await fetch(context.webServer.url + "/api/sessions/batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", paths: [target, outside], confirm: true }),
+    });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid session path" });
+    expect(newSession).not.toHaveBeenCalled();
+    await expect(readFile(target, "utf8")).resolves.toBe("{}\n");
+    await expect(readFile(outside, "utf8")).resolves.toBe("keep me\n");
+    expect(JSON.parse(await readFile(join(sessionDir, ".pi-harness-session-meta.json"), "utf8"))).toEqual({ [target]: { pinned: true } });
+  });
+
+  test("rejects nested batch targets that SessionManager cannot generate", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-nested-batch-delete-"));
+    temporaryDirectories.push(directory);
+    const nestedDirectory = join(directory, "nested");
+    await mkdir(nestedDirectory);
+    const nested = join(nestedDirectory, "2026-08-30T00-00-00-000Z_nested.jsonl");
+    const direct = join(directory, "2026-08-30T00-00-01-000Z_direct.jsonl");
+    await writeFile(nested, "keep nested\n", "utf8");
+    await writeFile(direct, "keep direct\n", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "nested-batch-delete-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: { getSessionDir: () => directory, isPersisted: () => true, getEntries: () => [] },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/sessions/batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", paths: [nested, direct], confirm: true }),
+    });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid session path" });
+    await expect(readFile(nested, "utf8")).resolves.toBe("keep nested\n");
+    await expect(readFile(direct, "utf8")).resolves.toBe("keep direct\n");
   });
 
   test("keeps batch deletion going past a failing session and persists the metadata it did remove", async () => {
