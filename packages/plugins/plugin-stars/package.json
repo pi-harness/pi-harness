@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-plugin-stars",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "Search a curated raw.githubusercontent.com plugin snapshot through descriptor-safe inputs, strict bounded validation, a cancellable lifecycle, and fail-closed panel reporting.",
   "keywords": [
     "cordis",
@@ -47,10 +47,10 @@
     "@pi-harness/core": "^0.1.28"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4"
+    "@earendil-works/pi-ai": "^0.84.4 || ^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.84.4 || ^0.85.1"
   },
   "engines": {
     "node": ">=22.19.0"

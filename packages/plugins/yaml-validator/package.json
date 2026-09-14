@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-yaml-validator",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "Validate workspace-contained UTF-8 multi-document YAML through bounded, cancellable reads and line-aware diagnostics.",
   "keywords": [
     "cordis",
@@ -48,9 +48,9 @@
     "@pi-harness/core": "^0.1.28"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@earendil-works/pi-ai": "^0.84.4 || ^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.84.4 || ^0.85.1"
   },
   "engines": {
     "node": ">=22.19.0"

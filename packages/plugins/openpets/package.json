@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-openpets",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Keep a bounded durable companion state from validated recent session entries without retaining message contents, with descriptor-safe actions and explicit persistence health.",
   "keywords": [
     "cordis",
@@ -44,10 +44,10 @@
     "@pi-harness/plugin-api": "^0.1.27"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4"
+    "@earendil-works/pi-ai": "^0.84.4 || ^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.84.4 || ^0.85.1"
   },
   "engines": {
     "node": ">=22.19.0"

@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-skill-guard",
-  "version": "0.1.33",
+  "version": "0.1.34",
   "description": "Audit each loaded Skill entry Markdown file with bounded heuristics for instruction override, secret exfiltration, destructive commands, and obfuscation; it reports risk labels and does not disable loaded Skills.",
   "keywords": [
     "cordis",
@@ -44,9 +44,9 @@
     "@pi-harness/plugin-api": "^0.1.27"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@earendil-works/pi-ai": "^0.84.4 || ^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.84.4 || ^0.85.1"
   },
   "engines": {
     "node": ">=22.19.0"

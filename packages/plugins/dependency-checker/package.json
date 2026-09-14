@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-dependency-checker",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "Run a bounded, offline, read-only check of workspace package.json and requirements*.txt manifests for local package presence, duplicate declaration consistency, unresolved constraints, and unsupported Python directives.",
   "keywords": [
     "cordis",
@@ -45,10 +45,10 @@
     "semver": "7.8.5"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4"
+    "@earendil-works/pi-ai": "^0.84.4 || ^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.84.4 || ^0.85.1"
   },
   "engines": {
     "node": ">=22.19.0"

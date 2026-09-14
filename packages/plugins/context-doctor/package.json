@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-context-doctor",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "Descriptor-safe bounded context audits detect pressure, oversized or uninspectable messages, and tool errors. Compaction requests are queued until the agent has settled; confirmed model-backed compaction may incur cost and provides cancellable waits with dedicated cancellation.",
   "keywords": [
     "cordis",
@@ -41,13 +41,14 @@
     "typecheck": "tsc -p tsconfig.build.json --noEmit"
   },
   "dependencies": {
-    "@pi-harness/plugin-api": "^0.1.57"
+    "@pi-harness/plugin-api": "^0.1.57",
+    "@pi-harness/plugin-context": "^0.1.30"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4"
+    "@earendil-works/pi-ai": "^0.84.4 || ^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.84.4 || ^0.85.1"
   },
   "engines": {
     "node": ">=22.19.0"
