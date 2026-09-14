@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { pathToFileURL } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
 import timerPlugin from "@deepseek-ai/cordis-plugin-timer";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -2698,6 +2699,54 @@ describe("API gateway plugin", () => {
         { path: "modified-recreated.txt", status: "M", label: "modified" },
         { path: "obsolete.txt", status: "D", label: "deleted" },
         { path: "styles.css", status: "M", label: "modified" },
+      ],
+      repository: false,
+    });
+  });
+
+  test("replays successful non-Git file mutations with Pi path normalization", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-normalized-paths-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-normalized-outside-"));
+    temporaryDirectories.push(workspace, outside);
+    await writeFile(join(workspace, "at-file.txt"), "at prefix\n", "utf8");
+    await writeFile(join(workspace, "file url.txt"), "file URL\n", "utf8");
+    await writeFile(join(workspace, "unicode space.txt"), "unicode space\n", "utf8");
+    await writeFile(join(outside, "secret.txt"), "private\n", "utf8");
+    const calls = [
+      { id: "at-prefix", path: "@at-file.txt" },
+      { id: "file-url", path: pathToFileURL(join(workspace, "file url.txt")).href },
+      { id: "unicode-space", path: "unicode\u00a0space.txt" },
+      { id: "outside-file-url", path: pathToFileURL(join(outside, "secret.txt")).href },
+    ];
+    const session = {
+      sessionId: "plain-session-normalized-paths",
+      sessionFile: undefined,
+      messages: [
+        {
+          role: "assistant",
+          content: calls.map((call) => ({ type: "toolCall", id: call.id, name: "write", arguments: { path: call.path, content: "updated\n" } })),
+        },
+        ...calls.map((call) => ({ role: "toolResult", toolCallId: call.id, toolName: "write", content: [], isError: false })),
+      ],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/files");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        { path: "at-file.txt", status: "A", label: "generated" },
+        { path: "file url.txt", status: "A", label: "generated" },
+        { path: "unicode space.txt", status: "A", label: "generated" },
       ],
       repository: false,
     });
