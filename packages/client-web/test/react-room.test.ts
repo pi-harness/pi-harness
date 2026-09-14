@@ -649,7 +649,7 @@ describe("chat transcript turns", () => {
   });
 });
 
-const marketplaceMarkup = (options: { installed?: readonly string[]; restartPending?: readonly string[] } = {}) =>
+const marketplaceMarkup = (options: { installed?: readonly string[]; repairable?: readonly string[]; restartPending?: readonly string[] } = {}) =>
   renderToStaticMarkup(
     createElement(Marketplace, {
       plugins: [plugin("cordis-timer")],
@@ -669,6 +669,7 @@ const marketplaceMarkup = (options: { installed?: readonly string[]; restartPend
       onBack: () => undefined,
       onToml: () => undefined,
       installedPackages: new Set(options.installed ?? []),
+      ...{ dependencyRepairPackages: new Set(options.repairable ?? []) },
       restartPendingPackages: new Set(options.restartPending ?? []),
       onInstall: () => Promise.resolve({}),
     }),
@@ -690,6 +691,13 @@ describe("marketplace install feedback", () => {
   test("keeps 已安装 for a loaded plugin and 安装 for one nobody touched", () => {
     expect(marketplaceMarkup({ installed: ["example-cordis-timer"] })).toContain(">已安装</button>");
     expect(marketplaceMarkup()).toContain(">安装</button>");
+  });
+
+  test("offers dependency repair for an installed composite plugin whose requirements are missing", () => {
+    const markup = marketplaceMarkup({ installed: ["example-cordis-timer"], repairable: ["example-cordis-timer"] });
+
+    expect(markup).toContain(">修复依赖</button>");
+    expect(/<button disabled=""[^>]*>修复依赖<\/button>/u.test(markup)).toBe(false);
   });
 
   test("brings the restart notice back when the user returns to the marketplace", () => {
@@ -723,6 +731,12 @@ describe("plugin action error text", () => {
     expect(pluginActionErrorText("Another marketplace plugin change is already running")).toBe("已有插件操作正在进行，请等它完成后重试。");
     expect(pluginActionErrorText("Plugin is already installed")).toBe("这个插件已经安装过了，可以在「已安装」列表里管理它。");
     expect(pluginActionErrorText("Built-in plugins cannot be changed")).toBe("内置插件由运行时管理，不能启用或停用。");
+    expect(pluginActionErrorText("Plugin is required by installed plugins: Change Verifier")).toBe(
+      "此插件仍被以下已安装插件依赖：Change Verifier。请先停用或卸载这些插件。",
+    );
+    expect(pluginActionErrorText("Plugin requires installed and enabled dependencies: Reviewer Bot, Test Harness")).toBe(
+      "此插件需要以下依赖已安装并启用：Reviewer Bot, Test Harness。",
+    );
     expect(pluginActionErrorText("Request failed with status 502")).toBe("请求失败（HTTP 502）：请确认 Pi Harness 仍在运行，然后重试。");
   });
 

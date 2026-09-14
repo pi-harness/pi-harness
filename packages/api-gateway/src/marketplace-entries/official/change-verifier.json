@@ -15,6 +15,7 @@
   },
   "capabilities": ["runs-commands"],
   "hooks": ["项目脚本", "Git 变更", "插件面板"],
+  "dependencies": ["reviewer-bot", "test-harness"],
   "profile": {
     "name": "@pi-harness/plugin-change-verifier",
     "config": {}

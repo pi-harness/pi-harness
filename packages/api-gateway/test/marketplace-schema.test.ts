@@ -114,6 +114,7 @@ const files = entryFiles(entriesRoot).sort();
 const readEntry = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 const validEntry = (): Record<string, unknown> => readEntry(join(entriesRoot, "official", "agent-teams.json"));
 const groupEntry = (): Record<string, unknown> => readEntry(join(entriesRoot, "official", "cordis-group.json"));
+const changeVerifierEntry = (): Record<string, unknown> => readEntry(join(entriesRoot, "official", "change-verifier.json"));
 
 describe("marketplace entry schema", () => {
   test("covers every shipped entry file", () => {
@@ -128,6 +129,11 @@ describe("marketplace entry schema", () => {
     expect(validate(schema, validEntry())).toEqual([]);
     expect(validate(schema, groupEntry())).toEqual([]);
     expect(validate(schema, { ...validEntry(), statistics: { downloads30d: 12, quality: 0.5, updatedAt: "2026-01-01T00:00:00.000Z" } })).toEqual([]);
+  });
+
+  test("accepts unique marketplace dependency ids and declares the Change Verifier providers", () => {
+    expect(validate(schema, { ...validEntry(), dependencies: ["reviewer-bot", "test-harness"] })).toEqual([]);
+    expect(changeVerifierEntry().dependencies).toEqual(["reviewer-bot", "test-harness"]);
   });
 
   test("rejects entries the runtime validator rejects", () => {
@@ -146,6 +152,9 @@ describe("marketplace entry schema", () => {
     expect(validate(schema, { ...validEntry(), capabilities: ["read-only", "runs-commands"] })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), capabilities: ["session-data", "runs-commands"] })).toEqual([]);
     expect(validate(schema, { ...validEntry(), repository: "http://example.com" })).not.toEqual([]);
+    expect(validate(schema, { ...validEntry(), dependencies: [] })).not.toEqual([]);
+    expect(validate(schema, { ...validEntry(), dependencies: ["Not Kebab"] })).not.toEqual([]);
+    expect(validate(schema, { ...validEntry(), dependencies: ["reviewer-bot", "reviewer-bot"] })).not.toEqual([]);
     expect(validate(schema, { ...validEntry(), unexpected: true })).not.toEqual([]);
   });
 });
