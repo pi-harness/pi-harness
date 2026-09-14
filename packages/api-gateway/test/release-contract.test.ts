@@ -42,6 +42,7 @@ describe("release contract", () => {
     expect(workflow).not.toContain("tag_exists=$tag_exists");
     // A bare `packages/name` argument is an npm package spec and may be resolved as a GitHub shorthand. Prefix the workspace with `./` so npm publishes the checked-out directory.
     expect(workflow).toContain('npm publish "./$workspace" --access public');
+    expect(workflow).toContain('publish_workspace "."');
   });
 
   test("publishes every plugin package on its own version line", () => {
@@ -68,12 +69,7 @@ describe("release contract", () => {
     const lock = readJson("package-lock.json") as {
       packages: Record<string, { version?: string; peerDependencies?: Record<string, string> }>;
     };
-    const runtimePackages = [
-      "@deepseek-ai/cordis",
-      "@deepseek-ai/schemastery",
-      "@earendil-works/pi-ai",
-      "@earendil-works/pi-coding-agent",
-    ];
+    const runtimePackages = ["@deepseek-ai/cordis", "@deepseek-ai/schemastery", "@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"];
     const plugins = Object.entries(root.devDependencies).filter(([name]) => name.startsWith("@pi-harness/plugin-"));
     expect(plugins.length).toBeGreaterThan(0);
     for (const [name, requestedVersion] of plugins) {

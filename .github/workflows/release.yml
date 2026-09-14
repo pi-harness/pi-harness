@@ -10,7 +10,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: npm-release-${{ github.ref }}
+  group: npm-release
   cancel-in-progress: false
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --include=dev --legacy-peer-deps
+        run: npm ci --include=dev
 
       - name: Verify release
         run: |
@@ -78,6 +78,10 @@ jobs:
           # set-release-version rewrites JSON with JSON.stringify; normalize the
           # generated files with the repository formatter before committing them.
           npm run format
+          # A release commit must remain installable before any new package exists
+          # in the registry. This catches a manifest/lock mismatch before the tag
+          # reserves the version and makes the commit immutable.
+          npm ci --dry-run --include=dev
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
@@ -127,8 +131,8 @@ jobs:
             echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
             exit 1
           fi
-          # A plugin whose version did not move is already on npm and is skipped below, so this list stays the same on every run and only the changed packages are actually submitted.
-          for workspace in packages/plugin-api packages/core $(node scripts/build-plugins.mjs --order) .; do
+          publish_workspace() {
+            workspace="$1"
             package_name=$(node -p "require('./$workspace/package.json').name")
             package_version=$(node -p "require('./$workspace/package.json').version")
             if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
@@ -141,7 +145,18 @@ jobs:
               echo "Publishing $package_name@$package_version failed" >&2
               exit 1
             fi
+          }
+          # A plugin whose version did not move is already on npm and is skipped below, so this list stays the same on every run and only the changed packages are actually submitted.
+          for workspace in packages/plugin-api packages/core $(node scripts/build-plugins.mjs --order); do
+            publish_workspace "$workspace"
           done
+          # esbuild intentionally hard-links its JavaScript shim to the platform
+          # binary. npm pack preserves that inode relation inside bundled
+          # dependencies, while the public registry rejects tar hard-link entries.
+          # Materialize the installed tree only after independent packages publish;
+          # the root prepack rebuild does not run dependency install scripts again.
+          node scripts/materialize-hardlinks.mjs node_modules
+          publish_workspace "."
 
       - name: Create GitHub Release
         env:

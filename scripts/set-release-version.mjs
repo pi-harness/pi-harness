@@ -118,6 +118,8 @@ const updateDependencies = (value, floating) => {
         if (!satisfiesCaret(range, target)) value[field][dependency] = `^${target}`;
         continue;
       }
+      // A changed plugin does not exist in the registry until after this release commit is tagged. Non-plugin manifests therefore keep consuming the last published version; otherwise package.json asks npm for the new version while the registry-backed node_modules lock entry still describes the old tarball, making the release commit impossible to install. The marketplace entry moves immediately because it is used only after the publish step succeeds.
+      if (pluginPackageNames.has(dependency)) continue;
       value[field][dependency] = dependency === "@pi-harness/core" && value.name === "@pi-harness/pi-harness" ? `^${target}` : target;
     }
   }

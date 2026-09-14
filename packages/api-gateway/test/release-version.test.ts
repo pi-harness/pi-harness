@@ -136,6 +136,11 @@ describe("release version preparation", () => {
       lockfileVersion: 3,
       packages: {
         "": { name: "@pi-harness/pi-harness", version: "0.1.2", dependencies: { "@pi-harness/plugin-alpha": "0.2.5" } },
+        "node_modules/@pi-harness/plugin-alpha": {
+          version: "0.2.5",
+          resolved: "https://registry.npmjs.org/@pi-harness/plugin-alpha/-/plugin-alpha-0.2.5.tgz",
+          integrity: "sha512-published-alpha",
+        },
         "packages/plugins/alpha": { name: "@pi-harness/plugin-alpha", version: "0.2.5", dependencies: { "@pi-harness/plugin-api": "^0.1.2" } },
         "packages/plugins/beta": { name: "@pi-harness/plugin-beta", version: "0.1.2" },
       },
@@ -168,11 +173,17 @@ describe("release version preparation", () => {
     expect(await read("packages/plugins/gamma/package.json")).toMatchObject({ version: "0.1.3" });
     expect(await read("package.json")).toMatchObject({
       version: "0.1.3",
-      dependencies: { "@pi-harness/core": "^0.1.3", "@pi-harness/plugin-alpha": "0.2.6", "@pi-harness/plugin-beta": "0.1.2" },
+      // The changed plugin is not on npm until after this release commit is created. Development consumers must keep resolving the last published version so package.json and the registry-backed lock entry remain installable.
+      dependencies: { "@pi-harness/core": "^0.1.3", "@pi-harness/plugin-alpha": "0.2.5", "@pi-harness/plugin-beta": "0.1.2" },
     });
     expect(await read("package-lock.json")).toMatchObject({
       packages: {
-        "": { dependencies: { "@pi-harness/plugin-alpha": "0.2.6" } },
+        "": { dependencies: { "@pi-harness/plugin-alpha": "0.2.5" } },
+        "node_modules/@pi-harness/plugin-alpha": {
+          version: "0.2.5",
+          resolved: "https://registry.npmjs.org/@pi-harness/plugin-alpha/-/plugin-alpha-0.2.5.tgz",
+          integrity: "sha512-published-alpha",
+        },
         "packages/plugins/alpha": { version: "0.2.6" },
         "packages/plugins/beta": { version: "0.1.2" },
       },
