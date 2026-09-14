@@ -457,6 +457,35 @@ describe("session list tools", () => {
 });
 
 describe("new session workspace picker", () => {
+  test("keeps the connected workspace visible and bounds the remaining worktree list", async () => {
+    const module = (await import("../src/react-room.js")) as unknown as {
+      workspaceLandingGroups?: (workspaces: readonly { path: string; branch: string; current: boolean; name: string }[]) => {
+        featured: readonly { path: string }[];
+        remaining: readonly { path: string }[];
+      };
+    };
+    expect(module.workspaceLandingGroups).toBeTypeOf("function");
+    if (!module.workspaceLandingGroups) return;
+    const workspaces = Array.from({ length: 12 }, (_, index) => ({
+      path: `/workspace/${index}`,
+      branch: `feature/${index}`,
+      current: index === 9,
+      name: `workspace-${index}`,
+    }));
+
+    const groups = module.workspaceLandingGroups(workspaces);
+    expect(groups.featured.map((workspace) => workspace.path)).toEqual(["/workspace/9"]);
+    expect(groups.remaining).toHaveLength(11);
+    expect(groups.remaining.some((workspace) => workspace.path === "/workspace/9")).toBe(false);
+
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    expect(source).toContain('<details className="workspace-overflow">');
+    const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
+    const listRule = /\.workspace-overflow-list\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";
+    expect(listRule).toContain("[max-height:");
+    expect(listRule).toContain("[overflow:auto]");
+  });
+
   test("centers short content without clipping the start of an overflowing workspace list", async () => {
     const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
     const scrollRule = /\.chat-scroll\.is-empty\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";

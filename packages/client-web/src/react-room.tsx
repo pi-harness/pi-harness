@@ -607,6 +607,19 @@ function sessionGroups(sessions: readonly Record<string, unknown>[]): readonly [
   });
 }
 
+export function workspaceLandingGroups(workspaces: readonly ClientWorkspace[]): {
+  featured: readonly ClientWorkspace[];
+  remaining: readonly ClientWorkspace[];
+} {
+  const connected = workspaces.filter((workspace) => workspace.current);
+  const featured = connected.length ? connected : workspaces.slice(0, 1);
+  const featuredPaths = new Set(featured.map((workspace) => workspace.path));
+  return {
+    featured,
+    remaining: workspaces.filter((workspace) => !featuredPaths.has(workspace.path)),
+  };
+}
+
 function Workspace({
   status,
   workspaces,
@@ -620,6 +633,7 @@ function Workspace({
   onStarter: (value: string) => void;
   onToml: () => void;
 }) {
+  const workspaceGroups = workspaceLandingGroups(workspaces);
   const starters: readonly [string, string][] = [
     [t("定位问题"), t("分析当前仓库并给出根因")],
     [t("修复并测试"), t("实现修复并运行相关测试")],
@@ -640,16 +654,24 @@ function Workspace({
       </div>
       <div className="workspace-picker">
         {workspaces.length ? (
-          workspaces.map((workspace) => (
-            <button className="workspace-row" key={workspace.path} onClick={() => onCreate(workspace)} type="button">
-              <span className={`workspace-status ${workspace.current ? "live" : "offline"}`}>{workspace.current ? t("已连接") : t("工作区")}</span>
-              <span>
-                <code>{workspace.path}</code>
-                <small>{workspace.current && status ? `${workspace.branch} · ${status.model}` : workspace.branch}</small>
-              </span>
-              <span className="workspace-arrow">↗</span>
-            </button>
-          ))
+          <>
+            {workspaceGroups.featured.map((workspace) => (
+              <WorkspaceLandingRow key={workspace.path} onCreate={onCreate} status={status} workspace={workspace} />
+            ))}
+            {workspaceGroups.remaining.length ? (
+              <details className="workspace-overflow">
+                <summary>
+                  <span>{t("或选择已有 worktree")}</span>
+                  <small>{workspaceGroups.remaining.length}</small>
+                </summary>
+                <div className="workspace-overflow-list">
+                  {workspaceGroups.remaining.map((workspace) => (
+                    <WorkspaceLandingRow key={workspace.path} onCreate={onCreate} status={status} workspace={workspace} />
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </>
         ) : (
           <div className="workspace-row is-empty">
             <span className="workspace-status offline">{t("加载中")}</span>
@@ -683,6 +705,27 @@ function Workspace({
         ))}
       </div>
     </div>
+  );
+}
+
+function WorkspaceLandingRow({
+  workspace,
+  status,
+  onCreate,
+}: {
+  workspace: ClientWorkspace;
+  status: ClientStatus | undefined;
+  onCreate: (workspace: ClientWorkspace) => void;
+}) {
+  return (
+    <button className="workspace-row" onClick={() => onCreate(workspace)} type="button">
+      <span className={`workspace-status ${workspace.current ? "live" : "offline"}`}>{workspace.current ? t("已连接") : t("工作区")}</span>
+      <span>
+        <code>{workspace.path}</code>
+        <small>{workspace.current && status ? `${workspace.branch} · ${status.model}` : workspace.branch}</small>
+      </span>
+      <span className="workspace-arrow">↗</span>
+    </button>
   );
 }
 
