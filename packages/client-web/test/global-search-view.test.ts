@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
+import { activeLocale, setLocale } from "../src/i18n.js";
 
 test("gives the global search result list an accessible name", async () => {
   const module = (await import("../src/react-room.js")) as unknown as {
@@ -161,25 +162,35 @@ test("shows a workspace file preview failure in the details output", async () =>
   expect(details.at(-1)?.output).toBe("无法预览文件：binary files cannot be previewed");
 });
 
-test("distinguishes a forked session from its identically named source", async () => {
+test("distinguishes forked, archived and pinned sessions from an identically named source", async () => {
   const module = (await import("../src/react-room.js")) as unknown as {
     GlobalSearch: (props: Record<string, unknown>) => ReturnType<typeof createElement>;
   };
-  const html = renderToStaticMarkup(
-    createElement(module.GlobalSearch, {
-      commands: [],
-      sessions: [
-        { sessionId: "source", name: "Launch roadmap", messageCount: 2 },
-        { sessionId: "fork", name: "Launch roadmap", messageCount: 2, forked: true },
-      ],
-      files: [],
-      onClose: () => {},
-      onUse: () => {},
-      onOpenSession: () => {},
-      onOpenFile: () => {},
-    }),
-  );
+  const previousLocale = activeLocale();
+  await setLocale("en");
+  try {
+    const html = renderToStaticMarkup(
+      createElement(module.GlobalSearch, {
+        commands: [],
+        sessions: [
+          { sessionId: "source", name: "Launch roadmap", messageCount: 2 },
+          { sessionId: "copy", name: "Launch roadmap", messageCount: 2, pinned: true, archived: true, forked: true },
+        ],
+        files: [],
+        onClose: () => {},
+        onUse: () => {},
+        onOpenSession: () => {},
+        onOpenFile: () => {},
+      }),
+    );
 
-  expect(html.match(/<strong>Launch roadmap<\/strong>/gu)).toHaveLength(2);
-  expect(html.match(/副本/gu)).toHaveLength(1);
+    expect(html.match(/<strong>Launch roadmap<\/strong>/gu)).toHaveLength(2);
+    expect(html).toContain("2 messages · Pinned · Archived · Duplicate");
+    expect(html.match(/Duplicate/gu)).toHaveLength(1);
+    expect(html.match(/Archived/gu)).toHaveLength(1);
+    expect(html.match(/Pinned/gu)).toHaveLength(1);
+    expect(html).not.toMatch(/已归档|已置顶|副本/u);
+  } finally {
+    await setLocale(previousLocale);
+  }
 });

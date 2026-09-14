@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test, vi } from "vitest";
 import { themePresets } from "@pi-harness/plugin-theme-studio";
 import { createClientApi, type ClientMarketplacePlugin, type ClientPiConfig } from "../src/control-room.js";
-import { setLocale } from "../src/i18n.js";
+import { activeLocale, setLocale } from "../src/i18n.js";
 import type { ConfigStatus } from "../src/react-room.js";
 import {
   PluginPanelCard,
@@ -38,6 +38,21 @@ import {
 
 const config = (source: string): ClientPiConfig =>
   ({ path: "~/.pi/agent/settings.json", scope: "global", source, settings: { transport: "stdio" } }) as unknown as ClientPiConfig;
+
+test("localizes an empty session title in the sidebar", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    sessionListTitle?: (session: Record<string, unknown>) => string;
+  };
+  const previousLocale = activeLocale();
+  await setLocale("en");
+  try {
+    expect(module.sessionListTitle).toBeTypeOf("function");
+    if (!module.sessionListTitle) return;
+    expect(module.sessionListTitle({ name: "", firstMessage: "" })).toBe("Unnamed session");
+  } finally {
+    await setLocale(previousLocale);
+  }
+});
 
 describe("provider auth readiness", () => {
   const provider = { provider: "everyapi", name: "EveryAPI", active: true, auth: { configured: false }, models: [] };

@@ -8134,8 +8134,19 @@ export async function loadWorkspaceFileDetail(
   }
 }
 
-function sessionForkSuffix(session: Record<string, unknown> | ClientSession): string {
-  return session.forked === true ? ` · ${t("副本")}` : "";
+function sessionStatusSuffix(session: Record<string, unknown> | ClientSession): string {
+  return `${session.pinned === true ? t(" · 已置顶") : ""}${session.archived === true ? t(" · 已归档") : ""}${session.forked === true ? ` · ${t("副本")}` : ""}`;
+}
+
+export function sessionListTitle(session: Record<string, unknown>): string {
+  return value(
+    typeof session.name === "string" && session.name !== ""
+      ? session.name
+      : typeof session.firstMessage === "string"
+        ? truncateSessionTitle(session.firstMessage)
+        : "",
+    t("未命名会话"),
+  );
 }
 
 export function scrollActiveOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
@@ -8344,7 +8355,7 @@ export function GlobalSearch({
                       item.kind === "command"
                         ? (item.command.description ?? item.command.source ?? t("由当前运行时注册"))
                         : item.kind === "session"
-                          ? `${t("{count} 条消息", { count: value(item.session.messageCount, "0") })}${sessionForkSuffix(item.session)}`
+                          ? `${t("{count} 条消息", { count: value(item.session.messageCount, "0") })}${sessionStatusSuffix(item.session)}`
                           : item.file.status
                             ? `${item.file.label} · ${item.file.status}`
                             : t("工作区");
@@ -10508,14 +10519,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <span className="session-copy">
                     <strong>{data.session.name ?? (data.session.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话"))}</strong>
                     <small>
-                      {t("{v0} 条消息{v1} {v2}", {
-                        v0: data.session.messages.length,
-                        v1: data.session.pinned === true ? t(" · 已置顶") : "",
-                        v2: [data.session.archived === true ? t("已归档") : "", data.session.forked === true ? t("副本") : ""]
-                          .filter(Boolean)
-                          .map((label) => `· ${label}`)
-                          .join(" "),
-                      })}
+                      {t("{count} 条消息", { count: data.session.messages.length })}
+                      {sessionStatusSuffix(data.session)}
                     </small>
                   </span>
                 </button>
@@ -10604,18 +10609,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     >
                       <span className="session-dot ok"></span>
                       <span className="session-copy">
-                        <strong>
-                          {value(session.name ?? (typeof session.firstMessage === "string" ? truncateSessionTitle(session.firstMessage) : ""), "未命名会话")}
-                        </strong>
+                        <strong>{sessionListTitle(session)}</strong>
                         <small>
-                          {t("{v0} 条消息{v1} {v2}", {
-                            v0: value(session.messageCount, "0"),
-                            v1: session.pinned === true ? t(" · 已置顶") : "",
-                            v2: [session.archived === true ? t("已归档") : "", session.forked === true ? t("副本") : ""]
-                              .filter(Boolean)
-                              .map((label) => `· ${label}`)
-                              .join(" "),
-                          })}
+                          {t("{count} 条消息", { count: value(session.messageCount, "0") })}
+                          {sessionStatusSuffix(session)}
                         </small>
                       </span>
                     </button>
