@@ -1,6 +1,6 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { existsSync, lstatSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -712,6 +712,7 @@ interface GitStatusEntry {
 interface GitStatusResult {
   readonly entries: readonly GitStatusEntry[];
   readonly truncated: boolean;
+  readonly repository: boolean;
 }
 
 // `-z` output is NUL-separated and never C-quoted, so non-ASCII names arrive verbatim and a rename carries its original path as the following field instead of an `old -> new` pair. The paths are relative to the repository root regardless of cwd, so they are rebased onto the cwd prefix to keep the contract with /api/files/diff, /api/files/commit and /api/files/revert, which resolve paths against the same cwd.
@@ -729,7 +730,7 @@ function parseGitStatus(output: string, prefix: string): GitStatusEntry[] {
   return entries;
 }
 
-function gitStatusOutput(cwd: string): Promise<{ output: string; truncated: boolean }> {
+function gitStatusOutput(cwd: string): Promise<{ output: string; truncated: boolean; repository: boolean }> {
   return new Promise((resolveStatus, rejectStatus) => {
     execFile(
       "git",
@@ -737,17 +738,17 @@ function gitStatusOutput(cwd: string): Promise<{ output: string; truncated: bool
       { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 512 * 1024 },
       (error, stdout, stderr) => {
         if (error === null) {
-          resolveStatus({ output: stdout, truncated: false });
+          resolveStatus({ output: stdout, truncated: false, repository: true });
           return;
         }
         const termination = gitTermination(error);
         if (termination === "output-limit") {
           // Keep the complete entries that arrived before the kill; the final entry may have been cut mid-path.
-          resolveStatus({ output: stdout.slice(0, stdout.lastIndexOf("\0") + 1), truncated: true });
+          resolveStatus({ output: stdout.slice(0, stdout.lastIndexOf("\0") + 1), truncated: true, repository: true });
           return;
         }
         if (termination === undefined && error.code === 128 && /not a git repository/i.test(stderr)) {
-          resolveStatus({ output: "", truncated: false });
+          resolveStatus({ output: "", truncated: false, repository: false });
           return;
         }
         rejectStatus(new Error(termination ? gitTerminationMessage("status", termination) : stderr.trim() || error.message, { cause: error }));
@@ -757,10 +758,112 @@ function gitStatusOutput(cwd: string): Promise<{ output: string; truncated: bool
 }
 
 async function gitStatus(cwd: string): Promise<GitStatusResult> {
-  const { output, truncated } = await gitStatusOutput(cwd);
-  if (output === "") return { entries: [], truncated };
+  const { output, truncated, repository } = await gitStatusOutput(cwd);
+  if (output === "") return { entries: [], truncated, repository };
   const prefix = await gitCommand(cwd, ["rev-parse", "--show-prefix"]);
-  return { entries: parseGitStatus(output, prefix.code === 0 ? prefix.stdout.trim() : ""), truncated };
+  return { entries: parseGitStatus(output, prefix.code === 0 ? prefix.stdout.trim() : ""), truncated, repository };
+}
+
+interface SessionFileMutation {
+  readonly path: string;
+  readonly status: "A" | "M" | "D";
+  readonly label: "generated" | "modified" | "deleted";
+}
+
+interface ContainedWorkspacePath {
+  readonly absolute: string;
+  readonly relativePath: string;
+}
+
+async function containedWorkspacePath(root: string, requested: string): Promise<ContainedWorkspacePath | undefined> {
+  const absolute = resolve(root, requested);
+  const relativePath = relative(root, absolute);
+  if (relativePath === "" || escapesRoot(relativePath)) return undefined;
+  let ancestor = dirname(absolute);
+  try {
+    const canonicalRoot = await realpath(root);
+    for (;;) {
+      try {
+        const canonicalAncestor = await realpath(ancestor);
+        if (escapesRoot(relative(canonicalRoot, canonicalAncestor))) return undefined;
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+        const parent = dirname(ancestor);
+        if (parent === ancestor) return undefined;
+        ancestor = parent;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return { absolute, relativePath };
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function sessionBranchMessages(session: ApiServices["runtime"]["session"]): readonly unknown[] {
+  const manager = session.sessionManager;
+  if (typeof manager?.getBranch === "function") {
+    return manager
+      .getBranch()
+      .map((entry) => (entry.type === "message" ? entry.message : undefined))
+      .filter((message) => message !== undefined);
+  }
+  return session.messages;
+}
+
+async function sessionFileMutations(session: ApiServices["runtime"]["session"], root: string): Promise<readonly SessionFileMutation[]> {
+  const calls = new Map<string, { readonly path: string; readonly tool: "write" | "edit" | "delete" }>();
+  const mutations = new Map<string, SessionFileMutation>();
+  for (const rawMessage of sessionBranchMessages(session)) {
+    const message = objectValue(rawMessage);
+    if (message?.role === "assistant" && Array.isArray(message.content)) {
+      for (const rawContent of message.content) {
+        const content = objectValue(rawContent);
+        const tool = content?.name;
+        const id = content?.id;
+        const input = objectValue(content?.arguments);
+        if (
+          content?.type === "toolCall" &&
+          typeof id === "string" &&
+          (tool === "write" || tool === "edit" || tool === "delete") &&
+          typeof input?.path === "string"
+        ) {
+          calls.set(id, { path: input.path, tool });
+        }
+      }
+      continue;
+    }
+    if (message?.role !== "toolResult" || message.isError === true || typeof message.toolCallId !== "string") continue;
+    const call = calls.get(message.toolCallId);
+    if (call === undefined) continue;
+    const absolute = resolve(root, call.path);
+    const path = relative(root, absolute).split(sep).join("/");
+    if (path === "" || escapesRoot(path)) continue;
+    const mutation: SessionFileMutation =
+      call.tool === "write"
+        ? { path, status: "A", label: "generated" }
+        : call.tool === "edit"
+          ? { path, status: "M", label: "modified" }
+          : { path, status: "D", label: "deleted" };
+    mutations.set(path, mutation);
+  }
+  const existing = await Promise.all(
+    [...mutations.values()].map(async (mutation) => {
+      const target = await containedWorkspacePath(root, mutation.path);
+      if (target === undefined) return undefined;
+      if (mutation.status === "D") return mutation;
+      try {
+        return (await lstat(target.absolute)).isFile() ? mutation : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return existing.filter((mutation) => mutation !== undefined).sort((left, right) => left.path.localeCompare(right.path));
 }
 
 async function gitDiff(cwd: string, path: string): Promise<string> {
@@ -780,6 +883,10 @@ async function gitDiff(cwd: string, path: string): Promise<string> {
   // exposes them with a diff action. Generate the same patch a staged add
   // would show, without changing the index or working tree.
   const status = await gitCommand(cwd, ["status", "--porcelain=v1", "--untracked-files=all", "--", path]);
+  if (status.code !== 0 && /not a git repository/iu.test(status.stderr)) {
+    const snapshot = await gitCommand(cwd, ["diff", "--no-ext-diff", "--no-index", "--", "/dev/null", path]);
+    return snapshot.stdout;
+  }
   if (status.code !== 0 || !/^\?\? /u.test(status.stdout)) return "";
   const untrackedDiff = await gitCommand(cwd, ["diff", "--no-ext-diff", "--no-index", "--", "/dev/null", path]);
   return untrackedDiff.stdout;
@@ -1776,12 +1883,16 @@ export default {
           sendJson(response, 500, { error: errorText(error) });
           return;
         }
+        if (!status.repository) {
+          sendJson(response, 200, { items: await sessionFileMutations(services.runtime.session, resolve(activeCwd(services))), repository: false });
+          return;
+        }
         const items = status.entries.map((entry) => ({
           path: entry.path,
           status: entry.status,
           label: entry.status === "??" ? "untracked" : entry.status.includes("D") ? "deleted" : entry.status.includes("A") ? "added" : "modified",
         }));
-        sendJson(response, 200, { items, ...(status.truncated ? { truncated: true } : {}) });
+        sendJson(response, 200, { items, repository: true, ...(status.truncated ? { truncated: true } : {}) });
       },
     });
     const disposeWorkspaceFiles = services.webServer.register({
@@ -1812,13 +1923,12 @@ export default {
           return;
         }
         const root = resolve(activeCwd(services));
-        const absolute = resolve(root, requested);
-        const relativePath = relative(root, absolute);
-        if (escapesRoot(relativePath)) {
+        const target = await containedWorkspacePath(root, requested);
+        if (target === undefined) {
           sendJson(response, 400, { error: "path must stay inside the workspace" });
           return;
         }
-        sendJson(response, 200, { path: relativePath, diff: await gitDiff(root, relativePath) });
+        sendJson(response, 200, { path: target.relativePath, diff: await gitDiff(root, target.relativePath) });
       },
     });
     const disposeFileCommit = services.webServer.register({

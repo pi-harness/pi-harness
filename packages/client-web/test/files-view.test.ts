@@ -4,10 +4,11 @@ import { describe, expect, test } from "vitest";
 import { Files } from "../src/react-room.js";
 import type { ClientApi, ClientFile } from "../src/control-room.js";
 
-function renderFiles(files: readonly ClientFile[]): string {
+function renderFiles(files: readonly ClientFile[], repository = true): string {
   return renderToStaticMarkup(
     createElement(Files, {
       files,
+      repository,
       api: {} as ClientApi,
       onDiff: async () => {},
       onRefresh: () => {},
@@ -32,5 +33,14 @@ describe("files view summary", () => {
     const html = renderFiles([]);
 
     expect(html).toContain("0 个文件 · 0 个新增文件 · 0 个删除文件");
+  });
+
+  test("labels plain-workspace output honestly and hides Git-only actions", () => {
+    const html = renderFiles([{ path: "index.html", status: "A", label: "generated" }], false);
+
+    expect(html).toContain("本次会话产出");
+    expect(html).toContain("根据成功的文件工具调用识别");
+    expect(html).not.toContain("提交这些改动");
+    expect(html).not.toContain("全部撤销");
   });
 });
