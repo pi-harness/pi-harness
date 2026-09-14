@@ -2593,13 +2593,23 @@ describe("API gateway plugin", () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-files-"));
     const outside = await mkdtemp(join(tmpdir(), "pi-harness-plain-session-outside-"));
     temporaryDirectories.push(workspace, outside);
+    await writeFile(join(workspace, "generated-recreated.txt"), "generated again\n", "utf8");
     await writeFile(join(workspace, "index.html"), "<h1>RelayOps</h1>\n", "utf8");
+    await writeFile(join(workspace, "modified-recreated.txt"), "modified again\n", "utf8");
     await writeFile(join(workspace, "styles.css"), "body {}\n", "utf8");
     await writeFile(join(outside, "secret.txt"), "private\n", "utf8");
     await symlink(join(outside, "secret.txt"), join(workspace, "linked-secret.txt"));
     await symlink(outside, join(workspace, "linked-outside"));
     const successfulCall = "write-success";
+    const editGeneratedCall = "edit-generated-success";
     const editCall = "edit-success";
+    const rewriteModifiedCall = "rewrite-modified-success";
+    const generatedBeforeDeleteCall = "generated-before-delete-success";
+    const deleteGeneratedCall = "delete-generated-success";
+    const editRecreatedGeneratedCall = "edit-recreated-generated-success";
+    const modifiedBeforeDeleteCall = "modified-before-delete-success";
+    const deleteModifiedCall = "delete-modified-success";
+    const writeRecreatedModifiedCall = "write-recreated-modified-success";
     const deleteCall = "delete-success";
     const outsideCall = "outside-success";
     const symlinkCall = "symlink-success";
@@ -2611,7 +2621,25 @@ describe("API gateway plugin", () => {
         role: "assistant",
         content: [
           { type: "toolCall", id: successfulCall, name: "write", arguments: { path: join(workspace, "index.html"), content: "<h1>RelayOps</h1>\n" } },
+          { type: "toolCall", id: editGeneratedCall, name: "edit", arguments: { path: "index.html", oldText: "RelayOps", newText: "RelayOps dashboard" } },
           { type: "toolCall", id: editCall, name: "edit", arguments: { path: "styles.css", oldText: "body {}", newText: "body { color: navy; }" } },
+          { type: "toolCall", id: rewriteModifiedCall, name: "write", arguments: { path: "styles.css", content: "body { color: navy; }\n" } },
+          { type: "toolCall", id: generatedBeforeDeleteCall, name: "write", arguments: { path: "generated-recreated.txt", content: "generated\n" } },
+          { type: "toolCall", id: deleteGeneratedCall, name: "delete", arguments: { path: "generated-recreated.txt" } },
+          {
+            type: "toolCall",
+            id: editRecreatedGeneratedCall,
+            name: "edit",
+            arguments: { path: "generated-recreated.txt", oldText: "generated", newText: "generated again" },
+          },
+          {
+            type: "toolCall",
+            id: modifiedBeforeDeleteCall,
+            name: "edit",
+            arguments: { path: "modified-recreated.txt", oldText: "modified", newText: "changed" },
+          },
+          { type: "toolCall", id: deleteModifiedCall, name: "delete", arguments: { path: "modified-recreated.txt" } },
+          { type: "toolCall", id: writeRecreatedModifiedCall, name: "write", arguments: { path: "modified-recreated.txt", content: "modified again\n" } },
           { type: "toolCall", id: deleteCall, name: "delete", arguments: { path: "obsolete.txt" } },
           { type: "toolCall", id: outsideCall, name: "write", arguments: { path: join(outside, "secret.txt"), content: "private\n" } },
           { type: "toolCall", id: symlinkCall, name: "write", arguments: { path: "linked-secret.txt", content: "private\n" } },
@@ -2621,7 +2649,15 @@ describe("API gateway plugin", () => {
         ],
       },
       { role: "toolResult", toolCallId: successfulCall, toolName: "write", content: [], isError: false },
+      { role: "toolResult", toolCallId: editGeneratedCall, toolName: "edit", content: [], isError: false },
       { role: "toolResult", toolCallId: editCall, toolName: "edit", content: [], isError: false },
+      { role: "toolResult", toolCallId: rewriteModifiedCall, toolName: "write", content: [], isError: false },
+      { role: "toolResult", toolCallId: generatedBeforeDeleteCall, toolName: "write", content: [], isError: false },
+      { role: "toolResult", toolCallId: deleteGeneratedCall, toolName: "delete", content: [], isError: false },
+      { role: "toolResult", toolCallId: editRecreatedGeneratedCall, toolName: "edit", content: [], isError: false },
+      { role: "toolResult", toolCallId: modifiedBeforeDeleteCall, toolName: "edit", content: [], isError: false },
+      { role: "toolResult", toolCallId: deleteModifiedCall, toolName: "delete", content: [], isError: false },
+      { role: "toolResult", toolCallId: writeRecreatedModifiedCall, toolName: "write", content: [], isError: false },
       { role: "toolResult", toolCallId: deleteCall, toolName: "delete", content: [], isError: false },
       { role: "toolResult", toolCallId: outsideCall, toolName: "write", content: [], isError: false },
       { role: "toolResult", toolCallId: symlinkCall, toolName: "write", content: [], isError: false },
@@ -2657,7 +2693,9 @@ describe("API gateway plugin", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       items: [
+        { path: "generated-recreated.txt", status: "A", label: "generated" },
         { path: "index.html", status: "A", label: "generated" },
+        { path: "modified-recreated.txt", status: "M", label: "modified" },
         { path: "obsolete.txt", status: "D", label: "deleted" },
         { path: "styles.css", status: "M", label: "modified" },
       ],
