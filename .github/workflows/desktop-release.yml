@@ -26,7 +26,7 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - run: npm ci
+      - run: npm ci --include=dev --legacy-peer-deps
       - run: npm run build -w @pi-harness/desktop
       - name: Upload bundles
         uses: actions/upload-artifact@v4
@@ -59,7 +59,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
       - uses: android-actions/setup-android@v3
-      - run: npm ci
+      - run: npm ci --include=dev --legacy-peer-deps
       - run: npm run mobile:android -w @pi-harness/desktop
       - uses: actions/upload-artifact@v4
         with: { name: piharness-android, path: apps/desktop/src-tauri/gen/android/app/build/outputs/ }
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
-      - run: npm ci
+      - run: npm ci --include=dev --legacy-peer-deps
       - run: npm run mobile:ios -w @pi-harness/desktop
       - uses: actions/upload-artifact@v4
         with: { name: piharness-ios, path: apps/desktop/src-tauri/gen/apple/build/ }
