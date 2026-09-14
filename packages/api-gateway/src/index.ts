@@ -817,6 +817,7 @@ function sessionBranchMessages(session: ApiServices["runtime"]["session"]): read
 
 async function sessionFileMutations(session: ApiServices["runtime"]["session"], root: string): Promise<readonly SessionFileMutation[]> {
   const calls = new Map<string, { readonly path: string; readonly tool: "write" | "edit" | "delete" }>();
+  const sources = new Map<string, SessionFileMutation>();
   const mutations = new Map<string, SessionFileMutation>();
   for (const rawMessage of sessionBranchMessages(session)) {
     const message = objectValue(rawMessage);
@@ -843,12 +844,13 @@ async function sessionFileMutations(session: ApiServices["runtime"]["session"], 
     const absolute = resolve(root, call.path);
     const path = relative(root, absolute).split(sep).join("/");
     if (path === "" || escapesRoot(path)) continue;
-    const mutation: SessionFileMutation =
-      call.tool === "write"
-        ? { path, status: "A", label: "generated" }
-        : call.tool === "edit"
-          ? { path, status: "M", label: "modified" }
-          : { path, status: "D", label: "deleted" };
+    let mutation: SessionFileMutation;
+    if (call.tool === "delete") {
+      mutation = { path, status: "D", label: "deleted" };
+    } else {
+      mutation = sources.get(path) ?? (call.tool === "write" ? { path, status: "A", label: "generated" } : { path, status: "M", label: "modified" });
+      sources.set(path, mutation);
+    }
     mutations.set(path, mutation);
   }
   const existing = await Promise.all(
