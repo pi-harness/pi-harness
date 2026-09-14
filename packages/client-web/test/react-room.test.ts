@@ -34,8 +34,7 @@ import {
   withoutInstalledPackages,
   writeRestartPendingPackages,
   nextSessionSearchPage,
-  marketplaceDetailBackHistoryMode,
-  installedPluginDetailBackHistoryMode,
+  routeHistoryMode,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
@@ -648,7 +647,7 @@ const marketplaceMarkup = (options: { installed?: readonly string[]; restartPend
 
 describe("marketplace install feedback", () => {
   test("replaces the detail history entry when the in-app back link returns to the list", () => {
-    expect(marketplaceDetailBackHistoryMode()).toBe("replace");
+    expect(routeHistoryMode("back")).toBe("replace");
   });
 
   test("marks a plugin that is waiting for a restart as installed rather than offering the install again", () => {
@@ -687,7 +686,7 @@ describe("marketplace install feedback", () => {
 });
 
 test("replaces the installed-plugin detail history entry on the in-app back link", () => {
-  expect(installedPluginDetailBackHistoryMode()).toBe("replace");
+  expect(routeHistoryMode("back")).toBe("replace");
 });
 
 describe("plugin action error text", () => {

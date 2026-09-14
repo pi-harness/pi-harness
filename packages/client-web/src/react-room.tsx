@@ -8067,12 +8067,8 @@ export function createGlobalSearchDebouncer(delayMs = GLOBAL_SEARCH_DEBOUNCE_MS)
   };
 }
 
-export function marketplaceDetailBackHistoryMode(): "replace" {
-  return "replace";
-}
-
-export function installedPluginDetailBackHistoryMode(): "replace" {
-  return "replace";
+export function routeHistoryMode(transition: "open" | "back"): "push" | "replace" {
+  return transition === "back" ? "replace" : "push";
 }
 
 export async function listAllSessionsForGlobalSearch(api: Pick<ClientApi, "listSessions">, query: string): Promise<readonly Record<string, unknown>[]> {
@@ -9603,7 +9599,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       activeSessionId={data.session?.sessionId}
       metadata={installedPluginMetadata}
       capabilityLabel={capabilityLabel}
-      onBack={() => pushInstalledPluginRoute(undefined, installedPluginDetailBackHistoryMode())}
+      onBack={() => pushInstalledPluginRoute(undefined, routeHistoryMode("back"))}
       onToggle={async (plugin) => {
         const result = await api.togglePlugin(plugin.id, !plugin.enabled);
         await refresh();
@@ -9613,7 +9609,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         await api.uninstallPlugin(plugin.id);
         const plugins = await api.listPlugins();
         setData((current) => ({ ...current, plugins: plugins.filter((item) => item.id !== plugin.id) }));
-        pushInstalledPluginRoute(undefined, installedPluginDetailBackHistoryMode());
+        pushInstalledPluginRoute(undefined, routeHistoryMode("back"));
       }}
       panel={installedPluginPanel}
       plugin={installedPlugin}
@@ -9625,7 +9621,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           href="?page=plugins"
           onClick={(event) => {
             event.preventDefault();
-            pushInstalledPluginRoute(undefined, installedPluginDetailBackHistoryMode());
+            pushInstalledPluginRoute(undefined, routeHistoryMode("back"));
           }}
         >
           {t("← 已安装插件")}
@@ -9665,7 +9661,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         capabilityLabel={capabilityLabel}
         installed={installedPackages.has(marketplaceDetail.packageName)}
         restartPending={restartPendingPackages.has(marketplaceDetail.packageName)}
-        onBack={() => pushMarketplacePluginRoute(undefined, marketplaceDetailBackHistoryMode())}
+        onBack={() => pushMarketplacePluginRoute(undefined, routeHistoryMode("back"))}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
@@ -9681,7 +9677,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               href="?page=marketplace"
               onClick={(event) => {
                 event.preventDefault();
-                pushMarketplacePluginRoute(undefined, marketplaceDetailBackHistoryMode());
+                pushMarketplacePluginRoute(undefined, routeHistoryMode("back"));
               }}
             >
               {t("← 插件市场")}
