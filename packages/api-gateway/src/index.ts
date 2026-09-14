@@ -1112,8 +1112,11 @@ export default {
         try {
           const payload = JSON.parse(await bodyText(request)) as Record<string, unknown>;
           const settings = services.runtime.session.settingsManager;
-          if (typeof payload.defaultProvider === "string" && payload.defaultProvider.trim()) settings.setDefaultProvider(payload.defaultProvider.trim());
-          if (typeof payload.defaultModel === "string" && payload.defaultModel.trim()) settings.setDefaultModel(payload.defaultModel.trim());
+          // The settings form uses an empty value for "follow the runtime/provider". Passing undefined removes the persisted override; ignoring the empty value would leave a previous default stuck forever.
+          if (typeof payload.defaultProvider === "string" && Object.hasOwn(payload, "defaultProvider"))
+            (settings.setDefaultProvider as (provider: string | undefined) => void)(payload.defaultProvider.trim() || undefined);
+          if (typeof payload.defaultModel === "string" && Object.hasOwn(payload, "defaultModel"))
+            (settings.setDefaultModel as (modelId: string | undefined) => void)(payload.defaultModel.trim() || undefined);
           if (
             payload.defaultThinkingLevel === "off" ||
             payload.defaultThinkingLevel === "minimal" ||
