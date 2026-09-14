@@ -1,7 +1,7 @@
 {
   "id": "fail-logger",
   "packageName": "@pi-harness/plugin-fail-logger",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "name": "Failure Logger",
   "description": "汇总插件错误、agent 失败和非主动中断的压缩失败，只保留安全的摘要和次数，不留原始载荷。",
   "author": "Pi Harness",

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { satisfies } from "semver";
 import { describe, expect, test } from "vitest";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
@@ -59,6 +60,33 @@ describe("release contract", () => {
       // An exact pin would rewrite - and therefore republish - every plugin on each launcher patch release, which is the coupling the split removed.
       for (const [dependency, range] of Object.entries(manifest.dependencies ?? {}))
         if (dependency.startsWith("@pi-harness/")) expect(range, `${manifest.name} pins ${dependency} instead of tracking it through a range`).toMatch(/^\^/u);
+    }
+  });
+
+  test("every integrated plugin accepts the launcher's runtime versions", () => {
+    const root = readJson("package.json") as { dependencies: Record<string, string>; devDependencies: Record<string, string> };
+    const lock = readJson("package-lock.json") as {
+      packages: Record<string, { version?: string; peerDependencies?: Record<string, string> }>;
+    };
+    const runtimePackages = [
+      "@deepseek-ai/cordis",
+      "@deepseek-ai/schemastery",
+      "@earendil-works/pi-ai",
+      "@earendil-works/pi-coding-agent",
+    ];
+    const plugins = Object.entries(root.devDependencies).filter(([name]) => name.startsWith("@pi-harness/plugin-"));
+    expect(plugins.length).toBeGreaterThan(0);
+    for (const [name, requestedVersion] of plugins) {
+      const locked = lock.packages[`node_modules/${name}`];
+      expect(locked, `${name} has no package-lock entry`).toBeDefined();
+      expect(locked?.version, `${name} lockfile version differs from package.json`).toBe(requestedVersion);
+      for (const runtime of runtimePackages) {
+        const peerRange = locked?.peerDependencies?.[runtime];
+        if (peerRange === undefined) continue;
+        const runtimeVersion = root.dependencies[runtime];
+        expect(runtimeVersion, `${runtime} is not pinned by the launcher`).toBeDefined();
+        expect(satisfies(runtimeVersion!, peerRange), `${name} requires ${runtime}@${peerRange}, but the launcher pins ${runtimeVersion}`).toBe(true);
+      }
     }
   });
 

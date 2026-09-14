@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-cleaner",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "Strict descriptor-safe configuration and parameters, display-safe bounded Pi Harness Git capsule inventory, removal with explicit confirmation and retention controls, symlink and replacement defenses, cancellable serialization, and a fail-closed normalized panel.",
   "keywords": [
     "cordis",
@@ -44,10 +44,10 @@
     "@pi-harness/plugin-api": "^0.1.27"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4"
+    "@earendil-works/pi-ai": "^0.84.4 || ^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.84.4 || ^0.85.1"
   },
   "engines": {
     "node": ">=22.19.0"
