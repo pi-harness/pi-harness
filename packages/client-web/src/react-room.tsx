@@ -86,6 +86,7 @@ import { matchesPluginQuery } from "./plugin-search.js";
 import {
   navigateBackFromPluginDetail,
   pluginRoutePath,
+  pushSessionViewRoute,
   readInstalledPluginDetailId,
   settingsCloseAction,
   syncPluginRouteHistory,
@@ -10891,7 +10892,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   className={`view-tab ${view === item ? "active" : ""}`}
                   key={item}
                   onClick={() => {
-                    setView(item);
+                    if (item !== view) {
+                      pushSessionViewRoute(window.history, window.location, item);
+                      setView(item);
+                    }
                     setDetails(undefined);
                   }}
                   type="button"

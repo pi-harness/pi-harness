@@ -47,6 +47,20 @@ export function settingsRoutePath(location: PluginRouteLocation, tab: string | u
   return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
 }
 
+export function pushSessionViewRoute(history: PluginHistory, location: PluginRouteLocation, view: "chat" | "trajectory" | "files"): boolean {
+  const params = new URLSearchParams(location.search);
+  params.set("page", "session");
+  if (view === "chat") params.delete("view");
+  else params.set("view", view);
+  params.delete("settings");
+  params.delete("plugin");
+  const query = params.toString();
+  const route = `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+  if (route === `${location.pathname}${location.search}${location.hash}`) return false;
+  history.pushState(history.state, "", route);
+  return true;
+}
+
 export function writeSettingsRouteHistory(history: PluginHistory, route: string, mode: "push" | "replace"): void {
   const current = typeof history.state === "object" && history.state !== null && !Array.isArray(history.state) ? history.state : {};
   const state = mode === "push" ? { ...(current as Record<string, unknown>), [SETTINGS_ENTRY_STATE_KEY]: true } : history.state;
