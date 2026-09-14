@@ -43,7 +43,11 @@ npm run pih-local
 
 脚本会先执行 `npm run build:web`，再通过临时 `pi-web` PATH shim 让 EveryAPI 的认证启动流程运行当前工作区构建出的 `apps/web/server-dist/bin.js`。这样既能使用 EveryAPI relay 认证，也不会误用 PATH 中可能过期的全局 Pi Harness。模型可在控制台的模型选择器中切换；传给脚本的参数会原样转发给本地服务。
 
+隔离测试状态时设置 Pi 上游原生变量 `PI_CODING_AGENT_DIR`；兼容别名 `PI_AGENT_DIR` 也可用，`pih-local` 会把它桥接给 EveryAPI。若两者都设置，以 `PI_CODING_AGENT_DIR` 为准。
+
 启动后打开终端输出的地址（默认 `http://127.0.0.1:3141`），按 Ctrl-C 停止。脚本不会修改全局安装，退出时会删除临时 shim。
+
+需要用当前源码构建去测试另一个项目时，设置 `PIH_LOCAL_CWD=/path/to/project npm run pih-local`。构建仍来自当前 checkout，但控制台、会话与 agent 工具会以目标项目为工作目录；也可从目标目录执行 `npm --prefix /path/to/pi-harness run pih-local`，脚本会读取 npm 的 `INIT_CWD`。
 
 ## 常用验证命令
 
