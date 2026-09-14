@@ -39,8 +39,7 @@ describe("release contract", () => {
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
     expect(workflow).not.toContain("was already submitted");
     expect(workflow).not.toContain("tag_exists=$tag_exists");
-    expect(workflow).toContain('npm publish --workspace "$package_name" --access public');
-    expect(workflow).toContain("npm publish --access public");
+    expect(workflow).toContain('npm publish "$workspace" --access public');
   });
 
   test("publishes every plugin package on its own version line", () => {

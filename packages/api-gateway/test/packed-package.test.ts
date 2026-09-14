@@ -46,8 +46,14 @@ import process from "node:process";
 const args = process.argv.slice(2);
 if (args[0] === "pack") {
   const workspaces = args.filter((argument, index) => args[index - 1] === "--workspace");
+  const packageDirectory = args[1]?.startsWith("-") === false ? args[1] : undefined;
   // The root is packed with its scripts, so prepack's own build output shares this stdout with the tarball name.
-  const lines = workspaces.length === 0 ? ["> pi-harness build:web", "built 75 plugin packages in 3 waves", "harness.tgz"] : workspaces.map((name) => name.slice(name.indexOf("/") + 1) + ".tgz");
+  const lines =
+    workspaces.length > 0
+      ? workspaces.map((name) => name.slice(name.indexOf("/") + 1) + ".tgz")
+      : packageDirectory === undefined
+        ? ["> pi-harness build:web", "built 75 plugin packages in 3 waves", "harness.tgz"]
+        : ["plugin-" + basename(packageDirectory) + ".tgz"];
   process.stdout.write(lines.join("\\n") + "\\n");
   process.exit(0);
 }

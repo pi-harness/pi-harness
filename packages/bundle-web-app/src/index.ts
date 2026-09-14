@@ -1,6 +1,6 @@
 import { createReadStream, existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep, type PlatformPath } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -32,7 +32,11 @@ function contentType(path: string): string {
   return MIME_TYPES[extension] ?? "application/octet-stream";
 }
 
-type ContainmentPath = Pick<PlatformPath, "isAbsolute" | "relative" | "sep">;
+interface ContainmentPath {
+  isAbsolute(path: string): boolean;
+  relative(from: string, to: string): string;
+  sep: string;
+}
 const platformPath: ContainmentPath = { isAbsolute, relative, sep };
 
 // Containment is decided with path.relative instead of a "/"-prefixed string compare so backslash-separated Windows paths and other drives are handled; the pathApi parameter exists so tests can exercise path.win32 on any host.

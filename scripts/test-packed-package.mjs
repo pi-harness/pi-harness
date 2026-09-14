@@ -62,6 +62,8 @@ const readManifest = (file) => {
 // Every publishable workspace is a package the launcher installs from the registry like any other dependency, so the smoke test has to resolve them from the tarballs this commit produces. On a release commit the versions being packed are not on npm yet, and a plugin introduced by a pull request never is.
 /** @type {Map<string, PackageManifest & { private?: boolean }>} */
 const publishable = new Map();
+/** @type {Map<string, string>} */
+const publishableDirectories = new Map();
 for (const workspaceRoot of ["packages", join("packages", "plugins")]) {
   for (const entry of readdirSync(join(repositoryRoot, workspaceRoot), { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -70,6 +72,7 @@ for (const workspaceRoot of ["packages", join("packages", "plugins")]) {
     const manifest = readManifest(manifestPath);
     if (manifest.private === true) continue;
     publishable.set(manifest.name, manifest);
+    publishableDirectories.set(manifest.name, join(repositoryRoot, workspaceRoot, entry.name));
   }
 }
 
@@ -229,7 +232,16 @@ try {
   // A plugin the launcher already bundles would resolve from its own node_modules whether or not the install worked, so the subject has to be one that is only reachable through the harness home.
   const marketplacePlugin = [...publishable.keys()].find((name) => name.startsWith("@pi-harness/plugin-") && !workspacesToPack.includes(name));
   if (marketplacePlugin === undefined) throw new Error("No publishable plugin is outside the bundled set to install as a marketplace package");
-  const marketplaceTarball = runNpm("pack", "--workspace", marketplacePlugin, "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
+  const marketplaceDirectory = publishableDirectories.get(marketplacePlugin);
+  if (marketplaceDirectory === undefined) throw new Error(`No local manifest found for ${marketplacePlugin}`);
+  const marketplaceTarball = runNpm(
+    "pack",
+    marketplaceDirectory,
+    "--ignore-scripts",
+    "--silent",
+    "--pack-destination",
+    temporaryRoot,
+  ).trim();
   if (marketplaceTarball.length === 0) throw new Error(`npm pack produced no tarball for ${marketplacePlugin}`);
   runNpmIn(harnessHome, "install", "--save-exact", "--package-lock=false", "--ignore-scripts", join(temporaryRoot, marketplaceTarball));
   const entry = installedResolve.resolvePluginEntry(profilePath, marketplacePlugin);
