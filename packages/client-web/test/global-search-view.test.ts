@@ -71,7 +71,7 @@ test("merges the workspace catalogue with live Git changes for file discovery", 
 test("presents a clean workspace file by its path in global search", async () => {
   const module = (await import("../src/react-room.js")) as unknown as {
     GlobalSearch: (props: Record<string, unknown>) => ReturnType<typeof createElement>;
-    fileDetailSource?: (file: Record<string, string>) => string;
+    fileDetailSource?: () => string;
   };
   const html = renderToStaticMarkup(
     createElement(module.GlobalSearch, {
@@ -89,8 +89,76 @@ test("presents a clean workspace file by its path in global search", async () =>
   expect(html).toContain("<strong>README.md</strong>");
   expect(html).toContain("文件索引已截断，搜索结果可能不完整。");
   expect(module.fileDetailSource).toBeTypeOf("function");
-  expect(module.fileDetailSource?.({ path: "README.md", status: "", label: "workspace" })).toBe("/api/workspace/files");
-  expect(module.fileDetailSource?.({ path: "src/app.ts", status: "M", label: "modified" })).toBe("/api/files");
+  expect(module.fileDetailSource?.()).toBe("/api/workspace/file");
+});
+
+test("loads source content into file details and ignores a stale response", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    loadWorkspaceFileDetail?: (
+      api: { getWorkspaceFile(path: string): Promise<{ path: string; content: string }> },
+      file: Record<string, string>,
+      isCurrent: () => boolean,
+      apply: (detail: Record<string, unknown>) => void,
+    ) => Promise<void>;
+  };
+  expect(module.loadWorkspaceFileDetail).toBeTypeOf("function");
+  if (!module.loadWorkspaceFileDetail) return;
+
+  let resolvePreview: ((value: { path: string; content: string }) => void) | undefined;
+  const preview = new Promise<{ path: string; content: string }>((resolve) => {
+    resolvePreview = resolve;
+  });
+  const details: Record<string, unknown>[] = [];
+  let current = true;
+  const loading = module.loadWorkspaceFileDetail(
+    { getWorkspaceFile: () => preview },
+    { path: "src/main.tsx", status: "", label: "workspace" },
+    () => current,
+    (detail) => details.push(detail),
+  );
+  expect(details).toEqual([{ type: "file", path: "src/main.tsx", status: "", source: "/api/workspace/file", output: "正在加载文件…" }]);
+  current = false;
+  resolvePreview?.({ path: "src/main.tsx", content: "const product = 'RelayOps';\n" });
+  await loading;
+  expect(details).toHaveLength(1);
+
+  current = true;
+  await module.loadWorkspaceFileDetail(
+    { getWorkspaceFile: () => Promise.resolve({ path: "src/main.tsx", content: "const product = 'RelayOps';\n" }) },
+    { path: "src/main.tsx", status: "", label: "workspace" },
+    () => current,
+    (detail) => details.push(detail),
+  );
+  expect(details.at(-1)).toEqual({
+    type: "file",
+    path: "src/main.tsx",
+    status: "",
+    source: "/api/workspace/file",
+    output: "const product = 'RelayOps';\n",
+  });
+});
+
+test("shows a workspace file preview failure in the details output", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    loadWorkspaceFileDetail?: (
+      api: { getWorkspaceFile(path: string): Promise<{ path: string; content: string }> },
+      file: Record<string, string>,
+      isCurrent: () => boolean,
+      apply: (detail: Record<string, unknown>) => void,
+    ) => Promise<void>;
+  };
+  expect(module.loadWorkspaceFileDetail).toBeTypeOf("function");
+  if (!module.loadWorkspaceFileDetail) return;
+  const details: Record<string, unknown>[] = [];
+
+  await module.loadWorkspaceFileDetail(
+    { getWorkspaceFile: () => Promise.reject(new Error("binary files cannot be previewed")) },
+    { path: "asset.dat", status: "", label: "workspace" },
+    () => true,
+    (detail) => details.push(detail),
+  );
+
+  expect(details.at(-1)?.output).toBe("无法预览文件：binary files cannot be previewed");
 });
 
 test("distinguishes a forked session from its identically named source", async () => {

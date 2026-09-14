@@ -1252,5 +1252,7 @@
   "查看当前会话的消息、工具、token、成本和上下文统计，并可触发确认后的会话压缩。": "Exibe as estatísticas de mensagens, ferramentas, tokens, custos e contexto da sessão atual e permite iniciar uma compactação confirmada.",
   "安全审计上下文压力、超大或不可测量消息和工具错误，并展示确认压缩的生命周期。": "Audita com segurança a pressão do contexto, mensagens grandes ou não mensuráveis e erros de ferramentas, mostrando o ciclo de vida da compactação confirmada.",
   "查看当前上下文占用、消息规模和压缩事件。": "Exibe o uso do contexto atual, o volume de mensagens e os eventos de compactação.",
-  "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。": "Interrompe automaticamente a execução atual quando o contexto atinge o limite de orçamento para evitar consumo adicional."
+  "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。": "Interrompe automaticamente a execução atual quando o contexto atinge o limite de orçamento para evitar consumo adicional.",
+  "无法预览文件：{v0}": "Não foi possível visualizar o arquivo: {v0}",
+  "正在加载文件…": "Carregando arquivo…"
 }
