@@ -3672,6 +3672,53 @@ describe("API gateway plugin", () => {
     expect((await readdir(agentDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
+  test("clears default provider and model when config form selects follow options", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const setterCalls: { name: string; value: unknown }[] = [];
+    const settingsManager = {
+      getGlobalSettings: () => ({ defaultProvider: "configured", defaultModel: "configured-model" }),
+      getCompactionSettings: () => ({}),
+      getTransport: () => "auto",
+      getSteeringMode: () => "one-at-a-time",
+      getFollowUpMode: () => "one-at-a-time",
+      getHideThinkingBlock: () => false,
+      getRetrySettings: () => ({}),
+      getShowImages: () => false,
+      getImageAutoResize: () => false,
+      getAutocompleteMaxVisible: () => 8,
+      getQuietStartup: () => false,
+      getDefaultProjectTrust: () => "ask",
+      getShowCacheMissNotices: () => false,
+      getEnableAnalytics: () => false,
+      getEnableInstallTelemetry: () => false,
+      getShellPath: () => undefined,
+      getDoubleEscapeAction: () => "tree",
+      getTreeFilterMode: () => "tree",
+      getMermaidRenderingMode: () => "off",
+      setDefaultProvider: (value: unknown) => setterCalls.push({ name: "defaultProvider", value }),
+      setDefaultModel: (value: unknown) => setterCalls.push({ name: "defaultModel", value }),
+      flush: () => Promise.resolve(),
+    };
+    const session = { sessionId: "config-clear-session", sessionFile: undefined, messages: [], isStreaming: false, settingsManager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ defaultProvider: "", defaultModel: "" }),
+    });
+    expect(response.status).toBe(200);
+    expect(setterCalls).toEqual([
+      { name: "defaultProvider", value: undefined },
+      { name: "defaultModel", value: undefined },
+    ]);
+  });
+
   test("imports session content through a private temporary file and never writes to a caller-supplied path", async () => {
     const context = new Context();
     contexts.push(context);
