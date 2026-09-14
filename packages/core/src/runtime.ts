@@ -1,4 +1,5 @@
 import type { AgentSession, AgentSessionRuntime, PromptOptions } from "@earendil-works/pi-coding-agent";
+import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { PiRuntimeService } from "@pi-harness/plugin-api";
 
 export class PiRuntimeDisposedError extends Error {
@@ -11,16 +12,35 @@ export class PiRuntimeDisposedError extends Error {
 
 export class PiRuntime implements PiRuntimeService {
   readonly sessionRuntime: AgentSessionRuntime;
+  readonly #defaultThinkingLevel: ModelThinkingLevel;
   #disposed = false;
   #sessionDisposed = false;
   #disposePromise: Promise<void> | undefined;
 
-  constructor(sessionRuntime: AgentSessionRuntime) {
+  constructor(sessionRuntime: AgentSessionRuntime, defaultThinkingLevel: ModelThinkingLevel = "medium") {
     this.sessionRuntime = sessionRuntime;
+    this.#defaultThinkingLevel = defaultThinkingLevel;
   }
 
   get session(): AgentSession {
     return this.sessionRuntime.session;
+  }
+
+  async setModel(model: Model<Api>): Promise<void> {
+    if (this.#disposed) throw new PiRuntimeDisposedError();
+    const session = this.session;
+    const shouldRestoreDefault =
+      model.reasoning === true &&
+      session.model?.reasoning !== true &&
+      session.thinkingLevel === "off" &&
+      session.settingsManager.getModelThinkingLevel(model.provider, model.id) === undefined &&
+      session.settingsManager.getDefaultThinkingLevel() === undefined;
+    await session.setModel(model);
+    // A non-reasoning model can leave the session at `off`, which Pi may reuse on
+    // the next switch even when no persisted preference requests it.
+    if (shouldRestoreDefault && session.thinkingLevel === "off" && session.model?.provider === model.provider && session.model.id === model.id) {
+      session.setThinkingLevel(this.#defaultThinkingLevel);
+    }
   }
 
   async prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior">): Promise<void> {

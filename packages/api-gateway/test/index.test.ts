@@ -2271,17 +2271,23 @@ describe("API gateway plugin", () => {
       get model() {
         return selected === "one" ? first : second;
       },
-      setModel(model: { id: string }) {
-        selected = model.id;
-        return Promise.resolve();
-      },
       subscribe: () => () => {},
     };
+    const setModel = vi.fn((model: { id: string }) => {
+      selected = model.id;
+      return Promise.resolve();
+    });
     const modelRuntime = {
       getModels: () => [first, second],
       getModel: (_provider: string, id: string) => (id === "two" ? second : id === "one" ? first : undefined),
     };
-    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piRuntime", {
+      session,
+      setModel,
+      prompt: () => Promise.resolve(),
+      abort: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+    } as never);
     context.provide("piModels", { model: first, runtime: modelRuntime } as never);
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
@@ -2303,6 +2309,7 @@ describe("API gateway plugin", () => {
     });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ model: { id: "two", active: true } });
+    expect(setModel).toHaveBeenCalledWith(second);
     expect(selected).toBe("two");
   });
 

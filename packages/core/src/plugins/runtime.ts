@@ -114,7 +114,7 @@ export default {
         agentDir: context.piResources.agentDir,
         sessionManager: context.piSession.manager,
       });
-      const createdRuntime = new PiRuntime(sessionRuntime);
+      const createdRuntime = new PiRuntime(sessionRuntime, config.thinkingLevel ?? "medium");
       runtime = createdRuntime;
       const bindSession = async (session: AgentSession): Promise<void> => {
         await session.bindExtensions({

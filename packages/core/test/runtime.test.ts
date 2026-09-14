@@ -35,6 +35,105 @@ describe("Pi runtime plugin", () => {
     expect(prompt).toHaveBeenCalledWith("correct course", { streamingBehavior: "steer" });
   });
 
+  test("restores the configured thinking level when switching from a non-reasoning model", async () => {
+    const nonReasoning = { provider: "test", id: "fast", reasoning: false };
+    const reasoning = { provider: "test", id: "reasoning", reasoning: true };
+    let model: { provider: string; id: string; reasoning: boolean } = nonReasoning;
+    const setModel = vi.fn((next: typeof model) => {
+      model = next;
+      return Promise.resolve();
+    });
+    const setThinkingLevel = vi.fn();
+    const session = {
+      get model() {
+        return model;
+      },
+      thinkingLevel: "off",
+      settingsManager: {
+        getModelThinkingLevel: () => undefined,
+        getDefaultThinkingLevel: () => undefined,
+      },
+      setModel,
+      setThinkingLevel,
+    };
+    const runtime = new PiRuntime({ session } as never, "medium");
+
+    await runtime.setModel(reasoning as never);
+
+    expect(setModel).toHaveBeenCalledWith(reasoning);
+    expect(setThinkingLevel).toHaveBeenCalledWith("medium");
+  });
+
+  test.each([
+    ["a per-model preference", false, "off", undefined],
+    ["a global preference", false, undefined, "off"],
+    ["a reasoning source model", true, undefined, undefined],
+  ])("does not replace %s while switching models", async (_name, currentReasoning, modelPreference, globalPreference) => {
+    const current = { provider: "test", id: "current", reasoning: currentReasoning };
+    const target = { provider: "test", id: "target", reasoning: true };
+    const setThinkingLevel = vi.fn();
+    const session = {
+      model: current,
+      thinkingLevel: "off",
+      settingsManager: {
+        getModelThinkingLevel: () => modelPreference,
+        getDefaultThinkingLevel: () => globalPreference,
+      },
+      setModel: () => Promise.resolve(),
+      setThinkingLevel,
+    };
+    const runtime = new PiRuntime({ session } as never, "medium");
+
+    await runtime.setModel(target as never);
+
+    expect(setThinkingLevel).not.toHaveBeenCalled();
+  });
+
+  test("does not restore thinking for a stale concurrent model switch", async () => {
+    const nonReasoning = { provider: "test", id: "fast", reasoning: false };
+    const firstTarget = { provider: "test", id: "reasoning-a", reasoning: true };
+    const secondTarget = { provider: "test", id: "reasoning-b", reasoning: true };
+    let model: { provider: string; id: string; reasoning: boolean } = nonReasoning;
+    let releaseFirstSwitch: (() => void) | undefined;
+    const firstSwitchStarted = new Promise<void>((resolveStarted) => {
+      releaseFirstSwitch = resolveStarted;
+    });
+    let finishFirstSwitch: (() => void) | undefined;
+    const firstSwitchFinished = new Promise<void>((resolveFinished) => {
+      finishFirstSwitch = resolveFinished;
+    });
+    const setModel = vi.fn(async (next: typeof model) => {
+      model = next;
+      if (next === firstTarget) {
+        releaseFirstSwitch?.();
+        await firstSwitchFinished;
+      }
+    });
+    const setThinkingLevel = vi.fn();
+    const session = {
+      get model() {
+        return model;
+      },
+      thinkingLevel: "off",
+      settingsManager: {
+        getModelThinkingLevel: (_provider: string, id: string) => (id === secondTarget.id ? "off" : undefined),
+        getDefaultThinkingLevel: () => undefined,
+      },
+      setModel,
+      setThinkingLevel,
+    };
+    const runtime = new PiRuntime({ session } as never, "medium");
+
+    const firstSwitch = runtime.setModel(firstTarget as never);
+    await firstSwitchStarted;
+    await runtime.setModel(secondTarget as never);
+    finishFirstSwitch?.();
+    await firstSwitch;
+
+    expect(model).toBe(secondTarget);
+    expect(setThinkingLevel).not.toHaveBeenCalled();
+  });
+
   test("completes a deterministic Pi agent run", async () => {
     const { context, responseText, callCount } = await createRuntimeContext();
 
