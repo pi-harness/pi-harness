@@ -1,0 +1,72 @@
+name: Publish official plugins
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin_ref:
+        description: Exact pi-harness-plugins commit to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-plugin-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout plugin source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: pi-harness/pi-harness-plugins
+          ref: ${{ inputs.plugin_ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Verify source commit
+        env:
+          PLUGIN_REF: ${{ inputs.plugin_ref }}
+        run: |
+          if ! [[ "$PLUGIN_REF" =~ ^[0-9a-f]{40}$ ]] || [ "$(git rev-parse HEAD)" != "$PLUGIN_REF" ]; then
+            echo "plugin_ref must be the exact checked-out commit SHA" >&2
+            exit 1
+          fi
+
+      - name: Install and validate
+        run: |
+          npm ci
+          npm run validate
+
+      - name: Publish plugins
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN GitHub Actions secret is required for npm publishing" >&2
+            exit 1
+          fi
+          for manifest in packages/plugins/*/package.json; do
+            package_name=$(node -p "require('./$manifest').name")
+            package_version=$(node -p "require('./$manifest').version")
+            package_directory=$(dirname "$manifest")
+            if npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$package_name@$package_version already exists; skipping"
+            elif npm publish "$package_directory" --ignore-scripts --access public; then
+              echo "$package_name@$package_version published"
+            elif npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$package_name@$package_version is already published; continuing"
+            else
+              echo "Publishing $package_name@$package_version failed" >&2
+              exit 1
+            fi
+          done
