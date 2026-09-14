@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -50,7 +50,7 @@ describe("release contract", () => {
     expect(workflow).toContain("$(node scripts/build-plugins.mjs --order)");
     expect(workflow).toContain("packages/plugins/*/package.json");
     const pluginManifests = readdirSync(resolve(repositoryRoot, "packages/plugins"), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.isDirectory() && existsSync(resolve(repositoryRoot, "packages/plugins", entry.name, "package.json")))
       .map((entry) => entry.name);
     expect(pluginManifests.length).toBeGreaterThan(0);
     for (const directory of pluginManifests) {

@@ -2,7 +2,7 @@
 // so the projects are grouped into dependency waves and each wave runs in parallel. `--order` prints the
 // same waves flattened, which is the order the release has to publish them in.
 import { execFile } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -20,8 +20,10 @@ const projects = new Map();
 for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   const directory = entry.name;
+  const manifestPath = join(pluginsRoot, directory, "package.json");
+  if (!existsSync(manifestPath)) continue;
   /** @type {unknown} */
-  const parsed = JSON.parse(readFileSync(join(pluginsRoot, directory, "package.json"), "utf8"));
+  const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
   const manifest = /** @type {{ dependencies?: Record<string, string> }} */ (parsed);
   const siblings = Object.keys(manifest.dependencies ?? {})
     .filter((name) => name.startsWith("@pi-harness/plugin-") && name !== "@pi-harness/plugin-api")
