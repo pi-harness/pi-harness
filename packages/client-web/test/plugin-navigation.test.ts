@@ -5,6 +5,7 @@ import {
   pluginDetailBackAction,
   pluginDetailHistoryState,
   pluginRoutePath,
+  pushSessionViewRoute,
   readInstalledPluginDetailId,
   settingsRoutePath,
   settingsCloseAction,
@@ -47,7 +48,33 @@ class MemoryHistory {
   }
 }
 
-describe("installed plugin navigation", () => {
+describe("client navigation", () => {
+  it("pushes session view changes so browser history traverses each tab", () => {
+    const history = new MemoryHistory("/console?page=session&session=relay.jsonl#events", { unrelated: "keep" });
+    const location = () => new URL(history.url, "https://example.test");
+
+    pushSessionViewRoute(history, location(), "trajectory");
+    pushSessionViewRoute(history, location(), "files");
+
+    expect(history.entries).toHaveLength(3);
+    expect(history.state).toEqual({ unrelated: "keep" });
+    expect(history.url).toBe("/console?page=session&session=relay.jsonl&view=files#events");
+    history.back();
+    expect(history.url).toBe("/console?page=session&session=relay.jsonl&view=trajectory#events");
+    history.back();
+    expect(history.url).toBe("/console?page=session&session=relay.jsonl#events");
+  });
+
+  it("normalizes a session view route without pushing the active tab twice", () => {
+    const history = new MemoryHistory("/console?page=session&session=relay.jsonl&view=files&settings=toml&plugin=prompt-guard&marketplaceQuery=guard#events");
+    const location = () => new URL(history.url, "https://example.test");
+
+    expect(pushSessionViewRoute(history, location(), "chat")).toBe(true);
+    expect(history.url).toBe("/console?page=session&session=relay.jsonl&marketplaceQuery=guard#events");
+    expect(pushSessionViewRoute(history, location(), "chat")).toBe(false);
+    expect(history.entries).toHaveLength(2);
+  });
+
   it("uses a stable secondary route for installed plugin details", () => {
     expect(installedPluginDetailPath("@pi-harness/plugin-docker-sandbox")).toBe("?page=plugins&plugin=%40pi-harness%2Fplugin-docker-sandbox");
   });
