@@ -2563,6 +2563,127 @@ describe("API gateway plugin", () => {
     expect(stagedPayload.diff).toContain("+staged");
   });
 
+  test("reads a catalogued workspace text file for the global search preview", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-workspace-file-preview-"));
+    temporaryDirectories.push(workspace);
+    await mkdir(join(workspace, "src"));
+    await writeFile(join(workspace, "src", "app.ts"), "export const product = 'RelayOps';\n");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "workspace-file-preview-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/workspace/file?path=src%2Fapp.ts");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ path: "src/app.ts", content: "export const product = 'RelayOps';\n" });
+  });
+
+  test("rejects unsafe or unsuitable workspace file previews", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-workspace-file-preview-bounds-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-workspace-file-preview-outside-"));
+    temporaryDirectories.push(workspace, outside);
+    await writeFile(join(workspace, "binary.dat"), Buffer.from([0, 1, 2, 3]));
+    await writeFile(join(workspace, "invalid-utf8.txt"), Buffer.from([0xc3, 0x28]));
+    await writeFile(join(workspace, "large.txt"), "x".repeat(512 * 1024 + 1));
+    await writeFile(join(outside, "secret.txt"), "private\n");
+    await symlink(join(outside, "secret.txt"), join(workspace, "linked-secret.txt"));
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "workspace-file-preview-bounds-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const escaped = await fetch(context.webServer.url + "/api/workspace/file?path=..%2Fsecret.txt");
+    expect(escaped.status).toBe(400);
+    await expect(escaped.json()).resolves.toEqual({ error: "path must stay inside the workspace" });
+    const linked = await fetch(context.webServer.url + "/api/workspace/file?path=linked-secret.txt");
+    expect(linked.status).toBe(404);
+    const binary = await fetch(context.webServer.url + "/api/workspace/file?path=binary.dat");
+    expect(binary.status).toBe(415);
+    await expect(binary.json()).resolves.toEqual({ error: "binary files cannot be previewed" });
+    const invalidUtf8 = await fetch(context.webServer.url + "/api/workspace/file?path=invalid-utf8.txt");
+    expect(invalidUtf8.status).toBe(415);
+    await expect(invalidUtf8.json()).resolves.toEqual({ error: "binary files cannot be previewed" });
+    const large = await fetch(context.webServer.url + "/api/workspace/file?path=large.txt");
+    expect(large.status).toBe(413);
+    await expect(large.json()).resolves.toEqual({ error: "files larger than 512 KiB cannot be previewed" });
+  });
+
+  test.runIf(process.platform !== "win32")("does not block if a catalogued file is replaced by a FIFO", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-workspace-file-preview-fifo-"));
+    temporaryDirectories.push(workspace);
+    const target = join(workspace, "changing.txt");
+    await writeFile(target, "regular file\n");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "workspace-file-preview-fifo-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    expect((await fetch(context.webServer.url + "/api/workspace/files")).status).toBe(200);
+    await unlink(target);
+    await execFile("mkfifo", [target]);
+
+    let settled = false;
+    const request = fetch(context.webServer.url + "/api/workspace/file?path=changing.txt").then((response) => {
+      settled = true;
+      return response;
+    });
+    const completedPromptly = await vi
+      .waitFor(() => expect(settled).toBe(true), { timeout: 2_000, interval: 10 })
+      .then(
+        () => true,
+        () => false,
+      );
+    if (!completedPromptly) await writeFile(target, "unblock\n");
+    const response = await request;
+
+    expect(completedPromptly).toBe(true);
+    expect(response.status).toBe(400);
+  });
+
+  test("rejects a catalogued file replaced by a symbolic link", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-workspace-file-preview-link-"));
+    const outside = await mkdtemp(join(tmpdir(), "pi-harness-workspace-file-preview-link-outside-"));
+    temporaryDirectories.push(workspace, outside);
+    const target = join(workspace, "changing.txt");
+    await writeFile(target, "regular file\n");
+    const secret = join(outside, "secret.txt");
+    await writeFile(secret, "outside content must not be returned\n");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "workspace-file-preview-link-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    expect((await fetch(context.webServer.url + "/api/workspace/files")).status).toBe(200);
+    await unlink(target);
+    try {
+      await symlink(secret, target, process.platform === "win32" ? "file" : undefined);
+    } catch (error) {
+      if (process.platform !== "win32") throw error;
+      // Windows file symlinks may require Developer Mode, while directory junctions do not; either one must hit the portable lstat rejection before open follows it.
+      await symlink(outside, target, "junction");
+    }
+
+    const response = await fetch(context.webServer.url + "/api/workspace/file?path=changing.txt");
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "symbolic links cannot be previewed" });
+  });
+
   test("lists bounded files in a non-Git workspace without following symlinks or generated directories", async () => {
     const context = new Context();
     contexts.push(context);

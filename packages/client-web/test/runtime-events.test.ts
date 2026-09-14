@@ -192,5 +192,6 @@ describe("runtime event labels", () => {
     expect(module.eventDataSource({ type: "tool_execution_start", historical: true })).toBe("Session JSONL · message history");
     expect(module.eventDataSource({ type: "tool_execution_start" })).toBe("Runtime loader · event");
     expect(module.eventDataSource({ type: "file_diff", historical: true })).toBe("Git workspace · /api/files");
+    expect(module.eventDataSource({ type: "file", source: "/api/workspace/file" })).toBe("Workspace · /api/workspace/file");
   });
 });

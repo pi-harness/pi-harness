@@ -8106,8 +8106,25 @@ export function mergeSearchableFiles(workspaceFiles: readonly ClientFile[], chan
   return [...files.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-export function fileDetailSource(file: ClientFile): "/api/files" | "/api/workspace/files" {
-  return file.status ? "/api/files" : "/api/workspace/files";
+export function fileDetailSource(): "/api/workspace/file" {
+  return "/api/workspace/file";
+}
+
+export async function loadWorkspaceFileDetail(
+  api: Pick<ClientApi, "getWorkspaceFile">,
+  file: ClientFile,
+  isCurrent: () => boolean,
+  apply: (detail: Record<string, unknown>) => void,
+): Promise<void> {
+  const detail = { type: "file", path: file.path, status: file.status, source: fileDetailSource() };
+  apply({ ...detail, output: t("正在加载文件…") });
+  try {
+    const preview = await api.getWorkspaceFile(file.path);
+    if (isCurrent()) apply({ ...detail, path: preview.path, output: preview.content });
+  } catch (cause) {
+    if (!isCurrent()) return;
+    apply({ ...detail, output: t("无法预览文件：{v0}", { v0: cause instanceof Error ? cause.message : String(cause) }) });
+  }
 }
 
 function sessionForkSuffix(session: Record<string, unknown> | ClientSession): string {
@@ -8640,6 +8657,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [page, setPage] = useState<Page>(initialQueryState.page);
   const [settings, setSettings] = useState<SettingsTab | undefined>(initialQueryState.settings);
   const [details, setDetails] = useState<Record<string, unknown>>();
+  const filePreviewIntentRef = useRef(0);
   const [commandOpen, setCommandOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
@@ -11008,7 +11026,25 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           onOpenFile={(file) => {
             setPage("session");
             setView("files");
-            setDetails({ type: "file", path: file.path, status: file.status, source: fileDetailSource(file) });
+            const intent = ++filePreviewIntentRef.current;
+            let initial = true;
+            void loadWorkspaceFileDetail(
+              api,
+              file,
+              () => filePreviewIntentRef.current === intent,
+              (detail) => {
+                if (initial) {
+                  initial = false;
+                  setDetails(detail);
+                  return;
+                }
+                setDetails((current) =>
+                  filePreviewIntentRef.current === intent && current?.type === "file" && current.path === file.path && current.source === "/api/workspace/file"
+                    ? detail
+                    : current,
+                );
+              },
+            );
           }}
           onOpenSession={openSession}
           onUse={insertCommand}

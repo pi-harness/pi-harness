@@ -74,6 +74,23 @@ describe("provider auth readiness", () => {
 });
 
 describe("session search requests", () => {
+  test("requests an encoded workspace file preview", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = (input: RequestInfo | URL) => {
+      if (typeof input === "string") requests.push(input);
+      else if (input instanceof URL) requests.push(input.href);
+      else requests.push(input.url);
+      return Promise.resolve(new Response(JSON.stringify({ path: "src/a b.ts", content: "export {};\n" }), { status: 200 }));
+    };
+    try {
+      await expect(createClientApi().getWorkspaceFile("src/a b.ts")).resolves.toEqual({ path: "src/a b.ts", content: "export {};\n" });
+      expect(requests).toEqual(["/api/workspace/file?path=src%2Fa%20b.ts"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("coalesces rapid global search queries before invoking the session search", async () => {
     const module = (await import("../src/react-room.js")) as unknown as {
       createGlobalSearchDebouncer?: (delayMs?: number) => {

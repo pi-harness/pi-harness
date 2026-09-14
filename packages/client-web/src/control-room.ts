@@ -164,6 +164,7 @@ export interface ClientApi {
   getSession(): Promise<ClientSession>;
   getFiles(): Promise<ClientFileList>;
   getWorkspaceFiles(): Promise<ClientWorkspaceFileList>;
+  getWorkspaceFile(path: string): Promise<{ path: string; content: string }>;
   listWorkspaces(): Promise<readonly ClientWorkspace[]>;
   pickDirectory(): Promise<string>;
   getFileDiff(path: string): Promise<{ path: string; diff: string }>;
@@ -234,6 +235,7 @@ export function createClientApi(): ClientApi {
     getSession: () => requestJson<ClientSession>("/api/session"),
     getFiles: () => requestJson<ClientFileList>("/api/files"),
     getWorkspaceFiles: () => requestJson<ClientWorkspaceFileList>("/api/workspace/files"),
+    getWorkspaceFile: (path) => requestJson<{ path: string; content: string }>(`/api/workspace/file?path=${encodeURIComponent(path)}`),
     listWorkspaces: async () => (await requestJson<{ items: readonly ClientWorkspace[] }>("/api/workspaces")).items,
     pickDirectory: async () => (await requestJson<{ path: string }>("/api/workspaces/pick", { method: "POST" })).path,
     getFileDiff: (path) => requestJson<{ path: string; diff: string }>(`/api/files/diff?path=${encodeURIComponent(path)}`),

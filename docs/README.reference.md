@@ -872,6 +872,7 @@ Every route the bundled `@pi-harness/api-gateway` plugin registers is listed bel
 | `/api/model`               | POST      | Switches the active model selection.                                                                                              |
 | `/api/files`               | GET       | Bounded Git status, or successful file-tool outputs from the active session when the workspace is outside Git.                    |
 | `/api/workspace/files`     | GET       | Lists up to 5,000 tracked and non-ignored workspace files for search and `@file` completion; responses are cached for one second. |
+| `/api/workspace/file`      | GET       | Reads one catalogued UTF-8 workspace file for preview, up to 512 KiB; symlinks, binary files, and escaping paths are rejected.    |
 | `/api/files/diff`          | GET       | `git diff` for one workspace-relative path, or a read-only current-file snapshot patch outside Git; escaping paths are rejected.  |
 | `/api/files/commit`        | POST      | Commits the requested workspace paths.                                                                                            |
 | `/api/files/revert`        | POST      | Discards workspace changes for the requested paths and requires `confirm: true`.                                                  |
@@ -890,7 +891,7 @@ Every route the bundled `@pi-harness/api-gateway` plugin registers is listed bel
 | `/api/session/export`      | GET       | Downloads one stored session as newline-delimited JSON.                                                                           |
 | `/api/sessions`            | GET       | Paginated stored session list, at most 100 entries per page.                                                                      |
 
-The session and file routes validate their paths against the session directory and the active workspace before touching the filesystem. Workspace file discovery uses Git's tracked and non-ignored file catalogue when available; outside Git it performs a bounded walk that skips generated directories and symlinks. In a non-Git workspace, the output view derives only successful `write`, `edit`, and `delete` paths from the active session branch, excludes failed and out-of-workspace calls, offers current-file snapshot patches for review, and hides Git-only commit and revert actions. Marketplace mutations are serialized so a second install, toggle, or uninstall receives `409` while one is running.
+The session and file routes validate their paths against the session directory and the active workspace before touching the filesystem. Workspace file discovery uses Git's tracked and non-ignored file catalogue when available; outside Git it performs a bounded walk that skips generated directories and symlinks. File previews are limited to catalogue members, opened without following a final symlink, bounded to 512 KiB, and decoded as strict UTF-8. In a non-Git workspace, the output view derives only successful `write`, `edit`, and `delete` paths from the active session branch, excludes failed and out-of-workspace calls, offers current-file snapshot patches for review, and hides Git-only commit and revert actions. Marketplace mutations are serialized so a second install, toggle, or uninstall receives `409` while one is running.
 
 ## Failure and security boundaries
 

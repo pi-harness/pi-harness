@@ -1,6 +1,6 @@
 import { execFile, type ExecFileException } from "node:child_process";
-import { existsSync, lstatSync, writeFileSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { constants, existsSync, lstatSync, writeFileSync } from "node:fs";
+import { lstat, mkdir, mkdtemp, open, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
@@ -66,6 +66,7 @@ const MAX_WORKSPACE_FILES = 5_000;
 const MAX_WORKSPACE_FILE_CANDIDATES = 20_000;
 const MAX_WORKSPACE_DIRECTORIES = 2_000;
 const MAX_WORKSPACE_DEPTH = 16;
+const MAX_WORKSPACE_FILE_PREVIEW_BYTES = 512 * 1024;
 const WORKSPACE_FILE_CACHE_MS = 1_000;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set([".git", "node_modules", ".pi", "dist", "build"]);
 
@@ -2010,6 +2011,105 @@ export default {
         }
       },
     });
+    const disposeWorkspaceFile = services.webServer.register({
+      path: "/api/workspace/file",
+      async handler(request, response) {
+        if (request.method !== "GET") {
+          sendJson(response, 405, { error: "Method not allowed" });
+          return;
+        }
+        const url = new URL(request.url ?? "/api/workspace/file", "http://localhost");
+        const requested = url.searchParams.get("path");
+        if (requested === null || requested.trim() === "") {
+          sendJson(response, 400, { error: "path is required" });
+          return;
+        }
+        const root = resolve(activeCwd(services));
+        const target = await containedWorkspacePath(root, requested);
+        if (target === undefined) {
+          sendJson(response, 400, { error: "path must stay inside the workspace" });
+          return;
+        }
+        const relativePath = target.relativePath.split(sep).join("/");
+        const catalogue = await readWorkspaceFiles(root);
+        if (!catalogue.paths.includes(relativePath)) {
+          sendJson(response, 404, { error: "file is not in the workspace catalogue" });
+          return;
+        }
+        try {
+          const canonicalRoot = await realpath(root);
+          const beforeOpen = await lstat(target.absolute);
+          if (beforeOpen.isSymbolicLink()) {
+            sendJson(response, 400, { error: "symbolic links cannot be previewed" });
+            return;
+          }
+          if (!beforeOpen.isFile()) {
+            sendJson(response, 400, { error: "path must name a regular file" });
+            return;
+          }
+          const handle = await open(target.absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+          try {
+            const metadata = await handle.stat();
+            if (!metadata.isFile()) {
+              sendJson(response, 400, { error: "path must name a regular file" });
+              return;
+            }
+            if (metadata.dev !== beforeOpen.dev || metadata.ino !== beforeOpen.ino) {
+              sendJson(response, 409, { error: "file changed while it was being opened" });
+              return;
+            }
+            const afterOpen = await lstat(target.absolute);
+            if (afterOpen.isSymbolicLink()) {
+              sendJson(response, 400, { error: "symbolic links cannot be previewed" });
+              return;
+            }
+            const canonicalTarget = await realpath(target.absolute);
+            if (escapesRoot(relative(canonicalRoot, canonicalTarget))) {
+              sendJson(response, 400, { error: "path must stay inside the workspace" });
+              return;
+            }
+            const current = await stat(canonicalTarget);
+            if (metadata.dev !== current.dev || metadata.ino !== current.ino) {
+              sendJson(response, 409, { error: "file changed while it was being opened" });
+              return;
+            }
+            if (metadata.size > MAX_WORKSPACE_FILE_PREVIEW_BYTES) {
+              sendJson(response, 413, { error: "files larger than 512 KiB cannot be previewed" });
+              return;
+            }
+            const chunks: Buffer[] = [];
+            let total = 0;
+            while (total <= MAX_WORKSPACE_FILE_PREVIEW_BYTES) {
+              const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_WORKSPACE_FILE_PREVIEW_BYTES + 1 - total));
+              const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+              if (bytesRead === 0) break;
+              chunks.push(buffer.subarray(0, bytesRead));
+              total += bytesRead;
+            }
+            if (total > MAX_WORKSPACE_FILE_PREVIEW_BYTES) {
+              sendJson(response, 413, { error: "files larger than 512 KiB cannot be previewed" });
+              return;
+            }
+            const content = Buffer.concat(chunks, total);
+            if (content.includes(0)) {
+              sendJson(response, 415, { error: "binary files cannot be previewed" });
+              return;
+            }
+            try {
+              sendJson(response, 200, { path: relativePath, content: new TextDecoder("utf-8", { fatal: true }).decode(content) });
+            } catch {
+              sendJson(response, 415, { error: "binary files cannot be previewed" });
+            }
+          } finally {
+            await handle.close();
+          }
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ELOOP") sendJson(response, 400, { error: "symbolic links cannot be previewed" });
+          else sendJson(response, code === "ENOENT" ? 404 : 500, { error: code === "ENOENT" ? "file does not exist" : errorText(error) });
+        }
+      },
+    });
     const disposeFileDiff = services.webServer.register({
       path: "/api/files/diff",
       async handler(request, response) {
@@ -2752,6 +2852,7 @@ export default {
       disposePickDirectory();
       disposeFiles();
       disposeWorkspaceFiles();
+      disposeWorkspaceFile();
       disposeFileDiff();
       disposeFileCommit();
       disposeFileRevert();
