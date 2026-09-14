@@ -8,11 +8,16 @@ import { describe, expect, test } from "vitest";
 const run = promisify(execFile);
 const BIN = join(import.meta.dirname, "..", "dist", "bin.js");
 
-async function pih(args: string[], cwd: string, agentDir: string): Promise<{ stdout: string; stderr: string; code: number }> {
+async function pih(
+  args: string[],
+  cwd: string,
+  agentDir: string,
+  extraEnv: Record<string, string> = {},
+): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
     const result = await run(process.execPath, [BIN, ...args], {
       cwd,
-      env: { ...process.env, PI_AGENT_DIR: agentDir, PI_HARNESS_HOME: join(agentDir, "harness-home") },
+      env: { ...process.env, PI_AGENT_DIR: agentDir, PI_HARNESS_HOME: join(agentDir, "harness-home"), ...extraEnv },
       timeout: 30_000,
     });
     return { ...result, code: 0 };
@@ -66,5 +71,31 @@ describe("published binary", () => {
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("@acme/definitely-not-installed");
+  }, 40_000);
+
+  test("uses the upstream PI_CODING_AGENT_DIR when both agent directory variables are present", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-bin-agent-dir-"));
+    const legacyAgentDir = join(directory, "legacy-agent");
+    const upstreamAgentDir = join(directory, "upstream-agent");
+    const packageDir = join(directory, "node_modules", "@acme", "agent-dir-probe");
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "@acme/agent-dir-probe", version: "1.0.0", type: "module", exports: { ".": "./index.mjs" } }),
+      "utf8",
+    );
+    await writeFile(
+      join(packageDir, "index.mjs"),
+      `export default { apply(ctx) { ctx.provide("piApplication", { async run() { ctx.piHarnessStdio.writeOutput(ctx.piHarnessLaunch.agentDir + "\\n"); return 0; } }); }, inject: ["piHarnessLaunch", "piHarnessStdio"] };`,
+      "utf8",
+    );
+    await writeFile(join(directory, "cordis.yml"), JSON.stringify([{ id: "probe", name: "@acme/agent-dir-probe" }]), "utf8");
+
+    const result = await pih(["--config", join(directory, "cordis.yml"), "--prompt", "hi"], directory, legacyAgentDir, {
+      PI_CODING_AGENT_DIR: upstreamAgentDir,
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(upstreamAgentDir);
   }, 40_000);
 });

@@ -11,12 +11,18 @@ case "${1:-}" in
       'Usage: npm run pih-local -- [pi-web options]' \
       '' \
       'Build and launch this checkout through EveryAPI authenticated pi-web.' \
+      'Set PIH_LOCAL_CWD to launch the agent in another project directory.' \
       'All options are forwarded to the local Pi Harness server.'
     exit 0
     ;;
 esac
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+launch_dir=${PIH_LOCAL_CWD:-${INIT_CWD:-$(pwd)}}
+if ! launch_dir=$(CDPATH= cd -- "$launch_dir" 2>/dev/null && pwd); then
+  echo "Pi Harness local working directory does not exist: $launch_dir" >&2
+  exit 1
+fi
 cd "$root_dir"
 
 npm run build:web
@@ -44,4 +50,8 @@ trap cleanup EXIT HUP INT TERM
 printf '%s\n' '#!/bin/sh' 'exec node "$PIH_LOCAL_SERVER_ENTRY" "$@"' > "$shim_dir/pi-web"
 chmod 755 "$shim_dir/pi-web"
 export PIH_LOCAL_SERVER_ENTRY="$server_entry"
+if [ -z "${PI_CODING_AGENT_DIR:-}" ] && [ -n "${PI_AGENT_DIR:-}" ]; then
+  export PI_CODING_AGENT_DIR="$PI_AGENT_DIR"
+fi
+cd "$launch_dir"
 PATH="$shim_dir:$PATH" "$everyapi_cli" use pi-web -- "$@"

@@ -51,7 +51,7 @@ with a dash.
 
 The profile that boots is a copy under <PI_HARNESS_HOME or ~/.pi-harness>/profiles/<name>/cordis.yml;
 edit it to change the provider and model. Provider credentials are read from auth.json in
-<PI_AGENT_DIR or ~/.pi/agent>; there is no /login command. Set PI_HARNESS_DEBUG=1 to keep the
+<PI_CODING_AGENT_DIR, PI_AGENT_DIR, or ~/.pi/agent>; there is no /login command. Set PI_HARNESS_DEBUG=1 to keep the
 stack frames in a startup failure.
 `;
 

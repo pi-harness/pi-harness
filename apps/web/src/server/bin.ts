@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bootHarness, coreUpdateNotice, prepareHarnessProfile, provideLaunchContext } from "@pi-harness/core";
+import { agentDirectory, bootHarness, coreUpdateNotice, prepareHarnessProfile, provideLaunchContext } from "@pi-harness/core";
 import "@pi-harness/host-webserver";
 import type { WebServer } from "@pi-harness/host-webserver";
 
@@ -57,9 +55,7 @@ const invalidAllowedHost = allowedHosts.find((entry) => !isBareHostname(entry));
 if (invalidAllowedHost !== undefined)
   throw new Error("PI_HARNESS_ALLOWED_HOSTS entries must be bare hostnames without a scheme, port or path: " + invalidAllowedHost);
 const cwd = process.cwd();
-// PI_AGENT_DIR is one documented variable shared with the CLI launcher, so normalize it the same way there: blank means unset, and a relative value resolves against the working directory rather than failing the absolute-path check in provideLaunchContext.
-const configuredAgentDir = process.env.PI_AGENT_DIR?.trim();
-const agentDir = configuredAgentDir === undefined || configuredAgentDir.length === 0 ? join(homedir(), ".pi", "agent") : resolve(cwd, configuredAgentDir);
+const agentDir = agentDirectory(process.env, cwd);
 const staticDir = fileURLToPath(new URL("../dist", import.meta.url));
 const builtinProfilePath = fileURLToPath(new URL("../profile/cordis.yml", import.meta.url));
 // The web console installs marketplace plugins with npm and then imports them, so the profile it edits and the node_modules it installs into live in a directory the user owns rather than inside the installed package, which npm replaces on every upgrade.
@@ -102,7 +98,7 @@ const formatStartupError = (error: unknown): string => {
   }
   const unregistered = UNREGISTERED_EVERYAPI_MODEL.exec(message);
   if (unregistered === null) return debug ? message : `${message}\n${DEBUG_HINT}`;
-  const remedy = `The EveryAPI model catalog is not provisioned in PI_AGENT_DIR. Start with \`everyapi use pi-web\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
+  const remedy = `The EveryAPI model catalog is not provisioned in PI_CODING_AGENT_DIR (or its PI_AGENT_DIR compatibility alias). Start with \`everyapi use pi-web\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
   // Under the debug flag the message already carries the frames bootHarness kept, and a reader who asked for them wants the remedy as well as the detail, not instead of it.
   return debug ? `${remedy}\n${message}` : `${remedy}\nPi model is not registered: ${unregistered[1]}`;
 };

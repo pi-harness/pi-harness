@@ -1,17 +1,14 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { coreUpdateNotice, harnessHomeDirectory } from "@pi-harness/core";
+import { agentDirectory, coreUpdateNotice, harnessHomeDirectory } from "@pi-harness/core";
 import { runCli, type CliEnvironment } from "./main.js";
 import { shouldRelaunchForDevelopmentProfile, superviseDevelopmentProcess } from "./relaunch.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
-const configuredAgentDir = process.env.PI_AGENT_DIR?.trim();
-const agentDir = configuredAgentDir === undefined || configuredAgentDir.length === 0 ? join(homedir(), ".pi", "agent") : resolve(configuredAgentDir);
+const agentDir = agentDirectory();
 
 const environment: CliEnvironment = {
   cwd: process.cwd(),

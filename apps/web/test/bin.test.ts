@@ -208,6 +208,17 @@ describe("web launcher", () => {
     expect(run.code).toBe(130);
   }, 60_000);
 
+  test("uses the upstream PI_CODING_AGENT_DIR when both agent directory variables are present", async () => {
+    const legacyAgentDir = await makeTempDir("legacy-agent");
+    const upstreamAgentDir = await makeTempDir("upstream-agent");
+
+    const run = await runLauncher("SIGINT", { PI_AGENT_DIR: legacyAgentDir, PI_CODING_AGENT_DIR: upstreamAgentDir });
+
+    expect(existsSync(join(upstreamAgentDir, "models-store.json"))).toBe(true);
+    expect(existsSync(join(legacyAgentDir, "models-store.json"))).toBe(false);
+    expect(run.code).toBe(130);
+  }, 60_000);
+
   test("keeps serving and shuts down gracefully when a closed stdout pipe breaks the console URL write", async () => {
     const agentDir = await makeTempDir("epipe");
     const harnessHome = await makeTempDir("epipe-home");
