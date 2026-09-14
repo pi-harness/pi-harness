@@ -39,7 +39,8 @@ describe("release contract", () => {
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
     expect(workflow).not.toContain("was already submitted");
     expect(workflow).not.toContain("tag_exists=$tag_exists");
-    expect(workflow).toContain('npm publish "$workspace" --access public');
+    // A bare `packages/name` argument is an npm package spec and may be resolved as a GitHub shorthand. Prefix the workspace with `./` so npm publishes the checked-out directory.
+    expect(workflow).toContain('npm publish "./$workspace" --access public');
   });
 
   test("publishes every plugin package on its own version line", () => {
