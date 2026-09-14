@@ -362,6 +362,10 @@ export function pluginActionErrorText(message: string): string {
   const text = message.trim();
   const mapped = PLUGIN_ACTION_ERROR_TEXT.get(text);
   if (mapped !== undefined) return t(mapped);
+  const requiredBy = /^Plugin is required by installed plugins: (.+)$/u.exec(text);
+  if (requiredBy !== null) return t("此插件仍被以下已安装插件依赖：{v0}。请先停用或卸载这些插件。", { v0: requiredBy[1] ?? "" });
+  const requires = /^Plugin requires installed and enabled dependencies: (.+)$/u.exec(text);
+  if (requires !== null) return t("此插件需要以下依赖已安装并启用：{v0}。", { v0: requires[1] ?? "" });
   const status = /^Request failed with status (\d+)$/u.exec(text);
   if (status !== null) return t("请求失败（HTTP {status}）：请确认 Pi Harness 仍在运行，然后重试。", { status: status[1] ?? "" });
   return message;
@@ -6799,6 +6803,7 @@ export function Marketplace({
   onBack,
   onToml,
   installedPackages,
+  dependencyRepairPackages,
   restartPendingPackages,
   onInstall,
 }: {
@@ -6820,6 +6825,7 @@ export function Marketplace({
   onBack: () => void;
   onToml: () => void;
   installedPackages: ReadonlySet<string>;
+  dependencyRepairPackages: ReadonlySet<string>;
   restartPendingPackages: ReadonlySet<string>;
   onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
 }) {
@@ -6981,17 +6987,23 @@ export function Marketplace({
                   </a>
                   {/* A plugin that asked for a restart is installed on disk but missing from the loader, so the button says so rather than inviting the same install again. */}
                   <button
-                    disabled={installedPackages.has(plugin.packageName) || restartPendingPackages.has(plugin.packageName) || installing !== undefined}
+                    disabled={
+                      ((installedPackages.has(plugin.packageName) || restartPendingPackages.has(plugin.packageName)) &&
+                        !dependencyRepairPackages.has(plugin.packageName)) ||
+                      installing !== undefined
+                    }
                     onClick={() => void install(plugin)}
                     type="button"
                   >
-                    {installedPackages.has(plugin.packageName)
-                      ? t("已安装")
-                      : restartPendingPackages.has(plugin.packageName)
-                        ? t("重启后生效")
-                        : installing === plugin.id
-                          ? t("安装中…")
-                          : t("安装")}
+                    {installing === plugin.id
+                      ? t("安装中…")
+                      : dependencyRepairPackages.has(plugin.packageName)
+                        ? t("修复依赖")
+                        : installedPackages.has(plugin.packageName)
+                          ? t("已安装")
+                          : restartPendingPackages.has(plugin.packageName)
+                            ? t("重启后生效")
+                            : t("安装")}
                   </button>
                 </footer>
               </article>
@@ -7028,6 +7040,7 @@ export function Marketplace({
 function MarketplaceDetail({
   plugin,
   installed,
+  dependencyRepair,
   restartPending,
   capabilityLabel,
   onInstall,
@@ -7035,6 +7048,7 @@ function MarketplaceDetail({
 }: {
   plugin: ClientMarketplacePlugin;
   installed: boolean;
+  dependencyRepair: boolean;
   restartPending: boolean;
   capabilityLabel: (id: string) => string;
   onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
@@ -7097,8 +7111,13 @@ function MarketplaceDetail({
                 </code>
               </div>
               <div className="plugin-detail-actions">
-                <button className="plugin-detail-action primary" disabled={installed || restartPending || busy} onClick={() => void install()} type="button">
-                  {installed ? t("已安装") : restartPending ? t("重启后生效") : busy ? t("安装中…") : t("安装插件")}
+                <button
+                  className="plugin-detail-action primary"
+                  disabled={((installed || restartPending) && !dependencyRepair) || busy}
+                  onClick={() => void install()}
+                  type="button"
+                >
+                  {busy ? t("安装中…") : dependencyRepair ? t("修复依赖") : installed ? t("已安装") : restartPending ? t("重启后生效") : t("安装插件")}
                 </button>
               </div>
             </div>
@@ -8788,6 +8807,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     () => new Set(data.plugins.filter((plugin) => plugin.removable && plugin.state !== RESTART_REQUIRED_PLUGIN_STATE).map((plugin) => plugin.name)),
     [data.plugins],
   );
+  const dependencyRepairPackages = useMemo(() => {
+    const catalog = marketplaceCatalog.length ? marketplaceCatalog : marketplacePagePlugins;
+    const catalogById = new Map(catalog.map((plugin) => [plugin.id, plugin]));
+    const runtimeByPackage = new Map(data.plugins.map((plugin) => [plugin.name, plugin]));
+    return new Set(
+      catalog
+        .filter(
+          (plugin) =>
+            runtimeByPackage.has(plugin.packageName) &&
+            plugin.dependencies?.some((dependencyId) => {
+              const dependency = catalogById.get(dependencyId);
+              return dependency === undefined || runtimeByPackage.get(dependency.packageName)?.enabled !== true;
+            }),
+        )
+        .map((plugin) => plugin.packageName),
+    );
+  }, [data.plugins, marketplaceCatalog, marketplacePagePlugins]);
   // Kept apart from installedPackages, which decides whether the marketplace says 已安装: a plugin waiting for a restart is on disk and in the profile but not loaded, so counting it as installed would claim it is running.
   // The gateway reads the profile, so it reports an install this browser never made and one that survives a reload; the local set below only has to cover the moment between an install and the next poll.
   const reportedRestartPending = useMemo(
@@ -9714,6 +9750,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       <MarketplaceDetail
         plugin={marketplaceDetail}
         capabilityLabel={capabilityLabel}
+        dependencyRepair={dependencyRepairPackages.has(marketplaceDetail.packageName)}
         installed={installedPackages.has(marketplaceDetail.packageName)}
         restartPending={restartPendingPackages.has(marketplaceDetail.packageName)}
         onBack={() => pushMarketplacePluginRoute(undefined, routeHistoryMode("back"))}
@@ -9776,6 +9813,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           setSettings("toml");
         }}
         installedPackages={installedPackages}
+        dependencyRepairPackages={dependencyRepairPackages}
         restartPendingPackages={restartPendingPackages}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);

@@ -82,6 +82,7 @@ export interface ClientMarketplacePlugin {
   readonly category: { readonly id: string; readonly label: string };
   readonly capabilities: readonly string[];
   readonly hooks: readonly string[];
+  readonly dependencies?: readonly string[];
   readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
   readonly statistics?: { readonly downloads30d?: number; readonly quality?: number; readonly updatedAt?: string };
 }

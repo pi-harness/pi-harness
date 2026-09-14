@@ -10,7 +10,9 @@ Marketplace entries may declare optional `dependencies`, containing stable marke
 
 `POST /api/marketplace/install` installs every missing member of that plan in one npm command, writes every missing profile entry in dependency-first order ahead of Runtime, and creates loader entries in the same order. Existing package/profile snapshots remain the transaction boundary. A normal activation failure removes every loader entry created by the attempt and restores the profile and npm manifests. A leased tool registry keeps the complete package/profile plan and reports that a restart is required, matching the existing tool-plugin behavior.
 
-Change Verifier declares `reviewer-bot` and `test-harness`. Its effective capabilities already include command execution, so the dependency declaration does not broaden the permissions shown to the user. The marketplace API exposes dependencies so clients can explain the install plan later, while the existing Install button needs no additional interaction: one click produces a usable configuration after the already-required restart.
+The same graph also protects later configuration changes. An installed plugin cannot be disabled or uninstalled while another installed and enabled plugin depends on it; the API names the dependents so the user can act deliberately. Enabling a dependent fails unless every declared dependency is installed and enabled. Uninstalling the dependent leaves its providers installed because they may be used independently.
+
+Change Verifier declares `reviewer-bot` and `test-harness`. Its effective capabilities already include command execution, so the dependency declaration does not broaden the permissions shown to the user. The marketplace API exposes dependencies so clients can explain the install plan and offer dependency repair to composite plugins installed before this contract existed. One click produces a usable configuration after the already-required restart.
 
 ## Alternatives Rejected
 
@@ -20,4 +22,4 @@ Change Verifier declares `reviewer-bot` and `test-harness`. Its effective capabi
 
 ## Verification
 
-Tests cover schema acceptance and rejection, dependency ordering, one-command installation, profile and loader ordering, leased-registry persistence, and rollback of the complete plan. A live marketplace install followed by `verify_change_gate` proves the original user journey.
+Tests cover schema acceptance and rejection, dependency ordering, one-command installation, profile and loader ordering, leased-registry persistence, rollback of the complete plan, and dependency-safe enable/disable/uninstall operations. A live marketplace install followed by `verify_change_gate` proves the original user journey.

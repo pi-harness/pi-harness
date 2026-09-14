@@ -36,6 +36,27 @@ describe("plugin marketplace registry", () => {
     expect(gate?.capabilities).not.toContain("read-only");
   });
 
+  test("plans marketplace dependencies before the requested plugin and rejects invalid graphs", async () => {
+    const marketplace = (await import("../src/marketplace.js")) as Record<string, unknown>;
+    const planner = marketplace.marketplaceInstallPlan;
+    expect(planner).toBeTypeOf("function");
+    if (typeof planner !== "function") return;
+    const changeVerifier = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "change-verifier");
+    expect(changeVerifier).toBeDefined();
+    expect((planner as (plugin: unknown, catalog?: readonly unknown[]) => readonly { id: string }[])(changeVerifier).map((plugin) => plugin.id)).toEqual([
+      "reviewer-bot",
+      "test-harness",
+      "change-verifier",
+    ]);
+    const fixture = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "agent-teams");
+    expect(fixture).toBeDefined();
+    const root = { ...fixture, id: "root", dependencies: ["missing"] };
+    expect(() => (planner as (plugin: unknown, catalog: readonly unknown[]) => unknown)(root, [root])).toThrow(/unknown marketplace dependency missing/iu);
+    const left = { ...fixture, id: "left", dependencies: ["right"] };
+    const right = { ...fixture, id: "right", dependencies: ["left"] };
+    expect(() => (planner as (plugin: unknown, catalog: readonly unknown[]) => unknown)(left, [left, right])).toThrow(/dependency cycle.*left.*right.*left/iu);
+  });
+
   test.each(MARKETPLACE_PLUGINS)(
     "imports $id from its published package entry point",
     async (plugin) => {

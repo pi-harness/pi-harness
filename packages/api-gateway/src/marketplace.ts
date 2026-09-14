@@ -16,6 +16,7 @@ export interface MarketplacePlugin {
   readonly category: { readonly id: string; readonly label: string };
   readonly capabilities: readonly string[];
   readonly hooks: readonly string[];
+  readonly dependencies?: readonly string[];
   readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
   readonly statistics?: MarketplaceStatistics;
 }
@@ -147,6 +148,11 @@ function isMarketplacePlugin(value: unknown): value is MarketplacePlugin {
     Array.isArray(value.hooks) &&
     value.hooks.length > 0 &&
     value.hooks.every((entry) => typeof entry === "string" && entry.trim() !== "") &&
+    (value.dependencies === undefined ||
+      (Array.isArray(value.dependencies) &&
+        value.dependencies.length > 0 &&
+        value.dependencies.every((entry) => typeof entry === "string" && entryIdPattern.test(entry)) &&
+        new Set(value.dependencies).size === value.dependencies.length)) &&
     isRecord(profile) &&
     typeof profile.name === "string" &&
     profile.name === value.packageName &&
@@ -160,6 +166,29 @@ function entryFiles(directory: string): string[] {
     if (entry.isDirectory()) return entryFiles(path);
     return entry.isFile() && entry.name.endsWith(".json") ? [path] : [];
   });
+}
+
+export function marketplaceInstallPlan(plugin: MarketplacePlugin, catalog: readonly MarketplacePlugin[] = MARKETPLACE_PLUGINS): readonly MarketplacePlugin[] {
+  const byId = new Map(catalog.map((entry) => [entry.id, entry]));
+  const completed = new Set<string>();
+  const visiting: string[] = [];
+  const plan: MarketplacePlugin[] = [];
+  const visit = (entry: MarketplacePlugin): void => {
+    if (completed.has(entry.id)) return;
+    const cycleStart = visiting.indexOf(entry.id);
+    if (cycleStart >= 0) throw new Error(`Marketplace dependency cycle: ${[...visiting.slice(cycleStart), entry.id].join(" -> ")}`);
+    visiting.push(entry.id);
+    for (const dependencyId of entry.dependencies ?? []) {
+      const dependency = byId.get(dependencyId);
+      if (dependency === undefined) throw new Error(`Unknown marketplace dependency ${dependencyId} required by ${entry.id}`);
+      visit(dependency);
+    }
+    visiting.pop();
+    completed.add(entry.id);
+    plan.push(entry);
+  };
+  visit(plugin);
+  return plan;
 }
 
 function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
@@ -190,6 +219,7 @@ function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
     packages.add(plugin.packageName);
     categoryLabels.set(plugin.category.id, plugin.category.label);
   }
+  for (const plugin of plugins) marketplaceInstallPlan(plugin, plugins);
   return plugins;
 }
 

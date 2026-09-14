@@ -41,8 +41,9 @@
 2. Add a failing rollback test where the final activation fails and assert every created loader entry is removed while profile, `package.json`, and `package-lock.json` return to their original bytes.
 3. Add a failing leased-registry test and assert all package/profile entries remain for restart even though activation stops at the first leased tool plugin.
 4. Run the three endpoint tests and confirm each fails for the current single-plugin implementation.
-5. Expand the requested plugin with `marketplaceInstallPlan()`, filter already-installed profile or loader packages, pass all missing specs to one npm install, append every profile row, and create/remove loader entries as an ordered unit.
-6. Re-run the targeted endpoint tests and existing marketplace endpoint tests.
+5. Expand the requested plugin with `marketplaceInstallPlan()`, filter already-installed profile or loader packages, pass all missing specs to one npm install, append every profile row, and create/remove loader entries as an ordered unit. Treat profile-only dependencies as restart-pending rather than active.
+6. Add failing tests that prevent disabling or uninstalling an installed dependency and prevent enabling a dependent whose requirements are unavailable; implement graph-based guards with actionable dependent names.
+7. Re-run the targeted endpoint tests and existing marketplace endpoint tests.
 
 ### Task 3: Publish the contract and verify the real journey
 
@@ -54,7 +55,7 @@
 **Steps:**
 
 1. Add the optional dependency field to the client API type.
-2. Document dependency validation, dependency-first installation, rollback, and restart semantics.
+2. Document dependency validation, dependency-first installation, dependency repair for existing composite installs, rollback, and restart semantics.
 3. Run format, lint, workspace typecheck, package smoke, full Vitest, and `git diff --check`.
 4. In an isolated `pih-local` home, uninstall the broken standalone Change Verifier fixture, install it once through the web marketplace, restart, invoke `verify_change_gate`, and confirm Reviewer Bot and Test Harness are active and the gate executes rather than reporting a missing provider tool.
 5. Request independent review, fix all Critical and Important findings, then commit, open a PR, and merge according to the active user instruction.

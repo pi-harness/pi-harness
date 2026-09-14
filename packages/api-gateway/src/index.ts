@@ -16,6 +16,7 @@ import {
   createMarketplaceStatisticsLoader,
   paginateMarketplace,
   searchMarketplace,
+  marketplaceInstallPlan,
   marketplaceNpmPackageName,
   marketplaceCapabilities,
   marketplaceCategories,
@@ -399,6 +400,28 @@ function marketplacePluginForEntry(entry: LoaderEntrySummary): MarketplacePlugin
   return MARKETPLACE_PLUGINS.find((plugin) => plugin.packageName === entry.options.name);
 }
 
+function marketplaceDependencyBlockers(plugin: MarketplacePlugin, installedPackages: ReadonlySet<string>): readonly MarketplacePlugin[] {
+  return MARKETPLACE_PLUGINS.filter((candidate) => installedPackages.has(candidate.packageName) && candidate.dependencies?.includes(plugin.id) === true);
+}
+
+type MarketplaceProfileEntry = { readonly id: string; readonly packageName: string; readonly disabled: boolean };
+
+function marketplaceEnabledPackages(loaderEntries: readonly LoaderEntrySummary[], profileEntries: readonly MarketplaceProfileEntry[]): ReadonlySet<string> {
+  const configuredPackages = new Set(profileEntries.map((entry) => entry.packageName));
+  const enabledPackages = new Set(profileEntries.filter((entry) => !entry.disabled).map((entry) => entry.packageName));
+  for (const entry of loaderEntries) {
+    if (!configuredPackages.has(entry.options.name) && !entry.options.disabled) enabledPackages.add(entry.options.name);
+  }
+  return enabledPackages;
+}
+
+function marketplaceActivePackages(loaderEntries: readonly LoaderEntrySummary[], profileEntries: readonly MarketplaceProfileEntry[]): ReadonlySet<string> {
+  const configured = new Map(profileEntries.map((entry) => [entry.packageName, entry]));
+  return new Set(
+    loaderEntries.filter((entry) => !entry.options.disabled && configured.get(entry.options.name)?.disabled !== true).map((entry) => entry.options.name),
+  );
+}
+
 function pluginSummary(entry: LoaderEntrySummary) {
   const states = ["pending", "loading", "active", "failed", "disposed", "unloading"];
   const marketplacePlugin = marketplacePluginForEntry(entry);
@@ -425,14 +448,15 @@ function pluginSummary(entry: LoaderEntrySummary) {
 const RESTART_REQUIRED_STATE = "restart-required";
 
 // The install writes the entry as two adjacent lines, so this reads back exactly what `marketplaceProfileEntry` writes rather than parsing the profile as YAML, which the `!!js` tags in it would need a schema for.
-const MARKETPLACE_PROFILE_ENTRY_PATTERN = /^[ \t]*- id: (marketplace-\S+)[ \t]*\r?\n[ \t]*name: "([^"]+)"/gmu;
+const MARKETPLACE_PROFILE_ENTRY_PATTERN = /^[ \t]*- id: (marketplace-\S+)[ \t]*\r?\n([ \t]+)name: "([^"]+)"(?:\r?\n\2disabled: (true|false))?/gmu;
 
 /** The loader holds what is running; the profile file holds what is installed. The two differ for a plugin that contributes tools, which cannot join a harness that is already running: the install leaves its package and its profile entry in place and the plugin arrives on the next start. Reading only the loader makes that plugin indistinguishable from one that was never installed, which is why the console answered an install that had just succeeded with "nothing is installed" and then could not uninstall what it had hidden. */
-async function readMarketplaceProfileEntries(configPath: string): Promise<readonly { readonly id: string; readonly packageName: string }[]> {
+async function readMarketplaceProfileEntries(configPath: string): Promise<readonly MarketplaceProfileEntry[]> {
   const source = await readFile(configPath, "utf8").catch(() => undefined);
   if (source === undefined) return [];
-  const entries: { id: string; packageName: string }[] = [];
-  for (const match of source.matchAll(MARKETPLACE_PROFILE_ENTRY_PATTERN)) entries.push({ id: match[1] ?? "", packageName: match[2] ?? "" });
+  const entries: { id: string; packageName: string; disabled: boolean }[] = [];
+  for (const match of source.matchAll(MARKETPLACE_PROFILE_ENTRY_PATTERN))
+    entries.push({ id: match[1] ?? "", packageName: match[3] ?? "", disabled: match[4] === "true" });
   return entries;
 }
 
@@ -1602,13 +1626,26 @@ export default {
             sendJson(response, 404, { error: "Marketplace plugin was not found" });
             return;
           }
-          const existing = [...loader.entries()].find((entry) => entry.options.name === plugin.packageName);
-          if (existing !== undefined) {
+          const loadedEntries = [...loader.entries()];
+          const configuredEntries = await readMarketplaceProfileEntries(configPath);
+          const loadedPackages = new Set(loadedEntries.map((entry) => entry.options.name));
+          const configuredPackages = new Set(configuredEntries.map((entry) => entry.packageName));
+          const installPlan = marketplaceInstallPlan(plugin);
+          const missing = installPlan.filter((entry) => !loadedPackages.has(entry.packageName) && !configuredPackages.has(entry.packageName));
+          const disabledDependencies = installPlan.slice(0, -1).filter((dependency) => {
+            const loaded = loadedEntries.find((entry) => entry.options.name === dependency.packageName);
+            const configured = configuredEntries.find((entry) => entry.packageName === dependency.packageName);
+            return loaded?.options.disabled === true || configured?.disabled === true;
+          });
+          const pendingDependencies = installPlan
+            .slice(0, -1)
+            .filter((dependency) => configuredPackages.has(dependency.packageName) && !loadedPackages.has(dependency.packageName));
+          if (missing.length === 0 && disabledDependencies.length === 0 && pendingDependencies.length === 0 && loadedPackages.has(plugin.packageName)) {
             sendJson(response, 409, { error: "Plugin is already installed", plugin });
             return;
           }
-          // A plugin already waiting for a restart is installed even though the loader has no entry for it, so installing it again would re-run npm and report a fresh restart for work that is already done.
-          if ((await readMarketplaceProfileEntries(configPath)).some((entry) => entry.packageName === plugin.packageName)) {
+          // A complete plugin plan already waiting for a restart is installed even though the loader has no entry for it, so installing it again would re-run npm and report a fresh restart for work that is already done.
+          if (missing.length === 0 && disabledDependencies.length === 0) {
             sendJson(response, 200, { plugin, installed: true, restartRequired: true });
             return;
           }
@@ -1619,27 +1656,53 @@ export default {
           const packageLockBefore = await readFile(packageLockPath, "utf8").catch(() => undefined);
           const placement = runtimePlacement(loader);
           let profileBefore: string | undefined;
-          let entryId: string | undefined;
+          const entryIds: string[] = [];
           try {
-            const specifier = `${marketplaceNpmPackageName(plugin.packageName)}@${plugin.version}`;
-            await runProcess("npm", ["install", "--save-exact", "--package-lock=false", specifier], installDirectory);
-            profileBefore = await appendMarketplaceProfile(configPath, plugin, placement?.beforeEntryId);
-            entryId = await loader.create(
-              {
-                id: `marketplace-${plugin.id}`,
-                name: plugin.packageName,
-                ...(plugin.profile.group === true ? { group: true } : {}),
-                config: plugin.profile.config,
-              } as never,
-              placement?.groupEntryId ?? null,
-              placement?.position ?? Infinity,
-            );
-            const entry = loader.resolve(entryId);
-            if (entry.fiber === undefined) throw new Error(`Plugin ${plugin.packageName} did not create a runtime fiber`);
-            await entry.fiber.await();
+            const specifiers = missing.map((entry) => `${marketplaceNpmPackageName(entry.packageName)}@${entry.version}`);
+            if (specifiers.length > 0) await runProcess("npm", ["install", "--save-exact", "--package-lock=false", ...specifiers], installDirectory);
+            profileBefore = await readFile(configPath, "utf8");
+            for (const dependency of disabledDependencies) {
+              const configured = configuredEntries.find((entry) => entry.packageName === dependency.packageName);
+              if (configured === undefined) throw new Error(`Installed dependency profile entry was not found: ${dependency.id}`);
+              await updateMarketplaceProfile(configPath, configured.id, { disabled: false });
+            }
+            const missingPackages = new Set(missing.map((entry) => entry.packageName));
+            let profileAnchor = placement?.beforeEntryId;
+            for (let index = installPlan.length - 1; index >= 0; index -= 1) {
+              const entry = installPlan[index];
+              if (entry === undefined) continue;
+              const configured = configuredEntries.find((candidate) => candidate.packageName === entry.packageName);
+              if (configured !== undefined) {
+                profileAnchor = configured.id;
+              } else if (missingPackages.has(entry.packageName)) {
+                await appendMarketplaceProfile(configPath, entry, profileAnchor);
+                profileAnchor = `marketplace-${entry.id}`;
+              }
+            }
+            // Re-enabled and profile-only dependencies are not available to the running tool snapshot. The whole dependency-first profile is complete, so defer every activation to the next start instead of exposing a partially usable target.
+            if (disabledDependencies.length > 0 || pendingDependencies.length > 0) {
+              sendJson(response, 200, { plugin, installed: true, restartRequired: true });
+              return;
+            }
+            for (const [index, pluginEntry] of missing.entries()) {
+              const entryId = await loader.create(
+                {
+                  id: `marketplace-${pluginEntry.id}`,
+                  name: pluginEntry.packageName,
+                  ...(pluginEntry.profile.group === true ? { group: true } : {}),
+                  config: pluginEntry.profile.config,
+                } as never,
+                placement?.groupEntryId ?? null,
+                placement === undefined ? Infinity : placement.position + index,
+              );
+              entryIds.push(entryId);
+              const entry = loader.resolve(entryId);
+              if (entry.fiber === undefined) throw new Error(`Plugin ${pluginEntry.packageName} did not create a runtime fiber`);
+              await entry.fiber.await();
+            }
             sendJson(response, 200, { plugin, installed: true, restartRequired: false });
           } catch (error) {
-            if (entryId !== undefined) await loader.remove(entryId).catch(() => {});
+            for (const entryId of entryIds.reverse()) await loader.remove(entryId).catch(() => {});
             // The runtime holds the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools cannot join a harness that is already running. The package and its profile entry stay in place and the plugin arrives on the next start; rolling the install back would leave the user unable to install it at all.
             if (isPiToolRegistryLeasedError(error)) {
               sendJson(response, 200, { plugin, installed: true, restartRequired: true });
@@ -1694,6 +1757,27 @@ export default {
             sendJson(response, 403, { error: "Built-in plugins cannot be changed" });
             return;
           }
+          const loaderEntries = [...loader.entries()];
+          const profileEntries = await readMarketplaceProfileEntries(configPath);
+          const enabledPackages = marketplaceEnabledPackages(loaderEntries, profileEntries);
+          if (payload.enabled) {
+            const activePackages = marketplaceActivePackages(loaderEntries, profileEntries);
+            const missing = marketplaceInstallPlan(plugin)
+              .slice(0, -1)
+              .filter((dependency) => !activePackages.has(dependency.packageName));
+            if (missing.length > 0) {
+              sendJson(response, 409, {
+                error: `Plugin requires installed and enabled dependencies: ${missing.map((dependency) => dependency.name).join(", ")}`,
+              });
+              return;
+            }
+          } else {
+            const blockers = marketplaceDependencyBlockers(plugin, enabledPackages);
+            if (blockers.length > 0) {
+              sendJson(response, 409, { error: `Plugin is required by installed plugins: ${blockers.map((candidate) => candidate.name).join(", ")}` });
+              return;
+            }
+          }
           const profileEntryId = entry.options.id;
           const before = await updateMarketplaceProfile(configPath, profileEntryId, { disabled: !payload.enabled });
           try {
@@ -1739,13 +1823,21 @@ export default {
             sendJson(response, 400, { error: "A marketplace plugin id is required" });
             return;
           }
-          const entry = [...loader.entries()].find((item) => item.id === payload.id || item.options.id === payload.id);
+          const loaderEntries = [...loader.entries()];
+          const profileEntries = await readMarketplaceProfileEntries(configPath);
+          const enabledPackages = marketplaceEnabledPackages(loaderEntries, profileEntries);
+          const entry = loaderEntries.find((item) => item.id === payload.id || item.options.id === payload.id);
           if (entry === undefined) {
             // A plugin waiting for a restart has no loader entry to remove, only the profile entry and the package the install left behind. Refusing here left the user unable to undo an install until they restarted the very process they installed it to avoid restarting.
-            const pending = (await readMarketplaceProfileEntries(configPath)).find((item) => item.id === payload.id);
+            const pending = profileEntries.find((item) => item.id === payload.id);
             const pendingPlugin = pending === undefined ? undefined : MARKETPLACE_PLUGINS.find((item) => item.packageName === pending.packageName);
             if (pending === undefined || pendingPlugin === undefined) {
               sendJson(response, 404, { error: "Installed plugin was not found" });
+              return;
+            }
+            const blockers = marketplaceDependencyBlockers(pendingPlugin, enabledPackages);
+            if (blockers.length > 0) {
+              sendJson(response, 409, { error: `Plugin is required by installed plugins: ${blockers.map((candidate) => candidate.name).join(", ")}` });
               return;
             }
             const pendingProfileBefore = await readFile(configPath, "utf8");
@@ -1763,6 +1855,11 @@ export default {
           const plugin = marketplacePluginForEntry(entry);
           if (plugin === undefined) {
             sendJson(response, 403, { error: "Only marketplace plugins can be uninstalled" });
+            return;
+          }
+          const blockers = marketplaceDependencyBlockers(plugin, enabledPackages);
+          if (blockers.length > 0) {
+            sendJson(response, 409, { error: `Plugin is required by installed plugins: ${blockers.map((candidate) => candidate.name).join(", ")}` });
             return;
           }
           const profileEntryId = entry.options.id;

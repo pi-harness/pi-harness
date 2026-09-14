@@ -12,7 +12,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import webServerPlugin from "@pi-harness/host-webserver";
 import { PiPluginUiRegistry, PiToolRegistry, PiToolRegistryLeasedError } from "@pi-harness/core";
-import type { MarketplacePlugin } from "../src/marketplace.js";
+import { MARKETPLACE_PLUGINS, type MarketplacePlugin } from "../src/marketplace.js";
 import apiPlugin from "../src/index.js";
 import type * as FsPromises from "node:fs/promises";
 
@@ -3042,6 +3042,333 @@ describe("API gateway plugin", () => {
     await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/plugin-skill-guard"');
   });
 
+  test("installs a marketplace plugin and all missing dependencies as one dependency-first transaction", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-dependencies-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    await writeFile(configPath, '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n', "utf8");
+    const npmLog = join(directory, "npm.log");
+    await writeFile(join(shimDirectory, "npm"), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(npmLog)}\n`, { mode: 0o755 });
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-dependencies-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const created: string[] = [];
+    const runtimeOptions = { id: "runtime", name: "@pi-harness/core/plugins/runtime", config: {} };
+    const runtimeParent = { data: [runtimeOptions] };
+    context.reflect.provide("loader", {
+      entries: () => [{ id: "profile:runtime", options: runtimeOptions, parent: runtimeParent }],
+      create: (options: { id: string; name: string }) => {
+        created.push(options.name);
+        return Promise.resolve(options.id);
+      },
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "change-verifier" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: false, plugin: { id: "change-verifier" } });
+    const byId = new Map(MARKETPLACE_PLUGINS.map((plugin) => [plugin.id, plugin]));
+    expect((await readFile(npmLog, "utf8")).trim()).toBe(
+      ["reviewer-bot", "test-harness", "change-verifier"]
+        .map((id) => byId.get(id))
+        .reduce((command, plugin) => `${command} ${plugin?.packageName}@${plugin?.version}`, "install --save-exact --package-lock=false"),
+    );
+    expect(created).toEqual(["@pi-harness/plugin-reviewer-bot", "@pi-harness/plugin-test-harness", "@pi-harness/plugin-change-verifier"]);
+    const profile = await readFile(configPath, "utf8");
+    const rows = [
+      profile.indexOf('name: "@pi-harness/plugin-reviewer-bot"'),
+      profile.indexOf('name: "@pi-harness/plugin-test-harness"'),
+      profile.indexOf('name: "@pi-harness/plugin-change-verifier"'),
+      profile.indexOf('name: "@pi-harness/core/plugins/runtime"'),
+    ];
+    expect(rows.every((offset) => offset >= 0)).toBe(true);
+    expect(rows).toEqual([...rows].sort((left, right) => left - right));
+  });
+
+  test("places newly discovered dependencies before an already configured dependent", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-existing-dependent-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    await writeFile(
+      configPath,
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  config: {}\n' +
+        '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n',
+      "utf8",
+    );
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "existing-dependent-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const runtimeOptions = { id: "runtime", name: "@pi-harness/core/plugins/runtime", config: {} };
+    const runtimeParent = { data: [runtimeOptions] };
+    context.reflect.provide("loader", {
+      entries: () => [{ id: "profile:runtime", options: runtimeOptions, parent: runtimeParent }],
+      create: (options: { id: string }) => Promise.resolve(options.id),
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    try {
+      const response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "change-verifier" }),
+      });
+      expect(response.status).toBe(200);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    const profile = await readFile(configPath, "utf8");
+    const rows = [
+      profile.indexOf('name: "@pi-harness/plugin-reviewer-bot"'),
+      profile.indexOf('name: "@pi-harness/plugin-test-harness"'),
+      profile.indexOf('name: "@pi-harness/plugin-change-verifier"'),
+      profile.indexOf('name: "@pi-harness/core/plugins/runtime"'),
+    ];
+    expect(rows.every((offset) => offset >= 0)).toBe(true);
+    expect(rows).toEqual([...rows].sort((left, right) => left - right));
+  });
+
+  test("defers the complete install when a configured dependency is waiting for restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-pending-dependency-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    await writeFile(
+      configPath,
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  config: {}\n' +
+        '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n',
+      "utf8",
+    );
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "pending-dependency-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const runtimeOptions = { id: "runtime", name: "@pi-harness/core/plugins/runtime", config: {} };
+    const runtimeParent = { data: [runtimeOptions] };
+    const created: string[] = [];
+    context.reflect.provide("loader", {
+      entries: () => [{ id: "profile:runtime", options: runtimeOptions, parent: runtimeParent }],
+      create: (options: { id: string }) => {
+        created.push(options.id);
+        return Promise.resolve(options.id);
+      },
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "change-verifier" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: true });
+    expect(created).toEqual([]);
+    const profile = await readFile(configPath, "utf8");
+    expect(profile).toContain('name: "@pi-harness/plugin-test-harness"');
+    expect(profile).toContain('name: "@pi-harness/plugin-change-verifier"');
+  });
+
+  test("re-enables a disabled dependency while installing its dependent plugin", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-disabled-dependency-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    await writeFile(
+      configPath,
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  disabled: true\n  config: {}\n' +
+        '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n',
+      "utf8",
+    );
+    const npmLog = join(directory, "npm.log");
+    await writeFile(join(shimDirectory, "npm"), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(npmLog)}\n`, { mode: 0o755 });
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "disabled-dependency-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const runtimeOptions = { id: "runtime", name: "@pi-harness/core/plugins/runtime", config: {} };
+    const reviewerOptions = { id: "marketplace-reviewer-bot", name: "@pi-harness/plugin-reviewer-bot", disabled: true };
+    const runtimeParent = { data: [reviewerOptions, runtimeOptions] };
+    const created: string[] = [];
+    context.reflect.provide("loader", {
+      entries: () => [
+        { id: "profile:reviewer", options: reviewerOptions, parent: runtimeParent },
+        { id: "profile:runtime", options: runtimeOptions, parent: runtimeParent },
+      ],
+      create: (options: { id: string }) => {
+        created.push(options.id);
+        return Promise.resolve(options.id);
+      },
+      resolve: () => ({ fiber: { await: () => Promise.resolve() } }),
+      remove: () => Promise.resolve(),
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "change-verifier" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: true });
+    const byId = new Map(MARKETPLACE_PLUGINS.map((plugin) => [plugin.id, plugin]));
+    expect((await readFile(npmLog, "utf8")).trim()).toBe(
+      ["test-harness", "change-verifier"]
+        .map((id) => byId.get(id))
+        .reduce((command, plugin) => `${command} ${plugin?.packageName}@${plugin?.version}`, "install --save-exact --package-lock=false"),
+    );
+    expect(created).toEqual([]);
+    const profile = await readFile(configPath, "utf8");
+    expect(profile).not.toContain("disabled: true");
+    expect(profile).toContain('name: "@pi-harness/plugin-test-harness"');
+    expect(profile).toContain('name: "@pi-harness/plugin-change-verifier"');
+  });
+
+  test.each([
+    ["rolls back the complete plan after an ordinary activation failure", false],
+    ["keeps the complete plan for restart after a leased tool-registry failure", true],
+  ])("%s", async (_name, leased) => {
+    const directory = await mkdtemp(join(tmpdir(), `pi-harness-api-plugin-plan-${leased ? "leased" : "rollback"}-`));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    const packageBefore = '{ "name": "harness", "dependencies": {} }\n';
+    await writeFile(join(directory, "package.json"), packageBefore, "utf8");
+    const configPath = join(directory, "profile.yml");
+    const profileBefore = '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n';
+    await writeFile(configPath, profileBefore, "utf8");
+    await writeFile(
+      join(shimDirectory, "npm"),
+      '#!/bin/sh\nprintf \'{ "name": "harness", "dependencies": { "changed": "1.0.0" } }\\n\' > package.json\nprintf \'{ "lockfileVersion": 3 }\\n\' > package-lock.json\n',
+      { mode: 0o755 },
+    );
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-plan-failure-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const runtimeOptions = { id: "runtime", name: "@pi-harness/core/plugins/runtime", config: {} };
+    const runtimeParent = { data: [runtimeOptions] };
+    const created: string[] = [];
+    const removed: string[] = [];
+    context.reflect.provide("loader", {
+      entries: () => [{ id: "profile:runtime", options: runtimeOptions, parent: runtimeParent }],
+      create: (options: { id: string }) => {
+        created.push(options.id);
+        return Promise.resolve(options.id);
+      },
+      resolve: (id: string) => ({
+        fiber: {
+          await: () => {
+            if (leased && id === "marketplace-reviewer-bot")
+              return Promise.reject(new Error("leased", { cause: new PiToolRegistryLeasedError("review_changes") }));
+            if (!leased && id === "marketplace-change-verifier") return Promise.reject(new Error("change verifier activation failed"));
+            return Promise.resolve();
+          },
+        },
+      }),
+      remove: (id: string) => {
+        removed.push(id);
+        return Promise.resolve();
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/marketplace/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "change-verifier" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    if (leased) {
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: true });
+      expect(created).toEqual(["marketplace-reviewer-bot"]);
+      expect(removed).toEqual(["marketplace-reviewer-bot"]);
+      await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/plugin-change-verifier"');
+      await expect(readFile(join(directory, "package.json"), "utf8")).resolves.toContain('"changed"');
+      await expect(stat(join(directory, "package-lock.json"))).resolves.toBeDefined();
+    } else {
+      expect(response.status).toBe(502);
+      await expect(response.json()).resolves.toEqual({ error: "change verifier activation failed" });
+      expect(created).toEqual(["marketplace-reviewer-bot", "marketplace-test-harness", "marketplace-change-verifier"]);
+      expect(removed).toEqual(["marketplace-change-verifier", "marketplace-test-harness", "marketplace-reviewer-bot"]);
+      await expect(readFile(configPath, "utf8")).resolves.toBe(profileBefore);
+      await expect(readFile(join(directory, "package.json"), "utf8")).resolves.toBe(packageBefore);
+      await expect(stat(join(directory, "package-lock.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
   // A plugin registers its tools while it activates, and pi-runtime takes the tool registry when it activates, so an installed entry only works if it sits ahead of the runtime inside the runtime's own group.
   test("installs a marketplace plugin into the runtime's group ahead of the runtime", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-placement-"));
@@ -3155,6 +3482,291 @@ describe("API gateway plugin", () => {
     expect(removed).toEqual(["marketplace-entry"]);
     await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/plugin-skill-guard"');
     await expect(readFile(join(directory, "package.json"), "utf8")).resolves.toBe('{ "name": "harness", "dependencies": {} }\n');
+  });
+
+  test("refuses to disable a marketplace dependency while an installed plugin requires it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-disable-dependency-"));
+    temporaryDirectories.push(directory);
+    const configPath = join(directory, "profile.yml");
+    const profile =
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  config: {}\n' +
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  config: {}\n' +
+      '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n';
+    await writeFile(configPath, profile, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "disable-dependency-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const update = vi.fn(() => Promise.resolve());
+    const reviewer = { id: "profile:reviewer", options: { id: "marketplace-reviewer-bot", name: "@pi-harness/plugin-reviewer-bot" }, update };
+    const verifier = { id: "profile:verifier", options: { id: "marketplace-change-verifier", name: "@pi-harness/plugin-change-verifier" } };
+    context.reflect.provide("loader", { entries: () => [reviewer, verifier] });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "marketplace-reviewer-bot", enabled: false }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Plugin is required by installed plugins: Change Verifier" });
+    expect(update).not.toHaveBeenCalled();
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profile);
+  });
+
+  test("refuses to enable a marketplace plugin whose dependencies are unavailable", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-enable-dependent-"));
+    temporaryDirectories.push(directory);
+    const configPath = join(directory, "profile.yml");
+    const profile =
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  disabled: true\n  config: {}\n' +
+      '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n';
+    await writeFile(configPath, profile, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "enable-dependent-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const update = vi.fn(() => Promise.resolve());
+    const verifier = {
+      id: "profile:verifier",
+      options: { id: "marketplace-change-verifier", name: "@pi-harness/plugin-change-verifier", disabled: true },
+      update,
+    };
+    context.reflect.provide("loader", { entries: () => [verifier] });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "marketplace-change-verifier", enabled: true }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Plugin requires installed and enabled dependencies: Reviewer Bot, Test Harness" });
+    expect(update).not.toHaveBeenCalled();
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profile);
+  });
+
+  test("treats a dependency disabled in the profile as unavailable even while its old loader entry is active", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-enable-profile-disabled-dependency-"));
+    temporaryDirectories.push(directory);
+    const configPath = join(directory, "profile.yml");
+    const profile =
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  disabled: true\n  config: {}\n' +
+      '- id: marketplace-test-harness\n  name: "@pi-harness/plugin-test-harness"\n  config: {}\n' +
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  disabled: true\n  config: {}\n';
+    await writeFile(configPath, profile, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "enable-profile-disabled-dependency-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const update = vi.fn(() => Promise.resolve());
+    const entries = [
+      { id: "profile:reviewer", options: { id: "marketplace-reviewer-bot", name: "@pi-harness/plugin-reviewer-bot" } },
+      { id: "profile:tests", options: { id: "marketplace-test-harness", name: "@pi-harness/plugin-test-harness" } },
+      {
+        id: "profile:verifier",
+        options: { id: "marketplace-change-verifier", name: "@pi-harness/plugin-change-verifier", disabled: true },
+        update,
+      },
+    ];
+    context.reflect.provide("loader", { entries: () => entries });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "marketplace-change-verifier", enabled: true }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Plugin requires installed and enabled dependencies: Reviewer Bot" });
+    expect(update).not.toHaveBeenCalled();
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profile);
+  });
+
+  test("refuses to enable a dependent while an enabled dependency is waiting for restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-enable-pending-dependency-"));
+    temporaryDirectories.push(directory);
+    const configPath = join(directory, "profile.yml");
+    const profile =
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  config: {}\n' +
+      '- id: marketplace-test-harness\n  name: "@pi-harness/plugin-test-harness"\n  config: {}\n' +
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  disabled: true\n  config: {}\n';
+    await writeFile(configPath, profile, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "enable-pending-dependency-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const update = vi.fn(() => Promise.resolve());
+    const entries = [
+      { id: "profile:tests", options: { id: "marketplace-test-harness", name: "@pi-harness/plugin-test-harness" } },
+      {
+        id: "profile:verifier",
+        options: { id: "marketplace-change-verifier", name: "@pi-harness/plugin-change-verifier", disabled: true },
+        update,
+      },
+    ];
+    context.reflect.provide("loader", { entries: () => entries });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "marketplace-change-verifier", enabled: true }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Plugin requires installed and enabled dependencies: Reviewer Bot" });
+    expect(update).not.toHaveBeenCalled();
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profile);
+  });
+
+  test("refuses to uninstall a restart-pending dependency while an installed plugin requires it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-uninstall-dependency-"));
+    temporaryDirectories.push(directory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    const profile =
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  config: {}\n' +
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  config: {}\n' +
+      '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n';
+    await writeFile(configPath, profile, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "uninstall-dependency-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const verifier = { id: "profile:verifier", options: { id: "marketplace-change-verifier", name: "@pi-harness/plugin-change-verifier" } };
+    context.reflect.provide("loader", { entries: () => [verifier] });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "marketplace-reviewer-bot" }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Plugin is required by installed plugins: Change Verifier" });
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profile);
+  });
+
+  test("refuses to uninstall an active dependency while an installed plugin requires it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-uninstall-active-dependency-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const configPath = join(directory, "profile.yml");
+    const profile =
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  config: {}\n' +
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  config: {}\n';
+    await writeFile(configPath, profile, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "uninstall-active-dependency-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const remove = vi.fn(() => Promise.resolve());
+    const parent = { data: [] as unknown[], remove, tree: { write: vi.fn() } };
+    const reviewer = { id: "profile:reviewer", options: { id: "marketplace-reviewer-bot", name: "@pi-harness/plugin-reviewer-bot" }, parent };
+    const verifier = { id: "profile:verifier", options: { id: "marketplace-change-verifier", name: "@pi-harness/plugin-change-verifier" }, parent };
+    parent.data.push(reviewer.options, verifier.options);
+    context.reflect.provide("loader", { entries: () => [reviewer, verifier] });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "marketplace-reviewer-bot" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Plugin is required by installed plugins: Change Verifier" });
+    expect(remove).not.toHaveBeenCalled();
+    await expect(readFile(configPath, "utf8")).resolves.toBe(profile);
+  });
+
+  test("allows uninstalling a dependency when every installed dependent is disabled", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-uninstall-disabled-dependent-"));
+    temporaryDirectories.push(directory);
+    const shimDirectory = join(directory, "bin");
+    await mkdir(shimDirectory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    await writeFile(join(shimDirectory, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const configPath = join(directory, "profile.yml");
+    const profile =
+      '- id: marketplace-reviewer-bot\n  name: "@pi-harness/plugin-reviewer-bot"\n  config: {}\n' +
+      '- id: marketplace-change-verifier\n  name: "@pi-harness/plugin-change-verifier"\n  disabled: true\n  config: {}\n';
+    await writeFile(configPath, profile, "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "uninstall-disabled-dependent-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    const remove = vi.fn(() => Promise.resolve());
+    const parent = { data: [] as unknown[], remove, tree: { write: vi.fn() } };
+    const reviewer = { id: "profile:reviewer", options: { id: "marketplace-reviewer-bot", name: "@pi-harness/plugin-reviewer-bot" }, parent };
+    const verifier = {
+      id: "profile:verifier",
+      options: { id: "marketplace-change-verifier", name: "@pi-harness/plugin-change-verifier", disabled: true },
+      parent,
+    };
+    parent.data.push(reviewer.options, verifier.options);
+    context.reflect.provide("loader", { entries: () => [reviewer, verifier] });
+    await context.plugin(apiPlugin);
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${shimDirectory}:${originalPath}`;
+    let response: Response;
+    try {
+      response = await fetch(context.webServer.url + "/api/plugins/uninstall", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "marketplace-reviewer-bot" }),
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ uninstalled: true, id: "marketplace-reviewer-bot" });
+    expect(remove).toHaveBeenCalledWith("marketplace-reviewer-bot");
+    await expect(readFile(configPath, "utf8")).resolves.not.toContain('name: "@pi-harness/plugin-reviewer-bot"');
   });
 
   // Reverting the profile here would leave a plugin that can be switched off but never on again, so the change stays and the plugin comes back on the next start.
