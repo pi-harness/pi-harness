@@ -34,7 +34,6 @@ import {
   withoutInstalledPackages,
   writeRestartPendingPackages,
   nextSessionSearchPage,
-  routeHistoryMode,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
@@ -693,10 +692,6 @@ const marketplaceMarkup = (options: { installed?: readonly string[]; repairable?
   );
 
 describe("marketplace install feedback", () => {
-  test("replaces the detail history entry when the in-app back link returns to the list", () => {
-    expect(routeHistoryMode("back")).toBe("replace");
-  });
-
   test("marks a plugin that is waiting for a restart as installed rather than offering the install again", () => {
     const pending = marketplaceMarkup({ restartPending: ["example-cordis-timer"] });
 
@@ -737,10 +732,6 @@ describe("marketplace install feedback", () => {
     // The region has to be in the markup before the message lands in it, otherwise a screen reader announces nothing.
     expect(markup).toContain('aria-live="polite" class="marketplace-toolbar-message"');
   });
-});
-
-test("replaces the installed-plugin detail history entry on the in-app back link", () => {
-  expect(routeHistoryMode("back")).toBe("replace");
 });
 
 describe("plugin action error text", () => {

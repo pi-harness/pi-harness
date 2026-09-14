@@ -76,7 +76,14 @@ import { browserFetchPanelView } from "./browser-fetch-view.js";
 import { browserSessionPanelView } from "./browser-session-view.js";
 import { cleanerPanelView } from "./cleaner-view.js";
 import { matchesPluginQuery } from "./plugin-search.js";
-import { readInstalledPluginDetailId } from "./plugin-navigation.js";
+import {
+  navigateBackFromPluginDetail,
+  pluginRoutePath,
+  readInstalledPluginDetailId,
+  syncPluginRouteHistory,
+  writePluginRouteHistory,
+  type PluginCollectionPage,
+} from "./plugin-navigation.js";
 import { installedPluginCardContent } from "./plugin-card.js";
 import { costMeterPanelView } from "./cost-meter-view.js";
 import { dependencyCheckerPanelView } from "./dependency-checker-view.js";
@@ -8168,10 +8175,6 @@ export function createGlobalSearchDebouncer(delayMs = GLOBAL_SEARCH_DEBOUNCE_MS)
   };
 }
 
-export function routeHistoryMode(transition: "open" | "back"): "push" | "replace" {
-  return transition === "back" ? "replace" : "push";
-}
-
 export async function listAllSessionsForGlobalSearch(api: Pick<ClientApi, "listSessions">, query: string): Promise<readonly Record<string, unknown>[]> {
   const first = await api.listSessions(0, GLOBAL_SEARCH_PAGE_SIZE, true, query);
   if (!first.hasNext) return first.items;
@@ -8745,6 +8748,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [marketplaceCapability, setMarketplaceCapability] = useState(initialQueryState.marketplaceCapability);
   const [marketplaceCategory, setMarketplaceCategory] = useState(initialQueryState.marketplaceCategory);
   const [marketplacePluginId, setMarketplacePluginId] = useState<string | undefined>(initialQueryState.marketplacePlugin);
+  const pluginDetailBackPendingRef = useRef(false);
   const [marketplaceDetail, setMarketplaceDetail] = useState<ClientMarketplacePlugin>();
   const [marketplaceDetailPending, setMarketplaceDetailPending] = useState(initialQueryState.marketplacePlugin !== undefined);
   const [marketplaceDetailError, setMarketplaceDetailError] = useState("");
@@ -8993,7 +8997,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     if (marketplacePage > 0) params.set("marketplacePage", String(marketplacePage));
     else params.delete("marketplacePage");
     const query = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    syncPluginRouteHistory(window.history, `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
   }, [
     installedPluginId,
     marketplaceCapability,
@@ -9008,6 +9012,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   ]);
   useEffect(() => {
     const onPopState = () => {
+      pluginDetailBackPendingRef.current = false;
       const next = readQueryState();
       setCommandOpen(false);
       setGlobalSearchOpen(false);
@@ -9660,15 +9665,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setSessionMenuPosition(undefined);
   };
   const pushInstalledPluginRoute = (pluginId: string | undefined, historyMode: "push" | "replace" = "push") => {
-    const params = new URLSearchParams(window.location.search);
-    params.set("page", "plugins");
-    params.delete("settings");
-    if (pluginId) params.set("plugin", pluginId);
-    else params.delete("plugin");
-    const query = params.toString();
-    const route = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
-    if (historyMode === "replace") window.history.replaceState(null, "", route);
-    else window.history.pushState(null, "", route);
+    const route = pluginRoutePath(window.location, "plugins", pluginId);
+    writePluginRouteHistory(window.history, route, "plugins", pluginId, historyMode);
     setSettings(undefined);
     setDetails(undefined);
     setCommandOpen(false);
@@ -9680,15 +9678,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setMarketplacePluginId(undefined);
   };
   const pushMarketplacePluginRoute = (pluginId: string | undefined, historyMode: "push" | "replace" = "push") => {
-    const params = new URLSearchParams(window.location.search);
-    params.set("page", "marketplace");
-    params.delete("settings");
-    if (pluginId) params.set("plugin", pluginId);
-    else params.delete("plugin");
-    const query = params.toString();
-    const route = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
-    if (historyMode === "replace") window.history.replaceState(null, "", route);
-    else window.history.pushState(null, "", route);
+    const route = pluginRoutePath(window.location, "marketplace", pluginId);
+    writePluginRouteHistory(window.history, route, "marketplace", pluginId, historyMode);
     setSettings(undefined);
     setDetails(undefined);
     setCommandOpen(false);
@@ -9698,6 +9689,20 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setPage("marketplace");
     setInstalledPluginId(undefined);
     setMarketplacePluginId(pluginId);
+  };
+  const returnFromPluginDetail = (parent: PluginCollectionPage) => {
+    navigateBackFromPluginDetail(
+      window.history,
+      parent,
+      pluginDetailBackPendingRef.current,
+      () => {
+        pluginDetailBackPendingRef.current = true;
+      },
+      (fallbackParent) => {
+        if (fallbackParent === "plugins") pushInstalledPluginRoute(undefined, "replace");
+        else pushMarketplacePluginRoute(undefined, "replace");
+      },
+    );
   };
   const installedPlugin = installedPluginId === undefined ? undefined : data.plugins.find((plugin) => plugin.name === installedPluginId);
   const installedPluginPanel = installedPluginId === undefined ? undefined : data.pluginPanels.find((panel) => panel.pluginId === installedPluginId);
@@ -9724,7 +9729,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       activeSessionId={data.session?.sessionId}
       metadata={installedPluginMetadata}
       capabilityLabel={capabilityLabel}
-      onBack={() => pushInstalledPluginRoute(undefined, routeHistoryMode("back"))}
+      onBack={() => returnFromPluginDetail("plugins")}
       onToggle={async (plugin) => {
         const result = await api.togglePlugin(plugin.id, !plugin.enabled);
         await refresh();
@@ -9734,7 +9739,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         await api.uninstallPlugin(plugin.id);
         const plugins = await api.listPlugins();
         setData((current) => ({ ...current, plugins: plugins.filter((item) => item.id !== plugin.id) }));
-        pushInstalledPluginRoute(undefined, routeHistoryMode("back"));
+        returnFromPluginDetail("plugins");
       }}
       panel={installedPluginPanel}
       plugin={installedPlugin}
@@ -9746,7 +9751,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           href="?page=plugins"
           onClick={(event) => {
             event.preventDefault();
-            pushInstalledPluginRoute(undefined, routeHistoryMode("back"));
+            returnFromPluginDetail("plugins");
           }}
         >
           {t("← 已安装插件")}
@@ -9787,7 +9792,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         dependencyRepair={dependencyRepairPackages.has(marketplaceDetail.packageName)}
         installed={installedPackages.has(marketplaceDetail.packageName)}
         restartPending={restartPendingPackages.has(marketplaceDetail.packageName)}
-        onBack={() => pushMarketplacePluginRoute(undefined, routeHistoryMode("back"))}
+        onBack={() => returnFromPluginDetail("marketplace")}
         onInstall={async (plugin) => {
           const result = await api.installMarketplace(plugin.id);
           await refresh();
@@ -9803,7 +9808,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               href="?page=marketplace"
               onClick={(event) => {
                 event.preventDefault();
-                pushMarketplacePluginRoute(undefined, routeHistoryMode("back"));
+                returnFromPluginDetail("marketplace");
               }}
             >
               {t("← 插件市场")}
