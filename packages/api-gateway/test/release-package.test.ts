@@ -32,7 +32,7 @@ describe("release package", () => {
     expect(clientManifest.private).toBe(true);
 
     const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-    expect(workflow).toContain('npm publish "$workspace" --access public');
+    expect(workflow).toContain('npm publish "./$workspace" --access public');
     expect(workflow).toContain("Verify package availability");
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
   });
