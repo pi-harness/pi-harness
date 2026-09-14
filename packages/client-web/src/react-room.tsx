@@ -46,12 +46,16 @@ import {
 import { MarkdownMessage } from "./markdown.js";
 import { type ChatToolCall, messageText, messageThinking, projectChatTurns } from "./message-content.js";
 import {
+  annotationDraftDuringSessionRestore,
   annotationDraftForSession,
   captureSelectionForSession,
+  clearStoredAnnotationDraft,
   clearSubmittedAnnotations,
   formatAnnotationPrompt,
   parseAnnotationPrompt,
+  readStoredAnnotationDraft,
   type ClientAnnotationDraft,
+  writeStoredAnnotationDraft,
 } from "./annotation-ui.js";
 import {
   marketplaceCapabilityLabeller,
@@ -449,6 +453,14 @@ export function withoutInstalledPackages(pending: ReadonlySet<string>, installed
 function browserStorage(): Storage | undefined {
   try {
     return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function browserSessionStorage(): Storage | undefined {
+  try {
+    return typeof sessionStorage === "undefined" ? undefined : sessionStorage;
   } catch {
     return undefined;
   }
@@ -1316,7 +1328,7 @@ export function Files({
     <section className="view-panel files-view">
       <div className="files-content">
         <div className="files-title">
-          <strong>{repository ? t("本次会话改动") : t("本次会话产出")}</strong>
+          <strong>{repository ? t("未提交工作区改动") : t("本次会话产出")}</strong>
           <span>{repository ? t("由 /api/files 提供") : t("根据成功的文件工具调用识别")}</span>
         </div>
         <div className="file-summary">
@@ -8683,26 +8695,29 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setPendingModel(undefined);
     setModelSelectionError("");
   }, [data.session?.sessionId]);
-  const [storedAnnotationDraft, setStoredAnnotationDraft] = useState<ClientAnnotationDraft>({
-    sessionId: undefined,
-    annotations: [],
-    selection: "",
-    note: "",
-  });
+  const [storedAnnotationDraft, setStoredAnnotationDraft] = useState<ClientAnnotationDraft>(() =>
+    readStoredAnnotationDraft(browserSessionStorage(), undefined),
+  );
   const annotationDraft = annotationDraftForSession(storedAnnotationDraft, data.session?.sessionId);
   const { annotations, selection: annotationSelection, note: annotationNote } = annotationDraft;
   const annotationSessionIdRef = useRef(data.session?.sessionId);
   const annotationSelectionFrameRef = useRef<number | undefined>(undefined);
   annotationSessionIdRef.current = data.session?.sessionId;
   useEffect(() => {
-    setStoredAnnotationDraft((current) => annotationDraftForSession(current, data.session?.sessionId));
+    const sessionId = data.session?.sessionId;
+    if (sessionId !== undefined) {
+      setStoredAnnotationDraft((current) =>
+        annotationDraftDuringSessionRestore(current, readStoredAnnotationDraft(browserSessionStorage(), sessionId), sessionId, initialSessionRestorePending),
+      );
+    }
     return () => {
       if (annotationSelectionFrameRef.current !== undefined) {
         window.cancelAnimationFrame(annotationSelectionFrameRef.current);
         annotationSelectionFrameRef.current = undefined;
       }
     };
-  }, [data.session?.sessionId]);
+  }, [data.session?.sessionId, initialSessionRestorePending]);
+  useEffect(() => writeStoredAnnotationDraft(browserSessionStorage(), storedAnnotationDraft), [storedAnnotationDraft]);
   const [search, setSearch] = useState("");
   const [sessionQuery, setSessionQuery] = useState("");
   const sessionQueryRef = useRef("");
@@ -9453,6 +9468,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     stickToBottomRef.current = true;
     void runPromptSubmission(() => api.prompt(prompt, delivery === "steer" ? "steer" : undefined), refresh, {
       accepted: () => {
+        clearStoredAnnotationDraft(browserSessionStorage(), submittedSessionId);
         setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
       },
       rejected: (cause) => {

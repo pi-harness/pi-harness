@@ -825,7 +825,7 @@
   "本地安装存在 {count} 组声明约束冲突。": "L'installation locale présente {count} groupes de contraintes déclarées en conflit.",
   "本地浏览器未连接": "Navigateur local non connecté",
   "本地遥测服务不发送事件": "Le service de télémétrie local n'envoie aucun événement",
-  "本次会话改动": "Modifications de cette session",
+  "未提交工作区改动": "Modifications non validées de l’espace de travail",
   "本次会话产出": "Productions de cette session",
   "本次会话还没有可识别的文件产出。": "Cette session ne contient encore aucune production de fichier reconnue.",
   "根据成功的文件工具调用识别": "Identifiées à partir des appels réussis aux outils de fichiers",

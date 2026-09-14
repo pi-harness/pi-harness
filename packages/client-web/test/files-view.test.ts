@@ -32,6 +32,8 @@ describe("files view summary", () => {
   test("reports an empty worktree without inventing counts", () => {
     const html = renderFiles([]);
 
+    expect(html).toContain("未提交工作区改动");
+    expect(html).not.toContain("本次会话改动");
     expect(html).toContain("0 个文件 · 0 个新增文件 · 0 个删除文件");
   });
 
