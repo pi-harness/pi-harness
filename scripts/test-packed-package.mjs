@@ -234,14 +234,7 @@ try {
   if (marketplacePlugin === undefined) throw new Error("No publishable plugin is outside the bundled set to install as a marketplace package");
   const marketplaceDirectory = publishableDirectories.get(marketplacePlugin);
   if (marketplaceDirectory === undefined) throw new Error(`No local manifest found for ${marketplacePlugin}`);
-  const marketplaceTarball = runNpm(
-    "pack",
-    marketplaceDirectory,
-    "--ignore-scripts",
-    "--silent",
-    "--pack-destination",
-    temporaryRoot,
-  ).trim();
+  const marketplaceTarball = runNpm("pack", marketplaceDirectory, "--ignore-scripts", "--silent", "--pack-destination", temporaryRoot).trim();
   if (marketplaceTarball.length === 0) throw new Error(`npm pack produced no tarball for ${marketplacePlugin}`);
   runNpmIn(harnessHome, "install", "--save-exact", "--package-lock=false", "--ignore-scripts", join(temporaryRoot, marketplaceTarball));
   const entry = installedResolve.resolvePluginEntry(profilePath, marketplacePlugin);

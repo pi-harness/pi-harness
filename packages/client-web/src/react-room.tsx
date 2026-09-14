@@ -6089,9 +6089,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)]">{t("上下文占用")}</span>
-                  <strong className="text-[13px] font-semibold text-[var(--color-blue)]">
-                    {view.percent === null ? "—" : `${view.percent.toFixed(1)}%`}
-                  </strong>
+                  <strong className="text-[13px] font-semibold text-[var(--color-blue)]">{view.percent === null ? "—" : `${view.percent.toFixed(1)}%`}</strong>
                 </div>
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-blue-soft)]">
                   <div className="h-full rounded-full bg-[#5d8bea] transition-[width] duration-300" style={{ width: `${Math.min(100, view.percent ?? 0)}%` }} />
@@ -7669,7 +7667,13 @@ function Settings({
                         </header>
                         <label className="config-field">
                           <span>{t("发送消息快捷键")}</span>
-                          <select value={sendShortcut} onChange={(event) => { setSendShortcut(event.target.value); globalThis.localStorage?.setItem("pi-harness.sendShortcut", event.target.value); }}>
+                          <select
+                            value={sendShortcut}
+                            onChange={(event) => {
+                              setSendShortcut(event.target.value);
+                              globalThis.localStorage?.setItem("pi-harness.sendShortcut", event.target.value);
+                            }}
+                          >
                             <option value="enter">{t("Enter")}</option>
                             <option value="mod-enter">{t("Cmd/Ctrl+Enter")}</option>
                           </select>
@@ -8101,10 +8105,13 @@ export function createGlobalSearchDebouncer(delayMs = GLOBAL_SEARCH_DEBOUNCE_MS)
   return {
     schedule(query, callback) {
       cancel();
-      timer = setTimeout(() => {
-        timer = undefined;
-        callback(query);
-      }, Math.max(0, delayMs));
+      timer = setTimeout(
+        () => {
+          timer = undefined;
+          callback(query);
+        },
+        Math.max(0, delayMs),
+      );
     },
     cancel,
   };
@@ -9993,7 +10000,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   return;
                 }
                 const sendOnModifier = globalThis.localStorage?.getItem("pi-harness.sendShortcut") === "mod-enter";
-                if (event.key === "Enter" && !event.shiftKey && (sendOnModifier ? (event.metaKey || event.ctrlKey) : !event.metaKey && !event.ctrlKey)) {
+                if (event.key === "Enter" && !event.shiftKey && (sendOnModifier ? event.metaKey || event.ctrlKey : !event.metaKey && !event.ctrlKey)) {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
                 }

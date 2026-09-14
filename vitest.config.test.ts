@@ -15,7 +15,8 @@ test("only aliases plugin packages whose local source still exists", async () =>
       typeof alias === "object" &&
       alias !== null &&
       "find" in alias &&
-      (String((alias as { find?: unknown }).find).includes("plugin-") || (typeof (alias as { find?: unknown }).find === "string" && (alias as { find?: string }).find?.startsWith("@pi-harness/plugin-"))),
+      (String((alias as { find?: unknown }).find).includes("plugin-") ||
+        (typeof (alias as { find?: unknown }).find === "string" && (alias as { find?: string }).find?.startsWith("@pi-harness/plugin-"))),
   );
   expect(pluginAliases.length).toBeGreaterThan(0);
   expect(
