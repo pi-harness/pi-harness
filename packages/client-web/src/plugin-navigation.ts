@@ -14,6 +14,7 @@ export interface PluginRouteLocation {
 }
 
 const PLUGIN_DETAIL_PARENT_STATE_KEY = "piHarnessPluginDetailParent";
+const SETTINGS_ENTRY_STATE_KEY = "piHarnessSettingsEntry";
 
 /** Marks a detail entry with the list that pushed it, while retaining state owned by another in-page feature. */
 export function pluginDetailHistoryState(state: unknown, parent: PluginCollectionPage): Readonly<Record<string, unknown>> {
@@ -36,6 +37,28 @@ export function pluginRoutePath(location: PluginRouteLocation, parent: PluginCol
   else params.delete("plugin");
   const query = params.toString();
   return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+}
+
+export function settingsRoutePath(location: PluginRouteLocation, tab: string | undefined): string {
+  const params = new URLSearchParams(location.search);
+  if (tab) params.set("settings", tab);
+  else params.delete("settings");
+  const query = params.toString();
+  return `${location.pathname}${query ? `?${query}` : ""}${location.hash}`;
+}
+
+export function writeSettingsRouteHistory(history: PluginHistory, route: string, mode: "push" | "replace"): void {
+  const current = typeof history.state === "object" && history.state !== null && !Array.isArray(history.state) ? history.state : {};
+  const state = mode === "push" ? { ...(current as Record<string, unknown>), [SETTINGS_ENTRY_STATE_KEY]: true } : history.state;
+  if (mode === "replace") history.replaceState(state, "", route);
+  else history.pushState(state, "", route);
+}
+
+export function settingsCloseAction(state: unknown, pending: boolean): "back" | "replace" | "ignore" {
+  if (pending) return "ignore";
+  return typeof state === "object" && state !== null && !Array.isArray(state) && (state as Record<string, unknown>)[SETTINGS_ENTRY_STATE_KEY] === true
+    ? "back"
+    : "replace";
 }
 
 export function writePluginRouteHistory(
