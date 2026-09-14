@@ -2,8 +2,8 @@ import { execFile, type ExecFileException } from "node:child_process";
 import { existsSync, lstatSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
@@ -22,6 +22,7 @@ import {
   sortMarketplaceByRecommendation,
   type MarketplacePlugin,
 } from "./marketplace.js";
+import { resolveSessionToolPath } from "./session-tool-path.js";
 import { parseGitWorktrees, type WorkspaceSummary } from "./workspaces.js";
 
 interface ApiServices {
@@ -841,7 +842,8 @@ async function sessionFileMutations(session: ApiServices["runtime"]["session"], 
     if (message?.role !== "toolResult" || message.isError === true || typeof message.toolCallId !== "string") continue;
     const call = calls.get(message.toolCallId);
     if (call === undefined) continue;
-    const absolute = resolve(root, call.path);
+    const absolute = resolveSessionToolPath(root, call.path);
+    if (absolute === undefined) continue;
     const path = relative(root, absolute).split(sep).join("/");
     if (path === "" || escapesRoot(path)) continue;
     let mutation: SessionFileMutation;
