@@ -1866,11 +1866,11 @@ export default {
             sendJson(response, 404, { error: `Model not found: ${payload.provider}/${payload.model}` });
             return;
           }
-          if (typeof services.runtime.session.setModel !== "function") {
+          if (typeof services.runtime.setModel !== "function") {
             sendJson(response, 501, { error: "The active Pi session does not support model switching" });
             return;
           }
-          await services.runtime.session.setModel(model);
+          await services.runtime.setModel(model);
           sendJson(response, 200, jsonSafe({ model: modelSummary(model, true) }));
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });

@@ -10,6 +10,9 @@ function createRuntime(onPrompt?: () => void): PiRuntimeService & { prompts: str
     prompts,
     session,
     sessionRuntime: { session } as unknown as AgentSessionRuntime,
+    setModel() {
+      return Promise.resolve();
+    },
     prompt(text) {
       prompts.push(text);
       onPrompt?.();
