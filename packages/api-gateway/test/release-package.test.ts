@@ -33,6 +33,11 @@ describe("release package", () => {
 
     const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
     expect(workflow).toContain('npm publish "./$workspace" --access public');
+    expect(workflow).toContain("node scripts/materialize-hardlinks.mjs node_modules");
+    expect(workflow.indexOf("node scripts/materialize-hardlinks.mjs node_modules")).toBeLessThan(workflow.indexOf('publish_workspace "."'));
+    expect(workflow.indexOf("npm ci --dry-run --include=dev")).toBeGreaterThan(workflow.indexOf("node scripts/set-release-version.mjs"));
+    expect(workflow.indexOf("npm ci --dry-run --include=dev")).toBeLessThan(workflow.indexOf("- name: Reserve release tag"));
+    expect(workflow).not.toContain("--legacy-peer-deps");
     expect(workflow).toContain("Verify package availability");
     expect(workflow).not.toContain("RELEASE_TAG_EXISTS");
   });
@@ -58,7 +63,8 @@ describe("release package", () => {
     expect((core.dependencies as Record<string, string>)["@pi-harness/plugin-api"]).toBe(rootManifest.version);
 
     const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-    expect(workflow).toContain("for workspace in packages/plugin-api packages/core $(node scripts/build-plugins.mjs --order) .; do");
+    expect(workflow).toContain("for workspace in packages/plugin-api packages/core $(node scripts/build-plugins.mjs --order); do");
+    expect(workflow).toContain('publish_workspace "."');
     expect(workflow).toContain("for package_name in @pi-harness/plugin-api @pi-harness/core @pi-harness/pi-harness; do");
   });
 
@@ -68,6 +74,22 @@ describe("release package", () => {
     // Availability is CDN propagation latency, not a publish failure. Ordering the wait first made a slow tarball skip the release step outright, so the tag shipped without one.
     expect(workflow.indexOf("- name: Create GitHub Release")).toBeLessThan(workflow.indexOf("- name: Verify package availability"));
     expect(workflow).not.toContain("seq 1 60");
+  });
+
+  it("can repair a tagged release without publishing arbitrary repository code", async () => {
+    const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/repair-release.yml"), "utf8");
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain('[[ "$TARGET_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]');
+    expect(workflow).toContain('git merge-base --is-ancestor "$target" origin/main');
+    expect(workflow).toContain('git checkout --detach "$target"');
+    expect(workflow).toContain("npm install --package-lock-only --prefer-online --legacy-peer-deps");
+    expect(workflow).toContain("npm ci --include=dev --legacy-peer-deps");
+    expect(workflow).toContain('node "$MATERIALIZER" node_modules');
+    expect(workflow).toContain('npm publish "." --access public --provenance');
+    expect(workflow).not.toContain('npm publish "./$workspace"');
+    expect(workflow).toContain('until published_version=$(npm view "@pi-harness/pi-harness@$package_version" version');
+    expect(workflow).toContain("deadline=$(( $(date +%s) + budget_seconds ))");
   });
 
   it("keeps the runtimes in the core type surface as peers so a plugin author resolves one copy", async () => {
@@ -81,6 +103,19 @@ describe("release package", () => {
     for (const name of corePeerRuntimeNames) {
       expect(coreDependencies[name], `${name} must not also be a dependency, which reintroduces the nested copy`).toBeUndefined();
       expect(corePeers[name], `${name} peer range must pin the version the launcher installs`).toBe(rootDependencies[name]);
+    }
+  });
+
+  it("keeps core Cordis plugins aligned with the launcher dependency tree", async () => {
+    const rootManifest = await readJson("package.json");
+    const coreManifest = await readJson("packages/core/package.json");
+    const rootDependencies = rootManifest.dependencies as Record<string, string>;
+    const coreDependencies = coreManifest.dependencies as Record<string, string>;
+    const cordisPlugins = Object.keys(coreDependencies).filter((name) => name.startsWith("@deepseek-ai/cordis-plugin-"));
+
+    expect(cordisPlugins.length).toBeGreaterThan(0);
+    for (const name of cordisPlugins) {
+      expect(coreDependencies[name], `${name} must resolve once for the launcher and core`).toBe(rootDependencies[name]);
     }
   });
 
