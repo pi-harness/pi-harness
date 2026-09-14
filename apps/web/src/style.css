@@ -762,10 +762,25 @@ button:disabled {
   place-items: center;
   animation: streaming-logo-pulse 1.4s ease-in-out infinite;
 }
-.streaming-logo img { width: 100%; height: 100%; object-fit: contain; }
-.streaming-logo-responding { animation-duration: .8s; transform: rotate(8deg); }
-.streaming-logo-tool { animation-duration: 2s; transform: rotate(-8deg); }
-@keyframes streaming-logo-pulse { 50% { transform: scale(1.16) rotate(-4deg); filter: drop-shadow(0 0 8px currentColor); } }
+.streaming-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.streaming-logo-responding {
+  animation-duration: 0.8s;
+  transform: rotate(8deg);
+}
+.streaming-logo-tool {
+  animation-duration: 2s;
+  transform: rotate(-8deg);
+}
+@keyframes streaming-logo-pulse {
+  50% {
+    transform: scale(1.16) rotate(-4deg);
+    filter: drop-shadow(0 0 8px currentColor);
+  }
+}
 .reasoning-head::after {
   content: "...";
   display: inline-block;

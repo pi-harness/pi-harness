@@ -1,0 +1,2 @@
+# Tauri owns these generated platform projects and schemas. Formatting them creates large churn that the next Tauri generation immediately overwrites.
+apps/desktop/src-tauri/gen/
