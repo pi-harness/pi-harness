@@ -8,7 +8,7 @@ import { Details } from "../src/react-room.js";
 
 const reactTestEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
-function DetailsHarness({ invoker }: { invoker: HTMLElement }) {
+function DetailsHarness({ invoker }: { invoker: HTMLElement | (() => HTMLElement | null) }) {
   const [open, setOpen] = useState(true);
   return open
     ? createElement(Details, {
@@ -78,4 +78,23 @@ test("traps focus in file details and restores the explicit invoker on Escape", 
   });
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(document.activeElement).toBe(invoker);
+});
+
+test("resolves a destination control when the original invoker unmounts while details are open", () => {
+  const invoker = document.createElement("textarea");
+  const destination = document.createElement("button");
+  destination.textContent = "Output";
+  const container = document.createElement("div");
+  document.body.append(invoker, destination, container);
+  invoker.focus();
+  root = createRoot(container);
+  act(() => root?.render(createElement(DetailsHarness, { invoker: () => (invoker.isConnected ? invoker : destination) })));
+  invoker.remove();
+
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  });
+
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(destination);
 });

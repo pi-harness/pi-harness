@@ -207,6 +207,7 @@ const dialogFocusSelector = [
 ].join(",");
 
 type ModalFocusTarget = Pick<HTMLElement, "focus" | "isConnected">;
+type ModalFocusReturnTarget = string | HTMLElement | null | (() => HTMLElement | null);
 
 export function modalReturnFocusTarget<T extends ModalFocusTarget>(previous: T | null | undefined, invoker: T | null | undefined): T | undefined {
   if (invoker?.isConnected) return invoker;
@@ -255,12 +256,7 @@ export async function runFilesMutationAction(
   }
 }
 
-function useModalFocus<T extends HTMLElement = HTMLDivElement>(
-  open: boolean,
-  onClose: () => void,
-  busy = false,
-  returnFocusTarget?: string | HTMLElement | null,
-) {
+function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: boolean, onClose: () => void, busy = false, returnFocusTarget?: ModalFocusReturnTarget) {
   const dialogRef = useRef<T>(null);
   const closeRef = useRef(onClose);
   const busyRef = useRef(busy);
@@ -311,7 +307,7 @@ function useModalFocus<T extends HTMLElement = HTMLDivElement>(
       window.cancelAnimationFrame(frame);
       window.removeEventListener("keydown", onKeyDown, true);
       const target = returnFocusTargetRef.current;
-      const invoker = typeof target === "string" ? document.querySelector<HTMLElement>(target) : target;
+      const invoker = typeof target === "function" ? target() : typeof target === "string" ? document.querySelector<HTMLElement>(target) : target;
       const returnFocus = modalReturnFocusTarget(previous, invoker);
       if (returnFocus) window.requestAnimationFrame(() => returnFocus.focus());
     };
@@ -1220,7 +1216,7 @@ export function Details({
   event: Record<string, unknown> | undefined;
   onClose: () => void;
   onCopy: () => void;
-  returnFocusTarget?: HTMLElement | null;
+  returnFocusTarget?: ModalFocusReturnTarget;
 }) {
   const dialogRef = useModalFocus<HTMLElement>(true, onClose, false, returnFocusTarget);
   if (!event)
@@ -8801,7 +8797,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [page, setPage] = useState<Page>(initialQueryState.page);
   const [settings, setSettings] = useState<SettingsTab | undefined>(initialQueryState.settings);
   const [details, setDetails] = useState<Record<string, unknown>>();
-  const detailsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const detailsReturnFocusRef = useRef<ModalFocusReturnTarget>(null);
   const filePreviewIntentRef = useRef(0);
   const [commandOpen, setCommandOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -11236,7 +11232,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           filesTruncated={data.workspaceFilesTruncated}
           onClose={() => setGlobalSearchOpen(false)}
           onOpenFile={(file) => {
-            detailsReturnFocusRef.current = globalSearchReturnFocusRef.current;
+            // Opening a file replaces the composer, so restore focus in the destination view.
+            const invoker = globalSearchReturnFocusRef.current;
+            detailsReturnFocusRef.current = () =>
+              modalReturnFocusTarget(undefined, invoker) ?? document.querySelector<HTMLElement>('.view-tabs button[aria-pressed="true"]');
+            pushSessionViewRoute(window.history, window.location, "files");
+            setSettings(undefined);
             setPage("session");
             setView("files");
             const intent = ++filePreviewIntentRef.current;
