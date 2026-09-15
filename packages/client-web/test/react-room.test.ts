@@ -1224,16 +1224,6 @@ describe("command palette with an empty registry", () => {
     expect(palette([{ name: "commit", invocationName: "commit" }])).toContain("/commit");
   });
 
-  test("stops the composer from advertising a slash that opens nothing", async () => {
-    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
-
-    // The completion popover needs at least one item to open, so both the placeholder and the chip have to be tied to the command count.
-    expect(
-      /data\.commands\.length\s*\? t\("描述要做的改动，⌘↵ 发送；@ 引用文件，\/ 调用命令"\)\s*: t\("描述要做的改动，⌘↵ 发送；@ 引用文件"\)/u.test(source),
-    ).toBe(true);
-    expect(/className="tool-chip"\s*disabled=\{!data\.commands\.length\}/u.test(source)).toBe(true);
-  });
-
   test("gives every command option a stable active-descendant target", () => {
     const html = palette([
       { name: "commit", invocationName: "commit" },

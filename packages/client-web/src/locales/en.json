@@ -1281,5 +1281,10 @@
   "压缩较早的会话历史，释放上下文空间。": "Compact older conversation history to free context space.",
   "处理 {v0} 个工具错误后再继续长任务。": "Address {v0} tool errors before continuing the long task.",
   "检查 {v0} 条无法安全测量的消息，其结构可能过深、循环或包含访问器。": "Review {v0} messages that cannot be measured safely; they may be too deeply nested, circular, or contain accessors.",
-  "检查 {v0} 条超大消息，优先引用摘要或文件路径。": "Review {v0} oversized messages; prefer summaries or file paths."
+  "检查 {v0} 条超大消息，优先引用摘要或文件路径。": "Review {v0} oversized messages; prefer summaries or file paths.",
+  "描述要做的改动，{shortcut} 发送；@ 引用文件，/ 调用命令": "Describe the change you want. {shortcut} to send, @ to reference a file, / for commands",
+  "描述要做的改动，{shortcut} 发送；@ 引用文件": "Describe the change you want. {shortcut} to send, @ to reference a file",
+  "{shortcut} 发送 · ⌘K 命令 · ⌃C 中断": "{shortcut} send · ⌘K commands · ⌃C interrupt",
+  "发送消息（{shortcut}）": "Send message ({shortcut})",
+  "发送消息快捷键": "Send message shortcut"
 }

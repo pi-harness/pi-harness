@@ -283,6 +283,7 @@ function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: boolean, on
       (dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]") ?? focusable()[0])?.focus();
     });
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isComposingKey(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -470,6 +471,11 @@ export function providerTestAuthText(auth: unknown): string | undefined {
   return "label" in auth && typeof auth.label === "string" ? auth.label : undefined;
 }
 
+function isComposingKey(event: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean {
+  // Safari may expose keyCode 229 after isComposing clears while confirming an IME candidate.
+  return event.isComposing || event.keyCode === 229;
+}
+
 // Ctrl-C is the reflex for stopping a runaway agent, but the same chord is the copy shortcut everywhere else in the browser, so it only interrupts when a run is actually in flight and nothing is selected. Cmd is excluded on purpose: matching it would swallow macOS Cmd+C. A textarea or an input keeps a selection that window.getSelection() does not report, so the focused field is asked directly.
 export function shouldInterruptRun(
   event: { readonly ctrlKey: boolean; readonly metaKey: boolean; readonly shiftKey: boolean; readonly key: string; readonly target: EventTarget | null },
@@ -542,6 +548,14 @@ function browserStorage(): Storage | undefined {
     return typeof localStorage === "undefined" ? undefined : localStorage;
   } catch {
     return undefined;
+  }
+}
+
+function readSendShortcut(): "enter" | "mod-enter" {
+  try {
+    return browserStorage()?.getItem("pi-harness.sendShortcut") === "mod-enter" ? "mod-enter" : "enter";
+  } catch {
+    return "enter";
   }
 }
 
@@ -882,7 +896,7 @@ function WorkspaceChooser({
             className="workspace-path-input"
             onChange={(e) => setCustomPath(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleCustomPathSubmit();
+              if (!isComposingKey(e.nativeEvent) && e.key === "Enter") handleCustomPathSubmit();
             }}
             placeholder={t("输入绝对路径，如 /tmp/my-project")}
             type="text"
@@ -980,7 +994,7 @@ function SessionDialog({
               data-dialog-initial-focus
               disabled={busy}
               onChange={(event) => onChange(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && !busy && onConfirm()}
+              onKeyDown={(event) => !isComposingKey(event.nativeEvent) && event.key === "Enter" && !busy && onConfirm()}
               value={draft}
             />
           </label>
@@ -7405,9 +7419,13 @@ function Settings({
   onTab,
   onClose,
   onRefresh,
+  sendShortcut,
+  onSendShortcutChange,
 }: {
   data: RoomData;
   api: ClientApi;
+  sendShortcut: "enter" | "mod-enter";
+  onSendShortcutChange: (shortcut: "enter" | "mod-enter") => void;
   tab: SettingsTab;
   onTab: (tab: SettingsTab) => void;
   onClose: () => void;
@@ -7431,7 +7449,6 @@ function Settings({
   const [configSourceDraft, setConfigSourceDraft] = useState("");
   const [configBusy, setConfigBusy] = useState(false);
   const [configState, setConfigState] = useState<ConfigStatus>();
-  const [sendShortcut, setSendShortcut] = useState(() => globalThis.localStorage?.getItem("pi-harness.sendShortcut") ?? "enter");
   const notifierActive = data.plugins.some((plugin) => plugin.name.endsWith("/cli-notifier") && plugin.enabled);
   const providerDialogRef = useModalFocus(providerAddOpen, () => setProviderAddOpen(false), providerBusy.__add !== undefined);
   useEffect(() => {
@@ -7581,6 +7598,7 @@ function Settings({
                       if (!providerBusy.__add) setProviderAddOpen(false);
                     }}
                     onKeyDown={(event) => {
+                      if (isComposingKey(event.nativeEvent)) return;
                       if (event.key === "Escape") {
                         event.stopPropagation();
                         if (!providerBusy.__add) setProviderAddOpen(false);
@@ -7855,8 +7873,7 @@ function Settings({
                           <select
                             value={sendShortcut}
                             onChange={(event) => {
-                              setSendShortcut(event.target.value);
-                              globalThis.localStorage?.setItem("pi-harness.sendShortcut", event.target.value);
+                              onSendShortcutChange(event.target.value === "mod-enter" ? "mod-enter" : "enter");
                             }}
                           >
                             <option value="enter">{t("Enter")}</option>
@@ -8455,6 +8472,7 @@ export function GlobalSearch({
           data-dialog-initial-focus
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (isComposingKey(event.nativeEvent)) return;
             if (event.key === "Escape") {
               event.preventDefault();
               onClose();
@@ -8793,6 +8811,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   // Subscribed at the root because every label below reads the catalog through t(), so a language switch has to re-render the whole console rather than any one panel.
   const locale = useLocale();
   const initialQueryState = useMemo(readQueryState, []);
+  const [sendShortcut, setSendShortcut] = useState<"enter" | "mod-enter">(readSendShortcut);
+  const sendShortcutLabel = sendShortcut === "mod-enter" ? "Cmd/Ctrl+Enter" : "Enter";
   const [data, setData] = useState<RoomData>({
     sessions: [],
     files: [],
@@ -9150,6 +9170,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionActionTarget(undefined);
     };
     const dismissOnEscape = (event: KeyboardEvent) => {
+      if (isComposingKey(event)) return;
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
@@ -9195,7 +9216,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [commandOpen, promptCompletionOpen]);
   useEffect(() => {
     const dismissProviderModels = (event: PointerEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (event instanceof KeyboardEvent && (isComposingKey(event) || event.key !== "Escape")) return;
       const target = event.target instanceof Element ? event.target : undefined;
       document.querySelectorAll<HTMLDetailsElement>("details.provider-models-details[open]").forEach((details) => {
         if (event instanceof PointerEvent && target && details.contains(target)) return;
@@ -9665,6 +9686,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [api, refresh, setPromptError, setPromptErrorForScope]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isComposingKey(event)) return;
       if (shouldInterruptRun(event, data.status?.status === "running", window.getSelection()?.toString() ?? "")) {
         event.preventDefault();
         stopRun();
@@ -10038,6 +10060,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api={api}
       data={data}
       tab={settings}
+      sendShortcut={sendShortcut}
+      onSendShortcutChange={(shortcut) => {
+        setSendShortcut(shortcut);
+        try {
+          browserStorage()?.setItem("pi-harness.sendShortcut", shortcut);
+        } catch {
+          // A blocked preference store must not discard the current view's selection.
+        }
+      }}
       onTab={setSettings}
       onRefresh={refresh}
       onClose={() => {
@@ -10354,6 +10385,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`;
               }}
               onKeyDown={(event) => {
+                if (isComposingKey(event.nativeEvent)) return;
                 const caret = event.currentTarget.selectionStart ?? draft.length;
                 const completion = getPromptCompletion(event.currentTarget.value, caret);
                 const items = completion
@@ -10391,7 +10423,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setPromptCompletionSuppressed(true);
                   return;
                 }
-                const sendOnModifier = globalThis.localStorage?.getItem("pi-harness.sendShortcut") === "mod-enter";
+                const sendOnModifier = sendShortcut === "mod-enter";
                 if (event.key === "Enter" && !event.shiftKey && (sendOnModifier ? event.metaKey || event.ctrlKey : !event.metaKey && !event.ctrlKey)) {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
@@ -10409,8 +10441,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               placeholder={
                 workspaceReady
                   ? data.commands.length
-                    ? t("描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令")
-                    : t("描述要做的改动，⌘↵ 发送；@ 引用文件")
+                    ? t("描述要做的改动，{shortcut} 发送；@ 引用文件，/ 调用命令", { shortcut: sendShortcutLabel })
+                    : t("描述要做的改动，{shortcut} 发送；@ 引用文件", { shortcut: sendShortcutLabel })
                   : t("先选择工作区，再描述要做的改动")
               }
               readOnly={!workspaceReady}
@@ -10499,12 +10531,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   {t("／ 命令")}
                 </button>
               </span>
-              <span className="composer-hint">{t("⌘↵ 发送 · ⌘K 命令 · ⌃C 中断")}</span>
+              <span className="composer-hint">{t("{shortcut} 发送 · ⌘K 命令 · ⌃C 中断", { shortcut: sendShortcutLabel })}</span>
               <button
                 aria-label={promptDelivery(promptBusy, data.status?.status) ? t("发送消息") : t("发送中")}
                 className="send-button"
                 disabled={data.status?.run?.phase === "compacting" || !promptDelivery(promptBusy, data.status?.status) || !draft.trim()}
-                title={promptDelivery(promptBusy, data.status?.status) ? t("发送消息（⌘↵）") : t("正在发送")}
+                title={promptDelivery(promptBusy, data.status?.status) ? t("发送消息（{shortcut}）", { shortcut: sendShortcutLabel }) : t("正在发送")}
                 type="submit"
               >
                 {promptDelivery(promptBusy, data.status?.status) ? "↑" : "…"}
@@ -10607,6 +10639,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 }
               }}
               onKeyDown={(event) => {
+                if (isComposingKey(event.nativeEvent)) return;
                 if (!commandOpen) return;
                 if (event.key === "ArrowDown" && visibleCommands.length) {
                   event.preventDefault();

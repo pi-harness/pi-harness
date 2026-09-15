@@ -346,3 +346,117 @@ test("renders active compaction after reconnect, protects drafts, and keeps Stop
   await flush(() => stop.click());
   expect(abort).toHaveBeenCalledOnce();
 });
+
+test.each(["enter", "mod-enter"])("matches composer shortcut hints and sends only on the configured shortcut (%s)", async (mode) => {
+  localStorage.setItem("pi-harness.sendShortcut", mode);
+  sessionStorage.clear();
+  const prompt = vi.fn(() => Promise.resolve({ reply: "accepted", messages: 2 }));
+  const api = { ...apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace)), prompt };
+  try {
+    await flush(() => root.render(createElement(ControlRoomView, { api })));
+    const textarea = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')!;
+    const shortcut = mode === "enter" ? "Enter" : "Cmd/Ctrl+Enter";
+    expect(textarea.placeholder).toContain(shortcut);
+    expect(document.querySelector(".composer-hint")!.textContent).toContain(shortcut);
+    await flush(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "Verify payment caps");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush(() => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true })));
+    expect(prompt).not.toHaveBeenCalled();
+    await flush(() => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: mode === "enter", bubbles: true, cancelable: true })));
+    expect(prompt).not.toHaveBeenCalled();
+    await flush(() => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: mode === "mod-enter", bubbles: true, cancelable: true })));
+    expect(prompt).toHaveBeenCalledOnce();
+    expect(prompt).toHaveBeenCalledWith("Verify payment caps", undefined, expect.objectContaining({ sessionId: "active" }));
+  } finally {
+    localStorage.removeItem("pi-harness.sendShortcut");
+    sessionStorage.clear();
+  }
+});
+
+test.each([{ isComposing: true }, { keyCode: 229 }])("does not send or complete files while an IME confirms text (%j)", async (composition) => {
+  localStorage.removeItem("pi-harness.sendShortcut");
+  sessionStorage.clear();
+  const prompt = vi.fn(() => Promise.resolve({ reply: "accepted", messages: 2 }));
+  const api = {
+    ...apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace)),
+    prompt,
+    getWorkspaceFiles: () => Promise.resolve({ items: [{ path: "docs/architecture.md", label: "workspace", status: "" }], truncated: false }),
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  const textarea = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')!;
+  for (const draft of ["中文输入确认", "Check @docs/arch"]) {
+    await flush(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, draft);
+      textarea.setSelectionRange(draft.length, draft.length);
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush(() => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ...composition, bubbles: true, cancelable: true })));
+    expect(prompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe(draft);
+  }
+  sessionStorage.clear();
+});
+
+test("keeps search results and rename confirmation under IME control", async () => {
+  const base = apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace));
+  const current = { sessionId: "active", sessionFile: "/sessions/active.jsonl", name: "MarketFlow", messages: [], entries: [], events: [] };
+  const renameSession = vi.fn(() => Promise.resolve({ path: current.sessionFile, name: "中文" }));
+  const getWorkspaceFile = vi.fn(() => Promise.resolve({ path: "docs/architecture.md", content: "I6 payment caps" }));
+  const api = {
+    ...base,
+    renameSession,
+    getWorkspaceFile,
+    getSession: () => Promise.resolve(current),
+    getWorkspaceFiles: () => Promise.resolve({ items: [{ path: "docs/architecture.md", label: "workspace", status: "" }], truncated: false }),
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  await flush(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })));
+  const query = document.querySelector<HTMLInputElement>('input[aria-label="Global search"]')!;
+  await flush(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(query, "architecture");
+    query.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  for (const key of ["Enter", "Escape"])
+    await flush(() => query.dispatchEvent(new KeyboardEvent("keydown", { key, isComposing: true, bubbles: true, cancelable: true })));
+  expect(getWorkspaceFile).not.toHaveBeenCalled();
+  expect(document.querySelector('[aria-label="Global search"][role="dialog"]')).not.toBeNull();
+  await flush(() => query.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  await flush(() => document.querySelector<HTMLButtonElement>('button[aria-label="Session actions"]')!.click());
+  await flush(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true, cancelable: true })));
+  expect(document.querySelector('[role="menu"]')).not.toBeNull();
+  await flush(() =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.startsWith("Rename"))!
+      .click(),
+  );
+  const name = document.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  await flush(() => name.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })));
+  expect(renameSession).not.toHaveBeenCalled();
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await flush(() => name.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+  expect(renameSession).toHaveBeenCalledOnce();
+});
+
+test.each([false, true])("only advertises command completion when commands are available (%s)", async (available) => {
+  const api = {
+    ...apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace)),
+    listCommands: () => Promise.resolve(available ? [{ name: "review", invocationName: "review" }] : []),
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  const textarea = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')!;
+  expect(textarea.placeholder.includes("/ for commands")).toBe(available);
+  expect(
+    Array.from(document.querySelectorAll<HTMLButtonElement>("button.tool-chip")).find((button) => button.textContent?.includes("Commands"))!.disabled,
+  ).toBe(!available);
+});
+
+test("defaults safely when the send preference cannot be read", async () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation((key: string) => {
+    if (key === "pi-harness.sendShortcut") throw new DOMException("Blocked", "SecurityError");
+    return null;
+  });
+  await flush(() => root.render(createElement(ControlRoomView, { api: apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace)) })));
+  expect(document.querySelector(".composer-hint")!.textContent).toContain("Enter send");
+});

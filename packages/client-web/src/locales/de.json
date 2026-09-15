@@ -1281,5 +1281,10 @@
   "压缩较早的会话历史，释放上下文空间。": "Komprimieren Sie ältere Gesprächsverläufe, um Kontextplatz freizugeben.",
   "处理 {v0} 个工具错误后再继续长任务。": "Beheben Sie {v0} Tool-Fehler, bevor Sie die lange Aufgabe fortsetzen.",
   "检查 {v0} 条无法安全测量的消息，其结构可能过深、循环或包含访问器。": "Prüfen Sie {v0} Nachrichten, die nicht sicher gemessen werden können; sie können zu tief verschachtelt oder zyklisch sein oder Zugriffsmethoden enthalten.",
-  "检查 {v0} 条超大消息，优先引用摘要或文件路径。": "Prüfen Sie {v0} übergroße Nachrichten; verwenden Sie vorzugsweise Zusammenfassungen oder Dateipfade."
+  "检查 {v0} 条超大消息，优先引用摘要或文件路径。": "Prüfen Sie {v0} übergroße Nachrichten; verwenden Sie vorzugsweise Zusammenfassungen oder Dateipfade.",
+  "描述要做的改动，{shortcut} 发送；@ 引用文件，/ 调用命令": "Beschreibe die gewünschte Änderung. {shortcut} zum Senden, @ für einen Dateiverweis, / für Befehle",
+  "描述要做的改动，{shortcut} 发送；@ 引用文件": "Beschreibe die gewünschte Änderung. {shortcut} zum Senden, @ für einen Dateiverweis",
+  "{shortcut} 发送 · ⌘K 命令 · ⌃C 中断": "{shortcut} senden · ⌘K Befehle · ⌃C unterbrechen",
+  "发送消息（{shortcut}）": "Nachricht senden ({shortcut})",
+  "发送消息快捷键": "Tastenkürzel zum Senden"
 }
