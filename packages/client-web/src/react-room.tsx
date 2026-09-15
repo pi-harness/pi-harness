@@ -3,7 +3,6 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 import {
   createClientApi,
-  failedRefreshLabels,
   type ClientApi,
   type ClientCommand,
   type ClientEventStreamState,
@@ -9001,7 +9000,20 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const refreshQueuedRef = useRef(false);
   const refreshSequenceRef = useRef({ requested: 0, applied: 0 });
-  const liveRefreshSequenceRef = useRef({ status: 0, session: 0, sessions: 0, pluginPanels: 0 });
+  const liveRefreshSequenceRef = useRef({
+    status: 0,
+    session: 0,
+    sessions: 0,
+    pluginPanels: 0,
+    files: 0,
+    workspaceFiles: 0,
+    models: 0,
+    providers: 0,
+    plugins: 0,
+    marketplace: 0,
+    commands: 0,
+    workspaces: 0,
+  });
   const marketplaceSearchDebouncerRef = useRef(createGlobalSearchDebouncer());
   const resolvedMarketplaceDetailRef = useRef<MarketplaceDetailResolution | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
@@ -9310,9 +9322,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listCommands(),
       api.listWorkspaces(),
     ] as const;
-    const allResults = Promise.allSettled(requests);
-    const statusLabel = t("运行状态");
-    const sessionLabel = t("当前会话");
+
+    const statusLabel = "运行状态";
+    const sessionLabel = "当前会话";
     const setLiveIssue = (label: string, failed: boolean) => {
       setRefreshIssues((current) => {
         const remaining = current.filter((item) => item !== label);
@@ -9348,7 +9360,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     );
     // Conversation readiness depends on runtime reads, not optional catalog requests.
     void Promise.allSettled([requests[0], requests[1]]).then(() => setInitialRefreshPending(false));
-    const sessionListLabel = t("会话列表");
+    const sessionListLabel = "会话列表";
     const applySessions = (result: PromiseSettledResult<Awaited<ReturnType<ClientApi["listSessions"]>>>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.sessions) return;
       liveRefreshSequenceRef.current.sessions = sequence;
@@ -9367,7 +9379,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (value) => applySessions({ status: "fulfilled", value }),
       (reason: unknown) => applySessions({ status: "rejected", reason }),
     );
-    const pluginPanelLabel = t("插件面板");
+    const pluginPanelLabel = "插件面板";
     const applyPluginPanels = (result: PromiseSettledResult<RoomData["pluginPanels"]>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.pluginPanels) return;
       liveRefreshSequenceRef.current.pluginPanels = sequence;
@@ -9381,45 +9393,41 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (value) => applyPluginPanels({ status: "fulfilled", value }),
       (reason: unknown) => applyPluginPanels({ status: "rejected", reason }),
     );
-    const results = await allResults;
-    const [, , , files, workspaceFiles, models, providers, plugins, marketplace, commands, workspaces] = results;
-    // Slow older batches must not overwrite a newer applied snapshot. An older
-    // result can still render while a newer batch is pending, avoiding starvation.
-    if (sequence < refreshSequenceRef.current.applied) return;
-    refreshSequenceRef.current.applied = sequence;
-    const failedCoreLabels = failedRefreshLabels(
-      [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("工作区文件"), t("模型"), t("提供商"), t("插件"), t("插件市场"), t("命令"), t("工作区")],
-      results,
-    );
-    const liveLabels = [statusLabel, sessionLabel, sessionListLabel, pluginPanelLabel];
-    setRefreshIssues((current) => [
-      ...failedCoreLabels.filter((label) => !liveLabels.includes(label)),
-      ...current.filter((label) => liveLabels.includes(label)),
-    ]);
-    setData((current) => ({
-      // Live fields are applied independently above, including stale guards.
-      // Reapplying them here could overwrite a newer partial response.
-      status: current.status,
-      session: current.session,
-      sessions: current.sessions,
-      files: files.status === "fulfilled" ? files.value.items : current.files,
-      fileRepository: files.status === "fulfilled" ? files.value.repository : current.fileRepository,
-      workspaceFiles: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.items : current.workspaceFiles,
-      workspaceFilesTruncated: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.truncated : current.workspaceFilesTruncated,
-      models: models.status === "fulfilled" ? models.value : current.models,
-      providers: providers.status === "fulfilled" ? providers.value : current.providers,
-      plugins: plugins.status === "fulfilled" ? plugins.value : current.plugins,
-      pluginPanels: current.pluginPanels,
-      marketplace: marketplace.status === "fulfilled" ? marketplace.value.items : current.marketplace,
-      marketplaceLocale: marketplace.status === "fulfilled" ? locale : current.marketplaceLocale,
-      marketplaceCapabilities: marketplace.status === "fulfilled" ? marketplace.value.capabilities : current.marketplaceCapabilities,
-      marketplaceCategories: marketplace.status === "fulfilled" ? marketplace.value.categories : current.marketplaceCategories,
-      marketplaceTotal: marketplace.status === "fulfilled" ? marketplace.value.total : current.marketplaceTotal,
-      marketplacePage: marketplace.status === "fulfilled" ? marketplace.value.page : current.marketplacePage,
-      marketplaceHasNext: marketplace.status === "fulfilled" ? marketplace.value.hasNext : current.marketplaceHasNext,
-      commands: commands.status === "fulfilled" ? commands.value : current.commands,
-      workspaces: workspaces.status === "fulfilled" ? workspaces.value : current.workspaces,
+    const observeResource = <T,>(
+      request: Promise<T>,
+      key: keyof typeof liveRefreshSequenceRef.current,
+      label: string,
+      select: (result: T) => Partial<RoomData>,
+    ) => {
+      const apply = (result: PromiseSettledResult<T>) => {
+        if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current[key]) return;
+        liveRefreshSequenceRef.current[key] = sequence;
+        setLiveIssue(label, result.status === "rejected");
+        if (result.status === "fulfilled") setData((current) => ({ ...current, ...select(result.value) }));
+      };
+      void request.then(
+        (value) => apply({ status: "fulfilled", value }),
+        (reason: unknown) => apply({ status: "rejected", reason }),
+      );
+    };
+    observeResource(requests[3], "files", "文件", (result) => ({ files: result.items, fileRepository: result.repository }));
+    observeResource(requests[4], "workspaceFiles", "工作区文件", (result) => ({ workspaceFiles: result.items, workspaceFilesTruncated: result.truncated }));
+    observeResource(requests[5], "models", "模型", (models) => ({ models }));
+    observeResource(requests[6], "providers", "提供商", (providers) => ({ providers }));
+    observeResource(requests[7], "plugins", "插件", (plugins) => ({ plugins }));
+    observeResource(requests[8], "marketplace", "插件市场", (result) => ({
+      marketplace: result.items,
+      marketplaceLocale: locale,
+      marketplaceCapabilities: result.capabilities,
+      marketplaceCategories: result.categories,
+      marketplaceTotal: result.total,
+      marketplacePage: result.page,
+      marketplaceHasNext: result.hasNext,
     }));
+    observeResource(requests[9], "commands", "命令", (commands) => ({ commands }));
+    observeResource(requests[10], "workspaces", "工作区", (workspaces) => ({ workspaces }));
+    // Local actions can await refreshed workspace state without waiting for the optional catalog.
+    await Promise.allSettled(requests.filter((_, index) => index !== 8));
   }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery, sessionPage, sessionQuery]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
@@ -11279,7 +11287,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <span>
               {/* The colon belongs to the heading key so each locale punctuates it its own way; `.refresh-warning strong` supplies the gap after it, and the failed sources are a placeholder rather than a third adjacent expression that would render with no separator at all. */}
               <strong>{t("部分数据刷新失败：")}</strong>
-              {t("{v0} 可能为空或显示上次结果。", { v0: refreshIssues.join(" · ") })}
+              {t("{v0} 可能为空或显示上次结果。", { v0: refreshIssues.map((label) => t(label)).join(" · ") })}
             </span>
             <button onClick={() => void refresh()} type="button">
               {t("重试")}

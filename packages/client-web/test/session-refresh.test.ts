@@ -156,3 +156,44 @@ test("allows two consecutive session switches while marketplace refreshes remain
   await flush(() => market.resolve(marketplace));
   expect(current.sessionFile).toBe("/sessions/Beta.jsonl");
 });
+
+test("loads models and installed plugins before marketplace and preserves newer independent results", async () => {
+  const oldMarket = deferred<ClientMarketplacePage>();
+  const model = { provider: "test", id: "model", name: "Production model", reasoning: false, contextWindow: 128000, active: true };
+  const plugin = { id: "example", name: "Example plugin", enabled: true, state: "active", removable: true };
+  const api = {
+    ...apiWith(Promise.resolve(listing("Product task")), oldMarket.promise),
+    listModels: () => Promise.resolve([model]),
+    listPlugins: () => Promise.resolve([plugin]),
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  expect(document.querySelector('select[aria-label="Models"] option[value="test/model"]')).not.toBeNull();
+  expect(document.querySelector('button[aria-label="plugins, 1 installed"]')).not.toBeNull();
+  const newMarket = deferred<ClientMarketplacePage>();
+  await flush(() =>
+    root.render(
+      createElement(ControlRoomView, {
+        api: { ...api, listModels: () => Promise.resolve([{ ...model, id: "new-model" }]), listMarketplace: () => newMarket.promise },
+      }),
+    ),
+  );
+  await flush(() => oldMarket.resolve(marketplace));
+  expect(document.querySelector('select[aria-label="Models"] option[value="test/new-model"]')).not.toBeNull();
+  expect(document.querySelector('select[aria-label="Models"] option[value="test/model"]')).toBeNull();
+  await flush(() => newMarket.resolve(marketplace));
+});
+
+test("clears recovered resource errors after switching language while marketplace is pending", async () => {
+  const market = deferred<ClientMarketplacePage>();
+  const files = deferred<Awaited<ReturnType<ClientApi["getFiles"]>>>();
+  const api = { ...apiWith(Promise.resolve(listing("Product task")), market.promise), getFiles: () => files.promise };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  await flush(() => files.reject(new Error("offline")));
+  expect(document.querySelector(".refresh-warning")?.textContent).toContain("Files");
+  await act(async () => {
+    await setLocale("zh-CN");
+  });
+  await flush(() => root.render(createElement(ControlRoomView, { api: { ...api, getFiles: () => Promise.resolve({ items: [], repository: false }) } })));
+  expect(document.querySelector(".refresh-warning")).toBeNull();
+  await flush(() => market.resolve(marketplace));
+});
