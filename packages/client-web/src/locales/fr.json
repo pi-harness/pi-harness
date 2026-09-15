@@ -74,6 +74,8 @@
   "{count} 个文件": "{count} fichiers",
   "{count} 个模型已刷新": "{count} modèles actualisés",
   "{count} 变更": "{count} modifications",
+  "{count} 条上下文消息": "{count} messages de contexte",
+  "{count} 条日志消息": "{count} messages du journal",
   "{count} 条消息": "{count} messages",
   "{count} 组声明约束无法离线判定。": "{count} contraintes déclarées ne peuvent pas être résolues hors ligne.",
   "{files} 个文件 · {additions} 个新增文件 · {deletions} 个删除文件": "{files} fichiers · {additions} ajoutés · {deletions} supprimés",
