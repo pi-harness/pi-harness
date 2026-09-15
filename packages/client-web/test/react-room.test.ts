@@ -608,6 +608,20 @@ describe("session list tools", () => {
     expect(headerTrigger).toContain("disabled={sessionActionBusy}");
   });
 
+  test("closes every session menu before duplicating and restores trigger focus after settling", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const forkCalls = [...source.matchAll(/api\.forkSession\(/gu)];
+
+    expect(forkCalls).toHaveLength(3);
+    for (const call of forkCalls) {
+      const handlerPrefix = source.slice(Math.max(0, (call.index ?? 0) - 240), call.index);
+      const handlerSuffix = source.slice(call.index, (call.index ?? 0) + 760);
+      expect(handlerPrefix).toContain("closeSessionMenu();");
+      expect(handlerPrefix.lastIndexOf("closeSessionMenu();")).toBeLessThan(handlerPrefix.lastIndexOf("void sessionAction"));
+      expect(handlerSuffix).toContain(".finally(restoreSessionPopoverFocus)");
+    }
+  });
+
   test("keeps session row action triggers targetable before hover reveals them", async () => {
     const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
     const actionRule = /\.session-row-more\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";

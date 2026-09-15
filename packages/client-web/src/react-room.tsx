@@ -10626,7 +10626,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       closeSessionMenu();
                       setSessionDialog("delete");
                     }}
-                    onFork={() =>
+                    onFork={() => {
+                      closeSessionMenu();
                       void sessionAction(async () => {
                         const result = await api.forkSession(activeSessionPath);
                         if (result.sessionFile) {
@@ -10635,8 +10636,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                           refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
                           setData((current) => ({ ...current, session }));
                         }
-                      })
-                    }
+                      }).finally(restoreSessionPopoverFocus);
+                    }}
                     onPin={() => {
                       closeSessionMenu();
                       void sessionAction(() => api.setSessionMetadata(activeSessionPath, { pinned: data.session?.pinned !== true }).then(() => undefined));
@@ -10719,7 +10720,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                             closeSessionMenu();
                             setSessionDialog("delete");
                           }}
-                          onFork={() =>
+                          onFork={() => {
+                            closeSessionMenu();
                             void sessionAction(async () => {
                               const result = await api.forkSession(session.path as string);
                               if (result.sessionFile) {
@@ -10728,8 +10730,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                                 refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
                                 setData((current) => ({ ...current, session }));
                               }
-                            })
-                          }
+                            }).finally(restoreSessionPopoverFocus);
+                          }}
                           onPin={() => {
                             closeSessionMenu();
                             void sessionAction(() => api.setSessionMetadata(session.path as string, { pinned: session.pinned !== true }).then(() => undefined));
@@ -10969,7 +10971,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     <button
                       className="session-action"
                       disabled={!activeSessionPath || sessionActionBusy}
-                      onClick={() =>
+                      onClick={() => {
+                        closeSessionMenu();
                         void sessionAction(async () => {
                           const result = await api.forkSession(activeSessionPath as string);
                           if (result.sessionFile) {
@@ -10978,8 +10981,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                             refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
                             setData((current) => ({ ...current, session }));
                           }
-                        })
-                      }
+                        }).finally(restoreSessionPopoverFocus);
+                      }}
                       role="menuitem"
                       type="button"
                     >
