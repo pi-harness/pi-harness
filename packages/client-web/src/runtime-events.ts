@@ -216,7 +216,7 @@ export function eventOutputText(output: unknown): string | undefined {
 export function eventDataSource(event: RuntimeEvent): string {
   if (event.type === "file" || event.type === "file_diff") {
     const source = typeof event.source === "string" ? event.source : "/api/files";
-    return `${source === "/api/files" ? "Git workspace" : "Workspace"} · ${source}`;
+    return `Workspace · ${source}`;
   }
   return event.historical === true ? "Session JSONL · message history" : "Runtime loader · event";
 }
