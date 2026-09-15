@@ -71,11 +71,18 @@ async function writeAtomic(target: string, data: string | NodeJS.ArrayBufferView
     throwIfAborted(options.signal);
     if (options.overwrite === false) {
       await link(temporary, target);
-      await rm(temporary);
     } else {
       await rename(temporary, target);
     }
     committed = true;
+    if (options.overwrite === false) {
+      try {
+        await rm(temporary);
+      } catch (error) {
+        // The target already owns the complete durable inode; an unlink failure cannot turn publication into failure.
+        if (!isErrno(error)) throw error;
+      }
+    }
     await syncDirectory(dirname(target));
   } finally {
     if (!committed) await rm(temporary, { force: true }).catch(() => undefined);

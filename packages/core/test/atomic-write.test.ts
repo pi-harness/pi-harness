@@ -8,7 +8,13 @@ import type * as FsPromises from "node:fs/promises";
 const temporaryDirectories: string[] = [];
 
 // Records the order of fsync and rename calls made through node:fs/promises so the tests can prove the temporary file reaches stable storage before it replaces the target.
-const durability = vi.hoisted(() => ({ sequence: [] as string[], failSync: false, failDirectoryOpen: false, failDirectorySync: false }));
+const durability = vi.hoisted(() => ({
+  sequence: [] as string[],
+  failSync: false,
+  failDirectoryOpen: false,
+  failDirectorySync: false,
+  failTemporaryRemoval: false,
+}));
 
 function errno(message: string, code: string): NodeJS.ErrnoException {
   return Object.assign(new Error(message), { code });
@@ -35,6 +41,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       });
       return handle;
     },
+    async rm(...args: Parameters<typeof actual.rm>) {
+      if (durability.failTemporaryRemoval && String(args[0]).endsWith(".tmp")) throw errno("permission denied, unlink", "EACCES");
+      await actual.rm(...args);
+    },
     async rename(...args: Parameters<typeof actual.rename>) {
       durability.sequence.push(`rename:${String(args[1])}`);
       await actual.rename(...args);
@@ -47,6 +57,7 @@ afterEach(async () => {
   durability.failSync = false;
   durability.failDirectoryOpen = false;
   durability.failDirectorySync = false;
+  durability.failTemporaryRemoval = false;
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -77,6 +88,16 @@ describe("atomicWriteFile", () => {
     expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
     await expect(readFile(target, "utf8")).resolves.toMatch(/^(?:first|second)$/u);
     expect((await readdir(root)).filter((name) => name.startsWith(".target.txt.") && name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("keeps a published exclusive write successful when temporary-link cleanup fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-atomic-write-"));
+    temporaryDirectories.push(root);
+    const target = join(root, "target.txt");
+    durability.failTemporaryRemoval = true;
+    await expect(atomicWriteFile(target, "committed", { overwrite: false })).resolves.toBeUndefined();
+    await expect(readFile(target, "utf8")).resolves.toBe("committed");
+    expect(durability.sequence).toContain(`sync:${root}`);
   });
 
   test("keeps the existing permission bits of the file it replaces", async () => {

@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { CURRENT_SESSION_VERSION, SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import { atomicWriteFile, isPiToolRegistryLeasedError } from "@pi-harness/core";
 import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
@@ -75,6 +75,73 @@ class PayloadTooLargeError extends Error {
   constructor() {
     super("Request body is too large");
     this.name = "PayloadTooLargeError";
+  }
+}
+
+function validateImportedSession(content: string): void {
+  let hasHeader = false;
+  let version = 1;
+  const nodes = new Map<string, { parentId: string | null; line: number }>();
+  const invalid = (line: number, reason: string): never => {
+    throw new Error(`Invalid session at line ${line}: ${reason}; no session was imported`);
+  };
+  for (const [index, line] of content.split("\n").entries()) {
+    if (!line.trim()) continue;
+    const lineNumber = index + 1;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      invalid(lineNumber, "malformed JSON");
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) invalid(lineNumber, "expected a record");
+    const entry = parsed as Record<string, unknown>;
+    if (typeof entry.type !== "string" || !entry.type) invalid(lineNumber, "missing record type");
+    if (!hasHeader) {
+      if (entry.type !== "session" || typeof entry.id !== "string" || !entry.id) invalid(lineNumber, "expected a session header");
+      const requestedVersion = entry.version ?? 1;
+      if (typeof requestedVersion !== "number" || !Number.isInteger(requestedVersion) || requestedVersion < 1 || requestedVersion > CURRENT_SESSION_VERSION) {
+        invalid(lineNumber, "unsupported session version");
+      }
+      version = requestedVersion as number;
+      hasHeader = true;
+      continue;
+    }
+    if (entry.type === "session") invalid(lineNumber, "duplicate session header");
+    if (entry.type === "message") {
+      const message = entry.message;
+      if (
+        message === null ||
+        typeof message !== "object" ||
+        Array.isArray(message) ||
+        !("role" in message) ||
+        typeof message.role !== "string" ||
+        !message.role
+      ) {
+        invalid(lineNumber, "invalid message");
+      }
+    }
+    // Version 1 receives IDs and a linear parent chain during upstream migration.
+    if (version < 2) continue;
+    if (typeof entry.id !== "string" || !entry.id) invalid(lineNumber, "missing record ID");
+    const id = entry.id as string;
+    if (nodes.has(id)) invalid(lineNumber, "duplicate record ID");
+    if (entry.parentId !== null && typeof entry.parentId !== "string") invalid(lineNumber, "invalid parent ID");
+    nodes.set(id, { parentId: entry.parentId as string | null, line: lineNumber });
+  }
+  if (!hasHeader) throw new Error("Imported session is empty; no session was imported");
+  const checked = new Set<string>();
+  for (const [id, node] of nodes) {
+    const path = new Set<string>();
+    let current: string | null = id;
+    while (current !== null && !checked.has(current)) {
+      if (path.has(current)) invalid(node.line, "cyclic parent chain");
+      path.add(current);
+      const ancestor = nodes.get(current);
+      if (!ancestor) invalid(node.line, "missing parent record");
+      current = ancestor!.parentId;
+    }
+    for (const visited of path) checked.add(visited);
   }
 }
 
@@ -2880,35 +2947,66 @@ export default {
           }
           const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : activeCwd(services);
           await runSessionOperation(response, "Cannot import a session while a prompt is running", async () => {
-            const temporaryDirectory = content === undefined ? undefined : await mkdtemp(join(tmpdir(), "pi-harness-import-"));
+            const importContent = content ?? (await readFile(suppliedPath, "utf8"));
+            if (content !== undefined && Buffer.byteLength(importContent, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
+              sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
+              return;
+            }
+            validateImportedSession(importContent);
+            if (!(await stat(targetCwd)).isDirectory()) throw new Error("Session import requires an existing working directory");
+            // Fork a validated snapshot: the upstream reader repairs missing final newlines and must not modify the user's source file.
+            const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-harness-import-"));
             const requestedName = basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl");
             const importName = requestedName === "" || requestedName === "." || requestedName === ".." ? "import.jsonl" : requestedName;
-            const importPath = temporaryDirectory === undefined ? suppliedPath : join(temporaryDirectory, importName);
+            const importPath = join(temporaryDirectory, importName);
+            let importedPath: string | undefined;
+            let importedId: string | undefined;
+            let published = false;
+            let adopted = false;
+            let cancelled: boolean;
+            let receipt: { sessionId: string; sessionFile: string | undefined; messages: number } | undefined;
             try {
-              if (content !== undefined) {
-                if (Buffer.byteLength(content, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
-                  sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
-                  return;
-                }
-                await writeFile(importPath, content, "utf8");
+              await writeFile(importPath, importContent, { encoding: "utf8", mode: 0o600 });
+              const preview = SessionManager.open(importPath, temporaryDirectory, targetCwd);
+              preview.buildSessionContext();
+              const imported = SessionManager.forkFrom(importPath, targetCwd, temporaryDirectory);
+              const stagedPath = imported.getSessionFile();
+              importedId = imported.getSessionId();
+              if (!stagedPath) throw new Error("Unable to persist imported session");
+              importedPath = join(manager.getSessionDir(), basename(stagedPath));
+              await mkdir(manager.getSessionDir(), { recursive: true });
+              await atomicWriteFile(importedPath, await readFile(stagedPath), { overwrite: false, mode: 0o600 });
+              published = true;
+              const result = await runWebSessionChange(services, () =>
+                services.runtime.sessionRuntime.switchSession(importedPath!, { cwdOverride: targetCwd }),
+              );
+              cancelled = result.cancelled;
+              if (!cancelled) {
+                adopted = true;
+                events.length = 0;
+                receipt = {
+                  sessionId: services.runtime.session.sessionId,
+                  sessionFile: services.runtime.session.sessionFile,
+                  messages: services.runtime.session.messages.length,
+                };
               }
-              const imported = SessionManager.forkFrom(importPath, targetCwd, manager.getSessionDir());
-              const importedPath = imported.getSessionFile();
-              if (!importedPath) throw new Error("Unable to persist imported session");
-              const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(importedPath, { cwdOverride: targetCwd }));
-              if (result.cancelled) {
-                sendJson(response, 409, { error: "Session import was cancelled by an extension" });
-                return;
-              }
-              events.length = 0;
-              sendJson(response, 200, {
-                sessionId: services.runtime.session.sessionId,
-                sessionFile: services.runtime.session.sessionFile,
-                messages: services.runtime.session.messages.length,
-              });
             } finally {
-              if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+              try {
+                if (
+                  published &&
+                  !adopted &&
+                  importedPath &&
+                  services.runtime.session.sessionFile !== importedPath &&
+                  services.runtime.session.sessionId !== importedId
+                ) {
+                  await rm(importedPath, { force: true });
+                }
+              } finally {
+                await rm(temporaryDirectory, { recursive: true, force: true });
+              }
             }
+            if (cancelled) sendJson(response, 409, { error: "Session import was cancelled by an extension" });
+            else sendJson(response, 200, receipt);
           });
         } catch (error) {
           sendJson(response, error instanceof PayloadTooLargeError ? 413 : 400, { error: errorText(error) });

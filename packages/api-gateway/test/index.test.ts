@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
@@ -4848,18 +4849,25 @@ describe("API gateway plugin", () => {
     const switched: string[] = [];
     const session = {
       sessionId: "import-session",
-      sessionFile: undefined,
+      sessionFile: undefined as string | undefined,
       messages: [],
       isStreaming: false,
       sessionManager: SessionManager.create("/tmp", targetDir),
       extensionRunner: { setUIContext() {} },
       subscribe: () => () => {},
     };
+    let switchMode: "accept" | "cancel" | "reject" | "adopt-reject" = "accept";
     const sessionRuntime = {
       cwd: "/tmp",
       switchSession(path: string) {
         switched.push(path);
-        return Promise.resolve({ cancelled: false });
+        if (switchMode === "adopt-reject") {
+          session.sessionFile = path;
+          session.sessionId = SessionManager.open(path, targetDir).getSessionId();
+          return Promise.reject(new Error("failed after adoption"));
+        }
+        if (switchMode === "reject") return Promise.reject(new Error("switch failed"));
+        return Promise.resolve({ cancelled: switchMode === "cancel" });
       },
     };
     context.provide("piRuntime", { session, sessionRuntime, prompt: () => Promise.resolve() } as never);
@@ -4879,6 +4887,37 @@ describe("API gateway plugin", () => {
     await expect(readFile(victim, "utf8")).resolves.toBe("keep me\n");
     expect(switched).toEqual([]);
 
+    const lines = content.trimEnd().split("\n");
+    for (const invalidLine of [
+      '{"type":',
+      "null",
+      "{}",
+      lines[0] ?? "",
+      JSON.stringify({ type: "message", id: "bad", parentId: null, message: null }),
+      lines[1] ?? "",
+      JSON.stringify({ type: "custom", id: "broken-parent", parentId: "missing" }),
+      JSON.stringify({ type: "custom", id: "cycle", parentId: "cycle" }),
+    ]) {
+      const malformed = await post({ content: [...lines, invalidLine].join("\n"), filename: "damaged.jsonl" });
+      expect(malformed.status).toBe(400);
+      const malformedError = (await malformed.json()) as { error: string };
+      expect(malformedError.error).toContain(`line ${lines.length + 1}`);
+      expect(switched).toEqual([]);
+      expect((await readdir(targetDir)).filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+    }
+    const damagedPath = join(directory, "damaged.jsonl");
+    const damagedContent = [...lines, '{"type":'].join("\n");
+    await writeFile(damagedPath, damagedContent);
+    const damagedImport = await post({ path: damagedPath });
+    expect(damagedImport.status).toBe(400);
+    await expect(readFile(damagedPath, "utf8")).resolves.toBe(damagedContent);
+    expect(switched).toEqual([]);
+
+    const missingCwd = await post({ content, cwd: join(directory, "missing") });
+    expect(missingCwd.status).toBe(400);
+    expect(switched).toEqual([]);
+    expect((await readdir(targetDir)).filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+
     const imported = await post({ content, filename: "../../escape.jsonl", cwd: "/tmp" });
     expect(imported.status).toBe(200);
     expect(switched).toHaveLength(1);
@@ -4887,6 +4926,60 @@ describe("API gateway plugin", () => {
     expect(targetFiles).toHaveLength(1);
     await expect(readFile(join(targetDir, targetFiles[0] ?? ""), "utf8")).resolves.toContain("x".repeat(100 * 1024));
     await expect(stat(join(directory, "escape.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    const sourceWithoutNewline = join(sourceDir, "without-newline.jsonl");
+    await writeFile(sourceWithoutNewline, content.trimEnd());
+    const pathImport = await post({ path: sourceWithoutNewline });
+    expect(pathImport.status).toBe(200);
+    await expect(readFile(sourceWithoutNewline, "utf8")).resolves.toBe(content.trimEnd());
+    expect(switched).toHaveLength(2);
+
+    const legacyContent = lines
+      .map((line) => {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        if (entry.type === "session") entry.version = 1;
+        else {
+          delete entry.id;
+          delete entry.parentId;
+        }
+        return JSON.stringify(entry);
+      })
+      .join("\r\n\r\n");
+    const legacyImport = await post({ content: legacyContent, filename: "legacy.jsonl" });
+    expect(legacyImport.status).toBe(200);
+    expect(switched).toHaveLength(3);
+    const legacySession = SessionManager.open(switched[2] ?? "", targetDir);
+    expect(legacySession.buildSessionContext().messages).toHaveLength(2);
+    expect(legacySession.getEntries().every((entry) => typeof entry.id === "string")).toBe(true);
+    const successfulFiles = (await readdir(targetDir)).sort();
+    switchMode = "cancel";
+    const cancelled = await post({ content });
+    expect(cancelled.status).toBe(409);
+    expect((await readdir(targetDir)).sort()).toEqual(successfulFiles);
+    switchMode = "reject";
+    const rejected = await post({ content });
+    expect(rejected.status).toBe(400);
+    expect((await readdir(targetDir)).sort()).toEqual(successfulFiles);
+    switchMode = "adopt-reject";
+    const adoptedFailure = await post({ content });
+    expect(adoptedFailure.status).toBe(400);
+    await expect(stat(session.sessionFile ?? "")).resolves.toBeDefined();
+    expect((await readdir(targetDir)).filter((name) => name.endsWith(".jsonl"))).toHaveLength(successfulFiles.length + 1);
+    const filesBeforeDiskFailure = (await readdir(targetDir)).sort();
+    let failedStagingDirectory = "";
+    const forkFailure = vi.spyOn(SessionManager, "forkFrom").mockImplementationOnce((_source, _cwd, destination) => {
+      failedStagingDirectory = destination ?? "";
+      writeFileSync(join(failedStagingDirectory, "partial.jsonl"), '{"type":"session"}\n');
+      throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    });
+    try {
+      const diskFailure = await post({ content });
+      expect(diskFailure.status).toBe(400);
+      expect((await readdir(targetDir)).sort()).toEqual(filesBeforeDiskFailure);
+      expect(failedStagingDirectory).not.toBe(targetDir);
+      await expect(stat(failedStagingDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      forkFailure.mockRestore();
+    }
   });
 
   test("decodes a request body whose multi-byte characters straddle chunk boundaries", async () => {
