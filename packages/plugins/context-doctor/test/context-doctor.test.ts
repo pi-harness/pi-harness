@@ -44,6 +44,31 @@ describe("context doctor", () => {
     expect(report.recommendations).toHaveLength(3);
   });
 
+  test("includes usage and recommendations in model-visible tool content", async () => {
+    const fixture = await createDoctor({
+      messages: [{ role: "user", content: "short" }],
+      getContextUsage: () => ({ percent: 82, tokens: 820, contextWindow: 1000 }),
+      compact: () => Promise.resolve(),
+    });
+    try {
+      const result = await fixture.tool.execute("audit", {}, undefined, undefined, {} as never);
+      const text = result.content.find((item) => item.type === "text");
+      expect(text?.type).toBe("text");
+      const visible = JSON.parse(text!.type === "text" ? text!.text : "") as Record<string, unknown>;
+      expect(visible).toMatchObject({
+        usagePercent: 82,
+        tokens: 820,
+        contextWindow: 1000,
+        messageCount: 1,
+        compacted: false,
+        compaction: { status: "idle" },
+        recommendations: ["压缩较早的会话历史，释放上下文空间。"],
+      });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("stays healthy when usage and messages are within limits", () => {
     const report = inspectMessages([{ role: "user", content: "short" }], { percent: 20, tokens: 20, contextWindow: 1000 }, 75, 1024);
     expect(report).toMatchObject({ status: "ok", usagePercent: 20, messageCount: 1, oversizedMessages: 0, toolErrors: 0, recommendations: [] });
@@ -355,7 +380,7 @@ describe("context doctor", () => {
     }
   });
 
-  test("cancels a queued compaction when its caller aborts before the agent settles", async () => {
+  test.each(["caller", "web"])("cancels a queued compaction before the agent settles (source: %s)", async (source) => {
     let compactions = 0;
     const fixture = await createDoctor({
       isIdle: false,
@@ -372,7 +397,8 @@ describe("context doctor", () => {
       await expect(fixture.tool.execute("queued", { compact: true, confirm: true }, controller.signal, undefined, {} as never)).resolves.toMatchObject({
         details: { compaction: { status: "queued" } },
       });
-      controller.abort(new Error("caller stopped queued compaction"));
+      if (source === "caller") controller.abort(new Error("caller stopped queued compaction"));
+      else fixture.context.emit("pi/session-abort-requested", fixture.context.get("piRuntime")!.session);
       await expect.poll(async () => (await fixture.panels.snapshot())[0]?.data).toMatchObject({ compaction: { status: "cancelled" } });
 
       fixture.context.emit("pi/session-event", { type: "agent_settled" });
@@ -651,6 +677,65 @@ describe("context doctor", () => {
       await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { compaction: { status: "cancelled" } } }]);
     } finally {
       releaseInitialization();
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test.each([true, false])("uses the runtime cancellation event when the caller signal stays active (aborted: %s)", async (aborted) => {
+    let listener: ((event: { type: string; aborted: boolean }) => void) | undefined;
+    const unsubscribe = vi.fn();
+    const fixture = await createDoctor({
+      messages: [],
+      getContextUsage: () => undefined,
+      isIdle: true,
+      subscribe: (callback: typeof listener) => {
+        listener = callback;
+        return unsubscribe;
+      },
+      compact: () => {
+        listener?.({ type: "compaction_end", aborted });
+        return Promise.reject(new Error(aborted ? "Compaction cancelled" : "Provider unavailable"));
+      },
+    });
+    const controller = new AbortController();
+    try {
+      await expect(fixture.tool.execute("runtime-stop", { compact: true, confirm: true }, controller.signal, undefined, {} as never)).rejects.toThrow(
+        aborted ? "Compaction cancelled" : "Provider unavailable",
+      );
+      expect(controller.signal.aborted).toBe(false);
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { compaction: { status: aborted ? "cancelled" : "failed" } } }]);
+      expect(unsubscribe).toHaveBeenCalledOnce();
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
+  test("keeps explicit web cancellation authoritative when the SDK wraps its abort as a provider error", async () => {
+    let rejectCompact: ((error: Error) => void) | undefined;
+    const session = {
+      messages: [],
+      getContextUsage: () => undefined,
+      isIdle: true,
+      compact: () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectCompact = reject;
+        }),
+      abortCompaction: () => rejectCompact?.(new Error("Turn prefix summarization failed: This operation was aborted")),
+    };
+    const fixture = await createDoctor(session);
+    const caller = new AbortController();
+    const execution = fixture.tool.execute("web-stop", { compact: true, confirm: true }, caller.signal, undefined, {} as never);
+    const rejection = expect(execution).rejects.toThrow("Context compaction cancelled by user");
+    try {
+      await vi.waitFor(() => expect(rejectCompact).toBeDefined());
+      fixture.context.emit("pi/session-abort-requested", { ...session } as never);
+      expect(caller.signal.aborted).toBe(false);
+      await expect(fixture.panels.snapshot()).resolves.toMatchObject([{ data: { compaction: { status: "running" } } }]);
+      fixture.context.emit("pi/session-abort-requested", session as never);
+      await rejection;
+      expect(caller.signal.aborted).toBe(false);
+      await expect.poll(async () => (await fixture.panels.snapshot())[0]?.data).toMatchObject({ compaction: { status: "cancelled" } });
+    } finally {
       await fixture.context.fiber.dispose();
     }
   });

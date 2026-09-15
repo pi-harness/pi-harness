@@ -57,7 +57,7 @@ export interface PiRuntimeService {
   readonly session: AgentSession;
   readonly sessionRuntime: AgentSessionRuntime;
   setModel(model: Model<Api>): Promise<void>;
-  prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior">): Promise<void>;
+  prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior" | "preflightResult">): Promise<void>;
   abort(): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -318,6 +318,8 @@ declare module "@deepseek-ai/cordis" {
 
   interface Events {
     "pi/session-event"(event: AgentSessionEvent): void;
+    /** Emitted by the web Stop action before invoking the native abort operation. */
+    "pi/session-abort-requested"(session: AgentSession): void;
     "pi/extension-error"(error: ExtensionError): void;
     "pi/telemetry"(event: PiTelemetryEvent): void;
   }

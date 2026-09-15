@@ -385,11 +385,13 @@ export default {
             }
           };
           let unsubscribeCompaction: (() => void) | undefined;
+          let runtimeCancelled = false;
           signal.addEventListener("abort", abort, { once: true });
           try {
             if (scopeChanged()) throw new Error("Session changed before context compaction started");
             unsubscribeCompaction = session.subscribe((event) => {
               if (event.type === "compaction_start" && signal.aborted) abort();
+              if (event.type === "compaction_end" && event.aborted) runtimeCancelled = true;
             });
             await session.compact();
             if (scopeChanged()) throw new Error("Session changed while context compaction was running");
@@ -405,7 +407,7 @@ export default {
                   : new Error("Context Doctor operation was cancelled", { cause: signal.reason })
                 : error;
             state.compaction = {
-              status: signal.aborted || changed ? "cancelled" : "failed",
+              status: signal.aborted || changed || runtimeCancelled ? "cancelled" : "failed",
               requestedAt,
               startedAt,
               finishedAt: new Date().toISOString(),
@@ -430,6 +432,20 @@ export default {
       );
       return operation;
     };
+    context.on("pi/session-abort-requested", (session) => {
+      if (queued?.session === session && queued.sessionId === session.sessionId) {
+        const request = queued;
+        queued = undefined;
+        request.removeAbortListener();
+        request.state.compaction = {
+          status: "cancelled",
+          requestedAt: request.requestedAt,
+          finishedAt: new Date().toISOString(),
+          error: "Context compaction cancelled by user",
+        };
+      }
+      if (active?.session === session && active.sessionId === session.sessionId) active.controller.abort(new Error("Context compaction cancelled by user"));
+    });
     const initialService = runtime();
     if (initialService !== undefined) stateFor(initialService.session);
     const unsubscribe = context.on("pi/session-event", (event) => {
@@ -526,7 +542,7 @@ export default {
             content: [
               {
                 type: "text",
-                text: `${resultDetails.status}: ${resultDetails.messageCount} messages, ${resultDetails.oversizedMessages} oversized, ${resultDetails.toolErrors} tool errors.`,
+                text: JSON.stringify(resultDetails),
               },
             ],
             details: resultDetails,

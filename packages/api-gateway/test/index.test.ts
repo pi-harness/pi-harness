@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
@@ -1755,6 +1756,124 @@ describe("API gateway plugin", () => {
     ).resolves.toMatchObject({ status: 400 });
   });
 
+  test("records accepted prompt IDs and suppresses replay after a lost response", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-prompt-receipt-"));
+    temporaryDirectories.push(directory);
+    const manager = SessionManager.create(directory, join(directory, "sessions"));
+    const receiptSessionId = manager.getSessionId();
+    const entries = () => manager.getEntries();
+    let calls = 0;
+    let executedAfterPreflight = 0;
+    let release: (() => void) | undefined;
+    const runtime = {
+      session: {
+        sessionId: receiptSessionId,
+        messages: [],
+        isStreaming: false,
+        subscribe: () => () => {},
+        sessionManager: manager,
+      },
+      prompt: (_text: string, options?: { preflightResult?: (accepted: boolean) => void }) => {
+        calls += 1;
+        if (_text === "wait before acceptance") {
+          return new Promise<void>((_resolve, reject) => {
+            release = () => {
+              options?.preflightResult?.(false);
+              reject(new Error("delayed preflight failure"));
+            };
+          });
+        }
+        if (_text === "reject before acceptance") {
+          options?.preflightResult?.(false);
+          return Promise.reject(new Error("preflight failed"));
+        }
+        options?.preflightResult?.(true);
+        if (_text === "storage failure") {
+          executedAfterPreflight += 1;
+          return Promise.resolve();
+        }
+        if (_text === "fail after acceptance") return Promise.reject(new Error("runtime failed"));
+        return new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      },
+    };
+    context.provide("piRuntime", runtime as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const submit = (prompt = "execute once", sessionId = receiptSessionId, requestId = "receipt-one") =>
+      fetch(context.webServer.url + "/api/prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, requestId, sessionId }),
+      });
+    const first = submit();
+    await vi.waitFor(() => expect(calls).toBe(1));
+    try {
+      expect(entries()).toContainEqual(
+        expect.objectContaining({
+          type: "custom",
+          customType: "pi-harness.prompt-receipt",
+          data: expect.objectContaining({ requestId: "receipt-one", sessionId: receiptSessionId }) as unknown,
+        }),
+      );
+      const reopened = SessionManager.open(manager.getSessionFile()!, manager.getSessionDir());
+      expect(reopened.getEntries()).toEqual(entries());
+      expect((await submit()).status).toBe(200);
+      expect((await submit("different operation")).status).toBe(409);
+      expect((await submit("execute once", "other-session")).status).toBe(409);
+      expect(calls).toBe(1);
+    } finally {
+      release?.();
+      await first;
+    }
+    expect((await submit()).status).toBe(200);
+    expect(calls).toBe(1);
+    const rejected = await submit("reject before acceptance", receiptSessionId, "rejected");
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ accepted: false, error: "preflight failed" });
+    expect(entries()).toHaveLength(1);
+    const failed = await submit("fail after acceptance", receiptSessionId, "failed");
+    expect(failed.status).toBe(400);
+    expect(await failed.json()).toMatchObject({ accepted: true, error: "runtime failed" });
+    expect(entries()).toHaveLength(2);
+    expect((await submit("fail after acceptance", receiptSessionId, "failed")).status).toBe(200);
+    expect(calls).toBe(3);
+    const pending = submit("wait before acceptance", receiptSessionId, "pending");
+    await vi.waitFor(() => expect(calls).toBe(4));
+    try {
+      const duplicate = await submit("wait before acceptance", receiptSessionId, "pending");
+      expect(duplicate.status).toBe(409);
+      expect(await duplicate.json()).toMatchObject({ error: expect.stringContaining("still being checked") as unknown });
+      expect(calls).toBe(4);
+    } finally {
+      release?.();
+    }
+    const rejectedPending = await pending;
+    expect(rejectedPending.status).toBe(400);
+    expect(await rejectedPending.json()).toMatchObject({ accepted: false });
+    expect(entries()).toHaveLength(2);
+    const append = manager.appendCustomEntry.bind(manager);
+    const failure = vi.spyOn(manager, "appendCustomEntry").mockImplementation((type, data) => {
+      append(type, data);
+      throw new Error("ENOSPC injected after the entry was added");
+    });
+    try {
+      const response = await submit("storage failure", receiptSessionId, "storage-failure");
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({ accepted: true, error: expect.stringContaining("receipt persistence failed") as unknown });
+      expect(executedAfterPreflight).toBe(1);
+      expect((await submit("storage failure", receiptSessionId, "storage-failure")).status).toBe(500);
+      expect(executedAfterPreflight).toBe(1);
+    } finally {
+      failure.mockRestore();
+    }
+  });
+
   test("returns the live session messages and trajectory events", async () => {
     const context = new Context();
     contexts.push(context);
@@ -1940,10 +2059,103 @@ describe("API gateway plugin", () => {
     expect((await status()).run).toMatchObject({ phase: "responding", startedAt });
     emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "read", args: {} });
     expect((await status()).run).toMatchObject({ phase: "tool", startedAt });
+    emit({ type: "tool_execution_start", toolCallId: "call-2", toolName: "read", args: {} });
+    const firstEnd = { type: "tool_execution_end", toolCallId: "call-1", toolName: "read", result: {}, isError: false };
+    emit(firstEnd);
+    expect(firstEnd).toHaveProperty("runPhase", "tool");
+    expect((await status()).run).toMatchObject({ phase: "tool", startedAt });
+    const lastEnd = { type: "tool_execution_end", toolCallId: "call-2", toolName: "read", result: {}, isError: false };
+    emit(lastEnd);
+    expect(lastEnd).toHaveProperty("runPhase", "starting");
+    expect((await status()).run).toMatchObject({ phase: "starting", startedAt });
 
     session.isStreaming = false;
     emit({ type: "agent_settled" });
     await expect(status()).resolves.not.toHaveProperty("run");
+  });
+
+  test("exposes manual compaction as running and blocks competing operations until abort", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    type Listener = (event: { type: string; [key: string]: unknown }) => void;
+    const listeners = new Set<Listener>();
+    const session = {
+      sessionId: "compaction-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      isCompacting: true,
+      subscribe(listener: Listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const prompt = vi.fn();
+    const newSession = vi.fn();
+    const abortRequested = vi.fn();
+    context.on("pi/session-abort-requested", abortRequested);
+    context.provide("piRuntime", {
+      session,
+      prompt,
+      newSession,
+      abort: () => {
+        session.isCompacting = false;
+        listeners.forEach((listener) => listener({ type: "compaction_end", aborted: true }));
+        return Promise.resolve();
+      },
+    } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const status = async () => (await (await fetch(context.webServer.url + "/api/status")).json()) as Record<string, unknown>;
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    for (const [path, body] of [
+      ["/api/session/new", {}],
+      ["/api/model", { provider: "test", model: "model" }],
+      ["/api/prompt", { prompt: "next" }],
+      ["/api/prompt", { prompt: "next", streamingBehavior: "steer" }],
+      ["/api/prompt", { prompt: "next", streamingBehavior: "followUp" }],
+    ] as const) {
+      const response = await fetch(context.webServer.url + path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status, path).toBe(409);
+    }
+    expect(prompt).not.toHaveBeenCalled();
+    expect(newSession).not.toHaveBeenCalled();
+    const response = await fetch(context.webServer.url + "/api/abort", { method: "POST" });
+    expect(await response.json()).toEqual({ aborted: true });
+    expect(abortRequested).toHaveBeenCalledWith(session);
+    expect(await status()).toMatchObject({ status: "ready" });
+    expect(await status()).not.toHaveProperty("run");
+    session.isCompacting = true;
+    const withoutEvent = await status();
+    expect(withoutEvent).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    expect((await status()).run).toEqual(withoutEvent.run);
+    session.isCompacting = false;
+    expect(await status()).not.toHaveProperty("run");
+    session.isCompacting = true;
+    listeners.forEach((listener) => listener({ type: "compaction_start", reason: "manual" }));
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    session.isCompacting = false;
+    listeners.forEach((listener) => listener({ type: "compaction_end", aborted: false }));
+    expect(await status()).toMatchObject({ status: "ready" });
+    expect(await status()).not.toHaveProperty("run");
+    session.isStreaming = true;
+    listeners.forEach((listener) => listener({ type: "agent_start" }));
+    session.isCompacting = true;
+    listeners.forEach((listener) => listener({ type: "compaction_start", reason: "threshold" }));
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    session.isCompacting = false;
+    listeners.forEach((listener) => listener({ type: "compaction_end", aborted: false }));
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "starting" } });
+    session.isStreaming = false;
+    listeners.forEach((listener) => listener({ type: "agent_settled" }));
+    expect(await status()).toMatchObject({ status: "ready" });
+    expect(await status()).not.toHaveProperty("run");
   });
 
   test("creates a new session through the live AgentSession", async () => {
@@ -2149,12 +2361,54 @@ describe("API gateway plugin", () => {
     });
 
     expect(response.status).toBe(200);
-    const fork = (await response.json()) as { sessionId: string; cwd: string };
+    const fork = (await response.json()) as { sessionId: string; sessionFile: string; cwd: string };
     expect(fork).toMatchObject({ cwd: activeCwd });
+    const records = (await readFile(fork.sessionFile, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records[0]).toMatchObject({ id: fork.sessionId, parentSession: path, cwd: activeCwd });
+    expect(records.slice(1)).toEqual(
+      (await readFile(path, "utf8"))
+        .trim()
+        .split("\n")
+        .slice(1)
+        .map((line) => JSON.parse(line) as unknown),
+    );
+    expect((await stat(fork.sessionFile)).mode & 0o777).toBe(0o600);
     const sessions = await fetch(context.webServer.url + "/api/sessions?includeArchived=true");
     expect(sessions.status).toBe(200);
     const sessionPayload = (await sessions.json()) as { items: Array<{ sessionId: string; forked?: boolean }> };
     expect(sessionPayload.items).toEqual(expect.arrayContaining([expect.objectContaining({ sessionId: fork.sessionId, forked: true })]));
+    const filesBeforeFailure = (await readdir(directory)).sort();
+    const sourceBeforeFailure = await readFile(path, "utf8");
+    let failedDirectory = "";
+    const failure = vi.spyOn(SessionManager, "forkFrom").mockImplementationOnce((_source, _cwd, destination) => {
+      failedDirectory = destination ?? "";
+      writeFileSync(join(failedDirectory, "partial.jsonl"), '{"type":"session"}\n');
+      throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    });
+    try {
+      const failed = await fetch(context.webServer.url + "/api/session/fork", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      expect(failed.status).toBe(400);
+      expect((await readdir(directory)).sort()).toEqual(filesBeforeFailure);
+      await expect(readFile(path, "utf8")).resolves.toBe(sourceBeforeFailure);
+      expect(failedDirectory).not.toBe(directory);
+      await expect(stat(failedDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      failure.mockRestore();
+    }
+    const retry = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    expect(retry.status).toBe(200);
+    expect((await readdir(directory)).length).toBe(filesBeforeFailure.length + 1);
   });
 
   test("forks an empty active session before its JSONL file is created", async () => {
@@ -4339,6 +4593,88 @@ describe("API gateway plugin", () => {
     await expect(execFile("git", ["status", "--porcelain"], { cwd: directory })).resolves.toMatchObject({ stdout: "" });
   });
 
+  test.each([
+    ["report[1].txt", "report1.txt", "diff", true],
+    ["report[1].txt", "report1.txt", "commit", true],
+    ["report[1].txt", "report1.txt", "revert", true],
+    [":(glob)*.txt", "other.txt", "diff", true],
+    [":(glob)*.txt", "other.txt", "commit", true],
+    [":(glob)*.txt", "other.txt", "revert", true],
+    ["report[1].txt", "report1.txt", "revert", false],
+    [":(glob)*.txt", "other.txt", "revert", false],
+  ])("treats %s as a literal path beside %s during %s (tracked: %s)", async (selected, other, action, tracked) => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-literal-"));
+    temporaryDirectories.push(directory);
+    await execFile("git", ["init", "-q"], { cwd: directory });
+    await execFile("git", ["config", "user.email", "pi-harness@test.invalid"], { cwd: directory });
+    await execFile("git", ["config", "user.name", "Pi Harness Test"], {
+      cwd: directory,
+    });
+    if (tracked) await writeFile(join(directory, selected), "selected before\n");
+    await writeFile(join(directory, other), "other before\n");
+    await execFile("git", ["add", "."], { cwd: directory });
+    await execFile("git", ["commit", "-qm", "initial"], { cwd: directory });
+    await writeFile(join(directory, selected), "selected after\n");
+    await writeFile(join(directory, other), "other after\n");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "literal-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", {
+      session,
+      prompt: () => Promise.resolve(),
+      abort: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+    } as never);
+    context.provide("piModels", {
+      model: { provider: "test", id: "model" },
+      runtime: { getModels: () => [], getModel: () => undefined },
+    } as never);
+    context.provide("piHarnessLaunch", {
+      cwd: directory,
+      agentDir: "/tmp/agent",
+      args: [],
+      requestExit() {},
+    });
+    await context.plugin(apiPlugin);
+
+    if (action === "diff") {
+      const response = await fetch(context.webServer.url + "/api/files/diff?path=" + encodeURIComponent(selected));
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as { diff: string };
+      expect(payload.diff).toContain("+selected after");
+      expect(payload.diff).not.toContain("other after");
+    } else {
+      const response = await fetch(context.webServer.url + "/api/files/" + action, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          paths: [selected],
+          message: "Selected file only",
+          confirm: true,
+        }),
+      });
+      expect(response.status).toBe(200);
+      if (action === "commit") {
+        const changed = await execFile("git", ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "HEAD"], { cwd: directory });
+        expect(changed.stdout.split("\0").filter(Boolean)).toEqual([selected]);
+      } else if (tracked) {
+        await expect(readFile(join(directory, selected), "utf8")).resolves.toBe("selected before\n");
+      } else {
+        await expect(readFile(join(directory, selected), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    }
+    await expect(readFile(join(directory, other), "utf8")).resolves.toBe("other after\n");
+    const remaining = await execFile("git", ["diff", "--name-only", "-z", "HEAD"], { cwd: directory });
+    expect(remaining.stdout.split("\0")).toContain(other);
+  });
+
   test("rejects destructive workspace revert without explicit confirmation", async () => {
     const context = new Context();
     contexts.push(context);
@@ -4494,7 +4830,7 @@ describe("API gateway plugin", () => {
       // The gateway consumes NUL-separated `--porcelain -z` entries and then asks git for the cwd prefix, so the shim answers both calls.
       await writeFile(
         shim,
-        "#!/bin/sh\ncase \"$1\" in rev-parse) exit 0;; esac\nprintf ' M tracked.txt\\0'\nseq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/' | tr '\\n' '\\0'\n",
+        "#!/bin/sh\n[ \"$1\" = --literal-pathspecs ] && shift\ncase \"$1\" in rev-parse) exit 0;; esac\nprintf ' M tracked.txt\\0'\nseq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/' | tr '\\n' '\\0'\n",
         { mode: 0o755 },
       );
       const truncated = await fetch(context.webServer.url + "/api/files");
@@ -4730,18 +5066,25 @@ describe("API gateway plugin", () => {
     const switched: string[] = [];
     const session = {
       sessionId: "import-session",
-      sessionFile: undefined,
+      sessionFile: undefined as string | undefined,
       messages: [],
       isStreaming: false,
       sessionManager: SessionManager.create("/tmp", targetDir),
       extensionRunner: { setUIContext() {} },
       subscribe: () => () => {},
     };
+    let switchMode: "accept" | "cancel" | "reject" | "adopt-reject" = "accept";
     const sessionRuntime = {
       cwd: "/tmp",
       switchSession(path: string) {
         switched.push(path);
-        return Promise.resolve({ cancelled: false });
+        if (switchMode === "adopt-reject") {
+          session.sessionFile = path;
+          session.sessionId = SessionManager.open(path, targetDir).getSessionId();
+          return Promise.reject(new Error("failed after adoption"));
+        }
+        if (switchMode === "reject") return Promise.reject(new Error("switch failed"));
+        return Promise.resolve({ cancelled: switchMode === "cancel" });
       },
     };
     context.provide("piRuntime", { session, sessionRuntime, prompt: () => Promise.resolve() } as never);
@@ -4761,6 +5104,37 @@ describe("API gateway plugin", () => {
     await expect(readFile(victim, "utf8")).resolves.toBe("keep me\n");
     expect(switched).toEqual([]);
 
+    const lines = content.trimEnd().split("\n");
+    for (const invalidLine of [
+      '{"type":',
+      "null",
+      "{}",
+      lines[0] ?? "",
+      JSON.stringify({ type: "message", id: "bad", parentId: null, message: null }),
+      lines[1] ?? "",
+      JSON.stringify({ type: "custom", id: "broken-parent", parentId: "missing" }),
+      JSON.stringify({ type: "custom", id: "cycle", parentId: "cycle" }),
+    ]) {
+      const malformed = await post({ content: [...lines, invalidLine].join("\n"), filename: "damaged.jsonl" });
+      expect(malformed.status).toBe(400);
+      const malformedError = (await malformed.json()) as { error: string };
+      expect(malformedError.error).toContain(`line ${lines.length + 1}`);
+      expect(switched).toEqual([]);
+      expect((await readdir(targetDir)).filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+    }
+    const damagedPath = join(directory, "damaged.jsonl");
+    const damagedContent = [...lines, '{"type":'].join("\n");
+    await writeFile(damagedPath, damagedContent);
+    const damagedImport = await post({ path: damagedPath });
+    expect(damagedImport.status).toBe(400);
+    await expect(readFile(damagedPath, "utf8")).resolves.toBe(damagedContent);
+    expect(switched).toEqual([]);
+
+    const missingCwd = await post({ content, cwd: join(directory, "missing") });
+    expect(missingCwd.status).toBe(400);
+    expect(switched).toEqual([]);
+    expect((await readdir(targetDir)).filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+
     const imported = await post({ content, filename: "../../escape.jsonl", cwd: "/tmp" });
     expect(imported.status).toBe(200);
     expect(switched).toHaveLength(1);
@@ -4769,6 +5143,60 @@ describe("API gateway plugin", () => {
     expect(targetFiles).toHaveLength(1);
     await expect(readFile(join(targetDir, targetFiles[0] ?? ""), "utf8")).resolves.toContain("x".repeat(100 * 1024));
     await expect(stat(join(directory, "escape.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    const sourceWithoutNewline = join(sourceDir, "without-newline.jsonl");
+    await writeFile(sourceWithoutNewline, content.trimEnd());
+    const pathImport = await post({ path: sourceWithoutNewline });
+    expect(pathImport.status).toBe(200);
+    await expect(readFile(sourceWithoutNewline, "utf8")).resolves.toBe(content.trimEnd());
+    expect(switched).toHaveLength(2);
+
+    const legacyContent = lines
+      .map((line) => {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        if (entry.type === "session") entry.version = 1;
+        else {
+          delete entry.id;
+          delete entry.parentId;
+        }
+        return JSON.stringify(entry);
+      })
+      .join("\r\n\r\n");
+    const legacyImport = await post({ content: legacyContent, filename: "legacy.jsonl" });
+    expect(legacyImport.status).toBe(200);
+    expect(switched).toHaveLength(3);
+    const legacySession = SessionManager.open(switched[2] ?? "", targetDir);
+    expect(legacySession.buildSessionContext().messages).toHaveLength(2);
+    expect(legacySession.getEntries().every((entry) => typeof entry.id === "string")).toBe(true);
+    const successfulFiles = (await readdir(targetDir)).sort();
+    switchMode = "cancel";
+    const cancelled = await post({ content });
+    expect(cancelled.status).toBe(409);
+    expect((await readdir(targetDir)).sort()).toEqual(successfulFiles);
+    switchMode = "reject";
+    const rejected = await post({ content });
+    expect(rejected.status).toBe(400);
+    expect((await readdir(targetDir)).sort()).toEqual(successfulFiles);
+    switchMode = "adopt-reject";
+    const adoptedFailure = await post({ content });
+    expect(adoptedFailure.status).toBe(400);
+    await expect(stat(session.sessionFile ?? "")).resolves.toBeDefined();
+    expect((await readdir(targetDir)).filter((name) => name.endsWith(".jsonl"))).toHaveLength(successfulFiles.length + 1);
+    const filesBeforeDiskFailure = (await readdir(targetDir)).sort();
+    let failedStagingDirectory = "";
+    const forkFailure = vi.spyOn(SessionManager, "forkFrom").mockImplementationOnce((_source, _cwd, destination) => {
+      failedStagingDirectory = destination ?? "";
+      writeFileSync(join(failedStagingDirectory, "partial.jsonl"), '{"type":"session"}\n');
+      throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    });
+    try {
+      const diskFailure = await post({ content });
+      expect(diskFailure.status).toBe(400);
+      expect((await readdir(targetDir)).sort()).toEqual(filesBeforeDiskFailure);
+      expect(failedStagingDirectory).not.toBe(targetDir);
+      await expect(stat(failedStagingDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      forkFailure.mockRestore();
+    }
   });
 
   test("decodes a request body whose multi-byte characters straddle chunk boundaries", async () => {
@@ -5769,7 +6197,11 @@ describe("API gateway plugin", () => {
     const shimDirectory = join(directory, "bin");
     await mkdir(shimDirectory);
     // A commit that takes longer than the 15 s read-only bound, as a pre-commit hook running a test suite would.
-    await writeFile(join(shimDirectory, "git"), '#!/bin/sh\ncase "$1" in commit) sleep 16;; rev-parse) printf abc1234;; esac\nexit 0\n', { mode: 0o755 });
+    await writeFile(
+      join(shimDirectory, "git"),
+      '#!/bin/sh\n[ "$1" = --literal-pathspecs ] && shift\ncase "$1" in commit) sleep 16;; rev-parse) printf abc1234;; esac\nexit 0\n',
+      { mode: 0o755 },
+    );
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const session = { sessionId: "commit-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);

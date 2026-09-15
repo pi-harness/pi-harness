@@ -242,7 +242,11 @@ describe("annotation UI protocol", () => {
     const candidate = (annotationUi as unknown as Record<string, unknown>).clearSubmittedAnnotations;
     expect(typeof candidate).toBe("function");
     if (typeof candidate !== "function") return;
-    const clearSubmittedAnnotations = candidate as <T extends { sessionId?: string; annotations: unknown[] }>(state: T, sessionId?: string) => T;
+    const clearSubmittedAnnotations = candidate as <T extends { sessionId?: string; annotations: unknown[] }>(
+      state: T,
+      sessionId: string,
+      submitted: unknown[],
+    ) => T;
     const replacement = {
       sessionId: "session-two",
       annotations: [{ id: 1, quote: "new session text", note: "" }],
@@ -250,8 +254,8 @@ describe("annotation UI protocol", () => {
       note: "new note",
     };
 
-    expect(clearSubmittedAnnotations(replacement, "session-one")).toBe(replacement);
-    expect(clearSubmittedAnnotations(replacement, "session-two")).toEqual({ ...replacement, annotations: [] });
+    expect(clearSubmittedAnnotations(replacement, "session-one", replacement.annotations)).toBe(replacement);
+    expect(clearSubmittedAnnotations(replacement, "session-two", replacement.annotations)).toEqual({ ...replacement, annotations: [] });
   });
 
   test("formats numbered annotations and restores the visible question", () => {
@@ -270,4 +274,55 @@ describe("annotation UI protocol", () => {
   test("leaves ordinary user prompts untouched", () => {
     expect(parseAnnotationPrompt("hello\n\n提问：still ordinary")).toEqual({ question: "hello\n\n提问：still ordinary", count: 0 });
   });
+});
+
+describe("annotation submission snapshots", () => {
+  const sent = { id: 1, quote: "sent quote", note: "sent note", revision: "sent-version" };
+  const newer = { id: 2, quote: "next quote", note: "next note", revision: "next-version" };
+  test("removes only submitted annotations and preserves an unfinished selection", () => {
+    const state = { sessionId: "one", annotations: [sent, newer], selection: "unfinished selection", note: "unfinished note" };
+    expect(annotationUi.clearSubmittedAnnotations(state, "one", [sent])).toEqual({ ...state, annotations: [newer] });
+    expect(annotationUi.clearSubmittedAnnotations(state, "two", [sent])).toBe(state);
+  });
+  test("does not remove a recreated annotation that reused the visible number and text", () => {
+    const replacement = { ...sent, revision: "replacement-version" };
+    const state = { sessionId: "one", annotations: [replacement], selection: "", note: "" };
+    expect(annotationUi.clearSubmittedAnnotations(state, "one", [sent])).toBe(state);
+  });
+  test("preserves newer stored annotations after the submitted session is no longer active", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    const state = { sessionId: "one", annotations: [sent, newer], selection: "unfinished selection", note: "unfinished note" };
+    annotationUi.writeStoredAnnotationDraft(storage, state);
+    annotationUi.clearStoredSubmittedAnnotations(storage, "one", [sent]);
+    expect(annotationUi.readStoredAnnotationDraft(storage, "one")).toEqual({ ...state, annotations: [newer] });
+  });
+});
+
+test("keeps multiple pending annotation snapshots independent of new text drafts", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  const first = { id: 1, quote: "first", note: "", revision: "first-version" };
+  const second = { id: 2, quote: "second", note: "", revision: "second-version" };
+  annotationUi.rememberAnnotationSubmission(storage, "one", "request-one", [first]);
+  storage.setItem("pi-harness.prompt-draft.one", JSON.stringify({ sessionId: "one", draft: "new text draft", revision: "new-draft" }));
+  annotationUi.rememberAnnotationSubmission(storage, "one", "request-two", [first, second]);
+  expect(annotationUi.readStoredAnnotationSubmissions(storage, "one")).toEqual([
+    { requestId: "request-one", annotations: [first] },
+    { requestId: "request-two", annotations: [first, second] },
+  ]);
+  expect(annotationUi.readStoredAnnotationSubmissions(storage, "two")).toEqual([]);
+  annotationUi.forgetAnnotationSubmission(storage, "one", "request-one");
+  expect(annotationUi.readStoredAnnotationSubmissions(storage, "one")).toEqual([{ requestId: "request-two", annotations: [first, second] }]);
+  annotationUi.forgetAnnotationSubmission(storage, "one", "request-two");
+  expect(annotationUi.readStoredAnnotationSubmissions(storage, "one")).toEqual([]);
+  expect(JSON.parse(values.get("pi-harness.prompt-draft.one")!)).toMatchObject({ draft: "new text draft" });
 });

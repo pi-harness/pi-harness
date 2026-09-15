@@ -1,3 +1,4 @@
+import { AcceptedPromptError, acceptedPromptReceipt } from "./prompt-ui.js";
 export interface ClientStatus {
   readonly status: string;
   /** Identifies the harness process answering this console, so state the console holds on behalf of the next start can be dropped once that start has happened. */
@@ -16,7 +17,7 @@ export interface ClientStatus {
     readonly phase: ClientRunPhase;
   };
 }
-export type ClientRunPhase = "starting" | "thinking" | "responding" | "tool";
+export type ClientRunPhase = "starting" | "thinking" | "responding" | "tool" | "compacting";
 export type ClientEventStreamState = "connecting" | "open" | "reconnecting" | "closed";
 export interface ClientSession {
   readonly sessionId: string;
@@ -173,6 +174,7 @@ export interface ClientApi {
   prompt(
     value: string,
     streamingBehavior?: "steer" | "followUp",
+    submission?: { requestId: string; sessionId: string },
   ): Promise<{ reply: string; messages: number; aborted?: boolean; queued?: boolean; streamingBehavior?: "steer" | "followUp" }>;
   abort(): Promise<{ aborted: boolean }>;
   createSession(cwd?: string): Promise<ClientSession>;
@@ -216,6 +218,14 @@ export function failedRefreshLabels(labels: readonly string[], results: readonly
   return labels.filter((_, index) => results[index]?.status === "rejected");
 }
 
+class HttpRequestError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return fetch(path, init).then(async (response) => {
     const payload = (await response.json()) as unknown;
@@ -224,7 +234,8 @@ function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
         payload !== null && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
           ? payload.error
           : `Request failed with status ${response.status}`;
-      throw new Error(error);
+      if (payload !== null && typeof payload === "object" && "accepted" in payload && payload.accepted === true) throw new AcceptedPromptError(error);
+      throw new HttpRequestError(error, response.status);
     }
     return payload as T;
   });
@@ -251,12 +262,32 @@ export function createClientApi(): ClientApi {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ paths, confirm: true }),
       }),
-    prompt: (value, streamingBehavior) =>
-      requestJson<{ reply: string; messages: number; aborted?: boolean; queued?: boolean; streamingBehavior?: "steer" | "followUp" }>("/api/prompt", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: value, ...(streamingBehavior ? { streamingBehavior } : {}) }),
-      }),
+    prompt: async (value, streamingBehavior, submission) => {
+      try {
+        return await requestJson<{ reply: string; messages: number; aborted?: boolean; queued?: boolean; streamingBehavior?: "steer" | "followUp" }>(
+          "/api/prompt",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ prompt: value, ...(streamingBehavior ? { streamingBehavior } : {}), ...submission }),
+          },
+        );
+      } catch (cause) {
+        if (cause instanceof AcceptedPromptError || (cause instanceof HttpRequestError && cause.status < 500) || submission === undefined) throw cause;
+        // A failed response does not prove rejection. Read the server's receipt without resubmitting the operation.
+        let snapshot: ClientSession | undefined;
+        try {
+          snapshot = await requestJson<ClientSession>("/api/session");
+        } catch {
+          /* Preserve the original error while the connection is unavailable. */
+        }
+        const receipt =
+          snapshot?.sessionId === submission.sessionId ? acceptedPromptReceipt(snapshot.entries ?? [], submission.sessionId, submission.requestId) : undefined;
+        if (receipt?.persistenceError) throw new AcceptedPromptError(receipt.persistenceError);
+        if (receipt && snapshot) return { reply: "", messages: snapshot.messages.length };
+        throw cause;
+      }
+    },
     abort: () => requestJson<{ aborted: boolean }>("/api/abort", { method: "POST" }),
     createSession: (cwd) =>
       requestJson<ClientSession>("/api/session/new", {

@@ -3,7 +3,6 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 import {
   createClientApi,
-  failedRefreshLabels,
   type ClientApi,
   type ClientCommand,
   type ClientEventStreamState,
@@ -28,7 +27,9 @@ import {
   createPromptDraftRevision,
   failPromptSubmission,
   finishPromptSubmission,
+  acceptedPromptReceipt,
   promptDelivery,
+  promptSubmissionIdentity,
   promptUiDuringSessionRestore,
   promptUiForSession,
   readStoredPromptDraftSnapshot,
@@ -56,7 +57,10 @@ import {
   annotationDraftDuringSessionRestore,
   annotationDraftForSession,
   captureSelectionForSession,
-  clearStoredAnnotationDraft,
+  clearStoredSubmittedAnnotations,
+  readStoredAnnotationSubmissions,
+  rememberAnnotationSubmission,
+  forgetAnnotationSubmission,
   clearSubmittedAnnotations,
   formatAnnotationPrompt,
   parseAnnotationPrompt,
@@ -207,6 +211,7 @@ const dialogFocusSelector = [
 ].join(",");
 
 type ModalFocusTarget = Pick<HTMLElement, "focus" | "isConnected">;
+type ModalFocusReturnTarget = string | HTMLElement | null | (() => HTMLElement | null);
 
 export function modalReturnFocusTarget<T extends ModalFocusTarget>(previous: T | null | undefined, invoker: T | null | undefined): T | undefined {
   if (invoker?.isConnected) return invoker;
@@ -255,12 +260,7 @@ export async function runFilesMutationAction(
   }
 }
 
-function useModalFocus<T extends HTMLElement = HTMLDivElement>(
-  open: boolean,
-  onClose: () => void,
-  busy = false,
-  returnFocusTarget?: string | HTMLElement | null,
-) {
+function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: boolean, onClose: () => void, busy = false, returnFocusTarget?: ModalFocusReturnTarget) {
   const dialogRef = useRef<T>(null);
   const closeRef = useRef(onClose);
   const busyRef = useRef(busy);
@@ -283,6 +283,7 @@ function useModalFocus<T extends HTMLElement = HTMLDivElement>(
       (dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]") ?? focusable()[0])?.focus();
     });
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isComposingKey(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -311,7 +312,7 @@ function useModalFocus<T extends HTMLElement = HTMLDivElement>(
       window.cancelAnimationFrame(frame);
       window.removeEventListener("keydown", onKeyDown, true);
       const target = returnFocusTargetRef.current;
-      const invoker = typeof target === "string" ? document.querySelector<HTMLElement>(target) : target;
+      const invoker = typeof target === "function" ? target() : typeof target === "string" ? document.querySelector<HTMLElement>(target) : target;
       const returnFocus = modalReturnFocusTarget(previous, invoker);
       if (returnFocus) window.requestAnimationFrame(() => returnFocus.focus());
     };
@@ -470,6 +471,11 @@ export function providerTestAuthText(auth: unknown): string | undefined {
   return "label" in auth && typeof auth.label === "string" ? auth.label : undefined;
 }
 
+function isComposingKey(event: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean {
+  // Safari may expose keyCode 229 after isComposing clears while confirming an IME candidate.
+  return event.isComposing || event.keyCode === 229;
+}
+
 // Ctrl-C is the reflex for stopping a runaway agent, but the same chord is the copy shortcut everywhere else in the browser, so it only interrupts when a run is actually in flight and nothing is selected. Cmd is excluded on purpose: matching it would swallow macOS Cmd+C. A textarea or an input keeps a selection that window.getSelection() does not report, so the focused field is asked directly.
 export function shouldInterruptRun(
   event: { readonly ctrlKey: boolean; readonly metaKey: boolean; readonly shiftKey: boolean; readonly key: string; readonly target: EventTarget | null },
@@ -542,6 +548,14 @@ function browserStorage(): Storage | undefined {
     return typeof localStorage === "undefined" ? undefined : localStorage;
   } catch {
     return undefined;
+  }
+}
+
+function readSendShortcut(): "enter" | "mod-enter" {
+  try {
+    return browserStorage()?.getItem("pi-harness.sendShortcut") === "mod-enter" ? "mod-enter" : "enter";
+  } catch {
+    return "enter";
   }
 }
 
@@ -882,7 +896,7 @@ function WorkspaceChooser({
             className="workspace-path-input"
             onChange={(e) => setCustomPath(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleCustomPathSubmit();
+              if (!isComposingKey(e.nativeEvent) && e.key === "Enter") handleCustomPathSubmit();
             }}
             placeholder={t("输入绝对路径，如 /tmp/my-project")}
             type="text"
@@ -980,7 +994,7 @@ function SessionDialog({
               data-dialog-initial-focus
               disabled={busy}
               onChange={(event) => onChange(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && !busy && onConfirm()}
+              onKeyDown={(event) => !isComposingKey(event.nativeEvent) && event.key === "Enter" && !busy && onConfirm()}
               value={draft}
             />
           </label>
@@ -1161,6 +1175,7 @@ export async function runSessionPopoverAction(action: () => Promise<void>, resto
 }
 
 export function PromptError({ message, action = "prompt" }: { message: string; action?: "prompt" | "model" | "session" }) {
+  const receiptFailure = message.includes("Prompt accepted; receipt persistence failed.");
   const everyApiAuth = /No API key(?: found)? for everyapi/i.test(message);
   const requiresAuth = everyApiAuth || /No API key(?: found)?|authentication|未配置认证/i.test(message);
   return (
@@ -1186,7 +1201,9 @@ export function PromptError({ message, action = "prompt" }: { message: string; a
                 ? t("运行时没有接受模型切换；当前模型保持不变。")
                 : action === "session"
                   ? t("运行时没有接受这次会话操作，请重试。")
-                  : t("运行时没有接受这次请求，请重试或查看错误详情。")}
+                  : receiptFailure
+                    ? t("请求已接受，但确认记录保存失败。重启后重试前，请先检查执行结果。")
+                    : t("请求未正常结束。请先检查会话中的执行结果，再决定是否重试。")}
         </span>
       </div>
       <details>
@@ -1220,7 +1237,7 @@ export function Details({
   event: Record<string, unknown> | undefined;
   onClose: () => void;
   onCopy: () => void;
-  returnFocusTarget?: HTMLElement | null;
+  returnFocusTarget?: ModalFocusReturnTarget;
 }) {
   const dialogRef = useModalFocus<HTMLElement>(true, onClose, false, returnFocusTarget);
   if (!event)
@@ -1546,6 +1563,17 @@ function pluginPanelData(value: unknown): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function contextDoctorRecommendationText(message: string): string {
+  if (message === "压缩较早的会话历史，释放上下文空间。") return t("压缩较早的会话历史，释放上下文空间。");
+  const oversized = /^检查 (\d+) 条超大消息，优先引用摘要或文件路径。$/.exec(message);
+  if (oversized) return t("检查 {v0} 条超大消息，优先引用摘要或文件路径。", { v0: oversized[1] });
+  const uninspectable = /^检查 (\d+) 条无法安全测量的消息，其结构可能过深、循环或包含访问器。$/.exec(message);
+  if (uninspectable) return t("检查 {v0} 条无法安全测量的消息，其结构可能过深、循环或包含访问器。", { v0: uninspectable[1] });
+  const toolErrors = /^处理 (\d+) 个工具错误后再继续长任务。$/.exec(message);
+  if (toolErrors) return t("处理 {v0} 个工具错误后再继续长任务。", { v0: toolErrors[1] });
+  return message;
 }
 
 export function PluginPanelCard({ panel, inline = false, activeSessionId }: { panel: ClientPluginPanel; inline?: boolean; activeSessionId?: string }) {
@@ -2633,7 +2661,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               {view.recommendations.length > 0 ? (
                 <ul className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[10px] text-[var(--color-muted)]">
                   {view.recommendations.map((item, index) => (
-                    <li key={`${item}-${index}`}>{item}</li>
+                    <li key={`${item}-${index}`}>{contextDoctorRecommendationText(item)}</li>
                   ))}
                   {view.recommendationsTruncated ? <li>{t("部分建议因浏览器显示上限被省略。")}</li> : null}
                 </ul>
@@ -6889,7 +6917,7 @@ function InstalledPluginDetail({
                 </div>
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[var(--color-faint)]">{t("分类")}</dt>
-                  <dd className="text-right text-[var(--color-ink)]">{plugin.category?.label ?? t("运行时插件")}</dd>
+                  <dd className="text-right text-[var(--color-ink)]">{metadata?.category.label ?? plugin.category?.label ?? t("运行时插件")}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[var(--color-faint)]">{t("管理方式")}</dt>
@@ -7391,9 +7419,13 @@ function Settings({
   onTab,
   onClose,
   onRefresh,
+  sendShortcut,
+  onSendShortcutChange,
 }: {
   data: RoomData;
   api: ClientApi;
+  sendShortcut: "enter" | "mod-enter";
+  onSendShortcutChange: (shortcut: "enter" | "mod-enter") => void;
   tab: SettingsTab;
   onTab: (tab: SettingsTab) => void;
   onClose: () => void;
@@ -7417,7 +7449,6 @@ function Settings({
   const [configSourceDraft, setConfigSourceDraft] = useState("");
   const [configBusy, setConfigBusy] = useState(false);
   const [configState, setConfigState] = useState<ConfigStatus>();
-  const [sendShortcut, setSendShortcut] = useState(() => globalThis.localStorage?.getItem("pi-harness.sendShortcut") ?? "enter");
   const notifierActive = data.plugins.some((plugin) => plugin.name.endsWith("/cli-notifier") && plugin.enabled);
   const providerDialogRef = useModalFocus(providerAddOpen, () => setProviderAddOpen(false), providerBusy.__add !== undefined);
   useEffect(() => {
@@ -7567,6 +7598,7 @@ function Settings({
                       if (!providerBusy.__add) setProviderAddOpen(false);
                     }}
                     onKeyDown={(event) => {
+                      if (isComposingKey(event.nativeEvent)) return;
                       if (event.key === "Escape") {
                         event.stopPropagation();
                         if (!providerBusy.__add) setProviderAddOpen(false);
@@ -7841,8 +7873,7 @@ function Settings({
                           <select
                             value={sendShortcut}
                             onChange={(event) => {
-                              setSendShortcut(event.target.value);
-                              globalThis.localStorage?.setItem("pi-harness.sendShortcut", event.target.value);
+                              onSendShortcutChange(event.target.value === "mod-enter" ? "mod-enter" : "enter");
                             }}
                           >
                             <option value="enter">{t("Enter")}</option>
@@ -8441,6 +8472,7 @@ export function GlobalSearch({
           data-dialog-initial-focus
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (isComposingKey(event.nativeEvent)) return;
             if (event.key === "Escape") {
               event.preventDefault();
               onClose();
@@ -8603,6 +8635,7 @@ export function formatRunClock(totalSeconds: number): string {
 }
 
 function runPhaseText(phase: ClientRunPhase): string {
+  if (phase === "compacting") return t("正在压缩");
   if (phase === "thinking") return t("模型思考中");
   if (phase === "responding") return t("模型生成中");
   if (phase === "tool") return t("工具执行中");
@@ -8778,6 +8811,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   // Subscribed at the root because every label below reads the catalog through t(), so a language switch has to re-render the whole console rather than any one panel.
   const locale = useLocale();
   const initialQueryState = useMemo(readQueryState, []);
+  const [sendShortcut, setSendShortcut] = useState<"enter" | "mod-enter">(readSendShortcut);
+  const sendShortcutLabel = sendShortcut === "mod-enter" ? "Cmd/Ctrl+Enter" : "Enter";
   const [data, setData] = useState<RoomData>({
     sessions: [],
     files: [],
@@ -8801,7 +8836,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [page, setPage] = useState<Page>(initialQueryState.page);
   const [settings, setSettings] = useState<SettingsTab | undefined>(initialQueryState.settings);
   const [details, setDetails] = useState<Record<string, unknown>>();
-  const detailsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const detailsReturnFocusRef = useRef<ModalFocusReturnTarget>(null);
   const filePreviewIntentRef = useRef(0);
   const [commandOpen, setCommandOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -8921,6 +8956,30 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     };
   }, [data.session?.sessionId, initialSessionRestorePending]);
   useEffect(() => writeStoredAnnotationDraft(browserSessionStorage(), storedAnnotationDraft), [storedAnnotationDraft]);
+  // Reconcile after the draft persistence effect so an older render cannot re-store annotations that this receipt just cleared.
+  useEffect(() => {
+    const sessionId = data.session?.sessionId;
+    const saved = readStoredPromptDraftSnapshot(browserSessionStorage(), sessionId);
+    for (const submission of readStoredAnnotationSubmissions(browserSessionStorage(), sessionId)) {
+      const receipt = acceptedPromptReceipt(data.session?.entries ?? [], sessionId, submission.requestId);
+      if (!receipt) continue;
+      clearStoredSubmittedAnnotations(browserSessionStorage(), sessionId, submission.annotations);
+      setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, sessionId, submission.annotations));
+      forgetAnnotationSubmission(browserSessionStorage(), sessionId, submission.requestId);
+      if (receipt.persistenceError)
+        setStoredPromptUi((current) => (current.sessionId === sessionId ? { ...current, error: receipt.persistenceError ?? "" } : current));
+    }
+    const receipt = acceptedPromptReceipt(data.session?.entries ?? [], sessionId, saved?.revision);
+    if (!receipt) return;
+    const submittedAnnotations = saved?.submission?.annotations ?? [];
+    clearStoredSubmittedAnnotations(browserSessionStorage(), sessionId, submittedAnnotations);
+    setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, sessionId, submittedAnnotations));
+    const cleared = clearSubmittedPromptDraft(browserSessionStorage(), sessionId, saved?.revision);
+    setStoredPromptUi((current) => {
+      const next = clearAcceptedPromptDraft(current, sessionId, saved?.revision, cleared);
+      return next === current ? current : { ...next, error: receipt.persistenceError ?? "" };
+    });
+  }, [data.session?.entries, data.session?.sessionId]);
   const [search, setSearch] = useState("");
   const [sessionQuery, setSessionQuery] = useState("");
   const sessionQueryRef = useRef("");
@@ -8947,6 +9006,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
+  const sessionOperationsBusy =
+    sessionActionBusy ||
+    data.status?.run?.phase === "compacting" ||
+    pendingSessionNavigationRef.current?.accepted === false ||
+    (initialSessionRestorePending && initialQueryState.sessionPath !== data.session?.sessionFile);
   const [sessionActionError, setSessionActionError] = useState("");
   const [includeArchivedSessions, setIncludeArchivedSessions] = useState(false);
   const [sessionPage, setSessionPage] = useState(0);
@@ -8973,7 +9037,20 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const refreshQueuedRef = useRef(false);
   const refreshSequenceRef = useRef({ requested: 0, applied: 0 });
-  const liveRefreshSequenceRef = useRef({ status: 0, session: 0, pluginPanels: 0 });
+  const liveRefreshSequenceRef = useRef({
+    status: 0,
+    session: 0,
+    sessions: 0,
+    pluginPanels: 0,
+    files: 0,
+    workspaceFiles: 0,
+    models: 0,
+    providers: 0,
+    plugins: 0,
+    marketplace: 0,
+    commands: 0,
+    workspaces: 0,
+  });
   const marketplaceSearchDebouncerRef = useRef(createGlobalSearchDebouncer());
   const resolvedMarketplaceDetailRef = useRef<MarketplaceDetailResolution | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
@@ -9093,6 +9170,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionActionTarget(undefined);
     };
     const dismissOnEscape = (event: KeyboardEvent) => {
+      if (isComposingKey(event)) return;
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
@@ -9138,7 +9216,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [commandOpen, promptCompletionOpen]);
   useEffect(() => {
     const dismissProviderModels = (event: PointerEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (event instanceof KeyboardEvent && (isComposingKey(event) || event.key !== "Escape")) return;
       const target = event.target instanceof Element ? event.target : undefined;
       document.querySelectorAll<HTMLDetailsElement>("details.provider-models-details[open]").forEach((details) => {
         if (event instanceof PointerEvent && target && details.contains(target)) return;
@@ -9282,19 +9360,32 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listCommands(),
       api.listWorkspaces(),
     ] as const;
-    const allResults = Promise.allSettled(requests);
-    const applyLive = <K extends "status" | "session">(key: K, result: RoomData[K]) => {
-      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current[key]) return;
-      liveRefreshSequenceRef.current[key] = sequence;
-      // Do not advance the full-batch barrier: a fast status read must not
-      // continually invalidate slower panel reads. Setters retain queue order
-      // with authoritative navigation updates; updater functions stay pure.
-      setData((current) => ({ ...current, [key]: result }));
+
+    const statusLabel = "运行状态";
+    const sessionLabel = "当前会话";
+    const setLiveIssue = (label: string, failed: boolean) => {
+      setRefreshIssues((current) => {
+        const remaining = current.filter((item) => item !== label);
+        return failed ? [...remaining, label] : remaining;
+      });
+    };
+    const applyLiveSession = (result: PromiseSettledResult<ClientSession>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.session) return;
+      liveRefreshSequenceRef.current.session = sequence;
+      // Independent reads do not advance the full-batch barrier or overwrite newer navigation.
+      if (result.status === "fulfilled") setData((current) => ({ ...current, session: result.value }));
+      // Only a current read started after navigation acceptance can settle its route.
+      if (result.status === "fulfilled" && pendingNavigation?.accepted && pendingSessionNavigationRef.current === pendingNavigation) {
+        pendingSessionNavigationRef.current = undefined;
+        setPendingSessionUrlPath(undefined);
+      }
+      setLiveIssue(sessionLabel, result.status === "rejected");
     };
     const applyLiveStatus = (result: PromiseSettledResult<ClientStatus>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.status) return;
       liveRefreshSequenceRef.current.status = sequence;
       setStatusReachable(result.status === "fulfilled");
+      setLiveIssue(statusLabel, result.status === "rejected");
       if (result.status === "fulfilled") setData((current) => ({ ...current, status: result.value }));
     };
     void requests[0].then(
@@ -9302,10 +9393,31 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (reason: unknown) => applyLiveStatus({ status: "rejected", reason }),
     );
     void requests[1].then(
-      (result) => applyLive("session", result),
-      () => {},
+      (value) => applyLiveSession({ status: "fulfilled", value }),
+      (reason: unknown) => applyLiveSession({ status: "rejected", reason }),
     );
-    const pluginPanelLabel = t("插件面板");
+    // Conversation readiness depends on runtime reads, not optional catalog requests.
+    void Promise.allSettled([requests[0], requests[1]]).then(() => setInitialRefreshPending(false));
+    const sessionListLabel = "会话列表";
+    const applySessions = (result: PromiseSettledResult<Awaited<ReturnType<ClientApi["listSessions"]>>>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.sessions) return;
+      liveRefreshSequenceRef.current.sessions = sequence;
+      if (result.status === "fulfilled") {
+        setData((current) => ({ ...current, sessions: result.value.items }));
+        setSessionsLoaded(true);
+        setSessionTotal(result.value.total);
+        setSessionHasNext(result.value.hasNext);
+      }
+      setRefreshIssues((current) => {
+        const remaining = current.filter((label) => label !== sessionListLabel);
+        return result.status === "fulfilled" ? remaining : [...remaining, sessionListLabel];
+      });
+    };
+    void requests[2].then(
+      (value) => applySessions({ status: "fulfilled", value }),
+      (reason: unknown) => applySessions({ status: "rejected", reason }),
+    );
+    const pluginPanelLabel = "插件面板";
     const applyPluginPanels = (result: PromiseSettledResult<RoomData["pluginPanels"]>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.pluginPanels) return;
       liveRefreshSequenceRef.current.pluginPanels = sequence;
@@ -9319,53 +9431,41 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (value) => applyPluginPanels({ status: "fulfilled", value }),
       (reason: unknown) => applyPluginPanels({ status: "rejected", reason }),
     );
-    const results = await allResults;
-    const [, session, sessions, files, workspaceFiles, models, providers, plugins, marketplace, commands, workspaces] = results;
-    // Slow older batches must not overwrite a newer applied snapshot. An older
-    // result can still render while a newer batch is pending, avoiding starvation.
-    if (sequence < refreshSequenceRef.current.applied) return;
-    refreshSequenceRef.current.applied = sequence;
-    // Only an applied session read started after navigation was accepted can
-    // settle its route. Failed reads and older refreshes must not revert it.
-    if (session.status === "fulfilled" && pendingNavigation?.accepted && pendingSessionNavigationRef.current === pendingNavigation) {
-      pendingSessionNavigationRef.current = undefined;
-      setPendingSessionUrlPath(undefined);
-    }
-    const failedCoreLabels = failedRefreshLabels(
-      [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("工作区文件"), t("模型"), t("提供商"), t("插件"), t("插件市场"), t("命令"), t("工作区")],
-      results,
-    );
-    setRefreshIssues((current) => (current.includes(pluginPanelLabel) ? [...failedCoreLabels, pluginPanelLabel] : failedCoreLabels));
-    setInitialRefreshPending(false);
-    setData((current) => ({
-      // Live fields are applied independently above, including stale guards.
-      // Reapplying them here could overwrite a newer partial response.
-      status: current.status,
-      session: current.session,
-      sessions: sessions.status === "fulfilled" ? sessions.value.items : current.sessions,
-      files: files.status === "fulfilled" ? files.value.items : current.files,
-      fileRepository: files.status === "fulfilled" ? files.value.repository : current.fileRepository,
-      workspaceFiles: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.items : current.workspaceFiles,
-      workspaceFilesTruncated: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.truncated : current.workspaceFilesTruncated,
-      models: models.status === "fulfilled" ? models.value : current.models,
-      providers: providers.status === "fulfilled" ? providers.value : current.providers,
-      plugins: plugins.status === "fulfilled" ? plugins.value : current.plugins,
-      pluginPanels: current.pluginPanels,
-      marketplace: marketplace.status === "fulfilled" ? marketplace.value.items : current.marketplace,
-      marketplaceLocale: marketplace.status === "fulfilled" ? locale : current.marketplaceLocale,
-      marketplaceCapabilities: marketplace.status === "fulfilled" ? marketplace.value.capabilities : current.marketplaceCapabilities,
-      marketplaceCategories: marketplace.status === "fulfilled" ? marketplace.value.categories : current.marketplaceCategories,
-      marketplaceTotal: marketplace.status === "fulfilled" ? marketplace.value.total : current.marketplaceTotal,
-      marketplacePage: marketplace.status === "fulfilled" ? marketplace.value.page : current.marketplacePage,
-      marketplaceHasNext: marketplace.status === "fulfilled" ? marketplace.value.hasNext : current.marketplaceHasNext,
-      commands: commands.status === "fulfilled" ? commands.value : current.commands,
-      workspaces: workspaces.status === "fulfilled" ? workspaces.value : current.workspaces,
+    const observeResource = <T,>(
+      request: Promise<T>,
+      key: keyof typeof liveRefreshSequenceRef.current,
+      label: string,
+      select: (result: T) => Partial<RoomData>,
+    ) => {
+      const apply = (result: PromiseSettledResult<T>) => {
+        if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current[key]) return;
+        liveRefreshSequenceRef.current[key] = sequence;
+        setLiveIssue(label, result.status === "rejected");
+        if (result.status === "fulfilled") setData((current) => ({ ...current, ...select(result.value) }));
+      };
+      void request.then(
+        (value) => apply({ status: "fulfilled", value }),
+        (reason: unknown) => apply({ status: "rejected", reason }),
+      );
+    };
+    observeResource(requests[3], "files", "文件", (result) => ({ files: result.items, fileRepository: result.repository }));
+    observeResource(requests[4], "workspaceFiles", "工作区文件", (result) => ({ workspaceFiles: result.items, workspaceFilesTruncated: result.truncated }));
+    observeResource(requests[5], "models", "模型", (models) => ({ models }));
+    observeResource(requests[6], "providers", "提供商", (providers) => ({ providers }));
+    observeResource(requests[7], "plugins", "插件", (plugins) => ({ plugins }));
+    observeResource(requests[8], "marketplace", "插件市场", (result) => ({
+      marketplace: result.items,
+      marketplaceLocale: locale,
+      marketplaceCapabilities: result.capabilities,
+      marketplaceCategories: result.categories,
+      marketplaceTotal: result.total,
+      marketplacePage: result.page,
+      marketplaceHasNext: result.hasNext,
     }));
-    if (sessions.status === "fulfilled") {
-      setSessionsLoaded(true);
-      setSessionTotal(sessions.value.total);
-      setSessionHasNext(sessions.value.hasNext);
-    }
+    observeResource(requests[9], "commands", "命令", (commands) => ({ commands }));
+    observeResource(requests[10], "workspaces", "工作区", (workspaces) => ({ workspaces }));
+    // Local actions can await refreshed workspace state without waiting for the optional catalog.
+    await Promise.allSettled(requests.filter((_, index) => index !== 8));
   }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery, sessionPage, sessionQuery]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
@@ -9387,21 +9487,28 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       const receivedAt = typeof runtimeEvent.receivedAt === "number" && Number.isFinite(runtimeEvent.receivedAt) ? runtimeEvent.receivedAt : now;
       const observedAt = Math.min(receivedAt, now);
       const type = runtimeEvent.type;
+      const reportedPhase = runtimeEvent.runPhase;
       const nextPhase: ClientRunPhase | undefined =
-        type === "message_update" && typeof runtimeEvent.assistantMessageEvent === "object" && runtimeEvent.assistantMessageEvent !== null
-          ? (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "thinking_delta"
-            ? "thinking"
-            : (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "text_delta"
-              ? "responding"
-              : undefined
-          : type === "tool_execution_start" || type === "tool_execution_update" || type === "tool_execution_end"
-            ? "tool"
-            : type === "agent_start" || type === "turn_start"
-              ? "starting"
-              : undefined;
+        reportedPhase === "starting" ||
+        reportedPhase === "thinking" ||
+        reportedPhase === "responding" ||
+        reportedPhase === "tool" ||
+        reportedPhase === "compacting"
+          ? reportedPhase
+          : type === "message_update" && typeof runtimeEvent.assistantMessageEvent === "object" && runtimeEvent.assistantMessageEvent !== null
+            ? (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "thinking_delta"
+              ? "thinking"
+              : (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "text_delta"
+                ? "responding"
+                : undefined
+            : type === "tool_execution_start" || type === "tool_execution_update"
+              ? "tool"
+              : type === "agent_start" || type === "turn_start"
+                ? "starting"
+                : undefined;
       setRunActivity((current) => {
         if (current === undefined && nextPhase === undefined) return current;
-        const startedAt = type === "agent_start" ? observedAt : (current?.startedAt ?? observedAt);
+        const startedAt = type === "agent_start" || type === "compaction_start" ? observedAt : (current?.startedAt ?? observedAt);
         return {
           startedAt,
           lastActivityAt: Math.max(startedAt, current?.lastActivityAt ?? 0, observedAt),
@@ -9409,7 +9516,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         };
       });
       setRunClockAt(now);
-      if (type === "agent_start" || type === "turn_start") {
+      if (type === "agent_start" || type === "turn_start" || type === "compaction_start") {
         setStreamingAssistant({ thinking: "", text: "" });
       }
       if (type !== "message_update" || typeof runtimeEvent.assistantMessageEvent !== "object" || runtimeEvent.assistantMessageEvent === null) return;
@@ -9551,12 +9658,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     sessionNavigationRef.current = sessionNavigationRef.current
       .then(async () => {
         if (sessionNavigationIntentRef.current > 0) return;
-        await api.openSession(path);
+        const opened = await api.openSession(path);
         if (sessionNavigationIntentRef.current === 0) {
           pendingSessionNavigationRef.current = { intent: 0, path, accepted: true };
           setPendingSessionUrlPath(path);
+          refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+          setData((current) => ({ ...current, session: opened }));
+          void refresh();
         }
-        await refresh();
       })
       .catch((cause: unknown) => setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setInitialSessionRestorePending(false));
@@ -9577,6 +9686,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [api, refresh, setPromptError, setPromptErrorForScope]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isComposingKey(event)) return;
       if (shouldInterruptRun(event, data.status?.status === "running", window.getSelection()?.toString() ?? "")) {
         event.preventDefault();
         stopRun();
@@ -9644,34 +9754,54 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const prompt = annotations.length > 0 ? formatAnnotationPrompt(annotations, question) : question;
     const submittedSessionId = annotationDraft.sessionId;
     const submittedPromptSessionId = data.session?.sessionId;
-    const delivery = promptDelivery(promptBusy, data.status?.status);
+    const delivery = data.status?.run?.phase === "compacting" ? undefined : promptDelivery(promptBusy, data.status?.status);
     if (!prompt || !delivery) return;
-    const submittedDraftRevision = createPromptDraftRevision();
-    writeStoredPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraft, submittedDraftRevision);
+    const { revision: submittedDraftRevision, delivery: submittedDelivery } = promptSubmissionIdentity(
+      readStoredPromptDraftSnapshot(browserSessionStorage(), submittedPromptSessionId),
+      submittedDraft,
+      prompt,
+      delivery,
+      annotations,
+    );
+    const submittedAnnotations = annotations;
+    rememberAnnotationSubmission(browserSessionStorage(), submittedSessionId, submittedDraftRevision, submittedAnnotations);
+    const submission = { prompt, delivery: submittedDelivery, ...(submittedAnnotations.length === 0 ? {} : { annotations: submittedAnnotations }) };
+    writeStoredPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraft, submittedDraftRevision, submission);
     const submissionId = ++promptSubmissionIdRef.current;
     setModelSelectionError("");
     setSessionActionError("");
     setStoredPromptUi((current) => startPromptSubmission(current, submittedPromptSessionId, submissionId, prompt, submittedDraftRevision));
     setStreamingAssistant(undefined);
     stickToBottomRef.current = true;
-    void runPromptSubmission(() => api.prompt(prompt, delivery === "steer" ? "steer" : undefined), refresh, {
-      accepted: () => {
-        const submittedVersionCleared = clearSubmittedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision);
-        setStoredPromptUi((current) => clearAcceptedPromptDraft(current, submittedPromptSessionId, submittedDraftRevision, submittedVersionCleared));
-        clearStoredAnnotationDraft(browserSessionStorage(), submittedSessionId);
-        setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
+    void runPromptSubmission(
+      () =>
+        api.prompt(
+          prompt,
+          submittedDelivery === "steer" ? "steer" : undefined,
+          submittedPromptSessionId === undefined ? undefined : { requestId: submittedDraftRevision, sessionId: submittedPromptSessionId },
+        ),
+      refresh,
+      {
+        accepted: () => {
+          const submittedVersionCleared = clearSubmittedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision);
+          setStoredPromptUi((current) => clearAcceptedPromptDraft(current, submittedPromptSessionId, submittedDraftRevision, submittedVersionCleared));
+          clearStoredSubmittedAnnotations(browserSessionStorage(), submittedSessionId, submittedAnnotations);
+          forgetAnnotationSubmission(browserSessionStorage(), submittedSessionId, submittedDraftRevision);
+          setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId, submittedAnnotations));
+        },
+        rejected: (cause) => {
+          // Preserve uncertain submissions until a receipt arrives, without replacing a newer draft.
+          restoreRejectedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision, submittedDraft, submission);
+          setStoredPromptUi((current) =>
+            failPromptSubmission(current, submissionId, submittedDraft, cause instanceof Error ? cause.message : String(cause), submittedDraftRevision),
+          );
+        },
+        refreshRejected: (cause) => {
+          setStoredPromptUi((current) => reportPromptRefreshFailure(current, submissionId, cause instanceof Error ? cause.message : String(cause)));
+        },
+        settled: () => setStoredPromptUi((current) => finishPromptSubmission(current, submissionId)),
       },
-      rejected: (cause) => {
-        // A rejected request was never accepted as a turn. Keep it editable,
-        // without replacing a new draft the user typed while awaiting it.
-        restoreRejectedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision, submittedDraft);
-        setStoredPromptUi((current) => failPromptSubmission(current, submissionId, submittedDraft, cause instanceof Error ? cause.message : String(cause)));
-      },
-      refreshRejected: (cause) => {
-        setStoredPromptUi((current) => reportPromptRefreshFailure(current, submissionId, cause instanceof Error ? cause.message : String(cause)));
-      },
-      settled: () => setStoredPromptUi((current) => finishPromptSubmission(current, submissionId)),
-    });
+    );
   };
   const captureAnnotationSelection = useCallback(() => {
     if (annotationSelectionFrameRef.current !== undefined) window.cancelAnimationFrame(annotationSelectionFrameRef.current);
@@ -9695,7 +9825,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         ...scoped,
         annotations: [
           ...scoped.annotations,
-          { id: scoped.annotations.length === 0 ? 1 : Math.max(...scoped.annotations.map((item) => item.id)) + 1, quote, note: annotationNote.trim() },
+          {
+            id: scoped.annotations.length === 0 ? 1 : Math.max(...scoped.annotations.map((item) => item.id)) + 1,
+            quote,
+            note: annotationNote.trim(),
+            revision: createPromptDraftRevision(),
+          },
         ],
         selection: "",
         note: "",
@@ -9737,6 +9872,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     (path: string, source: "user" | "history") => {
       if (!path) return;
       setSessionActionError("");
+      setSessionMenuOpen(false);
+      setSessionToolsOpen(false);
+      setSessionDialog(undefined);
+      setSessionActionTarget(undefined);
       if (source === "user") {
         pushSessionRoute(window.history, window.location, path);
         setSettings(undefined);
@@ -9762,10 +9901,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         },
         getSession: () => api.getSession(),
         openSession: (targetPath) => api.openSession(targetPath),
-        onAccepted: async (opened) => {
+        onAccepted: (opened) => {
           refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
           setData((previous) => ({ ...previous, session: opened }));
-          await refresh();
+          void refresh();
         },
         onRejected: (cause, current) => {
           setPendingSessionUrlPath(undefined);
@@ -9810,7 +9949,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => window.removeEventListener("popstate", onPopState);
   }, [navigateSession]);
   const sessionAction = async (action: () => Promise<void>) => {
-    if (sessionActionBusy) return;
+    if (sessionOperationsBusy) return;
     const promptScope = promptScopeRef.current;
     setSessionActionBusy(true);
     setPromptError("");
@@ -9921,6 +10060,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api={api}
       data={data}
       tab={settings}
+      sendShortcut={sendShortcut}
+      onSendShortcutChange={(shortcut) => {
+        setSendShortcut(shortcut);
+        try {
+          browserStorage()?.setItem("pi-harness.sendShortcut", shortcut);
+        } catch {
+          // A blocked preference store must not discard the current view's selection.
+        }
+      }}
       onTab={setSettings}
       onRefresh={refresh}
       onClose={() => {
@@ -10237,6 +10385,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`;
               }}
               onKeyDown={(event) => {
+                if (isComposingKey(event.nativeEvent)) return;
                 const caret = event.currentTarget.selectionStart ?? draft.length;
                 const completion = getPromptCompletion(event.currentTarget.value, caret);
                 const items = completion
@@ -10274,7 +10423,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   setPromptCompletionSuppressed(true);
                   return;
                 }
-                const sendOnModifier = globalThis.localStorage?.getItem("pi-harness.sendShortcut") === "mod-enter";
+                const sendOnModifier = sendShortcut === "mod-enter";
                 if (event.key === "Enter" && !event.shiftKey && (sendOnModifier ? event.metaKey || event.ctrlKey : !event.metaKey && !event.ctrlKey)) {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
@@ -10292,8 +10441,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               placeholder={
                 workspaceReady
                   ? data.commands.length
-                    ? t("描述要做的改动，⌘↵ 发送；@ 引用文件，/ 调用命令")
-                    : t("描述要做的改动，⌘↵ 发送；@ 引用文件")
+                    ? t("描述要做的改动，{shortcut} 发送；@ 引用文件，/ 调用命令", { shortcut: sendShortcutLabel })
+                    : t("描述要做的改动，{shortcut} 发送；@ 引用文件", { shortcut: sendShortcutLabel })
                   : t("先选择工作区，再描述要做的改动")
               }
               readOnly={!workspaceReady}
@@ -10382,12 +10531,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   {t("／ 命令")}
                 </button>
               </span>
-              <span className="composer-hint">{t("⌘↵ 发送 · ⌘K 命令 · ⌃C 中断")}</span>
+              <span className="composer-hint">{t("{shortcut} 发送 · ⌘K 命令 · ⌃C 中断", { shortcut: sendShortcutLabel })}</span>
               <button
                 aria-label={promptDelivery(promptBusy, data.status?.status) ? t("发送消息") : t("发送中")}
                 className="send-button"
-                disabled={!promptDelivery(promptBusy, data.status?.status) || !draft.trim()}
-                title={promptDelivery(promptBusy, data.status?.status) ? t("发送消息（⌘↵）") : t("正在发送")}
+                disabled={data.status?.run?.phase === "compacting" || !promptDelivery(promptBusy, data.status?.status) || !draft.trim()}
+                title={promptDelivery(promptBusy, data.status?.status) ? t("发送消息（{shortcut}）", { shortcut: sendShortcutLabel }) : t("正在发送")}
                 type="submit"
               >
                 {promptDelivery(promptBusy, data.status?.status) ? "↑" : "…"}
@@ -10490,6 +10639,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 }
               }}
               onKeyDown={(event) => {
+                if (isComposingKey(event.nativeEvent)) return;
                 if (!commandOpen) return;
                 if (event.key === "ArrowDown" && visibleCommands.length) {
                   event.preventDefault();
@@ -10569,7 +10719,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 aria-haspopup="menu"
                 aria-label={t("会话工具")}
                 className="session-tool-button icon"
-                disabled={sessionActionBusy}
+                disabled={sessionOperationsBusy}
                 onClick={(event) => {
                   closeSessionMenu();
                   sessionPopoverTriggerRef.current = event.currentTarget;
@@ -10615,7 +10765,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       {t("导入会话")}
                     </button>
                     <button
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         if (!activeSessionPath) return;
                         void runSessionPopoverAction(
@@ -10664,14 +10814,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           <div className="session-batch-bar">
             <span>{t("{v0} 个已选择", { v0: selectedSessionPaths.size })}</span>
             <button
-              disabled={sessionActionBusy}
+              disabled={sessionOperationsBusy}
               onClick={() => void sessionAction(() => api.batchSessions(selectedArchiveAction, [...selectedSessionPaths]).then(() => undefined))}
               type="button"
             >
               {selectedArchiveAction === "unarchive" ? t("恢复") : t("归档")}
             </button>
             <button
-              disabled={sessionActionBusy}
+              disabled={sessionOperationsBusy}
               onClick={() => void sessionAction(() => api.batchSessions(selectedPinAction, [...selectedSessionPaths]).then(() => undefined))}
               type="button"
             >
@@ -10679,7 +10829,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             </button>
             <button
               className="danger"
-              disabled={sessionActionBusy}
+              disabled={sessionOperationsBusy}
               onClick={() => {
                 setSessionActionTarget(undefined);
                 setSessionDialog("batch-delete");
@@ -10748,7 +10898,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 {!sessionSelectionMode && activeSessionPath && sessionMenuPath === activeSessionPath && sessionMenuOpen && sessionMenuPosition && (
                   <SessionActionMenu
                     archived={data.session.archived === true}
-                    busy={sessionActionBusy}
+                    busy={sessionOperationsBusy}
                     pinned={data.session.pinned === true}
                     position={sessionMenuPosition}
                     themeStyle={themeStyle}
@@ -10842,7 +10992,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       sessionMenuPosition && (
                         <SessionActionMenu
                           archived={session.archived === true}
-                          busy={sessionActionBusy}
+                          busy={sessionOperationsBusy}
                           pinned={session.pinned === true}
                           position={sessionMenuPosition}
                           themeStyle={themeStyle}
@@ -11071,7 +11221,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   aria-expanded={sessionMenuOpen && !sessionMenuPath}
                   aria-haspopup="menu"
                   className="session-menu"
-                  disabled={sessionActionBusy}
+                  disabled={sessionOperationsBusy}
                   onClick={(event) => {
                     setSessionToolsOpen(false);
                     setSessionToolsPosition(undefined);
@@ -11095,7 +11245,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <div className="session-menu-popover compact-session-menu" role="menu">
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionNameDraft(data.session?.name ?? data.session?.sessionId?.slice(0, 12) ?? "");
                         setSessionDialog("rename");
@@ -11109,7 +11259,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         closeSessionMenu();
                         void sessionAction(async () => {
@@ -11130,7 +11280,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionMenuOpen(false);
                         if (activeSessionPath) {
@@ -11145,7 +11295,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionMenuOpen(false);
                         if (data.session?.archived === true && activeSessionPath) {
@@ -11162,7 +11312,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action danger"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionMenuOpen(false);
                         setSessionDialog("delete");
@@ -11200,7 +11350,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <span>
               {/* The colon belongs to the heading key so each locale punctuates it its own way; `.refresh-warning strong` supplies the gap after it, and the failed sources are a placeholder rather than a third adjacent expression that would render with no separator at all. */}
               <strong>{t("部分数据刷新失败：")}</strong>
-              {t("{v0} 可能为空或显示上次结果。", { v0: refreshIssues.join(" · ") })}
+              {t("{v0} 可能为空或显示上次结果。", { v0: refreshIssues.map((label) => t(label)).join(" · ") })}
             </span>
             <button onClick={() => void refresh()} type="button">
               {t("重试")}
@@ -11236,7 +11386,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           filesTruncated={data.workspaceFilesTruncated}
           onClose={() => setGlobalSearchOpen(false)}
           onOpenFile={(file) => {
-            detailsReturnFocusRef.current = globalSearchReturnFocusRef.current;
+            // Opening a file replaces the composer, so restore focus in the destination view.
+            const invoker = globalSearchReturnFocusRef.current;
+            detailsReturnFocusRef.current = () =>
+              modalReturnFocusTarget(undefined, invoker) ?? document.querySelector<HTMLElement>('.view-tabs button[aria-pressed="true"]');
+            pushSessionViewRoute(window.history, window.location, "files");
+            setSettings(undefined);
             setPage("session");
             setView("files");
             const intent = ++filePreviewIntentRef.current;
@@ -11276,7 +11431,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       )}
       {sessionDialog && (
         <SessionDialog
-          busy={sessionActionBusy}
+          busy={sessionOperationsBusy}
           count={sessionDialog === "batch-delete" ? selectedSessionPaths.size : undefined}
           kind={sessionDialog}
           name={

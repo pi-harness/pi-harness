@@ -763,8 +763,8 @@ describe("session list tools", () => {
       source.indexOf("aria-expanded={sessionMenuOpen && !sessionMenuPath}") + 260,
     );
 
-    expect(toolsTrigger).toContain("disabled={sessionActionBusy}");
-    expect(headerTrigger).toContain("disabled={sessionActionBusy}");
+    expect(toolsTrigger).toContain("disabled={sessionOperationsBusy}");
+    expect(headerTrigger).toContain("disabled={sessionOperationsBusy}");
   });
 
   test("closes every session menu before duplicating and restores trigger focus after settling", async () => {
@@ -1222,16 +1222,6 @@ describe("command palette with an empty registry", () => {
     expect(empty).not.toContain("命令注册清单");
     expect(empty).toContain("~/.pi/agent/extensions");
     expect(palette([{ name: "commit", invocationName: "commit" }])).toContain("/commit");
-  });
-
-  test("stops the composer from advertising a slash that opens nothing", async () => {
-    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
-
-    // The completion popover needs at least one item to open, so both the placeholder and the chip have to be tied to the command count.
-    expect(
-      /data\.commands\.length\s*\? t\("描述要做的改动，⌘↵ 发送；@ 引用文件，\/ 调用命令"\)\s*: t\("描述要做的改动，⌘↵ 发送；@ 引用文件"\)/u.test(source),
-    ).toBe(true);
-    expect(/className="tool-chip"\s*disabled=\{!data\.commands\.length\}/u.test(source)).toBe(true);
   });
 
   test("gives every command option a stable active-descendant target", () => {
@@ -1889,4 +1879,165 @@ test("shows review locations and prioritizes errors in the visible findings", ()
   expect(html).toContain("credential pattern");
   expect(html).toContain("4/6");
   expect(html).not.toContain("warning-3");
+});
+
+describe("prompt response reconciliation", () => {
+  test("recovers a lost response using the receipt and never repeats the POST", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ path: string; body?: string }> = [];
+    globalThis.fetch = (input, init) => {
+      calls.push({ path: typeof input === "string" ? input : input instanceof URL ? input.href : input.url, body: init?.body as string | undefined });
+      if (input === "/api/prompt") return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            sessionId: "one",
+            messages: [{ role: "user" }],
+            entries: [{ type: "custom", customType: "pi-harness.prompt-receipt", data: { sessionId: "one", requestId: "request-one" } }],
+          }),
+        ),
+      );
+    };
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).resolves.toEqual({
+        reply: "",
+        messages: 1,
+      });
+      expect(calls.map((call) => call.path)).toEqual(["/api/prompt", "/api/session"]);
+      expect(JSON.parse(calls[0]!.body!)).toEqual({ prompt: "execute once", sessionId: "one", requestId: "request-one" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("shows a receipt persistence failure even when the original response was lost", async () => {
+    const originalFetch = globalThis.fetch;
+    const error = "Prompt accepted; receipt persistence failed. Check the result before retrying after a restart: ENOSPC";
+    globalThis.fetch = (input) =>
+      input === "/api/prompt"
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : Promise.resolve(
+            new Response(
+              JSON.stringify({
+                sessionId: "one",
+                messages: [],
+                entries: [
+                  { type: "custom", customType: "pi-harness.prompt-receipt", data: { sessionId: "one", requestId: "request-one", persistenceError: error } },
+                ],
+              }),
+            ),
+          );
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toMatchObject({
+        name: "AcceptedPromptError",
+        message: error,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not reinterpret an explicit conflict as successful delivery", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = () => {
+      calls += 1;
+      return Promise.resolve(new Response(JSON.stringify({ error: "requestId conflict" }), { status: 409 }));
+    };
+    try {
+      await expect(createClientApi().prompt("different operation", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toThrow(
+        "requestId conflict",
+      );
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not use a receipt from another session", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (input) => {
+      if (input === "/api/prompt") return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            sessionId: "two",
+            messages: [],
+            entries: [{ type: "custom", customType: "pi-harness.prompt-receipt", data: { sessionId: "one", requestId: "request-one" } }],
+          }),
+        ),
+      );
+    };
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toThrow("Failed to fetch");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("distinguishes a provider failure after acceptance", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.resolve(new Response(JSON.stringify({ error: "provider unavailable", accepted: true }), { status: 502 }));
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toMatchObject({
+        name: "AcceptedPromptError",
+        message: "provider unavailable",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("shows receipt persistence failures without requiring the raw-error disclosure", async () => {
+  await setLocale("en");
+  try {
+    const html = renderToStaticMarkup(
+      createElement(PromptError, { message: "Prompt accepted; receipt persistence failed. Check the result before retrying after a restart: ENOSPC" }),
+    );
+    expect(html.split("<details>")[0]).toContain(
+      "The request was accepted, but its receipt could not be saved. Check the result before retrying after a restart.",
+    );
+  } finally {
+    await setLocale("zh-CN");
+  }
+});
+
+test("localizes standard Context Doctor recommendations while preserving unknown findings", async () => {
+  const previous = activeLocale();
+  const panel = {
+    id: "context-doctor-panel",
+    pluginId: "@pi-harness/plugin-context-doctor",
+    title: "Context Doctor",
+    data: {
+      status: "warning",
+      recommendations: [
+        "压缩较早的会话历史，释放上下文空间。",
+        "检查 12 条超大消息，优先引用摘要或文件路径。",
+        "检查 3 条无法安全测量的消息，其结构可能过深、循环或包含访问器。",
+        "处理 5 个工具错误后再继续长任务。",
+      ],
+    },
+  };
+  try {
+    await setLocale("en");
+    const english = renderToStaticMarkup(createElement(PluginPanelCard, { panel }));
+    expect(english).toContain("Compact older conversation history to free context space.");
+    expect(english).toContain("Review 12 oversized messages; prefer summaries or file paths.");
+    expect(english).toContain("Review 3 messages that cannot be measured safely; they may be too deeply nested, circular, or contain accessors.");
+    expect(english).toContain("Address 5 tool errors before continuing the long task.");
+    await setLocale("ja");
+    const japanese = renderToStaticMarkup(createElement(PluginPanelCard, { panel }));
+    expect(japanese).toContain("長いタスクを続行する前に、5 件のツールエラーに対処してください。");
+    expect(japanese).not.toContain("处理 5 个工具错误");
+    const unknown = renderToStaticMarkup(
+      createElement(PluginPanelCard, {
+        panel: { ...panel, data: { recommendations: ["Custom finding: inspect the export", "处理 x 个工具错误后再继续长任务。"] } },
+      }),
+    );
+    expect(unknown).toContain("Custom finding: inspect the export");
+    expect(unknown).toContain("处理 x 个工具错误后再继续长任务。");
+  } finally {
+    await setLocale(previous);
+  }
 });

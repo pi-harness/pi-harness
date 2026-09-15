@@ -43,7 +43,7 @@ export class PiRuntime implements PiRuntimeService {
     }
   }
 
-  async prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior">): Promise<void> {
+  async prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior" | "preflightResult">): Promise<void> {
     if (this.#disposed) throw new PiRuntimeDisposedError();
     await this.session.prompt(text, options);
   }

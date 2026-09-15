@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile, type ExecFileException } from "node:child_process";
 import { constants, existsSync, lstatSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
@@ -5,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { CURRENT_SESSION_VERSION, SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import { atomicWriteFile, isPiToolRegistryLeasedError } from "@pi-harness/core";
 import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
@@ -48,9 +49,9 @@ const IMPORT_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
 const MAX_RETAINED_EVENTS = 2000;
 // Tool calls that opened but never closed. Far above any real concurrency, so the cap only ever trims a run the runtime abandoned.
 const MAX_PENDING_TOOL_CALLS = 256;
-/** A session event with the two fields the gateway owns: when it arrived, and for a tool call how long it took. */
-type StampedSessionEvent = AgentSessionEvent & { readonly receivedAt: number; readonly durationMs?: number };
-type RunPhase = "starting" | "thinking" | "responding" | "tool";
+/** A session event with gateway-owned arrival time, tool duration, and authoritative post-tool run phase. */
+type StampedSessionEvent = AgentSessionEvent & { readonly receivedAt: number; readonly durationMs?: number; readonly runPhase?: RunActivity["phase"] };
+type RunPhase = "starting" | "thinking" | "responding" | "tool" | "compacting";
 interface RunActivity {
   readonly sessionId: string;
   readonly startedAt: number;
@@ -74,6 +75,73 @@ class PayloadTooLargeError extends Error {
   constructor() {
     super("Request body is too large");
     this.name = "PayloadTooLargeError";
+  }
+}
+
+function validateImportedSession(content: string): void {
+  let hasHeader = false;
+  let version = 1;
+  const nodes = new Map<string, { parentId: string | null; line: number }>();
+  const invalid = (line: number, reason: string): never => {
+    throw new Error(`Invalid session at line ${line}: ${reason}; no session was imported`);
+  };
+  for (const [index, line] of content.split("\n").entries()) {
+    if (!line.trim()) continue;
+    const lineNumber = index + 1;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      invalid(lineNumber, "malformed JSON");
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) invalid(lineNumber, "expected a record");
+    const entry = parsed as Record<string, unknown>;
+    if (typeof entry.type !== "string" || !entry.type) invalid(lineNumber, "missing record type");
+    if (!hasHeader) {
+      if (entry.type !== "session" || typeof entry.id !== "string" || !entry.id) invalid(lineNumber, "expected a session header");
+      const requestedVersion = entry.version ?? 1;
+      if (typeof requestedVersion !== "number" || !Number.isInteger(requestedVersion) || requestedVersion < 1 || requestedVersion > CURRENT_SESSION_VERSION) {
+        invalid(lineNumber, "unsupported session version");
+      }
+      version = requestedVersion as number;
+      hasHeader = true;
+      continue;
+    }
+    if (entry.type === "session") invalid(lineNumber, "duplicate session header");
+    if (entry.type === "message") {
+      const message = entry.message;
+      if (
+        message === null ||
+        typeof message !== "object" ||
+        Array.isArray(message) ||
+        !("role" in message) ||
+        typeof message.role !== "string" ||
+        !message.role
+      ) {
+        invalid(lineNumber, "invalid message");
+      }
+    }
+    // Version 1 receives IDs and a linear parent chain during upstream migration.
+    if (version < 2) continue;
+    if (typeof entry.id !== "string" || !entry.id) invalid(lineNumber, "missing record ID");
+    const id = entry.id as string;
+    if (nodes.has(id)) invalid(lineNumber, "duplicate record ID");
+    if (entry.parentId !== null && typeof entry.parentId !== "string") invalid(lineNumber, "invalid parent ID");
+    nodes.set(id, { parentId: entry.parentId as string | null, line: lineNumber });
+  }
+  if (!hasHeader) throw new Error("Imported session is empty; no session was imported");
+  const checked = new Set<string>();
+  for (const [id, node] of nodes) {
+    const path = new Set<string>();
+    let current: string | null = id;
+    while (current !== null && !checked.has(current)) {
+      if (path.has(current)) invalid(node.line, "cyclic parent chain");
+      path.add(current);
+      const ancestor = nodes.get(current);
+      if (!ancestor) invalid(node.line, "missing parent record");
+      current = ancestor!.parentId;
+    }
+    for (const visited of path) checked.add(visited);
   }
 }
 
@@ -122,20 +190,24 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
 // A plugin that contributes tools only joins on the next start, so the console remembers what it installed until then. That memory is about one particular process, and the console cannot tell a restart from a reconnect on its own, so the identity of this process rides along with the status it already polls.
 const PROCESS_STARTED_AT = new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString();
 
+function sessionIsBusy(services: ApiServices): boolean {
+  return services.runtime.session.isStreaming || services.runtime.session.isCompacting;
+}
+
 function createStatus(services: ApiServices, events: readonly AgentSessionEvent[], runActivity: RunActivity | undefined) {
   const activeModel = services.runtime.session.model ?? services.models.model;
   const cwd = activeCwd(services);
   const currentRun =
-    services.runtime.session.isStreaming && runActivity?.sessionId === services.runtime.session.sessionId
+    sessionIsBusy(services) && runActivity?.sessionId === services.runtime.session.sessionId
       ? {
           startedAt: new Date(runActivity.startedAt).toISOString(),
           lastActivityAt: new Date(runActivity.lastActivityAt).toISOString(),
-          phase: runActivity.phase,
+          phase: services.runtime.session.isCompacting ? "compacting" : runActivity.phase,
         }
       : undefined;
   return {
     processStartedAt: PROCESS_STARTED_AT,
-    status: services.runtime.session.isStreaming ? "running" : "ready",
+    status: sessionIsBusy(services) ? "running" : "ready",
     model: activeModel.provider + "/" + activeModel.id,
     messages: services.runtime.session.messages.length,
     events: events.length,
@@ -363,10 +435,7 @@ function persistSessionBeforeFirstAssistant(manager: SessionManager): void {
   if (!path || existsSync(path)) return;
   const header = manager.getHeader();
   if (!header) throw new Error("Current session is missing its header");
-  // Pi intentionally defers creating a JSONL file until the first assistant
-  // response. A user-assigned name is durable work too: persist the current
-  // tree now, then reopen the same path so Pi knows subsequent entries can be
-  // appended instead of trying to create the file again on first response.
+  // Pi defers creating a JSONL file until the first assistant response. Names and accepted prompt receipts must survive a restart too: persist the tree now, then reopen the same path so subsequent entries append instead of recreating the file.
   const source = [header, ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
   writeFileSync(path, source, { encoding: "utf8", flag: "wx" });
   manager.setSessionFile(path);
@@ -968,7 +1037,8 @@ interface GitCommandResult {
 
 function gitCommand(cwd: string, args: readonly string[], timeoutMs = GIT_TIMEOUT_MS): Promise<GitCommandResult> {
   return new Promise((resolveResult) => {
-    execFile("git", [...args], { cwd, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    // Workspace actions receive concrete paths, including filenames containing Git glob or pathspec magic characters.
+    execFile("git", ["--literal-pathspecs", ...args], { cwd, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
       const code = error && typeof error.code === "number" ? error.code : error ? 1 : 0;
       resolveResult({ stdout, stderr, code, terminated: gitTermination(error) });
     });
@@ -1184,10 +1254,11 @@ export default {
       pluginUi: context.reflect.get("piPluginUi") as PiPluginUiRegistry | undefined,
     };
     const disposePluginPanels = registerPluginPanels(context, services);
+    const pendingPromptRequests = new Map<string, string>();
     let busy = false;
     let sessionOperationBusy = false;
     const runSessionOperation = async (response: ServerResponse, streamingError: string, action: () => Promise<void>): Promise<void> => {
-      if (busy || services.runtime.session.isStreaming) {
+      if (busy || sessionIsBusy(services)) {
         sendJson(response, 409, { error: streamingError });
         return;
       }
@@ -1221,12 +1292,12 @@ export default {
     const events: StampedSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
     const initialRunAt = Date.now();
-    let runActivity: RunActivity | undefined = services.runtime.session.isStreaming
+    let runActivity: RunActivity | undefined = sessionIsBusy(services)
       ? {
           sessionId: services.runtime.session.sessionId,
           startedAt: initialRunAt,
           lastActivityAt: initialRunAt,
-          phase: "starting",
+          phase: services.runtime.session.isCompacting ? "compacting" : "starting",
         }
       : undefined;
     // Pi puts a wall-clock on a message payload and nowhere else, so a tool call has no time of its own and nothing downstream can recover when the harness saw it. The gateway is the one place that sees every event as it happens, so it stamps each one on arrival, and pairs a tool call's two events to record how long the call took.
@@ -1253,9 +1324,19 @@ export default {
     const handleEvent = (rawEvent: AgentSessionEvent) => {
       const event = stampEvent(rawEvent);
       const sessionId = services.runtime.session.sessionId;
-      if (event.type === "agent_settled") {
+      if (event.type === "compaction_start") {
+        runActivity = { sessionId, startedAt: event.receivedAt, lastActivityAt: event.receivedAt, phase: "compacting" };
+        Object.assign(event, { runPhase: "compacting" });
+      } else if (event.type === "compaction_end") {
+        runActivity = services.runtime.session.isStreaming
+          ? { sessionId, startedAt: event.receivedAt, lastActivityAt: event.receivedAt, phase: "starting" }
+          : undefined;
+        if (runActivity) Object.assign(event, { runPhase: runActivity.phase });
+      } else if (event.type === "agent_settled") {
+        toolCallStartedAt.clear();
         runActivity = undefined;
       } else if (event.type === "agent_start") {
+        toolCallStartedAt.clear();
         runActivity = { sessionId, startedAt: event.receivedAt, lastActivityAt: event.receivedAt, phase: "starting" };
       } else if (runActivity?.sessionId === sessionId || services.runtime.session.isStreaming) {
         const startedAt = runActivity?.sessionId === sessionId ? runActivity.startedAt : event.receivedAt;
@@ -1264,7 +1345,12 @@ export default {
           if (event.assistantMessageEvent.type === "thinking_delta") phase = "thinking";
           if (event.assistantMessageEvent.type === "text_delta") phase = "responding";
         }
-        if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") phase = "tool";
+        if (event.type === "tool_execution_start" || event.type === "tool_execution_update") phase = "tool";
+        if (event.type === "tool_execution_end") {
+          phase = toolCallStartedAt.size > 0 ? "tool" : "starting";
+          // A client may connect after parallel tools started, so their completion events carry the authoritative remaining-work phase.
+          Object.assign(event, { runPhase: phase });
+        }
         runActivity = { sessionId, startedAt, lastActivityAt: event.receivedAt, phase };
       }
       // Streaming deltas reach clients live over SSE and each one carries the whole partial message, so only durable events are retained for snapshots.
@@ -1286,6 +1372,18 @@ export default {
     const disposeStatus = services.webServer.register({
       path: "/api/status",
       handler(_request, response) {
+        const session = services.runtime.session;
+        // Branch summaries share the compaction state but do not emit compaction_start, so polling also reconciles activity from the runtime.
+        if (!sessionIsBusy(services)) runActivity = undefined;
+        else if (runActivity?.sessionId !== session.sessionId || (session.isCompacting && runActivity.phase !== "compacting")) {
+          const observedAt = Date.now();
+          runActivity = {
+            sessionId: session.sessionId,
+            startedAt: observedAt,
+            lastActivityAt: observedAt,
+            phase: session.isCompacting ? "compacting" : "starting",
+          };
+        }
         sendJson(response, 200, createStatus(services, events, runActivity));
       },
     });
@@ -2004,8 +2102,8 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
-        if (services.runtime.session.isStreaming) {
-          sendJson(response, 409, { error: "Cannot change model while a prompt is running" });
+        if (sessionIsBusy(services)) {
+          sendJson(response, 409, { error: "Cannot change model while a session operation is running" });
           return;
         }
         try {
@@ -2321,9 +2419,12 @@ export default {
           return;
         }
         let ownsBusy = false;
+        let accepted = false;
+        let receiptPersistenceError: string | undefined;
+        let requestKey: string | undefined;
         let unsubscribe: (() => void) | undefined;
         try {
-          const payload = JSON.parse(await bodyText(request)) as { prompt?: unknown; streamingBehavior?: unknown };
+          const payload = JSON.parse(await bodyText(request)) as { prompt?: unknown; streamingBehavior?: unknown; requestId?: unknown; sessionId?: unknown };
           if (typeof payload.prompt !== "string" || payload.prompt.trim().length === 0) {
             sendJson(response, 400, { error: "Prompt must be a non-empty string" });
             return;
@@ -2332,17 +2433,89 @@ export default {
             sendJson(response, 400, { error: 'streamingBehavior must be "steer" or "followUp"' });
             return;
           }
+          const session = services.runtime.session;
+          const requestId = payload.requestId;
+          if (
+            requestId !== undefined &&
+            (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId) || typeof payload.sessionId !== "string")
+          ) {
+            sendJson(response, 400, { error: "requestId and sessionId must identify a prompt submission" });
+            return;
+          }
+          if (requestId !== undefined && payload.sessionId !== session.sessionId) {
+            sendJson(response, 409, { error: "The active session changed before this prompt was submitted" });
+            return;
+          }
+          const digest = createHash("sha256")
+            .update(JSON.stringify([payload.prompt, payload.streamingBehavior ?? null]))
+            .digest("hex");
+          const candidateKey = requestId === undefined ? undefined : JSON.stringify([session.sessionId, requestId]);
+          if (requestId !== undefined) {
+            const receipt = session.sessionManager
+              .getEntries()
+              .find(
+                (entry) =>
+                  entry.type === "custom" &&
+                  entry.customType === "pi-harness.prompt-receipt" &&
+                  (entry.data as { requestId?: unknown; sessionId?: unknown } | undefined)?.requestId === requestId &&
+                  (entry.data as { sessionId?: unknown }).sessionId === session.sessionId,
+              );
+            const previousDigest = receipt?.type === "custom" ? (receipt.data as { digest?: unknown }).digest : pendingPromptRequests.get(candidateKey!);
+            if (previousDigest !== undefined) {
+              if (previousDigest !== digest) sendJson(response, 409, { error: "This requestId already identifies a different prompt" });
+              else if (receipt?.type === "custom" && typeof (receipt.data as { persistenceError?: unknown }).persistenceError === "string")
+                sendJson(response, 500, { error: (receipt.data as { persistenceError: string }).persistenceError, accepted: true });
+              else if (receipt) sendJson(response, 200, { reply: "", messages: session.messages.length, received: true });
+              else sendJson(response, 409, { error: "This submission is still being checked; wait for its result before retrying" });
+              return;
+            }
+          }
+          if (session.isCompacting) {
+            sendJson(response, 409, { error: "Cannot submit a prompt while context compaction is running" });
+            return;
+          }
           if (sessionOperationBusy) {
             sendJson(response, 409, { error: "Another session operation is already running" });
             return;
           }
+          const preflightResult = (value: boolean) => {
+            if (!value || accepted) return;
+            accepted = true;
+            if (requestId !== undefined) {
+              const receipt: { requestId: string; sessionId: string; digest: string; persistenceError?: string } = {
+                requestId,
+                sessionId: session.sessionId,
+                digest,
+              };
+              try {
+                session.sessionManager.appendCustomEntry("pi-harness.prompt-receipt", receipt);
+                persistSessionBeforeFirstAssistant(session.sessionManager);
+              } catch (error) {
+                // Receipt I/O must not throw from Pi's acceptance callback: ordinary prompts have not started yet, while extension commands and queued prompts may already have taken effect.
+                receiptPersistenceError = `Prompt accepted; receipt persistence failed. Check the result before retrying after a restart: ${errorText(error)}`;
+                receipt.persistenceError = receiptPersistenceError;
+                context.logger.warn(receiptPersistenceError);
+              }
+            }
+          };
+          const claimRequest = () => {
+            if (candidateKey !== undefined) {
+              requestKey = candidateKey;
+              pendingPromptRequests.set(candidateKey, digest);
+            }
+          };
           const streamingBehavior = payload.streamingBehavior;
           if (services.runtime.session.isStreaming) {
             if (!streamingBehavior) {
               sendJson(response, 409, { error: "Another prompt is already running; choose steer or followUp delivery" });
               return;
             }
-            await services.runtime.prompt(payload.prompt, { streamingBehavior });
+            claimRequest();
+            await services.runtime.prompt(payload.prompt, { streamingBehavior, preflightResult });
+            if (receiptPersistenceError) {
+              sendJson(response, 500, { error: receiptPersistenceError, accepted: true });
+              return;
+            }
             sendJson(response, 200, {
               reply: "",
               messages: services.runtime.session.messages.length,
@@ -2361,10 +2534,15 @@ export default {
           unsubscribe = services.runtime.session.subscribe((event) => {
             if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") chunks.push(event.assistantMessageEvent.delta);
           });
-          await services.runtime.prompt(payload.prompt);
+          claimRequest();
+          await services.runtime.prompt(payload.prompt, { preflightResult });
           const last = services.runtime.session.messages.at(-1);
           if (last?.role === "assistant" && last.stopReason === "error") {
-            sendJson(response, 502, { error: last.errorMessage ?? "Request error" });
+            sendJson(response, 502, { error: [last.errorMessage ?? "Request error", receiptPersistenceError].filter(Boolean).join("\n"), accepted });
+            return;
+          }
+          if (receiptPersistenceError) {
+            sendJson(response, 500, { error: receiptPersistenceError, accepted: true });
             return;
           }
           sendJson(response, 200, {
@@ -2373,9 +2551,10 @@ export default {
             ...(last?.role === "assistant" && last.stopReason === "aborted" ? { aborted: true } : {}),
           });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendJson(response, 400, { error: [errorText(error), receiptPersistenceError].filter(Boolean).join("\n"), accepted });
         } finally {
           unsubscribe?.();
+          if (requestKey !== undefined) pendingPromptRequests.delete(requestKey);
           if (ownsBusy) busy = false;
         }
       },
@@ -2388,9 +2567,10 @@ export default {
           return;
         }
         try {
-          const wasStreaming = services.runtime.session.isStreaming;
+          const wasBusy = sessionIsBusy(services);
+          if (wasBusy) context.emit("pi/session-abort-requested", services.runtime.session);
           await services.runtime.abort();
-          sendJson(response, 200, { aborted: wasStreaming });
+          sendJson(response, 200, { aborted: wasBusy });
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
         }
@@ -2764,8 +2944,22 @@ export default {
               return;
             }
             const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : source.cwd || activeCwd(services);
-            const forked = SessionManager.forkFrom(source.path, targetCwd, manager.getSessionDir());
-            sendJson(response, 200, { sessionId: forked.getSessionId(), sessionFile: forked.getSessionFile(), cwd: targetCwd });
+            const stagingDirectory = await mkdtemp(join(tmpdir(), "pi-harness-session-fork-"));
+            let sessionId: string;
+            let sessionFile: string;
+            let content: Buffer;
+            try {
+              const forked = SessionManager.forkFrom(source.path, targetCwd, stagingDirectory);
+              const stagedPath = forked.getSessionFile();
+              if (!stagedPath) throw new Error("Unable to persist forked session");
+              sessionId = forked.getSessionId();
+              sessionFile = join(manager.getSessionDir(), basename(stagedPath));
+              content = await readFile(stagedPath);
+            } finally {
+              await rm(stagingDirectory, { recursive: true, force: true });
+            }
+            await atomicWriteFile(sessionFile, content, { overwrite: false, mode: 0o600 });
+            sendJson(response, 200, { sessionId, sessionFile, cwd: targetCwd });
           });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });
@@ -2804,35 +2998,66 @@ export default {
           }
           const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : activeCwd(services);
           await runSessionOperation(response, "Cannot import a session while a prompt is running", async () => {
-            const temporaryDirectory = content === undefined ? undefined : await mkdtemp(join(tmpdir(), "pi-harness-import-"));
+            const importContent = content ?? (await readFile(suppliedPath, "utf8"));
+            if (content !== undefined && Buffer.byteLength(importContent, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
+              sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
+              return;
+            }
+            validateImportedSession(importContent);
+            if (!(await stat(targetCwd)).isDirectory()) throw new Error("Session import requires an existing working directory");
+            // Fork a validated snapshot: the upstream reader repairs missing final newlines and must not modify the user's source file.
+            const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-harness-import-"));
             const requestedName = basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl");
             const importName = requestedName === "" || requestedName === "." || requestedName === ".." ? "import.jsonl" : requestedName;
-            const importPath = temporaryDirectory === undefined ? suppliedPath : join(temporaryDirectory, importName);
+            const importPath = join(temporaryDirectory, importName);
+            let importedPath: string | undefined;
+            let importedId: string | undefined;
+            let published = false;
+            let adopted = false;
+            let cancelled: boolean;
+            let receipt: { sessionId: string; sessionFile: string | undefined; messages: number } | undefined;
             try {
-              if (content !== undefined) {
-                if (Buffer.byteLength(content, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
-                  sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
-                  return;
-                }
-                await writeFile(importPath, content, "utf8");
+              await writeFile(importPath, importContent, { encoding: "utf8", mode: 0o600 });
+              const preview = SessionManager.open(importPath, temporaryDirectory, targetCwd);
+              preview.buildSessionContext();
+              const imported = SessionManager.forkFrom(importPath, targetCwd, temporaryDirectory);
+              const stagedPath = imported.getSessionFile();
+              importedId = imported.getSessionId();
+              if (!stagedPath) throw new Error("Unable to persist imported session");
+              importedPath = join(manager.getSessionDir(), basename(stagedPath));
+              await mkdir(manager.getSessionDir(), { recursive: true });
+              await atomicWriteFile(importedPath, await readFile(stagedPath), { overwrite: false, mode: 0o600 });
+              published = true;
+              const result = await runWebSessionChange(services, () =>
+                services.runtime.sessionRuntime.switchSession(importedPath!, { cwdOverride: targetCwd }),
+              );
+              cancelled = result.cancelled;
+              if (!cancelled) {
+                adopted = true;
+                events.length = 0;
+                receipt = {
+                  sessionId: services.runtime.session.sessionId,
+                  sessionFile: services.runtime.session.sessionFile,
+                  messages: services.runtime.session.messages.length,
+                };
               }
-              const imported = SessionManager.forkFrom(importPath, targetCwd, manager.getSessionDir());
-              const importedPath = imported.getSessionFile();
-              if (!importedPath) throw new Error("Unable to persist imported session");
-              const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(importedPath, { cwdOverride: targetCwd }));
-              if (result.cancelled) {
-                sendJson(response, 409, { error: "Session import was cancelled by an extension" });
-                return;
-              }
-              events.length = 0;
-              sendJson(response, 200, {
-                sessionId: services.runtime.session.sessionId,
-                sessionFile: services.runtime.session.sessionFile,
-                messages: services.runtime.session.messages.length,
-              });
             } finally {
-              if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+              try {
+                if (
+                  published &&
+                  !adopted &&
+                  importedPath &&
+                  services.runtime.session.sessionFile !== importedPath &&
+                  services.runtime.session.sessionId !== importedId
+                ) {
+                  await rm(importedPath, { force: true });
+                }
+              } finally {
+                await rm(temporaryDirectory, { recursive: true, force: true });
+              }
             }
+            if (cancelled) sendJson(response, 409, { error: "Session import was cancelled by an extension" });
+            else sendJson(response, 200, receipt);
           });
         } catch (error) {
           sendJson(response, error instanceof PayloadTooLargeError ? 413 : 400, { error: errorText(error) });
