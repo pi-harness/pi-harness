@@ -1256,5 +1256,11 @@
   "查看当前上下文占用、消息规模和压缩事件。": "View current context usage, message volume and compaction events.",
   "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。": "Automatically stop the current run when the context reaches its budget threshold to avoid further context consumption.",
   "无法预览文件：{v0}": "Unable to preview file: {v0}",
-  "正在加载文件…": "Loading file…"
+  "正在加载文件…": "Loading file…",
+  "保存和检索可复用的提示词模板，数据跟随当前会话。": "Save and find reusable prompt templates stored with the current session.",
+  "显式记录任务、技能与事件关系，保留来源并跨会话查询。": "Record relationships between tasks, skills and events, preserve their sources, and query across sessions.",
+  "只读检查 Git 改动中的空白、凭据和遗留标记风险。": "Check Git changes for whitespace issues, credentials and leftover markers without modifying files.",
+  "执行受限 npm 验证脚本，并显示真实退出码、耗时和有界输出摘要。": "Run approved npm verification scripts and show actual exit codes, durations and bounded output summaries.",
+  "复用真实测试和代码审查工具，形成统一发布门禁。": "Combine real tests and code review tools into a single release gate.",
+  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "View persistent collaboration roles, task dependencies and mailbox records for the current session; no agents are started and no external messages are sent."
 }

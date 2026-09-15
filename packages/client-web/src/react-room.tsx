@@ -6889,7 +6889,7 @@ function InstalledPluginDetail({
                 </div>
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[var(--color-faint)]">{t("分类")}</dt>
-                  <dd className="text-right text-[var(--color-ink)]">{plugin.category?.label ?? t("运行时插件")}</dd>
+                  <dd className="text-right text-[var(--color-ink)]">{metadata?.category.label ?? plugin.category?.label ?? t("运行时插件")}</dd>
                 </div>
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[var(--color-faint)]">{t("管理方式")}</dt>

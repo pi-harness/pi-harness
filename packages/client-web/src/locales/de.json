@@ -1256,5 +1256,11 @@
   "查看当前上下文占用、消息规模和压缩事件。": "Zeigt die aktuelle Kontextnutzung, Nachrichtenmenge und Komprimierungsereignisse an.",
   "在上下文达到预算阈值时自动停止当前运行，避免继续消耗上下文。": "Stoppt den aktuellen Lauf automatisch, wenn der Kontext den Budgetschwellenwert erreicht, um weiteren Kontextverbrauch zu vermeiden.",
   "无法预览文件：{v0}": "Dateivorschau nicht möglich: {v0}",
-  "正在加载文件…": "Datei wird geladen…"
+  "正在加载文件…": "Datei wird geladen…",
+  "保存和检索可复用的提示词模板，数据跟随当前会话。": "Wiederverwendbare Prompt-Vorlagen speichern und suchen. Die Daten werden in der aktuellen Sitzung gespeichert.",
+  "显式记录任务、技能与事件关系，保留来源并跨会话查询。": "Beziehungen zwischen Aufgaben, Fähigkeiten und Ereignissen aufzeichnen, Quellen bewahren und sitzungsübergreifend abfragen.",
+  "只读检查 Git 改动中的空白、凭据和遗留标记风险。": "Git-Änderungen auf Leerraumprobleme, Zugangsdaten und verbliebene Markierungen prüfen, ohne Dateien zu ändern.",
+  "执行受限 npm 验证脚本，并显示真实退出码、耗时和有界输出摘要。": "Zugelassene npm-Prüfskripte ausführen und tatsächliche Exit-Codes, Laufzeiten und begrenzte Ausgabezusammenfassungen anzeigen.",
+  "复用真实测试和代码审查工具，形成统一发布门禁。": "Echte Tests und Code-Review-Werkzeuge zu einer gemeinsamen Freigabeprüfung verbinden.",
+  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "Gespeicherte Zusammenarbeitsrollen, Aufgabenabhängigkeiten und Postfachaufzeichnungen der aktuellen Sitzung anzeigen; es werden keine Agenten gestartet oder externen Nachrichten gesendet."
 }
