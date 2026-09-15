@@ -763,8 +763,8 @@ describe("session list tools", () => {
       source.indexOf("aria-expanded={sessionMenuOpen && !sessionMenuPath}") + 260,
     );
 
-    expect(toolsTrigger).toContain("disabled={sessionActionBusy}");
-    expect(headerTrigger).toContain("disabled={sessionActionBusy}");
+    expect(toolsTrigger).toContain("disabled={sessionOperationsBusy}");
+    expect(headerTrigger).toContain("disabled={sessionOperationsBusy}");
   });
 
   test("closes every session menu before duplicating and restores trigger focus after settling", async () => {

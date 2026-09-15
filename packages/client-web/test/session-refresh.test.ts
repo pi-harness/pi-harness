@@ -197,3 +197,92 @@ test("clears recovered resource errors after switching language while marketplac
   expect(document.querySelector(".refresh-warning")).toBeNull();
   await flush(() => market.resolve(marketplace));
 });
+
+test.each(["accepted", "rejected"] as const)("blocks stale session actions until navigation is %s", async (outcome) => {
+  const opening = deferred<Awaited<ReturnType<ClientApi["getSession"]>>>();
+  let current = { sessionId: "active", sessionFile: "/sessions/active.jsonl", name: "Original", messages: [], entries: [], events: [] };
+  const api = {
+    ...apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace)),
+    getSession: () => Promise.resolve(current),
+    openSession: () => opening.promise,
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  const actions = () => document.querySelector<HTMLButtonElement>('button[aria-label="Session actions"]')!;
+  await flush(() => actions().click());
+  expect(document.querySelector('[role="menu"]')).not.toBeNull();
+  await flush(() => {
+    Array.from(document.querySelectorAll<HTMLButtonElement>("aside button"))
+      .find((item) => item.textContent?.startsWith("Alpha"))!
+      .click();
+  });
+  expect(new URL(window.location.href).searchParams.get("session")).toBe("/sessions/Alpha.jsonl");
+  expect(actions().disabled).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('button[aria-label="Session tools"]')!.disabled).toBe(true);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  await flush(() => {
+    if (outcome === "accepted") {
+      current = { ...current, sessionId: "Alpha", sessionFile: "/sessions/Alpha.jsonl", name: "Alpha" };
+      opening.resolve(current);
+    } else opening.reject(new Error("Switch canceled"));
+  });
+  expect(actions().disabled).toBe(false);
+  await flush(() => actions().click());
+  await flush(() => {
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.startsWith("Rename"))!
+      .click();
+  });
+  expect(document.querySelector<HTMLInputElement>('[role="dialog"] input')!.value).toBe(outcome === "accepted" ? "Alpha" : "Original");
+});
+
+test("closes an existing rename dialog when browser history changes the session", async () => {
+  const opening = deferred<Awaited<ReturnType<ClientApi["getSession"]>>>();
+  const current = { sessionId: "active", sessionFile: "/sessions/active.jsonl", name: "Original", messages: [], entries: [], events: [] };
+  const api = {
+    ...apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace)),
+    getSession: () => Promise.resolve(current),
+    openSession: () => opening.promise,
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  await flush(() => document.querySelector<HTMLButtonElement>('button[aria-label="Session actions"]')!.click());
+  await flush(() =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.startsWith("Rename"))!
+      .click(),
+  );
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await flush(() => {
+    window.history.pushState({}, "", "/?session=/sessions/Alpha.jsonl");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.querySelector<HTMLButtonElement>('button[aria-label="Session actions"]')!.disabled).toBe(true);
+  await flush(() => opening.reject(new Error("Switch canceled")));
+  expect(document.querySelector<HTMLButtonElement>('button[aria-label="Session actions"]')!.disabled).toBe(false);
+});
+
+test("uses the accepted session during initial URL restoration even when the follow-up read fails", async () => {
+  window.history.replaceState({}, "", "/?session=/sessions/Alpha.jsonl");
+  const original = { sessionId: "active", sessionFile: "/sessions/active.jsonl", name: "Original", messages: [], entries: [], events: [] };
+  const target = { ...original, sessionId: "Alpha", sessionFile: "/sessions/Alpha.jsonl", name: "Alpha" };
+  let opened = false;
+  const api = {
+    ...apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace)),
+    getSession: () => (opened ? Promise.reject(new Error("Read unavailable")) : Promise.resolve(original)),
+    openSession: () => {
+      opened = true;
+      return Promise.resolve(target);
+    },
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  expect(opened).toBe(true);
+  const actions = document.querySelector<HTMLButtonElement>('button[aria-label="Session actions"]')!;
+  expect(actions.disabled).toBe(false);
+  await flush(() => actions.click());
+  await flush(() =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.startsWith("Rename"))!
+      .click(),
+  );
+  expect(document.querySelector<HTMLInputElement>('[role="dialog"] input')!.value).toBe("Alpha");
+});

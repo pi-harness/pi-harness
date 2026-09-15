@@ -8974,6 +8974,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
+  const sessionOperationsBusy =
+    sessionActionBusy ||
+    pendingSessionNavigationRef.current?.accepted === false ||
+    (initialSessionRestorePending && initialQueryState.sessionPath !== data.session?.sessionFile);
   const [sessionActionError, setSessionActionError] = useState("");
   const [includeArchivedSessions, setIncludeArchivedSessions] = useState(false);
   const [sessionPage, setSessionPage] = useState(0);
@@ -9613,12 +9617,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     sessionNavigationRef.current = sessionNavigationRef.current
       .then(async () => {
         if (sessionNavigationIntentRef.current > 0) return;
-        await api.openSession(path);
+        const opened = await api.openSession(path);
         if (sessionNavigationIntentRef.current === 0) {
           pendingSessionNavigationRef.current = { intent: 0, path, accepted: true };
           setPendingSessionUrlPath(path);
+          refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+          setData((current) => ({ ...current, session: opened }));
+          void refresh();
         }
-        await refresh();
       })
       .catch((cause: unknown) => setPromptErrorForScope(promptScope, cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setInitialSessionRestorePending(false));
@@ -9824,6 +9830,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     (path: string, source: "user" | "history") => {
       if (!path) return;
       setSessionActionError("");
+      setSessionMenuOpen(false);
+      setSessionToolsOpen(false);
+      setSessionDialog(undefined);
+      setSessionActionTarget(undefined);
       if (source === "user") {
         pushSessionRoute(window.history, window.location, path);
         setSettings(undefined);
@@ -9897,7 +9907,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => window.removeEventListener("popstate", onPopState);
   }, [navigateSession]);
   const sessionAction = async (action: () => Promise<void>) => {
-    if (sessionActionBusy) return;
+    if (sessionOperationsBusy) return;
     const promptScope = promptScopeRef.current;
     setSessionActionBusy(true);
     setPromptError("");
@@ -10656,7 +10666,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 aria-haspopup="menu"
                 aria-label={t("会话工具")}
                 className="session-tool-button icon"
-                disabled={sessionActionBusy}
+                disabled={sessionOperationsBusy}
                 onClick={(event) => {
                   closeSessionMenu();
                   sessionPopoverTriggerRef.current = event.currentTarget;
@@ -10702,7 +10712,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       {t("导入会话")}
                     </button>
                     <button
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         if (!activeSessionPath) return;
                         void runSessionPopoverAction(
@@ -10751,14 +10761,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           <div className="session-batch-bar">
             <span>{t("{v0} 个已选择", { v0: selectedSessionPaths.size })}</span>
             <button
-              disabled={sessionActionBusy}
+              disabled={sessionOperationsBusy}
               onClick={() => void sessionAction(() => api.batchSessions(selectedArchiveAction, [...selectedSessionPaths]).then(() => undefined))}
               type="button"
             >
               {selectedArchiveAction === "unarchive" ? t("恢复") : t("归档")}
             </button>
             <button
-              disabled={sessionActionBusy}
+              disabled={sessionOperationsBusy}
               onClick={() => void sessionAction(() => api.batchSessions(selectedPinAction, [...selectedSessionPaths]).then(() => undefined))}
               type="button"
             >
@@ -10766,7 +10776,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             </button>
             <button
               className="danger"
-              disabled={sessionActionBusy}
+              disabled={sessionOperationsBusy}
               onClick={() => {
                 setSessionActionTarget(undefined);
                 setSessionDialog("batch-delete");
@@ -10835,7 +10845,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 {!sessionSelectionMode && activeSessionPath && sessionMenuPath === activeSessionPath && sessionMenuOpen && sessionMenuPosition && (
                   <SessionActionMenu
                     archived={data.session.archived === true}
-                    busy={sessionActionBusy}
+                    busy={sessionOperationsBusy}
                     pinned={data.session.pinned === true}
                     position={sessionMenuPosition}
                     themeStyle={themeStyle}
@@ -10929,7 +10939,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       sessionMenuPosition && (
                         <SessionActionMenu
                           archived={session.archived === true}
-                          busy={sessionActionBusy}
+                          busy={sessionOperationsBusy}
                           pinned={session.pinned === true}
                           position={sessionMenuPosition}
                           themeStyle={themeStyle}
@@ -11158,7 +11168,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   aria-expanded={sessionMenuOpen && !sessionMenuPath}
                   aria-haspopup="menu"
                   className="session-menu"
-                  disabled={sessionActionBusy}
+                  disabled={sessionOperationsBusy}
                   onClick={(event) => {
                     setSessionToolsOpen(false);
                     setSessionToolsPosition(undefined);
@@ -11182,7 +11192,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <div className="session-menu-popover compact-session-menu" role="menu">
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionNameDraft(data.session?.name ?? data.session?.sessionId?.slice(0, 12) ?? "");
                         setSessionDialog("rename");
@@ -11196,7 +11206,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         closeSessionMenu();
                         void sessionAction(async () => {
@@ -11217,7 +11227,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionMenuOpen(false);
                         if (activeSessionPath) {
@@ -11232,7 +11242,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionMenuOpen(false);
                         if (data.session?.archived === true && activeSessionPath) {
@@ -11249,7 +11259,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     </button>
                     <button
                       className="session-action danger"
-                      disabled={!activeSessionPath || sessionActionBusy}
+                      disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
                         setSessionMenuOpen(false);
                         setSessionDialog("delete");
@@ -11368,7 +11378,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       )}
       {sessionDialog && (
         <SessionDialog
-          busy={sessionActionBusy}
+          busy={sessionOperationsBusy}
           count={sessionDialog === "batch-delete" ? selectedSessionPaths.size : undefined}
           kind={sessionDialog}
           name={
