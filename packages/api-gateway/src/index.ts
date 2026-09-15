@@ -2907,8 +2907,22 @@ export default {
               return;
             }
             const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : source.cwd || activeCwd(services);
-            const forked = SessionManager.forkFrom(source.path, targetCwd, manager.getSessionDir());
-            sendJson(response, 200, { sessionId: forked.getSessionId(), sessionFile: forked.getSessionFile(), cwd: targetCwd });
+            const stagingDirectory = await mkdtemp(join(tmpdir(), "pi-harness-session-fork-"));
+            let sessionId: string;
+            let sessionFile: string;
+            let content: Buffer;
+            try {
+              const forked = SessionManager.forkFrom(source.path, targetCwd, stagingDirectory);
+              const stagedPath = forked.getSessionFile();
+              if (!stagedPath) throw new Error("Unable to persist forked session");
+              sessionId = forked.getSessionId();
+              sessionFile = join(manager.getSessionDir(), basename(stagedPath));
+              content = await readFile(stagedPath);
+            } finally {
+              await rm(stagingDirectory, { recursive: true, force: true });
+            }
+            await atomicWriteFile(sessionFile, content, { overwrite: false, mode: 0o600 });
+            sendJson(response, 200, { sessionId, sessionFile, cwd: targetCwd });
           });
         } catch (error) {
           sendJson(response, 400, { error: errorText(error) });

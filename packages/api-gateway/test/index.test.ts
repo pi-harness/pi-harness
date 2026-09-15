@@ -2268,12 +2268,54 @@ describe("API gateway plugin", () => {
     });
 
     expect(response.status).toBe(200);
-    const fork = (await response.json()) as { sessionId: string; cwd: string };
+    const fork = (await response.json()) as { sessionId: string; sessionFile: string; cwd: string };
     expect(fork).toMatchObject({ cwd: activeCwd });
+    const records = (await readFile(fork.sessionFile, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records[0]).toMatchObject({ id: fork.sessionId, parentSession: path, cwd: activeCwd });
+    expect(records.slice(1)).toEqual(
+      (await readFile(path, "utf8"))
+        .trim()
+        .split("\n")
+        .slice(1)
+        .map((line) => JSON.parse(line) as unknown),
+    );
+    expect((await stat(fork.sessionFile)).mode & 0o777).toBe(0o600);
     const sessions = await fetch(context.webServer.url + "/api/sessions?includeArchived=true");
     expect(sessions.status).toBe(200);
     const sessionPayload = (await sessions.json()) as { items: Array<{ sessionId: string; forked?: boolean }> };
     expect(sessionPayload.items).toEqual(expect.arrayContaining([expect.objectContaining({ sessionId: fork.sessionId, forked: true })]));
+    const filesBeforeFailure = (await readdir(directory)).sort();
+    const sourceBeforeFailure = await readFile(path, "utf8");
+    let failedDirectory = "";
+    const failure = vi.spyOn(SessionManager, "forkFrom").mockImplementationOnce((_source, _cwd, destination) => {
+      failedDirectory = destination ?? "";
+      writeFileSync(join(failedDirectory, "partial.jsonl"), '{"type":"session"}\n');
+      throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    });
+    try {
+      const failed = await fetch(context.webServer.url + "/api/session/fork", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      expect(failed.status).toBe(400);
+      expect((await readdir(directory)).sort()).toEqual(filesBeforeFailure);
+      await expect(readFile(path, "utf8")).resolves.toBe(sourceBeforeFailure);
+      expect(failedDirectory).not.toBe(directory);
+      await expect(stat(failedDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      failure.mockRestore();
+    }
+    const retry = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    expect(retry.status).toBe(200);
+    expect((await readdir(directory)).length).toBe(filesBeforeFailure.length + 1);
   });
 
   test("forks an empty active session before its JSONL file is created", async () => {
