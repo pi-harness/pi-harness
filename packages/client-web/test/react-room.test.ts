@@ -79,6 +79,121 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reje
   return { promise, resolve, reject };
 }
 
+test("prefers an explicit modal invoker even when another previously focused element remains", async () => {
+  type FocusTarget = { readonly isConnected: boolean; focus: () => void };
+  const module = (await import("../src/react-room.js")) as unknown as {
+    modalReturnFocusTarget?: (previous: FocusTarget | undefined, invoker: FocusTarget | undefined) => FocusTarget | undefined;
+  };
+  expect(module.modalReturnFocusTarget).toBeTypeOf("function");
+  if (!module.modalReturnFocusTarget) return;
+
+  const previous = { isConnected: false, focus: vi.fn() };
+  const invoker = { isConnected: true, focus: vi.fn() };
+  expect(module.modalReturnFocusTarget(previous, invoker)).toBe(invoker);
+  expect(module.modalReturnFocusTarget({ ...previous, isConnected: true }, invoker)).toBe(invoker);
+  expect(module.modalReturnFocusTarget(undefined, { ...invoker, isConnected: false })).toBeUndefined();
+});
+
+test("keeps the original global search invoker when the shortcut repeats inside the dialog", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    modalInvokerForOpen?: <T>(open: boolean, current: T | null, candidate: T | null) => T | null;
+  };
+  expect(module.modalInvokerForOpen).toBeTypeOf("function");
+  if (!module.modalInvokerForOpen) return;
+
+  const original = { id: "conversation-tab" };
+  const searchInput = { id: "global-search-input" };
+  expect(module.modalInvokerForOpen(true, original, searchInput)).toBe(original);
+  expect(module.modalInvokerForOpen(false, original, searchInput)).toBe(searchInput);
+});
+
+test("renders file details as a labelled modal with the close control as initial focus", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    Details?: (props: Record<string, unknown>) => ReturnType<typeof createElement>;
+  };
+  expect(module.Details).toBeTypeOf("function");
+  if (!module.Details) return;
+
+  const previousLocale = activeLocale();
+  await setLocale("en");
+  try {
+    const html = renderToStaticMarkup(
+      createElement(module.Details, {
+        event: { type: "file_diff", path: "src/app.ts", output: "+fixed" },
+        onClose: () => {},
+        onCopy: () => {},
+      }),
+    );
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain('aria-label="File diff"');
+    expect(html).toContain('aria-label="Close file diff"');
+    expect(html).toContain('data-dialog-initial-focus="true"');
+  } finally {
+    await setLocale(previousLocale);
+  }
+});
+
+test("restores the file diff trigger after loading fails without stealing focus after success", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    runFileDiffAction?: (action: () => Promise<void>, onError: (cause: unknown) => void, onSettled: () => void, restoreFocus: () => void) => Promise<void>;
+  };
+  expect(module.runFileDiffAction).toBeTypeOf("function");
+  if (!module.runFileDiffAction) return;
+
+  const failedEvents: string[] = [];
+  await module.runFileDiffAction(
+    () => Promise.reject(new Error("failed")),
+    (cause) => failedEvents.push(`error:${cause instanceof Error ? cause.message : String(cause)}`),
+    () => failedEvents.push("settled"),
+    () => failedEvents.push("focus"),
+  );
+  expect(failedEvents).toEqual(["error:failed", "settled", "focus"]);
+
+  const successEvents: string[] = [];
+  await module.runFileDiffAction(
+    () => Promise.resolve(),
+    () => successEvents.push("error"),
+    () => successEvents.push("settled"),
+    () => successEvents.push("focus"),
+  );
+  expect(successEvents).toEqual(["settled"]);
+});
+
+test("moves file mutation focus to the result on success and back to the trigger on failure", async () => {
+  const module = (await import("../src/react-room.js")) as unknown as {
+    runFilesMutationAction?: (
+      action: () => Promise<void>,
+      onSuccess: () => void | Promise<void>,
+      onError: (cause: unknown) => void,
+      onSettled: () => void,
+      focusResult: (succeeded: boolean) => void,
+    ) => Promise<void>;
+  };
+  expect(module.runFilesMutationAction).toBeTypeOf("function");
+  if (!module.runFilesMutationAction) return;
+
+  const successEvents: string[] = [];
+  await module.runFilesMutationAction(
+    () => Promise.resolve(),
+    () => successEvents.push("success"),
+    () => successEvents.push("error"),
+    () => successEvents.push("settled"),
+    (succeeded) => successEvents.push(`focus:${succeeded}`),
+  );
+  expect(successEvents).toEqual(["success", "settled", "focus:true"]);
+
+  const failedEvents: string[] = [];
+  await module.runFilesMutationAction(
+    () => Promise.reject(new Error("failed")),
+    () => failedEvents.push("success"),
+    (cause) => failedEvents.push(`error:${cause instanceof Error ? cause.message : String(cause)}`),
+    () => failedEvents.push("settled"),
+    (succeeded) => failedEvents.push(`focus:${succeeded}`),
+  );
+  expect(failedEvents).toEqual(["error:failed", "settled", "focus:false"]);
+});
+
 test("does not reopen the runtime when session navigation targets the active session", async () => {
   const enqueueSessionNavigation = await sessionNavigationQueue();
   const refs = navigationRefs();

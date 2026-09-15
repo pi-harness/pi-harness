@@ -198,12 +198,68 @@ const dialogFocusSelector = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-function useModalFocus(open: boolean, onClose: () => void, busy = false, returnFocusSelector?: string) {
-  const dialogRef = useRef<HTMLDivElement>(null);
+type ModalFocusTarget = Pick<HTMLElement, "focus" | "isConnected">;
+
+export function modalReturnFocusTarget<T extends ModalFocusTarget>(previous: T | null | undefined, invoker: T | null | undefined): T | undefined {
+  if (invoker?.isConnected) return invoker;
+  return previous?.isConnected ? previous : undefined;
+}
+
+export function modalInvokerForOpen<T>(open: boolean, current: T | null, candidate: T | null): T | null {
+  return open ? current : candidate;
+}
+
+export async function runFileDiffAction(
+  action: () => Promise<void>,
+  onError: (cause: unknown) => void,
+  onSettled: () => void,
+  restoreFocus: () => void,
+): Promise<void> {
+  let failed = false;
+  try {
+    await action();
+  } catch (cause: unknown) {
+    failed = true;
+    onError(cause);
+  } finally {
+    onSettled();
+    if (failed) restoreFocus();
+  }
+}
+
+export async function runFilesMutationAction(
+  action: () => Promise<void>,
+  onSuccess: () => void | Promise<void>,
+  onError: (cause: unknown) => void,
+  onSettled: () => void,
+  focusResult: (succeeded: boolean) => void,
+): Promise<void> {
+  let succeeded = false;
+  try {
+    await action();
+    await onSuccess();
+    succeeded = true;
+  } catch (cause: unknown) {
+    onError(cause);
+  } finally {
+    onSettled();
+    focusResult(succeeded);
+  }
+}
+
+function useModalFocus<T extends HTMLElement = HTMLDivElement>(
+  open: boolean,
+  onClose: () => void,
+  busy = false,
+  returnFocusTarget?: string | HTMLElement | null,
+) {
+  const dialogRef = useRef<T>(null);
   const closeRef = useRef(onClose);
   const busyRef = useRef(busy);
+  const returnFocusTargetRef = useRef(returnFocusTarget);
   closeRef.current = onClose;
   busyRef.current = busy;
+  returnFocusTargetRef.current = returnFocusTarget;
   useEffect(() => {
     if (!open) return;
     const activeElement = document.activeElement;
@@ -246,10 +302,12 @@ function useModalFocus(open: boolean, onClose: () => void, busy = false, returnF
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("keydown", onKeyDown, true);
-      const returnFocus = previous?.isConnected ? previous : returnFocusSelector ? document.querySelector<HTMLElement>(returnFocusSelector) : undefined;
+      const target = returnFocusTargetRef.current;
+      const invoker = typeof target === "string" ? document.querySelector<HTMLElement>(target) : target;
+      const returnFocus = modalReturnFocusTarget(previous, invoker);
       if (returnFocus) window.requestAnimationFrame(() => returnFocus.focus());
     };
-  }, [open, returnFocusSelector]);
+  }, [open]);
   return dialogRef;
 }
 const sessionSource = (status: ClientStatus | undefined, session: ClientSession | undefined): string =>
@@ -1145,13 +1203,24 @@ function UserMessageBubble({ text }: { text: string }) {
   );
 }
 
-function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | undefined; onClose: () => void; onCopy: () => void }) {
+export function Details({
+  event,
+  onClose,
+  onCopy,
+  returnFocusTarget,
+}: {
+  event: Record<string, unknown> | undefined;
+  onClose: () => void;
+  onCopy: () => void;
+  returnFocusTarget?: HTMLElement | null;
+}) {
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose, false, returnFocusTarget);
   if (!event)
     return (
-      <aside className="details-panel">
+      <aside aria-label={t("事件详情")} aria-modal="true" className="details-panel" ref={dialogRef} role="dialog" tabIndex={-1}>
         <header>
           <strong>{t("事件详情")}</strong>
-          <button aria-label={t("关闭事件详情")} onClick={onClose} type="button">
+          <button aria-label={t("关闭事件详情")} data-dialog-initial-focus onClick={onClose} type="button">
             ×
           </button>
         </header>
@@ -1163,6 +1232,7 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
   const output = event.output ?? event.result ?? event.message;
   const outputText = eventOutputText(output);
   const fileDetail = event.type === "file" || event.type === "file_diff";
+  const title = eventLabel(event);
   const stats: readonly [string, string][] = fileDetail
     ? [
         [t("来源"), value(event.source, "/api/files")],
@@ -1175,10 +1245,10 @@ function Details({ event, onClose, onCopy }: { event: Record<string, unknown> | 
         [t("时间"), formatEventClock(event)],
       ];
   return (
-    <aside className="details-panel">
+    <aside aria-label={title} aria-modal="true" className="details-panel" ref={dialogRef} role="dialog" tabIndex={-1}>
       <header>
-        <strong>{eventLabel(event)}</strong>
-        <button aria-label={fileDetail ? t("关闭文件差异") : t("关闭事件详情")} onClick={onClose} type="button">
+        <strong>{title}</strong>
+        <button aria-label={fileDetail ? t("关闭文件差异") : t("关闭事件详情")} data-dialog-initial-focus onClick={onClose} type="button">
           ×
         </button>
       </header>
@@ -1226,7 +1296,7 @@ export function Trajectory({
 }: {
   events: readonly Record<string, unknown>[];
   sessionMessages: number;
-  onSelect: (event: Record<string, unknown>) => void;
+  onSelect: (event: Record<string, unknown>, trigger: HTMLButtonElement) => void;
 }) {
   const historicalCount = events.filter((event) => event.historical === true && event.type !== "historical_events_omitted").length;
   const resumed = events.length === 0 && sessionMessages > 0;
@@ -1277,7 +1347,7 @@ export function Trajectory({
           <span>{t("耗时")}</span>
         </div>
         {visible.map((event, index) => (
-          <button className="event-row" key={index} onClick={() => onSelect(event)} type="button">
+          <button className="event-row" key={index} onClick={(clickEvent) => onSelect(event, clickEvent.currentTarget)} type="button">
             <span>{formatEventClock(event)}</span>
             <span title={value(event.type, "event")}>
               <i className="event-dot"></i>
@@ -1308,8 +1378,8 @@ export function Files({
   files: readonly ClientFile[];
   repository?: boolean;
   api: ClientApi;
-  onDiff: (path: string) => Promise<void>;
-  onRefresh: () => void;
+  onDiff: (path: string, trigger: HTMLButtonElement) => Promise<void>;
+  onRefresh: () => void | Promise<void>;
 }) {
   const additions = files.filter((file) => file.status.includes("A") || file.status === "??").length;
   const deletions = files.filter((file) => file.status.includes("D")).length;
@@ -1318,46 +1388,68 @@ export function Files({
   const [diffPending, setDiffPending] = useState<string>();
   const [error, setError] = useState("");
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
-  const commit = () => {
+  const titleRef = useRef<HTMLDivElement>(null);
+  const revertTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const focusAfterMutation = (succeeded: boolean, trigger: HTMLButtonElement | null) => {
+    const target = succeeded ? titleRef.current : trigger;
+    window.requestAnimationFrame(() => {
+      if (target?.isConnected) target.focus();
+    });
+  };
+  const commit = (trigger: HTMLButtonElement) => {
     const text = message.trim();
     if (!text || busy) return;
     setBusy(true);
     setError("");
-    void api
-      .commitFiles(
-        files.map((file) => file.path),
-        text,
-      )
-      .then(() => {
+    void runFilesMutationAction(
+      () =>
+        api
+          .commitFiles(
+            files.map((file) => file.path),
+            text,
+          )
+          .then(() => undefined),
+      async () => {
         setMessage("");
-        onRefresh();
-      })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => setBusy(false));
+        await onRefresh();
+      },
+      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+      () => setBusy(false),
+      (succeeded) => focusAfterMutation(succeeded, trigger),
+    );
   };
   const revert = () => {
     if (!files.length || busy) return;
     setRevertConfirmOpen(false);
     setBusy(true);
     setError("");
-    void api
-      .revertFiles(files.map((file) => file.path))
-      .then(onRefresh)
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => setBusy(false));
+    void runFilesMutationAction(
+      () => api.revertFiles(files.map((file) => file.path)).then(() => undefined),
+      onRefresh,
+      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+      () => setBusy(false),
+      (succeeded) => focusAfterMutation(succeeded, revertTriggerRef.current),
+    );
   };
-  const openDiff = (path: string) => {
+  const openDiff = (path: string, trigger: HTMLButtonElement) => {
     if (busy || diffPending) return;
     setDiffPending(path);
     setError("");
-    void onDiff(path)
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => setDiffPending(undefined));
+    void runFileDiffAction(
+      () => onDiff(path, trigger),
+      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+      () => setDiffPending(undefined),
+      () => {
+        window.requestAnimationFrame(() => {
+          if (trigger.isConnected) trigger.focus();
+        });
+      },
+    );
   };
   return (
     <section className="view-panel files-view">
       <div className="files-content">
-        <div className="files-title">
+        <div className="files-title" ref={titleRef} tabIndex={-1}>
           <strong>{repository ? t("未提交工作区改动") : t("本次会话产出")}</strong>
           <span>{repository ? t("由 /api/files 提供") : t("根据成功的文件工具调用识别")}</span>
         </div>
@@ -1375,7 +1467,7 @@ export function Files({
                   aria-label={diffPending === file.path ? t("正在读取 {path} 的差异", { path: file.path }) : t("查看 {path} 的差异", { path: file.path })}
                   className="diff-button"
                   disabled={busy || diffPending !== undefined}
-                  onClick={() => openDiff(file.path)}
+                  onClick={(event) => openDiff(file.path, event.currentTarget)}
                   type="button"
                 >
                   {diffPending === file.path ? t("读取中…") : t("查看差异")}
@@ -1389,10 +1481,17 @@ export function Files({
         {repository && files.length > 0 && (
           <div className="file-actions">
             <input aria-label={t("提交说明")} onChange={(event) => setMessage(event.target.value)} placeholder={t("提交说明")} value={message} />
-            <button className="primary" disabled={busy || !message.trim()} onClick={commit} type="button">
+            <button className="primary" disabled={busy || !message.trim()} onClick={(event) => commit(event.currentTarget)} type="button">
               {busy ? t("处理中…") : t("提交这些改动")}
             </button>
-            <button disabled={busy} onClick={() => setRevertConfirmOpen(true)} type="button">
+            <button
+              disabled={busy}
+              onClick={(event) => {
+                revertTriggerRef.current = event.currentTarget;
+                setRevertConfirmOpen(true);
+              }}
+              type="button"
+            >
               {t("全部撤销")}
             </button>
           </div>
@@ -8694,9 +8793,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [page, setPage] = useState<Page>(initialQueryState.page);
   const [settings, setSettings] = useState<SettingsTab | undefined>(initialQueryState.settings);
   const [details, setDetails] = useState<Record<string, unknown>>();
+  const detailsReturnFocusRef = useRef<HTMLElement | null>(null);
   const filePreviewIntentRef = useRef(0);
   const [commandOpen, setCommandOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const globalSearchReturnFocusRef = useRef<HTMLElement | null>(null);
   const [commandQuery, setCommandQuery] = useState("");
   const [commandIndex, setCommandIndex] = useState(0);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
@@ -9500,6 +9601,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandOpen(false);
+        const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        globalSearchReturnFocusRef.current = modalInvokerForOpen(globalSearchOpen, globalSearchReturnFocusRef.current, activeElement);
         setGlobalSearchOpen(true);
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
@@ -10289,13 +10392,21 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       </div>
     </section>
   ) : view === "trajectory" ? (
-    <Trajectory events={displayEvents} onSelect={setDetails} sessionMessages={data.status?.messages ?? 0} />
+    <Trajectory
+      events={displayEvents}
+      onSelect={(event, trigger) => {
+        detailsReturnFocusRef.current = trigger;
+        setDetails(event);
+      }}
+      sessionMessages={data.status?.messages ?? 0}
+    />
   ) : (
     <Files
       api={api}
       files={data.files}
       repository={data.fileRepository}
-      onDiff={async (file) => {
+      onDiff={async (file, trigger) => {
+        detailsReturnFocusRef.current = trigger;
         const diff = await api.getFileDiff(file);
         setDetails({
           type: "file_diff",
@@ -10303,7 +10414,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           output: diff.diff || t("没有可显示的差异（工作区可能已更新）。"),
         });
       }}
-      onRefresh={() => void refresh()}
+      onRefresh={refresh}
     />
   );
   const groups = sessionGroups(filteredSessions);
@@ -10849,10 +10960,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           <button
             aria-label={t("搜索会话、文件和命令")}
             className="sidebar-link compact-session-search"
-            onClick={() => {
+            onClick={(event) => {
               setCommandOpen(false);
               setSessionToolsOpen(false);
               closeSessionMenu();
+              globalSearchReturnFocusRef.current = event.currentTarget;
               setGlobalSearchOpen(true);
             }}
             title={t("搜索会话、文件和命令")}
@@ -11062,7 +11174,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 aria-label={details !== undefined ? t("关闭详情") : t("打开详情")}
                 aria-pressed={details !== undefined}
                 className="details-toggle"
-                onClick={() => setDetails(details ? undefined : {})}
+                onClick={(event) => {
+                  if (details !== undefined) {
+                    setDetails(undefined);
+                    return;
+                  }
+                  detailsReturnFocusRef.current = event.currentTarget;
+                  setDetails({});
+                }}
                 type="button"
               >
                 <span aria-hidden="true">◨</span> <span className="details-toggle-label">{t("详情")}</span>
@@ -11100,6 +11219,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             event={Object.keys(details).length ? details : undefined}
             onClose={() => setDetails(undefined)}
             onCopy={() => void navigator.clipboard?.writeText(JSON.stringify(details, null, 2))}
+            returnFocusTarget={detailsReturnFocusRef.current}
           />
         </>
       )}
@@ -11110,6 +11230,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           filesTruncated={data.workspaceFilesTruncated}
           onClose={() => setGlobalSearchOpen(false)}
           onOpenFile={(file) => {
+            detailsReturnFocusRef.current = globalSearchReturnFocusRef.current;
             setPage("session");
             setView("files");
             const intent = ++filePreviewIntentRef.current;
