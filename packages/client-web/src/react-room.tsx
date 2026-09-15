@@ -9001,7 +9001,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const refreshTimerRef = useRef<number | undefined>(undefined);
   const refreshQueuedRef = useRef(false);
   const refreshSequenceRef = useRef({ requested: 0, applied: 0 });
-  const liveRefreshSequenceRef = useRef({ status: 0, session: 0, pluginPanels: 0 });
+  const liveRefreshSequenceRef = useRef({ status: 0, session: 0, sessions: 0, pluginPanels: 0 });
   const marketplaceSearchDebouncerRef = useRef(createGlobalSearchDebouncer());
   const resolvedMarketplaceDetailRef = useRef<MarketplaceDetailResolution | undefined>(undefined);
   const [promptCaret, setPromptCaret] = useState(0);
@@ -9311,18 +9311,31 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listWorkspaces(),
     ] as const;
     const allResults = Promise.allSettled(requests);
-    const applyLive = <K extends "status" | "session">(key: K, result: RoomData[K]) => {
-      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current[key]) return;
-      liveRefreshSequenceRef.current[key] = sequence;
-      // Do not advance the full-batch barrier: a fast status read must not
-      // continually invalidate slower panel reads. Setters retain queue order
-      // with authoritative navigation updates; updater functions stay pure.
-      setData((current) => ({ ...current, [key]: result }));
+    const statusLabel = t("运行状态");
+    const sessionLabel = t("当前会话");
+    const setLiveIssue = (label: string, failed: boolean) => {
+      setRefreshIssues((current) => {
+        const remaining = current.filter((item) => item !== label);
+        return failed ? [...remaining, label] : remaining;
+      });
+    };
+    const applyLiveSession = (result: PromiseSettledResult<ClientSession>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.session) return;
+      liveRefreshSequenceRef.current.session = sequence;
+      // Independent reads do not advance the full-batch barrier or overwrite newer navigation.
+      if (result.status === "fulfilled") setData((current) => ({ ...current, session: result.value }));
+      // Only a current read started after navigation acceptance can settle its route.
+      if (result.status === "fulfilled" && pendingNavigation?.accepted && pendingSessionNavigationRef.current === pendingNavigation) {
+        pendingSessionNavigationRef.current = undefined;
+        setPendingSessionUrlPath(undefined);
+      }
+      setLiveIssue(sessionLabel, result.status === "rejected");
     };
     const applyLiveStatus = (result: PromiseSettledResult<ClientStatus>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.status) return;
       liveRefreshSequenceRef.current.status = sequence;
       setStatusReachable(result.status === "fulfilled");
+      setLiveIssue(statusLabel, result.status === "rejected");
       if (result.status === "fulfilled") setData((current) => ({ ...current, status: result.value }));
     };
     void requests[0].then(
@@ -9330,8 +9343,29 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (reason: unknown) => applyLiveStatus({ status: "rejected", reason }),
     );
     void requests[1].then(
-      (result) => applyLive("session", result),
-      () => {},
+      (value) => applyLiveSession({ status: "fulfilled", value }),
+      (reason: unknown) => applyLiveSession({ status: "rejected", reason }),
+    );
+    // Conversation readiness depends on runtime reads, not optional catalog requests.
+    void Promise.allSettled([requests[0], requests[1]]).then(() => setInitialRefreshPending(false));
+    const sessionListLabel = t("会话列表");
+    const applySessions = (result: PromiseSettledResult<Awaited<ReturnType<ClientApi["listSessions"]>>>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.sessions) return;
+      liveRefreshSequenceRef.current.sessions = sequence;
+      if (result.status === "fulfilled") {
+        setData((current) => ({ ...current, sessions: result.value.items }));
+        setSessionsLoaded(true);
+        setSessionTotal(result.value.total);
+        setSessionHasNext(result.value.hasNext);
+      }
+      setRefreshIssues((current) => {
+        const remaining = current.filter((label) => label !== sessionListLabel);
+        return result.status === "fulfilled" ? remaining : [...remaining, sessionListLabel];
+      });
+    };
+    void requests[2].then(
+      (value) => applySessions({ status: "fulfilled", value }),
+      (reason: unknown) => applySessions({ status: "rejected", reason }),
     );
     const pluginPanelLabel = t("插件面板");
     const applyPluginPanels = (result: PromiseSettledResult<RoomData["pluginPanels"]>) => {
@@ -9348,29 +9382,26 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (reason: unknown) => applyPluginPanels({ status: "rejected", reason }),
     );
     const results = await allResults;
-    const [, session, sessions, files, workspaceFiles, models, providers, plugins, marketplace, commands, workspaces] = results;
+    const [, , , files, workspaceFiles, models, providers, plugins, marketplace, commands, workspaces] = results;
     // Slow older batches must not overwrite a newer applied snapshot. An older
     // result can still render while a newer batch is pending, avoiding starvation.
     if (sequence < refreshSequenceRef.current.applied) return;
     refreshSequenceRef.current.applied = sequence;
-    // Only an applied session read started after navigation was accepted can
-    // settle its route. Failed reads and older refreshes must not revert it.
-    if (session.status === "fulfilled" && pendingNavigation?.accepted && pendingSessionNavigationRef.current === pendingNavigation) {
-      pendingSessionNavigationRef.current = undefined;
-      setPendingSessionUrlPath(undefined);
-    }
     const failedCoreLabels = failedRefreshLabels(
       [t("运行状态"), t("当前会话"), t("会话列表"), t("文件"), t("工作区文件"), t("模型"), t("提供商"), t("插件"), t("插件市场"), t("命令"), t("工作区")],
       results,
     );
-    setRefreshIssues((current) => (current.includes(pluginPanelLabel) ? [...failedCoreLabels, pluginPanelLabel] : failedCoreLabels));
-    setInitialRefreshPending(false);
+    const liveLabels = [statusLabel, sessionLabel, sessionListLabel, pluginPanelLabel];
+    setRefreshIssues((current) => [
+      ...failedCoreLabels.filter((label) => !liveLabels.includes(label)),
+      ...current.filter((label) => liveLabels.includes(label)),
+    ]);
     setData((current) => ({
       // Live fields are applied independently above, including stale guards.
       // Reapplying them here could overwrite a newer partial response.
       status: current.status,
       session: current.session,
-      sessions: sessions.status === "fulfilled" ? sessions.value.items : current.sessions,
+      sessions: current.sessions,
       files: files.status === "fulfilled" ? files.value.items : current.files,
       fileRepository: files.status === "fulfilled" ? files.value.repository : current.fileRepository,
       workspaceFiles: workspaceFiles.status === "fulfilled" ? workspaceFiles.value.items : current.workspaceFiles,
@@ -9389,11 +9420,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       commands: commands.status === "fulfilled" ? commands.value : current.commands,
       workspaces: workspaces.status === "fulfilled" ? workspaces.value : current.workspaces,
     }));
-    if (sessions.status === "fulfilled") {
-      setSessionsLoaded(true);
-      setSessionTotal(sessions.value.total);
-      setSessionHasNext(sessions.value.hasNext);
-    }
   }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery, sessionPage, sessionQuery]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
@@ -9815,10 +9841,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         },
         getSession: () => api.getSession(),
         openSession: (targetPath) => api.openSession(targetPath),
-        onAccepted: async (opened) => {
+        onAccepted: (opened) => {
           refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
           setData((previous) => ({ ...previous, session: opened }));
-          await refresh();
+          void refresh();
         },
         onRejected: (cause, current) => {
           setPendingSessionUrlPath(undefined);
