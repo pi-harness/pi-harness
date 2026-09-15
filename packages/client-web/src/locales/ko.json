@@ -74,6 +74,8 @@
   "{count} 个文件": "파일 {count}개",
   "{count} 个模型已刷新": "모델 {count}개를 새로 고쳤습니다",
   "{count} 变更": "변경 {count}건",
+  "{count} 条上下文消息": "컨텍스트 메시지 {count}건",
+  "{count} 条日志消息": "로그 메시지 {count}건",
   "{count} 条消息": "메시지 {count}건",
   "{count} 组声明约束无法离线判定。": "선언된 제약 {count}개는 오프라인에서 판정할 수 없습니다.",
   "{files} 个文件 · {additions} 个新增文件 · {deletions} 个删除文件": "파일 {files}개 · 추가 {additions}개 · 삭제 {deletions}개",

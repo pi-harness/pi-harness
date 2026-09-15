@@ -171,6 +171,14 @@ const value = (input: unknown, fallback = "—"): string => {
   }
 };
 
+export function contextMessageCountLabel(count: number): string {
+  return t("{count} 条上下文消息", { count });
+}
+
+export function sessionLogMessageCountLabel(count: number | string): string {
+  return t("{count} 条日志消息", { count });
+}
+
 function betterSidebarGitFailureText(reason: BetterSidebarGitFailureReason | null): string {
   switch (reason) {
     case "not-repository":
@@ -781,7 +789,7 @@ function Workspace({
       <div className="effective-config">
         <span className="config-label">{t("当前运行时")}</span>
         <span>{status?.model ?? t("由运行时提供")}</span>
-        <span>{status ? t("{count} 条消息", { count: status.messages }) : "—"}</span>
+        <span>{status ? contextMessageCountLabel(status.messages) : "—"}</span>
         <a
           href="#"
           onClick={(event) => {
@@ -7507,7 +7515,7 @@ function Settings({
                 {[
                   [t("工作目录"), status?.cwd],
                   [t("agent 目录"), status?.agentDir],
-                  [t("会话"), status ? t("{session} · {count} 条消息", { session: status.sessionId, count: status.messages }) : "—"],
+                  [t("会话"), status ? `${status.sessionId} · ${contextMessageCountLabel(status.messages)}` : "—"],
                   [t("快捷键"), t("⌘K 命令 · ⌘, 设置 · ⌃C 中断")],
                   [t("权限策略"), t("当前 API 未提供修改接口")],
                 ].map(([key, item]) => (
@@ -10131,9 +10139,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           <div className="context-line">
             <span className="context-label">{t("实时上下文")}</span>
             <div className="context-metrics">
-              <span>
-                <b>{data.status?.messages ?? 0}</b> {t("条消息")}
-              </span>
+              <span>{contextMessageCountLabel(data.status?.messages ?? 0)}</span>
               <span>
                 <b>{data.status?.events ?? events.length}</b> {t("个事件")}
               </span>
@@ -10715,7 +10721,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   <span className="session-copy">
                     <strong>{data.session.name ?? (data.session.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话"))}</strong>
                     <small>
-                      {t("{count} 条消息", { count: data.session.messages.length })}
+                      {contextMessageCountLabel(data.session.messages.length)}
                       {sessionStatusSuffix(data.session)}
                     </small>
                   </span>
@@ -10808,7 +10814,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       <span className="session-copy">
                         <strong>{sessionListTitle(session)}</strong>
                         <small>
-                          {t("{count} 条消息", { count: value(session.messageCount, "0") })}
+                          {sessionLogMessageCountLabel(value(session.messageCount, "0"))}
                           {sessionStatusSuffix(session)}
                         </small>
                       </span>
@@ -10951,7 +10957,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               model <b>{value(data.status?.model)}</b>
             </span>
             <span>
-              msgs <b>{data.status?.messages ?? 0}</b>
+              ctx msgs <b>{data.status?.messages ?? 0}</b>
             </span>
             <span>
               status <b>{value(data.status?.status, "connecting")}</b>

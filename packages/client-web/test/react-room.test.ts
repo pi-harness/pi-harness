@@ -35,6 +35,8 @@ import {
   withoutInstalledPackages,
   writeRestartPendingPackages,
   nextSessionSearchPage,
+  contextMessageCountLabel,
+  sessionLogMessageCountLabel,
 } from "../src/react-room.js";
 
 const config = (source: string): ClientPiConfig =>
@@ -78,6 +80,21 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reje
   });
   return { promise, resolve, reject };
 }
+
+test("distinguishes runtime context messages from persisted session log messages", async () => {
+  const previousLocale = activeLocale();
+  try {
+    await setLocale("en");
+    expect(contextMessageCountLabel(140)).toBe("140 context messages");
+    expect(sessionLogMessageCountLabel(142)).toBe("142 log messages");
+
+    await setLocale("fr");
+    expect(contextMessageCountLabel(140)).toBe("140 messages de contexte");
+    expect(sessionLogMessageCountLabel(142)).toBe("142 messages du journal");
+  } finally {
+    await setLocale(previousLocale);
+  }
+});
 
 test("prefers an explicit modal invoker even when another previously focused element remains", async () => {
   type FocusTarget = { readonly isConnected: boolean; focus: () => void };

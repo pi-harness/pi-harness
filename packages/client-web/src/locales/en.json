@@ -74,6 +74,8 @@
   "{count} 个文件": "{count} files",
   "{count} 个模型已刷新": "{count} models refreshed",
   "{count} 变更": "{count} changes",
+  "{count} 条上下文消息": "{count} context messages",
+  "{count} 条日志消息": "{count} log messages",
   "{count} 条消息": "{count} messages",
   "{count} 组声明约束无法离线判定。": "{count} declared constraints cannot be resolved offline.",
   "{files} 个文件 · {additions} 个新增文件 · {deletions} 个删除文件": "{files} files · {additions} added · {deletions} deleted",
