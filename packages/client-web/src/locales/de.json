@@ -1262,5 +1262,19 @@
   "只读检查 Git 改动中的空白、凭据和遗留标记风险。": "Git-Änderungen auf Leerraumprobleme, Zugangsdaten und verbliebene Markierungen prüfen, ohne Dateien zu ändern.",
   "执行受限 npm 验证脚本，并显示真实退出码、耗时和有界输出摘要。": "Zugelassene npm-Prüfskripte ausführen und tatsächliche Exit-Codes, Laufzeiten und begrenzte Ausgabezusammenfassungen anzeigen.",
   "复用真实测试和代码审查工具，形成统一发布门禁。": "Echte Tests und Code-Review-Werkzeuge zu einer gemeinsamen Freigabeprüfung verbinden.",
-  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "Gespeicherte Zusammenarbeitsrollen, Aufgabenabhängigkeiten und Postfachaufzeichnungen der aktuellen Sitzung anzeigen; es werden keine Agenten gestartet oder externen Nachrichten gesendet."
+  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "Gespeicherte Zusammenarbeitsrollen, Aufgabenabhängigkeiten und Postfachaufzeichnungen der aktuellen Sitzung anzeigen; es werden keine Agenten gestartet oder externen Nachrichten gesendet.",
+  "Graph Memory 面板数据异常": "Ungültige Daten im Graph-Memory-Panel",
+  "创建：{v0} · 更新：{v1}": "Erstellt: {v0} · Aktualisiert: {v1}",
+  "创建：{v0}": "Erstellt: {v0}",
+  "最近节点": "Letzte Knoten",
+  "最近关系": "Letzte Beziehungen",
+  "搜索节点 {v0} / {v1}": "Suchknoten {v0} / {v1}",
+  "节点页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}": "Knotenseite: Offset {v0} · Nächster Offset {v1} · Gekürzt {v2}",
+  "无": "Keine",
+  "是": "Ja",
+  "否": "Nein",
+  "最近搜索节点": "Zuletzt gesuchte Knoten",
+  "搜索关系 {v0} / {v1}": "Suchbeziehungen {v0} / {v1}",
+  "关系页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}": "Beziehungsseite: Offset {v0} · Nächster Offset {v1} · Gekürzt {v2}",
+  "最近搜索关系": "Zuletzt gesuchte Beziehungen"
 }

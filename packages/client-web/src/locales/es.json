@@ -1262,5 +1262,19 @@
   "只读检查 Git 改动中的空白、凭据和遗留标记风险。": "Revisa los cambios de Git en busca de problemas de espacios, credenciales y marcadores pendientes sin modificar archivos.",
   "执行受限 npm 验证脚本，并显示真实退出码、耗时和有界输出摘要。": "Ejecuta scripts de verificación npm permitidos y muestra códigos de salida reales, duraciones y resúmenes de salida limitados.",
   "复用真实测试和代码审查工具，形成统一发布门禁。": "Combina pruebas reales y herramientas de revisión de código en un único control de publicación.",
-  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "Consulta los roles de colaboración, dependencias de tareas y registros de buzón persistentes de la sesión actual; no inicia agentes ni envía mensajes externos."
+  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "Consulta los roles de colaboración, dependencias de tareas y registros de buzón persistentes de la sesión actual; no inicia agentes ni envía mensajes externos.",
+  "Graph Memory 面板数据异常": "Datos no válidos en el panel de Graph Memory",
+  "创建：{v0} · 更新：{v1}": "Creado: {v0} · Actualizado: {v1}",
+  "创建：{v0}": "Creado: {v0}",
+  "最近节点": "Nodos recientes",
+  "最近关系": "Relaciones recientes",
+  "搜索节点 {v0} / {v1}": "Nodos encontrados {v0} / {v1}",
+  "节点页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}": "Página de nodos: desplazamiento {v0} · Siguiente desplazamiento {v1} · Truncado {v2}",
+  "无": "Ninguno",
+  "是": "Sí",
+  "否": "No",
+  "最近搜索节点": "Nodos de búsquedas recientes",
+  "搜索关系 {v0} / {v1}": "Relaciones encontradas {v0} / {v1}",
+  "关系页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}": "Página de relaciones: desplazamiento {v0} · Siguiente desplazamiento {v1} · Truncado {v2}",
+  "最近搜索关系": "Relaciones de búsquedas recientes"
 }

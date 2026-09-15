@@ -1262,5 +1262,19 @@
   "只读检查 Git 改动中的空白、凭据和遗留标记风险。": "Check Git changes for whitespace issues, credentials and leftover markers without modifying files.",
   "执行受限 npm 验证脚本，并显示真实退出码、耗时和有界输出摘要。": "Run approved npm verification scripts and show actual exit codes, durations and bounded output summaries.",
   "复用真实测试和代码审查工具，形成统一发布门禁。": "Combine real tests and code review tools into a single release gate.",
-  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "View persistent collaboration roles, task dependencies and mailbox records for the current session; no agents are started and no external messages are sent."
+  "查看当前会话的持久协作角色、依赖任务和邮箱账本；不会启动 Agent 或发送外部消息。": "View persistent collaboration roles, task dependencies and mailbox records for the current session; no agents are started and no external messages are sent.",
+  "Graph Memory 面板数据异常": "Invalid Graph Memory panel data",
+  "创建：{v0} · 更新：{v1}": "Created: {v0} · Updated: {v1}",
+  "创建：{v0}": "Created: {v0}",
+  "最近节点": "Recent nodes",
+  "最近关系": "Recent relations",
+  "搜索节点 {v0} / {v1}": "Search nodes {v0} / {v1}",
+  "节点页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}": "Node page: offset {v0} · Next offset {v1} · Truncated {v2}",
+  "无": "None",
+  "是": "Yes",
+  "否": "No",
+  "最近搜索节点": "Recent search nodes",
+  "搜索关系 {v0} / {v1}": "Search relations {v0} / {v1}",
+  "关系页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}": "Relation page: offset {v0} · Next offset {v1} · Truncated {v2}",
+  "最近搜索关系": "Recent search relations"
 }
