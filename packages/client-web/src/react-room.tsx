@@ -1085,6 +1085,15 @@ export function modelSelectable(model: Pick<ClientModel, "provider">, providers:
   return providers.find((provider) => provider.provider === model.provider)?.auth?.configured !== false;
 }
 
+export async function runSessionPopoverAction(action: () => Promise<void>, restoreFocus: () => void, dismiss?: () => void): Promise<void> {
+  dismiss?.();
+  try {
+    await action();
+  } finally {
+    restoreFocus();
+  }
+}
+
 export function PromptError({ message, action = "prompt" }: { message: string; action?: "prompt" | "model" | "session" }) {
   const everyApiAuth = /No API key(?: found)? for everyapi/i.test(message);
   const requiresAuth = everyApiAuth || /No API key(?: found)?|authentication|未配置认证/i.test(message);
@@ -10399,16 +10408,20 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
               if (!file) return;
-              void sessionAction(async () => {
-                const imported = await api.importSession(await file.text(), file.name);
-                if (imported.sessionFile) setSelectedSessionPath(imported.sessionFile);
-                // Import returns a receipt, not the imported message history.
-                // Read that history without waiting for unrelated refresh APIs.
-                const session = await api.getSession();
-                if (session.sessionId !== imported.sessionId) throw new Error("Imported session is no longer active");
-                refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
-                setData((current) => ({ ...current, session }));
-              });
+              void runSessionPopoverAction(
+                () =>
+                  sessionAction(async () => {
+                    const imported = await api.importSession(await file.text(), file.name);
+                    if (imported.sessionFile) setSelectedSessionPath(imported.sessionFile);
+                    // Import returns a receipt, not the imported message history.
+                    // Read that history without waiting for unrelated refresh APIs.
+                    const session = await api.getSession();
+                    if (session.sessionId !== imported.sessionId) throw new Error("Imported session is no longer active");
+                    refreshSequenceRef.current.applied = ++refreshSequenceRef.current.requested;
+                    setData((current) => ({ ...current, session }));
+                  }),
+                restoreSessionPopoverFocus,
+              );
             }}
             ref={importInputRef}
             type="file"
@@ -10488,14 +10501,22 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       disabled={!activeSessionPath || sessionActionBusy}
                       onClick={() => {
                         if (!activeSessionPath) return;
-                        void sessionAction(async () => {
-                          const blob = await api.exportSession(activeSessionPath);
-                          const link = document.createElement("a");
-                          link.href = URL.createObjectURL(blob);
-                          link.download = `${data.session?.sessionId ?? "session"}.jsonl`;
-                          link.click();
-                          URL.revokeObjectURL(link.href);
-                        });
+                        void runSessionPopoverAction(
+                          () =>
+                            sessionAction(async () => {
+                              const blob = await api.exportSession(activeSessionPath);
+                              const link = document.createElement("a");
+                              link.href = URL.createObjectURL(blob);
+                              link.download = `${data.session?.sessionId ?? "session"}.jsonl`;
+                              link.click();
+                              URL.revokeObjectURL(link.href);
+                            }),
+                          restoreSessionPopoverFocus,
+                          () => {
+                            setSessionToolsOpen(false);
+                            setSessionToolsPosition(undefined);
+                          },
+                        );
                       }}
                       role="menuitem"
                       type="button"
