@@ -1037,7 +1037,8 @@ interface GitCommandResult {
 
 function gitCommand(cwd: string, args: readonly string[], timeoutMs = GIT_TIMEOUT_MS): Promise<GitCommandResult> {
   return new Promise((resolveResult) => {
-    execFile("git", [...args], { cwd, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    // Workspace actions receive concrete paths, including filenames containing Git glob or pathspec magic characters.
+    execFile("git", ["--literal-pathspecs", ...args], { cwd, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
       const code = error && typeof error.code === "number" ? error.code : error ? 1 : 0;
       resolveResult({ stdout, stderr, code, terminated: gitTermination(error) });
     });

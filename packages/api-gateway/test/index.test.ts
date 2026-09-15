@@ -4593,6 +4593,88 @@ describe("API gateway plugin", () => {
     await expect(execFile("git", ["status", "--porcelain"], { cwd: directory })).resolves.toMatchObject({ stdout: "" });
   });
 
+  test.each([
+    ["report[1].txt", "report1.txt", "diff", true],
+    ["report[1].txt", "report1.txt", "commit", true],
+    ["report[1].txt", "report1.txt", "revert", true],
+    [":(glob)*.txt", "other.txt", "diff", true],
+    [":(glob)*.txt", "other.txt", "commit", true],
+    [":(glob)*.txt", "other.txt", "revert", true],
+    ["report[1].txt", "report1.txt", "revert", false],
+    [":(glob)*.txt", "other.txt", "revert", false],
+  ])("treats %s as a literal path beside %s during %s (tracked: %s)", async (selected, other, action, tracked) => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-literal-"));
+    temporaryDirectories.push(directory);
+    await execFile("git", ["init", "-q"], { cwd: directory });
+    await execFile("git", ["config", "user.email", "pi-harness@test.invalid"], { cwd: directory });
+    await execFile("git", ["config", "user.name", "Pi Harness Test"], {
+      cwd: directory,
+    });
+    if (tracked) await writeFile(join(directory, selected), "selected before\n");
+    await writeFile(join(directory, other), "other before\n");
+    await execFile("git", ["add", "."], { cwd: directory });
+    await execFile("git", ["commit", "-qm", "initial"], { cwd: directory });
+    await writeFile(join(directory, selected), "selected after\n");
+    await writeFile(join(directory, other), "other after\n");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "literal-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", {
+      session,
+      prompt: () => Promise.resolve(),
+      abort: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+    } as never);
+    context.provide("piModels", {
+      model: { provider: "test", id: "model" },
+      runtime: { getModels: () => [], getModel: () => undefined },
+    } as never);
+    context.provide("piHarnessLaunch", {
+      cwd: directory,
+      agentDir: "/tmp/agent",
+      args: [],
+      requestExit() {},
+    });
+    await context.plugin(apiPlugin);
+
+    if (action === "diff") {
+      const response = await fetch(context.webServer.url + "/api/files/diff?path=" + encodeURIComponent(selected));
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as { diff: string };
+      expect(payload.diff).toContain("+selected after");
+      expect(payload.diff).not.toContain("other after");
+    } else {
+      const response = await fetch(context.webServer.url + "/api/files/" + action, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          paths: [selected],
+          message: "Selected file only",
+          confirm: true,
+        }),
+      });
+      expect(response.status).toBe(200);
+      if (action === "commit") {
+        const changed = await execFile("git", ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "HEAD"], { cwd: directory });
+        expect(changed.stdout.split("\0").filter(Boolean)).toEqual([selected]);
+      } else if (tracked) {
+        await expect(readFile(join(directory, selected), "utf8")).resolves.toBe("selected before\n");
+      } else {
+        await expect(readFile(join(directory, selected), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    }
+    await expect(readFile(join(directory, other), "utf8")).resolves.toBe("other after\n");
+    const remaining = await execFile("git", ["diff", "--name-only", "-z", "HEAD"], { cwd: directory });
+    expect(remaining.stdout.split("\0")).toContain(other);
+  });
+
   test("rejects destructive workspace revert without explicit confirmation", async () => {
     const context = new Context();
     contexts.push(context);
@@ -4748,7 +4830,7 @@ describe("API gateway plugin", () => {
       // The gateway consumes NUL-separated `--porcelain -z` entries and then asks git for the cwd prefix, so the shim answers both calls.
       await writeFile(
         shim,
-        "#!/bin/sh\ncase \"$1\" in rev-parse) exit 0;; esac\nprintf ' M tracked.txt\\0'\nseq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/' | tr '\\n' '\\0'\n",
+        "#!/bin/sh\n[ \"$1\" = --literal-pathspecs ] && shift\ncase \"$1\" in rev-parse) exit 0;; esac\nprintf ' M tracked.txt\\0'\nseq 1 40000 | sed 's/^/?? untracked-/;s/$/.txt/' | tr '\\n' '\\0'\n",
         { mode: 0o755 },
       );
       const truncated = await fetch(context.webServer.url + "/api/files");
@@ -6115,7 +6197,11 @@ describe("API gateway plugin", () => {
     const shimDirectory = join(directory, "bin");
     await mkdir(shimDirectory);
     // A commit that takes longer than the 15 s read-only bound, as a pre-commit hook running a test suite would.
-    await writeFile(join(shimDirectory, "git"), '#!/bin/sh\ncase "$1" in commit) sleep 16;; rev-parse) printf abc1234;; esac\nexit 0\n', { mode: 0o755 });
+    await writeFile(
+      join(shimDirectory, "git"),
+      '#!/bin/sh\n[ "$1" = --literal-pathspecs ] && shift\ncase "$1" in commit) sleep 16;; rev-parse) printf abc1234;; esac\nexit 0\n',
+      { mode: 0o755 },
+    );
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
     const session = { sessionId: "commit-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
     context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
