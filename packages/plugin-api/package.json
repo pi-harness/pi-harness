@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/plugin-api",
-  "version": "0.1.123",
+  "version": "0.1.124",
   "description": "Public contract for authoring Pi Harness plugins: Cordis context services, plugin configuration helpers, and bounded workspace file access",
   "keywords": [
     "agent",
