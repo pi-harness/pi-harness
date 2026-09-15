@@ -28,7 +28,9 @@ import {
   createPromptDraftRevision,
   failPromptSubmission,
   finishPromptSubmission,
+  acceptedPromptReceipt,
   promptDelivery,
+  promptSubmissionIdentity,
   promptUiDuringSessionRestore,
   promptUiForSession,
   readStoredPromptDraftSnapshot,
@@ -1157,6 +1159,7 @@ export async function runSessionPopoverAction(action: () => Promise<void>, resto
 }
 
 export function PromptError({ message, action = "prompt" }: { message: string; action?: "prompt" | "model" | "session" }) {
+  const receiptFailure = message.includes("Prompt accepted; receipt persistence failed.");
   const everyApiAuth = /No API key(?: found)? for everyapi/i.test(message);
   const requiresAuth = everyApiAuth || /No API key(?: found)?|authentication|未配置认证/i.test(message);
   return (
@@ -1182,7 +1185,9 @@ export function PromptError({ message, action = "prompt" }: { message: string; a
                 ? t("运行时没有接受模型切换；当前模型保持不变。")
                 : action === "session"
                   ? t("运行时没有接受这次会话操作，请重试。")
-                  : t("运行时没有接受这次请求，请重试或查看错误详情。")}
+                  : receiptFailure
+                    ? t("请求已接受，但确认记录保存失败。重启后重试前，请先检查执行结果。")
+                    : t("请求未正常结束。请先检查会话中的执行结果，再决定是否重试。")}
         </span>
       </div>
       <details>
@@ -8894,6 +8899,17 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setPendingModel(undefined);
     setModelSelectionError("");
   }, [data.session?.sessionId, initialSessionRestorePending]);
+  useEffect(() => {
+    const sessionId = data.session?.sessionId;
+    const saved = readStoredPromptDraftSnapshot(browserSessionStorage(), sessionId);
+    const receipt = acceptedPromptReceipt(data.session?.entries ?? [], sessionId, saved?.revision);
+    if (!receipt) return;
+    const cleared = clearSubmittedPromptDraft(browserSessionStorage(), sessionId, saved?.revision);
+    setStoredPromptUi((current) => {
+      const next = clearAcceptedPromptDraft(current, sessionId, saved?.revision, cleared);
+      return next === current ? current : { ...next, error: receipt.persistenceError ?? "" };
+    });
+  }, [data.session?.entries, data.session?.sessionId]);
   const [storedAnnotationDraft, setStoredAnnotationDraft] = useState<ClientAnnotationDraft>(() =>
     readStoredAnnotationDraft(browserSessionStorage(), undefined),
   );
@@ -9642,32 +9658,48 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const submittedPromptSessionId = data.session?.sessionId;
     const delivery = promptDelivery(promptBusy, data.status?.status);
     if (!prompt || !delivery) return;
-    const submittedDraftRevision = createPromptDraftRevision();
-    writeStoredPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraft, submittedDraftRevision);
+    const { revision: submittedDraftRevision, delivery: submittedDelivery } = promptSubmissionIdentity(
+      readStoredPromptDraftSnapshot(browserSessionStorage(), submittedPromptSessionId),
+      submittedDraft,
+      prompt,
+      delivery,
+    );
+    const submission = { prompt, delivery: submittedDelivery };
+    writeStoredPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraft, submittedDraftRevision, submission);
     const submissionId = ++promptSubmissionIdRef.current;
     setModelSelectionError("");
     setSessionActionError("");
     setStoredPromptUi((current) => startPromptSubmission(current, submittedPromptSessionId, submissionId, prompt, submittedDraftRevision));
     setStreamingAssistant(undefined);
     stickToBottomRef.current = true;
-    void runPromptSubmission(() => api.prompt(prompt, delivery === "steer" ? "steer" : undefined), refresh, {
-      accepted: () => {
-        const submittedVersionCleared = clearSubmittedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision);
-        setStoredPromptUi((current) => clearAcceptedPromptDraft(current, submittedPromptSessionId, submittedDraftRevision, submittedVersionCleared));
-        clearStoredAnnotationDraft(browserSessionStorage(), submittedSessionId);
-        setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
+    void runPromptSubmission(
+      () =>
+        api.prompt(
+          prompt,
+          submittedDelivery === "steer" ? "steer" : undefined,
+          submittedPromptSessionId === undefined ? undefined : { requestId: submittedDraftRevision, sessionId: submittedPromptSessionId },
+        ),
+      refresh,
+      {
+        accepted: () => {
+          const submittedVersionCleared = clearSubmittedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision);
+          setStoredPromptUi((current) => clearAcceptedPromptDraft(current, submittedPromptSessionId, submittedDraftRevision, submittedVersionCleared));
+          clearStoredAnnotationDraft(browserSessionStorage(), submittedSessionId);
+          setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
+        },
+        rejected: (cause) => {
+          // Preserve uncertain submissions until a receipt arrives, without replacing a newer draft.
+          restoreRejectedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision, submittedDraft, submission);
+          setStoredPromptUi((current) =>
+            failPromptSubmission(current, submissionId, submittedDraft, cause instanceof Error ? cause.message : String(cause), submittedDraftRevision),
+          );
+        },
+        refreshRejected: (cause) => {
+          setStoredPromptUi((current) => reportPromptRefreshFailure(current, submissionId, cause instanceof Error ? cause.message : String(cause)));
+        },
+        settled: () => setStoredPromptUi((current) => finishPromptSubmission(current, submissionId)),
       },
-      rejected: (cause) => {
-        // A rejected request was never accepted as a turn. Keep it editable,
-        // without replacing a new draft the user typed while awaiting it.
-        restoreRejectedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision, submittedDraft);
-        setStoredPromptUi((current) => failPromptSubmission(current, submissionId, submittedDraft, cause instanceof Error ? cause.message : String(cause)));
-      },
-      refreshRejected: (cause) => {
-        setStoredPromptUi((current) => reportPromptRefreshFailure(current, submissionId, cause instanceof Error ? cause.message : String(cause)));
-      },
-      settled: () => setStoredPromptUi((current) => finishPromptSubmission(current, submissionId)),
-    });
+    );
   };
   const captureAnnotationSelection = useCallback(() => {
     if (annotationSelectionFrameRef.current !== undefined) window.cancelAnimationFrame(annotationSelectionFrameRef.current);

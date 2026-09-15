@@ -1755,6 +1755,124 @@ describe("API gateway plugin", () => {
     ).resolves.toMatchObject({ status: 400 });
   });
 
+  test("records accepted prompt IDs and suppresses replay after a lost response", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-prompt-receipt-"));
+    temporaryDirectories.push(directory);
+    const manager = SessionManager.create(directory, join(directory, "sessions"));
+    const receiptSessionId = manager.getSessionId();
+    const entries = () => manager.getEntries();
+    let calls = 0;
+    let executedAfterPreflight = 0;
+    let release: (() => void) | undefined;
+    const runtime = {
+      session: {
+        sessionId: receiptSessionId,
+        messages: [],
+        isStreaming: false,
+        subscribe: () => () => {},
+        sessionManager: manager,
+      },
+      prompt: (_text: string, options?: { preflightResult?: (accepted: boolean) => void }) => {
+        calls += 1;
+        if (_text === "wait before acceptance") {
+          return new Promise<void>((_resolve, reject) => {
+            release = () => {
+              options?.preflightResult?.(false);
+              reject(new Error("delayed preflight failure"));
+            };
+          });
+        }
+        if (_text === "reject before acceptance") {
+          options?.preflightResult?.(false);
+          return Promise.reject(new Error("preflight failed"));
+        }
+        options?.preflightResult?.(true);
+        if (_text === "storage failure") {
+          executedAfterPreflight += 1;
+          return Promise.resolve();
+        }
+        if (_text === "fail after acceptance") return Promise.reject(new Error("runtime failed"));
+        return new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      },
+    };
+    context.provide("piRuntime", runtime as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const submit = (prompt = "execute once", sessionId = receiptSessionId, requestId = "receipt-one") =>
+      fetch(context.webServer.url + "/api/prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, requestId, sessionId }),
+      });
+    const first = submit();
+    await vi.waitFor(() => expect(calls).toBe(1));
+    try {
+      expect(entries()).toContainEqual(
+        expect.objectContaining({
+          type: "custom",
+          customType: "pi-harness.prompt-receipt",
+          data: expect.objectContaining({ requestId: "receipt-one", sessionId: receiptSessionId }) as unknown,
+        }),
+      );
+      const reopened = SessionManager.open(manager.getSessionFile()!, manager.getSessionDir());
+      expect(reopened.getEntries()).toEqual(entries());
+      expect((await submit()).status).toBe(200);
+      expect((await submit("different operation")).status).toBe(409);
+      expect((await submit("execute once", "other-session")).status).toBe(409);
+      expect(calls).toBe(1);
+    } finally {
+      release?.();
+      await first;
+    }
+    expect((await submit()).status).toBe(200);
+    expect(calls).toBe(1);
+    const rejected = await submit("reject before acceptance", receiptSessionId, "rejected");
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ accepted: false, error: "preflight failed" });
+    expect(entries()).toHaveLength(1);
+    const failed = await submit("fail after acceptance", receiptSessionId, "failed");
+    expect(failed.status).toBe(400);
+    expect(await failed.json()).toMatchObject({ accepted: true, error: "runtime failed" });
+    expect(entries()).toHaveLength(2);
+    expect((await submit("fail after acceptance", receiptSessionId, "failed")).status).toBe(200);
+    expect(calls).toBe(3);
+    const pending = submit("wait before acceptance", receiptSessionId, "pending");
+    await vi.waitFor(() => expect(calls).toBe(4));
+    try {
+      const duplicate = await submit("wait before acceptance", receiptSessionId, "pending");
+      expect(duplicate.status).toBe(409);
+      expect(await duplicate.json()).toMatchObject({ error: expect.stringContaining("still being checked") as unknown });
+      expect(calls).toBe(4);
+    } finally {
+      release?.();
+    }
+    const rejectedPending = await pending;
+    expect(rejectedPending.status).toBe(400);
+    expect(await rejectedPending.json()).toMatchObject({ accepted: false });
+    expect(entries()).toHaveLength(2);
+    const append = manager.appendCustomEntry.bind(manager);
+    const failure = vi.spyOn(manager, "appendCustomEntry").mockImplementation((type, data) => {
+      append(type, data);
+      throw new Error("ENOSPC injected after the entry was added");
+    });
+    try {
+      const response = await submit("storage failure", receiptSessionId, "storage-failure");
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({ accepted: true, error: expect.stringContaining("receipt persistence failed") as unknown });
+      expect(executedAfterPreflight).toBe(1);
+      expect((await submit("storage failure", receiptSessionId, "storage-failure")).status).toBe(500);
+      expect(executedAfterPreflight).toBe(1);
+    } finally {
+      failure.mockRestore();
+    }
+  });
+
   test("returns the live session messages and trajectory events", async () => {
     const context = new Context();
     contexts.push(context);

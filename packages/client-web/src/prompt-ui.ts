@@ -1,3 +1,29 @@
+export class AcceptedPromptError extends Error {
+  override readonly name = "AcceptedPromptError";
+}
+
+export function acceptedPromptReceipt(
+  entries: readonly unknown[],
+  sessionId: string | undefined,
+  requestId: string | undefined,
+): { persistenceError?: string } | undefined {
+  if (sessionId === undefined || requestId === undefined) return undefined;
+  for (const entry of entries) {
+    if (entry === null || typeof entry !== "object") continue;
+    const candidate = entry as { type?: unknown; customType?: unknown; data?: unknown };
+    if (candidate.type !== "custom" || candidate.customType !== "pi-harness.prompt-receipt" || candidate.data === null || typeof candidate.data !== "object")
+      continue;
+    const data = candidate.data as { sessionId?: unknown; requestId?: unknown; persistenceError?: unknown };
+    if (data.sessionId === sessionId && data.requestId === requestId)
+      return typeof data.persistenceError === "string" ? { persistenceError: data.persistenceError } : {};
+  }
+  return undefined;
+}
+
+export function hasAcceptedPromptReceipt(entries: readonly unknown[], sessionId: string | undefined, requestId: string | undefined): boolean {
+  return acceptedPromptReceipt(entries, sessionId, requestId) !== undefined;
+}
+
 export interface ClientPromptUiState {
   readonly sessionId: string | undefined;
   readonly draft: string;
@@ -10,13 +36,14 @@ export interface ClientPromptUiState {
 
 const promptDraftStorageKeyPrefix = "pi-harness.prompt-draft";
 const maxStoredPromptDraftCharacters = 128_000;
-const maxStoredPromptDraftPayloadCharacters = maxStoredPromptDraftCharacters * 6 + 512;
+const maxStoredPromptDraftPayloadCharacters = maxStoredPromptDraftCharacters * 12 + 512;
 let nextPromptDraftRevision = 0;
 
 export interface StoredPromptDraft {
   readonly sessionId: string;
   readonly draft: string;
   readonly revision: string;
+  readonly submission?: { readonly prompt: string; readonly delivery: "prompt" | "steer" };
 }
 
 export function createPromptDraftRevision(): string {
@@ -37,10 +64,22 @@ export function readStoredPromptDraftSnapshot(storage: Pick<Storage, "getItem"> 
     if (raw === null || raw.length > maxStoredPromptDraftPayloadCharacters) return undefined;
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== "object") return undefined;
-    const candidate = parsed as { sessionId?: unknown; draft?: unknown; revision?: unknown };
+    const candidate = parsed as { sessionId?: unknown; draft?: unknown; revision?: unknown; submission?: unknown };
     if (candidate.sessionId !== sessionId || typeof candidate.draft !== "string" || typeof candidate.revision !== "string") return undefined;
     if (candidate.draft.length > maxStoredPromptDraftCharacters || candidate.revision.length === 0 || candidate.revision.length > 128) return undefined;
-    return { sessionId, draft: candidate.draft, revision: candidate.revision };
+    let submission: StoredPromptDraft["submission"];
+    if (candidate.submission !== undefined) {
+      if (candidate.submission === null || typeof candidate.submission !== "object") return undefined;
+      const value = candidate.submission as { prompt?: unknown; delivery?: unknown };
+      if (
+        typeof value.prompt !== "string" ||
+        value.prompt.length > maxStoredPromptDraftCharacters ||
+        (value.delivery !== "prompt" && value.delivery !== "steer")
+      )
+        return undefined;
+      submission = { prompt: value.prompt, delivery: value.delivery };
+    }
+    return { sessionId, draft: candidate.draft, revision: candidate.revision, ...(submission === undefined ? {} : { submission }) };
   } catch {
     return undefined;
   }
@@ -59,6 +98,7 @@ export function writeStoredPromptDraft(
   sessionId: string | undefined,
   draft: string,
   draftRevision = createPromptDraftRevision(),
+  submission?: StoredPromptDraft["submission"],
 ): string | undefined {
   if (storage === undefined || sessionId === undefined) return undefined;
   try {
@@ -66,7 +106,7 @@ export function writeStoredPromptDraft(
       clearStoredPromptDraft(storage, sessionId);
       return undefined;
     }
-    const payload = JSON.stringify({ sessionId, draft, revision: draftRevision });
+    const payload = JSON.stringify({ sessionId, draft, revision: draftRevision, ...(submission === undefined ? {} : { submission }) });
     if (payload.length > maxStoredPromptDraftPayloadCharacters) {
       clearStoredPromptDraft(storage, sessionId);
       return undefined;
@@ -108,14 +148,26 @@ export function restoreRejectedPromptDraft(
   sessionId: string | undefined,
   submittedRevision: string | undefined,
   submittedDraft: string,
+  submission?: StoredPromptDraft["submission"],
 ): void {
   try {
     const current = readStoredPromptDraftSnapshot(storage, sessionId);
-    if (current === undefined) writeStoredPromptDraft(storage, sessionId, submittedDraft);
+    if (current === undefined) writeStoredPromptDraft(storage, sessionId, submittedDraft, submittedRevision, submission);
     else if (current.revision === submittedRevision) return;
   } catch {
     // A blocked storage area must not prevent a rejection from restoring the in-memory draft.
   }
+}
+
+export function promptSubmissionIdentity(
+  saved: StoredPromptDraft | undefined,
+  draft: string,
+  prompt: string,
+  delivery: "prompt" | "steer",
+): { revision: string; delivery: "prompt" | "steer" } {
+  return saved?.draft === draft && saved.submission?.prompt === prompt
+    ? { revision: saved.revision, delivery: saved.submission.delivery }
+    : { revision: createPromptDraftRevision(), delivery };
 }
 
 export function promptDelivery(promptBusy: boolean, runtimeStatus: string | undefined): "prompt" | "steer" | undefined {
@@ -187,13 +239,20 @@ export function startPromptSubmission(
   };
 }
 
-export function failPromptSubmission(state: ClientPromptUiState, submissionId: number, question: string, error: string): ClientPromptUiState {
+export function failPromptSubmission(
+  state: ClientPromptUiState,
+  submissionId: number,
+  question: string,
+  error: string,
+  submittedRevision?: string,
+): ClientPromptUiState {
   if (state.submissionId !== submissionId) return state;
   const failed = { ...state };
   delete failed.submissionId;
   return {
     ...failed,
     draft: state.draft || question,
+    ...(state.draft || submittedRevision === undefined ? {} : { draftRevision: submittedRevision }),
     pendingPrompt: "",
     busy: false,
     error,
@@ -222,7 +281,15 @@ export async function runPromptSubmission(submit: () => Promise<unknown>, refres
   try {
     await submit();
   } catch (cause: unknown) {
-    handlers.rejected(cause);
+    if (cause instanceof AcceptedPromptError) {
+      handlers.accepted();
+      try {
+        await refresh();
+      } catch {
+        /* The original runtime failure remains the actionable error. */
+      }
+      handlers.refreshRejected(cause);
+    } else handlers.rejected(cause);
     handlers.settled();
     return;
   }

@@ -302,3 +302,64 @@ describe("prompt UI state", () => {
     expect(events).toEqual(["accepted", "refresh-rejected", "settled"]);
   });
 });
+
+describe("accepted prompt receipts", () => {
+  test("matches the exact session and request without interpreting message text", () => {
+    const entries = [{ type: "custom", customType: "pi-harness.prompt-receipt", data: { sessionId: "one", requestId: "submission" } }];
+    expect(promptUi.hasAcceptedPromptReceipt(entries, "one", "submission")).toBe(true);
+    expect(promptUi.hasAcceptedPromptReceipt(entries, "two", "submission")).toBe(false);
+    expect(promptUi.hasAcceptedPromptReceipt(entries, "one", "new-draft")).toBe(false);
+    expect(promptUi.hasAcceptedPromptReceipt([{ type: "message", message: { content: "submission" } }], "one", "submission")).toBe(false);
+  });
+
+  test("keeps an accepted runtime failure out of the rejected draft path", async () => {
+    const events: string[] = [];
+    await promptUi.runPromptSubmission(
+      () => Promise.reject(new promptUi.AcceptedPromptError("provider failed")),
+      () => Promise.resolve(),
+      {
+        accepted: () => events.push("accepted"),
+        rejected: () => events.push("rejected"),
+        refreshRejected: () => events.push("error"),
+        settled: () => events.push("settled"),
+      },
+    );
+    expect(events).toEqual(["accepted", "error", "settled"]);
+  });
+});
+
+test("preserves the submitted revision when restoring an uncertain request for later reconciliation", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  promptUi.restoreRejectedPromptDraft(storage, "one", "request-one", "execute once");
+  expect(promptUi.readStoredPromptDraftSnapshot(storage, "one")).toMatchObject({ revision: "request-one", draft: "execute once" });
+  const pending = promptUi.startPromptSubmission(
+    { sessionId: "one", draft: "", pendingPrompt: "", busy: false, error: "" },
+    "one",
+    1,
+    "execute once",
+    "request-one",
+  );
+  const uncertain = promptUi.failPromptSubmission({ ...pending, draftRevision: undefined }, 1, "execute once", "offline", "request-one");
+  expect(uncertain).toMatchObject({ draft: "execute once", draftRevision: "request-one" });
+  const newer = promptUi.updatePromptDraft(pending, "one", "next task", "new-revision");
+  expect(promptUi.failPromptSubmission(newer, 1, "execute once", "offline", "request-one")).toMatchObject({
+    draft: "next task",
+    draftRevision: "new-revision",
+  });
+});
+
+test("reuses an uncertain submission ID only for the unchanged draft, annotations and delivery", () => {
+  const saved = { sessionId: "one", draft: "task", revision: "same-request", submission: { prompt: "annotated task", delivery: "prompt" as const } };
+  expect(promptUi.promptSubmissionIdentity(saved, "task", "annotated task", "prompt")).toEqual({ revision: "same-request", delivery: "prompt" });
+  expect(promptUi.promptSubmissionIdentity(saved, "changed", "annotated task", "prompt")).not.toMatchObject({ revision: "same-request" });
+  expect(promptUi.promptSubmissionIdentity(saved, "task", "different annotation", "prompt")).not.toMatchObject({ revision: "same-request" });
+  expect(promptUi.promptSubmissionIdentity(saved, "task", "annotated task", "steer")).toEqual({ revision: "same-request", delivery: "prompt" });
+  expect(promptUi.promptSubmissionIdentity({ ...saved, submission: undefined }, "task", "annotated task", "prompt")).not.toMatchObject({
+    revision: "same-request",
+  });
+});

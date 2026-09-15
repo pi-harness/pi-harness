@@ -1890,3 +1890,125 @@ test("shows review locations and prioritizes errors in the visible findings", ()
   expect(html).toContain("4/6");
   expect(html).not.toContain("warning-3");
 });
+
+describe("prompt response reconciliation", () => {
+  test("recovers a lost response using the receipt and never repeats the POST", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ path: string; body?: string }> = [];
+    globalThis.fetch = (input, init) => {
+      calls.push({ path: typeof input === "string" ? input : input instanceof URL ? input.href : input.url, body: init?.body as string | undefined });
+      if (input === "/api/prompt") return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            sessionId: "one",
+            messages: [{ role: "user" }],
+            entries: [{ type: "custom", customType: "pi-harness.prompt-receipt", data: { sessionId: "one", requestId: "request-one" } }],
+          }),
+        ),
+      );
+    };
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).resolves.toEqual({
+        reply: "",
+        messages: 1,
+      });
+      expect(calls.map((call) => call.path)).toEqual(["/api/prompt", "/api/session"]);
+      expect(JSON.parse(calls[0]!.body!)).toEqual({ prompt: "execute once", sessionId: "one", requestId: "request-one" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("shows a receipt persistence failure even when the original response was lost", async () => {
+    const originalFetch = globalThis.fetch;
+    const error = "Prompt accepted; receipt persistence failed. Check the result before retrying after a restart: ENOSPC";
+    globalThis.fetch = (input) =>
+      input === "/api/prompt"
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : Promise.resolve(
+            new Response(
+              JSON.stringify({
+                sessionId: "one",
+                messages: [],
+                entries: [
+                  { type: "custom", customType: "pi-harness.prompt-receipt", data: { sessionId: "one", requestId: "request-one", persistenceError: error } },
+                ],
+              }),
+            ),
+          );
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toMatchObject({
+        name: "AcceptedPromptError",
+        message: error,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not reinterpret an explicit conflict as successful delivery", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = () => {
+      calls += 1;
+      return Promise.resolve(new Response(JSON.stringify({ error: "requestId conflict" }), { status: 409 }));
+    };
+    try {
+      await expect(createClientApi().prompt("different operation", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toThrow(
+        "requestId conflict",
+      );
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not use a receipt from another session", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (input) => {
+      if (input === "/api/prompt") return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            sessionId: "two",
+            messages: [],
+            entries: [{ type: "custom", customType: "pi-harness.prompt-receipt", data: { sessionId: "one", requestId: "request-one" } }],
+          }),
+        ),
+      );
+    };
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toThrow("Failed to fetch");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("distinguishes a provider failure after acceptance", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.resolve(new Response(JSON.stringify({ error: "provider unavailable", accepted: true }), { status: 502 }));
+    try {
+      await expect(createClientApi().prompt("execute once", undefined, { sessionId: "one", requestId: "request-one" })).rejects.toMatchObject({
+        name: "AcceptedPromptError",
+        message: "provider unavailable",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("shows receipt persistence failures without requiring the raw-error disclosure", async () => {
+  await setLocale("en");
+  try {
+    const html = renderToStaticMarkup(
+      createElement(PromptError, { message: "Prompt accepted; receipt persistence failed. Check the result before retrying after a restart: ENOSPC" }),
+    );
+    expect(html.split("<details>")[0]).toContain(
+      "The request was accepted, but its receipt could not be saved. Check the result before retrying after a restart.",
+    );
+  } finally {
+    await setLocale("zh-CN");
+  }
+});

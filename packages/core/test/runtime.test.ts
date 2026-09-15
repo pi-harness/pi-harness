@@ -26,6 +26,14 @@ async function createRuntimeContext(): Promise<{ context: Context; responseText:
 }
 
 describe("Pi runtime plugin", () => {
+  test("reports acceptance from the real session preflight", async () => {
+    const { context, callCount } = await createRuntimeContext();
+    const accepted: boolean[] = [];
+    await context.piRuntime.prompt("check acceptance", { preflightResult: (value) => accepted.push(value) });
+    expect(accepted).toEqual([true]);
+    expect(callCount()).toBe(1);
+  });
+
   test("forwards streaming delivery options to the active Pi session", async () => {
     const prompt = vi.fn(() => Promise.resolve());
     const runtime = new PiRuntime({ session: { prompt } } as never);

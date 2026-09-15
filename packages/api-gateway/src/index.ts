@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile, type ExecFileException } from "node:child_process";
 import { constants, existsSync, lstatSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
@@ -363,10 +364,7 @@ function persistSessionBeforeFirstAssistant(manager: SessionManager): void {
   if (!path || existsSync(path)) return;
   const header = manager.getHeader();
   if (!header) throw new Error("Current session is missing its header");
-  // Pi intentionally defers creating a JSONL file until the first assistant
-  // response. A user-assigned name is durable work too: persist the current
-  // tree now, then reopen the same path so Pi knows subsequent entries can be
-  // appended instead of trying to create the file again on first response.
+  // Pi defers creating a JSONL file until the first assistant response. Names and accepted prompt receipts must survive a restart too: persist the tree now, then reopen the same path so subsequent entries append instead of recreating the file.
   const source = [header, ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
   writeFileSync(path, source, { encoding: "utf8", flag: "wx" });
   manager.setSessionFile(path);
@@ -1184,6 +1182,7 @@ export default {
       pluginUi: context.reflect.get("piPluginUi") as PiPluginUiRegistry | undefined,
     };
     const disposePluginPanels = registerPluginPanels(context, services);
+    const pendingPromptRequests = new Map<string, string>();
     let busy = false;
     let sessionOperationBusy = false;
     const runSessionOperation = async (response: ServerResponse, streamingError: string, action: () => Promise<void>): Promise<void> => {
@@ -2321,9 +2320,12 @@ export default {
           return;
         }
         let ownsBusy = false;
+        let accepted = false;
+        let receiptPersistenceError: string | undefined;
+        let requestKey: string | undefined;
         let unsubscribe: (() => void) | undefined;
         try {
-          const payload = JSON.parse(await bodyText(request)) as { prompt?: unknown; streamingBehavior?: unknown };
+          const payload = JSON.parse(await bodyText(request)) as { prompt?: unknown; streamingBehavior?: unknown; requestId?: unknown; sessionId?: unknown };
           if (typeof payload.prompt !== "string" || payload.prompt.trim().length === 0) {
             sendJson(response, 400, { error: "Prompt must be a non-empty string" });
             return;
@@ -2332,17 +2334,85 @@ export default {
             sendJson(response, 400, { error: 'streamingBehavior must be "steer" or "followUp"' });
             return;
           }
+          const session = services.runtime.session;
+          const requestId = payload.requestId;
+          if (
+            requestId !== undefined &&
+            (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId) || typeof payload.sessionId !== "string")
+          ) {
+            sendJson(response, 400, { error: "requestId and sessionId must identify a prompt submission" });
+            return;
+          }
+          if (requestId !== undefined && payload.sessionId !== session.sessionId) {
+            sendJson(response, 409, { error: "The active session changed before this prompt was submitted" });
+            return;
+          }
+          const digest = createHash("sha256")
+            .update(JSON.stringify([payload.prompt, payload.streamingBehavior ?? null]))
+            .digest("hex");
+          const candidateKey = requestId === undefined ? undefined : JSON.stringify([session.sessionId, requestId]);
+          if (requestId !== undefined) {
+            const receipt = session.sessionManager
+              .getEntries()
+              .find(
+                (entry) =>
+                  entry.type === "custom" &&
+                  entry.customType === "pi-harness.prompt-receipt" &&
+                  (entry.data as { requestId?: unknown; sessionId?: unknown } | undefined)?.requestId === requestId &&
+                  (entry.data as { sessionId?: unknown }).sessionId === session.sessionId,
+              );
+            const previousDigest = receipt?.type === "custom" ? (receipt.data as { digest?: unknown }).digest : pendingPromptRequests.get(candidateKey!);
+            if (previousDigest !== undefined) {
+              if (previousDigest !== digest) sendJson(response, 409, { error: "This requestId already identifies a different prompt" });
+              else if (receipt?.type === "custom" && typeof (receipt.data as { persistenceError?: unknown }).persistenceError === "string")
+                sendJson(response, 500, { error: (receipt.data as { persistenceError: string }).persistenceError, accepted: true });
+              else if (receipt) sendJson(response, 200, { reply: "", messages: session.messages.length, received: true });
+              else sendJson(response, 409, { error: "This submission is still being checked; wait for its result before retrying" });
+              return;
+            }
+          }
           if (sessionOperationBusy) {
             sendJson(response, 409, { error: "Another session operation is already running" });
             return;
           }
+          const preflightResult = (value: boolean) => {
+            if (!value || accepted) return;
+            accepted = true;
+            if (requestId !== undefined) {
+              const receipt: { requestId: string; sessionId: string; digest: string; persistenceError?: string } = {
+                requestId,
+                sessionId: session.sessionId,
+                digest,
+              };
+              try {
+                session.sessionManager.appendCustomEntry("pi-harness.prompt-receipt", receipt);
+                persistSessionBeforeFirstAssistant(session.sessionManager);
+              } catch (error) {
+                // Receipt I/O must not throw from Pi's acceptance callback: ordinary prompts have not started yet, while extension commands and queued prompts may already have taken effect.
+                receiptPersistenceError = `Prompt accepted; receipt persistence failed. Check the result before retrying after a restart: ${errorText(error)}`;
+                receipt.persistenceError = receiptPersistenceError;
+                context.logger.warn(receiptPersistenceError);
+              }
+            }
+          };
+          const claimRequest = () => {
+            if (candidateKey !== undefined) {
+              requestKey = candidateKey;
+              pendingPromptRequests.set(candidateKey, digest);
+            }
+          };
           const streamingBehavior = payload.streamingBehavior;
           if (services.runtime.session.isStreaming) {
             if (!streamingBehavior) {
               sendJson(response, 409, { error: "Another prompt is already running; choose steer or followUp delivery" });
               return;
             }
-            await services.runtime.prompt(payload.prompt, { streamingBehavior });
+            claimRequest();
+            await services.runtime.prompt(payload.prompt, { streamingBehavior, preflightResult });
+            if (receiptPersistenceError) {
+              sendJson(response, 500, { error: receiptPersistenceError, accepted: true });
+              return;
+            }
             sendJson(response, 200, {
               reply: "",
               messages: services.runtime.session.messages.length,
@@ -2361,10 +2431,15 @@ export default {
           unsubscribe = services.runtime.session.subscribe((event) => {
             if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") chunks.push(event.assistantMessageEvent.delta);
           });
-          await services.runtime.prompt(payload.prompt);
+          claimRequest();
+          await services.runtime.prompt(payload.prompt, { preflightResult });
           const last = services.runtime.session.messages.at(-1);
           if (last?.role === "assistant" && last.stopReason === "error") {
-            sendJson(response, 502, { error: last.errorMessage ?? "Request error" });
+            sendJson(response, 502, { error: [last.errorMessage ?? "Request error", receiptPersistenceError].filter(Boolean).join("\n"), accepted });
+            return;
+          }
+          if (receiptPersistenceError) {
+            sendJson(response, 500, { error: receiptPersistenceError, accepted: true });
             return;
           }
           sendJson(response, 200, {
@@ -2373,9 +2448,10 @@ export default {
             ...(last?.role === "assistant" && last.stopReason === "aborted" ? { aborted: true } : {}),
           });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendJson(response, 400, { error: [errorText(error), receiptPersistenceError].filter(Boolean).join("\n"), accepted });
         } finally {
           unsubscribe?.();
+          if (requestKey !== undefined) pendingPromptRequests.delete(requestKey);
           if (ownsBusy) busy = false;
         }
       },

@@ -57,7 +57,7 @@ export interface PiRuntimeService {
   readonly session: AgentSession;
   readonly sessionRuntime: AgentSessionRuntime;
   setModel(model: Model<Api>): Promise<void>;
-  prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior">): Promise<void>;
+  prompt(text: string, options?: Pick<PromptOptions, "streamingBehavior" | "preflightResult">): Promise<void>;
   abort(): Promise<void>;
   dispose(): Promise<void>;
 }
