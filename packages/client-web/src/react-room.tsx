@@ -8617,6 +8617,7 @@ export function formatRunClock(totalSeconds: number): string {
 }
 
 function runPhaseText(phase: ClientRunPhase): string {
+  if (phase === "compacting") return t("正在压缩");
   if (phase === "thinking") return t("模型思考中");
   if (phase === "responding") return t("模型生成中");
   if (phase === "tool") return t("工具执行中");
@@ -8987,6 +8988,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const sessionOperationsBusy =
     sessionActionBusy ||
+    data.status?.run?.phase === "compacting" ||
     pendingSessionNavigationRef.current?.accepted === false ||
     (initialSessionRestorePending && initialQueryState.sessionPath !== data.session?.sessionFile);
   const [sessionActionError, setSessionActionError] = useState("");
@@ -9466,7 +9468,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       const type = runtimeEvent.type;
       const reportedPhase = runtimeEvent.runPhase;
       const nextPhase: ClientRunPhase | undefined =
-        reportedPhase === "starting" || reportedPhase === "thinking" || reportedPhase === "responding" || reportedPhase === "tool"
+        reportedPhase === "starting" ||
+        reportedPhase === "thinking" ||
+        reportedPhase === "responding" ||
+        reportedPhase === "tool" ||
+        reportedPhase === "compacting"
           ? reportedPhase
           : type === "message_update" && typeof runtimeEvent.assistantMessageEvent === "object" && runtimeEvent.assistantMessageEvent !== null
             ? (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "thinking_delta"
@@ -9481,7 +9487,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 : undefined;
       setRunActivity((current) => {
         if (current === undefined && nextPhase === undefined) return current;
-        const startedAt = type === "agent_start" ? observedAt : (current?.startedAt ?? observedAt);
+        const startedAt = type === "agent_start" || type === "compaction_start" ? observedAt : (current?.startedAt ?? observedAt);
         return {
           startedAt,
           lastActivityAt: Math.max(startedAt, current?.lastActivityAt ?? 0, observedAt),
@@ -9489,7 +9495,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         };
       });
       setRunClockAt(now);
-      if (type === "agent_start" || type === "turn_start") {
+      if (type === "agent_start" || type === "turn_start" || type === "compaction_start") {
         setStreamingAssistant({ thinking: "", text: "" });
       }
       if (type !== "message_update" || typeof runtimeEvent.assistantMessageEvent !== "object" || runtimeEvent.assistantMessageEvent === null) return;
@@ -9726,7 +9732,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const prompt = annotations.length > 0 ? formatAnnotationPrompt(annotations, question) : question;
     const submittedSessionId = annotationDraft.sessionId;
     const submittedPromptSessionId = data.session?.sessionId;
-    const delivery = promptDelivery(promptBusy, data.status?.status);
+    const delivery = data.status?.run?.phase === "compacting" ? undefined : promptDelivery(promptBusy, data.status?.status);
     if (!prompt || !delivery) return;
     const { revision: submittedDraftRevision, delivery: submittedDelivery } = promptSubmissionIdentity(
       readStoredPromptDraftSnapshot(browserSessionStorage(), submittedPromptSessionId),
@@ -10497,7 +10503,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               <button
                 aria-label={promptDelivery(promptBusy, data.status?.status) ? t("发送消息") : t("发送中")}
                 className="send-button"
-                disabled={!promptDelivery(promptBusy, data.status?.status) || !draft.trim()}
+                disabled={data.status?.run?.phase === "compacting" || !promptDelivery(promptBusy, data.status?.status) || !draft.trim()}
                 title={promptDelivery(promptBusy, data.status?.status) ? t("发送消息（⌘↵）") : t("正在发送")}
                 type="submit"
               >

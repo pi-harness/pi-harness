@@ -51,7 +51,7 @@ const MAX_RETAINED_EVENTS = 2000;
 const MAX_PENDING_TOOL_CALLS = 256;
 /** A session event with gateway-owned arrival time, tool duration, and authoritative post-tool run phase. */
 type StampedSessionEvent = AgentSessionEvent & { readonly receivedAt: number; readonly durationMs?: number; readonly runPhase?: RunActivity["phase"] };
-type RunPhase = "starting" | "thinking" | "responding" | "tool";
+type RunPhase = "starting" | "thinking" | "responding" | "tool" | "compacting";
 interface RunActivity {
   readonly sessionId: string;
   readonly startedAt: number;
@@ -190,20 +190,24 @@ function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {
 // A plugin that contributes tools only joins on the next start, so the console remembers what it installed until then. That memory is about one particular process, and the console cannot tell a restart from a reconnect on its own, so the identity of this process rides along with the status it already polls.
 const PROCESS_STARTED_AT = new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString();
 
+function sessionIsBusy(services: ApiServices): boolean {
+  return services.runtime.session.isStreaming || services.runtime.session.isCompacting;
+}
+
 function createStatus(services: ApiServices, events: readonly AgentSessionEvent[], runActivity: RunActivity | undefined) {
   const activeModel = services.runtime.session.model ?? services.models.model;
   const cwd = activeCwd(services);
   const currentRun =
-    services.runtime.session.isStreaming && runActivity?.sessionId === services.runtime.session.sessionId
+    sessionIsBusy(services) && runActivity?.sessionId === services.runtime.session.sessionId
       ? {
           startedAt: new Date(runActivity.startedAt).toISOString(),
           lastActivityAt: new Date(runActivity.lastActivityAt).toISOString(),
-          phase: runActivity.phase,
+          phase: services.runtime.session.isCompacting ? "compacting" : runActivity.phase,
         }
       : undefined;
   return {
     processStartedAt: PROCESS_STARTED_AT,
-    status: services.runtime.session.isStreaming ? "running" : "ready",
+    status: sessionIsBusy(services) ? "running" : "ready",
     model: activeModel.provider + "/" + activeModel.id,
     messages: services.runtime.session.messages.length,
     events: events.length,
@@ -1253,7 +1257,7 @@ export default {
     let busy = false;
     let sessionOperationBusy = false;
     const runSessionOperation = async (response: ServerResponse, streamingError: string, action: () => Promise<void>): Promise<void> => {
-      if (busy || services.runtime.session.isStreaming) {
+      if (busy || sessionIsBusy(services)) {
         sendJson(response, 409, { error: streamingError });
         return;
       }
@@ -1287,12 +1291,12 @@ export default {
     const events: StampedSessionEvent[] = [];
     const eventClients = new Set<ServerResponse>();
     const initialRunAt = Date.now();
-    let runActivity: RunActivity | undefined = services.runtime.session.isStreaming
+    let runActivity: RunActivity | undefined = sessionIsBusy(services)
       ? {
           sessionId: services.runtime.session.sessionId,
           startedAt: initialRunAt,
           lastActivityAt: initialRunAt,
-          phase: "starting",
+          phase: services.runtime.session.isCompacting ? "compacting" : "starting",
         }
       : undefined;
     // Pi puts a wall-clock on a message payload and nowhere else, so a tool call has no time of its own and nothing downstream can recover when the harness saw it. The gateway is the one place that sees every event as it happens, so it stamps each one on arrival, and pairs a tool call's two events to record how long the call took.
@@ -1319,7 +1323,15 @@ export default {
     const handleEvent = (rawEvent: AgentSessionEvent) => {
       const event = stampEvent(rawEvent);
       const sessionId = services.runtime.session.sessionId;
-      if (event.type === "agent_settled") {
+      if (event.type === "compaction_start") {
+        runActivity = { sessionId, startedAt: event.receivedAt, lastActivityAt: event.receivedAt, phase: "compacting" };
+        Object.assign(event, { runPhase: "compacting" });
+      } else if (event.type === "compaction_end") {
+        runActivity = services.runtime.session.isStreaming
+          ? { sessionId, startedAt: event.receivedAt, lastActivityAt: event.receivedAt, phase: "starting" }
+          : undefined;
+        if (runActivity) Object.assign(event, { runPhase: runActivity.phase });
+      } else if (event.type === "agent_settled") {
         toolCallStartedAt.clear();
         runActivity = undefined;
       } else if (event.type === "agent_start") {
@@ -1359,6 +1371,18 @@ export default {
     const disposeStatus = services.webServer.register({
       path: "/api/status",
       handler(_request, response) {
+        const session = services.runtime.session;
+        // Branch summaries share the compaction state but do not emit compaction_start, so polling also reconciles activity from the runtime.
+        if (!sessionIsBusy(services)) runActivity = undefined;
+        else if (runActivity?.sessionId !== session.sessionId || (session.isCompacting && runActivity.phase !== "compacting")) {
+          const observedAt = Date.now();
+          runActivity = {
+            sessionId: session.sessionId,
+            startedAt: observedAt,
+            lastActivityAt: observedAt,
+            phase: session.isCompacting ? "compacting" : "starting",
+          };
+        }
         sendJson(response, 200, createStatus(services, events, runActivity));
       },
     });
@@ -2077,8 +2101,8 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
-        if (services.runtime.session.isStreaming) {
-          sendJson(response, 409, { error: "Cannot change model while a prompt is running" });
+        if (sessionIsBusy(services)) {
+          sendJson(response, 409, { error: "Cannot change model while a session operation is running" });
           return;
         }
         try {
@@ -2445,6 +2469,10 @@ export default {
               return;
             }
           }
+          if (session.isCompacting) {
+            sendJson(response, 409, { error: "Cannot submit a prompt while context compaction is running" });
+            return;
+          }
           if (sessionOperationBusy) {
             sendJson(response, 409, { error: "Another session operation is already running" });
             return;
@@ -2538,9 +2566,10 @@ export default {
           return;
         }
         try {
-          const wasStreaming = services.runtime.session.isStreaming;
+          const wasBusy = sessionIsBusy(services);
+          if (wasBusy) context.emit("pi/session-abort-requested", services.runtime.session);
           await services.runtime.abort();
-          sendJson(response, 200, { aborted: wasStreaming });
+          sendJson(response, 200, { aborted: wasBusy });
         } catch (error) {
           sendJson(response, 500, { error: errorText(error) });
         }

@@ -17,7 +17,7 @@ export interface ClientStatus {
     readonly phase: ClientRunPhase;
   };
 }
-export type ClientRunPhase = "starting" | "thinking" | "responding" | "tool";
+export type ClientRunPhase = "starting" | "thinking" | "responding" | "tool" | "compacting";
 export type ClientEventStreamState = "connecting" | "open" | "reconnecting" | "closed";
 export interface ClientSession {
   readonly sessionId: string;

@@ -314,3 +314,35 @@ test.each([true, false])("shows model waiting after the last parallel tool ends 
   expect(document.body.textContent).toContain("Waiting for model");
   expect(document.body.textContent).not.toContain("Tool running");
 });
+
+test("renders active compaction after reconnect, protects drafts, and keeps Stop available", async () => {
+  const base = apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace));
+  const abort = vi.fn(() => Promise.resolve({ aborted: true }));
+  const prompt = vi.fn();
+  const api = {
+    ...base,
+    abort,
+    prompt,
+    getStatus: async () => ({
+      ...(await base.getStatus()),
+      status: "running",
+      run: { phase: "compacting" as const, startedAt: new Date().toISOString(), lastActivityAt: new Date().toISOString() },
+    }),
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  expect(document.body.textContent).toContain("Compacting");
+  expect(document.querySelector<HTMLButtonElement>('button[aria-label="Session actions"]')!.disabled).toBe(true);
+  const textarea = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')!;
+  await flush(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "Preserve this draft");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.disabled).toBe(true);
+  await flush(() => textarea.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(prompt).not.toHaveBeenCalled();
+  expect(textarea.value).toBe("Preserve this draft");
+  const stop = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.trim() === "Stop")!;
+  expect(stop.disabled).toBe(false);
+  await flush(() => stop.click());
+  expect(abort).toHaveBeenCalledOnce();
+});

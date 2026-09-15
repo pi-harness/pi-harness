@@ -2074,6 +2074,90 @@ describe("API gateway plugin", () => {
     await expect(status()).resolves.not.toHaveProperty("run");
   });
 
+  test("exposes manual compaction as running and blocks competing operations until abort", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    type Listener = (event: { type: string; [key: string]: unknown }) => void;
+    const listeners = new Set<Listener>();
+    const session = {
+      sessionId: "compaction-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      isCompacting: true,
+      subscribe(listener: Listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const prompt = vi.fn();
+    const newSession = vi.fn();
+    const abortRequested = vi.fn();
+    context.on("pi/session-abort-requested", abortRequested);
+    context.provide("piRuntime", {
+      session,
+      prompt,
+      newSession,
+      abort: () => {
+        session.isCompacting = false;
+        listeners.forEach((listener) => listener({ type: "compaction_end", aborted: true }));
+        return Promise.resolve();
+      },
+    } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const status = async () => (await (await fetch(context.webServer.url + "/api/status")).json()) as Record<string, unknown>;
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    for (const [path, body] of [
+      ["/api/session/new", {}],
+      ["/api/model", { provider: "test", model: "model" }],
+      ["/api/prompt", { prompt: "next" }],
+      ["/api/prompt", { prompt: "next", streamingBehavior: "steer" }],
+      ["/api/prompt", { prompt: "next", streamingBehavior: "followUp" }],
+    ] as const) {
+      const response = await fetch(context.webServer.url + path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status, path).toBe(409);
+    }
+    expect(prompt).not.toHaveBeenCalled();
+    expect(newSession).not.toHaveBeenCalled();
+    const response = await fetch(context.webServer.url + "/api/abort", { method: "POST" });
+    expect(await response.json()).toEqual({ aborted: true });
+    expect(abortRequested).toHaveBeenCalledWith(session);
+    expect(await status()).toMatchObject({ status: "ready" });
+    expect(await status()).not.toHaveProperty("run");
+    session.isCompacting = true;
+    const withoutEvent = await status();
+    expect(withoutEvent).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    expect((await status()).run).toEqual(withoutEvent.run);
+    session.isCompacting = false;
+    expect(await status()).not.toHaveProperty("run");
+    session.isCompacting = true;
+    listeners.forEach((listener) => listener({ type: "compaction_start", reason: "manual" }));
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    session.isCompacting = false;
+    listeners.forEach((listener) => listener({ type: "compaction_end", aborted: false }));
+    expect(await status()).toMatchObject({ status: "ready" });
+    expect(await status()).not.toHaveProperty("run");
+    session.isStreaming = true;
+    listeners.forEach((listener) => listener({ type: "agent_start" }));
+    session.isCompacting = true;
+    listeners.forEach((listener) => listener({ type: "compaction_start", reason: "threshold" }));
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "compacting" } });
+    session.isCompacting = false;
+    listeners.forEach((listener) => listener({ type: "compaction_end", aborted: false }));
+    expect(await status()).toMatchObject({ status: "running", run: { phase: "starting" } });
+    session.isStreaming = false;
+    listeners.forEach((listener) => listener({ type: "agent_settled" }));
+    expect(await status()).toMatchObject({ status: "ready" });
+    expect(await status()).not.toHaveProperty("run");
+  });
+
   test("creates a new session through the live AgentSession", async () => {
     const context = new Context();
     contexts.push(context);

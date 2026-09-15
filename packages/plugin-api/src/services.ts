@@ -318,6 +318,8 @@ declare module "@deepseek-ai/cordis" {
 
   interface Events {
     "pi/session-event"(event: AgentSessionEvent): void;
+    /** Emitted by the web Stop action before invoking the native abort operation. */
+    "pi/session-abort-requested"(session: AgentSession): void;
     "pi/extension-error"(error: ExtensionError): void;
     "pi/telemetry"(event: PiTelemetryEvent): void;
   }
