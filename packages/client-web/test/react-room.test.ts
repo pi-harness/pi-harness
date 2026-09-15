@@ -23,6 +23,7 @@ import {
   reloadRuntimeConfig,
   restartRequiredNotice,
   restartPendingForProcess,
+  runSessionPopoverAction,
   sessionListEmptyMessage,
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
@@ -562,6 +563,32 @@ describe("session list tools", () => {
     expect(menu).toContain("void refresh()");
     expect(menu).toContain("restoreSessionPopoverFocus()");
     expect(menu).not.toContain("window.location.reload()");
+  });
+
+  test("dismisses the tools popover before an action and restores trigger focus after it settles", async () => {
+    const pending = deferred<void>();
+    const events: string[] = [];
+
+    const result = runSessionPopoverAction(
+      () => {
+        events.push("action");
+        return pending.promise;
+      },
+      () => events.push("focus"),
+      () => events.push("dismiss"),
+    );
+
+    expect(events).toEqual(["dismiss", "action"]);
+    pending.resolve();
+    await result;
+    expect(events).toEqual(["dismiss", "action", "focus"]);
+  });
+
+  test("restores the session tools trigger focus when an action rejects", async () => {
+    const focus = vi.fn();
+
+    await expect(runSessionPopoverAction(() => Promise.reject(new Error("failed")), focus)).rejects.toThrow("failed");
+    expect(focus).toHaveBeenCalledOnce();
   });
 
   test("returns to the first page before applying the archived-session filter", async () => {
