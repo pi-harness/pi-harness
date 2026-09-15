@@ -1551,6 +1551,17 @@ function pluginPanelData(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
+function contextDoctorRecommendationText(message: string): string {
+  if (message === "压缩较早的会话历史，释放上下文空间。") return t("压缩较早的会话历史，释放上下文空间。");
+  const oversized = /^检查 (\d+) 条超大消息，优先引用摘要或文件路径。$/.exec(message);
+  if (oversized) return t("检查 {v0} 条超大消息，优先引用摘要或文件路径。", { v0: oversized[1] });
+  const uninspectable = /^检查 (\d+) 条无法安全测量的消息，其结构可能过深、循环或包含访问器。$/.exec(message);
+  if (uninspectable) return t("检查 {v0} 条无法安全测量的消息，其结构可能过深、循环或包含访问器。", { v0: uninspectable[1] });
+  const toolErrors = /^处理 (\d+) 个工具错误后再继续长任务。$/.exec(message);
+  if (toolErrors) return t("处理 {v0} 个工具错误后再继续长任务。", { v0: toolErrors[1] });
+  return message;
+}
+
 export function PluginPanelCard({ panel, inline = false, activeSessionId }: { panel: ClientPluginPanel; inline?: boolean; activeSessionId?: string }) {
   const data = pluginPanelData(panel.data);
   const entries = data ? Object.entries(data) : [[t("内容"), panel.data] as const];
@@ -2636,7 +2647,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               {view.recommendations.length > 0 ? (
                 <ul className="grid gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[10px] text-[var(--color-muted)]">
                   {view.recommendations.map((item, index) => (
-                    <li key={`${item}-${index}`}>{item}</li>
+                    <li key={`${item}-${index}`}>{contextDoctorRecommendationText(item)}</li>
                   ))}
                   {view.recommendationsTruncated ? <li>{t("部分建议因浏览器显示上限被省略。")}</li> : null}
                 </ul>
@@ -9453,18 +9464,21 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       const receivedAt = typeof runtimeEvent.receivedAt === "number" && Number.isFinite(runtimeEvent.receivedAt) ? runtimeEvent.receivedAt : now;
       const observedAt = Math.min(receivedAt, now);
       const type = runtimeEvent.type;
+      const reportedPhase = runtimeEvent.runPhase;
       const nextPhase: ClientRunPhase | undefined =
-        type === "message_update" && typeof runtimeEvent.assistantMessageEvent === "object" && runtimeEvent.assistantMessageEvent !== null
-          ? (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "thinking_delta"
-            ? "thinking"
-            : (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "text_delta"
-              ? "responding"
-              : undefined
-          : type === "tool_execution_start" || type === "tool_execution_update" || type === "tool_execution_end"
-            ? "tool"
-            : type === "agent_start" || type === "turn_start"
-              ? "starting"
-              : undefined;
+        reportedPhase === "starting" || reportedPhase === "thinking" || reportedPhase === "responding" || reportedPhase === "tool"
+          ? reportedPhase
+          : type === "message_update" && typeof runtimeEvent.assistantMessageEvent === "object" && runtimeEvent.assistantMessageEvent !== null
+            ? (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "thinking_delta"
+              ? "thinking"
+              : (runtimeEvent.assistantMessageEvent as Record<string, unknown>).type === "text_delta"
+                ? "responding"
+                : undefined
+            : type === "tool_execution_start" || type === "tool_execution_update"
+              ? "tool"
+              : type === "agent_start" || type === "turn_start"
+                ? "starting"
+                : undefined;
       setRunActivity((current) => {
         if (current === undefined && nextPhase === undefined) return current;
         const startedAt = type === "agent_start" ? observedAt : (current?.startedAt ?? observedAt);

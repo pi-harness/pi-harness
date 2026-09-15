@@ -49,8 +49,8 @@ const IMPORT_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
 const MAX_RETAINED_EVENTS = 2000;
 // Tool calls that opened but never closed. Far above any real concurrency, so the cap only ever trims a run the runtime abandoned.
 const MAX_PENDING_TOOL_CALLS = 256;
-/** A session event with the two fields the gateway owns: when it arrived, and for a tool call how long it took. */
-type StampedSessionEvent = AgentSessionEvent & { readonly receivedAt: number; readonly durationMs?: number };
+/** A session event with gateway-owned arrival time, tool duration, and authoritative post-tool run phase. */
+type StampedSessionEvent = AgentSessionEvent & { readonly receivedAt: number; readonly durationMs?: number; readonly runPhase?: RunActivity["phase"] };
 type RunPhase = "starting" | "thinking" | "responding" | "tool";
 interface RunActivity {
   readonly sessionId: string;
@@ -1320,8 +1320,10 @@ export default {
       const event = stampEvent(rawEvent);
       const sessionId = services.runtime.session.sessionId;
       if (event.type === "agent_settled") {
+        toolCallStartedAt.clear();
         runActivity = undefined;
       } else if (event.type === "agent_start") {
+        toolCallStartedAt.clear();
         runActivity = { sessionId, startedAt: event.receivedAt, lastActivityAt: event.receivedAt, phase: "starting" };
       } else if (runActivity?.sessionId === sessionId || services.runtime.session.isStreaming) {
         const startedAt = runActivity?.sessionId === sessionId ? runActivity.startedAt : event.receivedAt;
@@ -1330,7 +1332,12 @@ export default {
           if (event.assistantMessageEvent.type === "thinking_delta") phase = "thinking";
           if (event.assistantMessageEvent.type === "text_delta") phase = "responding";
         }
-        if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") phase = "tool";
+        if (event.type === "tool_execution_start" || event.type === "tool_execution_update") phase = "tool";
+        if (event.type === "tool_execution_end") {
+          phase = toolCallStartedAt.size > 0 ? "tool" : "starting";
+          // A client may connect after parallel tools started, so their completion events carry the authoritative remaining-work phase.
+          Object.assign(event, { runPhase: phase });
+        }
         runActivity = { sessionId, startedAt, lastActivityAt: event.receivedAt, phase };
       }
       // Streaming deltas reach clients live over SSE and each one carries the whole partial message, so only durable events are retained for snapshots.

@@ -286,3 +286,31 @@ test("uses the accepted session during initial URL restoration even when the fol
   );
   expect(document.querySelector<HTMLInputElement>('[role="dialog"] input')!.value).toBe("Alpha");
 });
+
+test.each([true, false])("shows model waiting after the last parallel tool ends (starts observed: %s)", async (startsObserved) => {
+  let emit: Parameters<ClientApi["subscribeEvents"]>[0] = () => {};
+  const base = apiWith(Promise.resolve(listing("Alpha")), Promise.resolve(marketplace));
+  const api = {
+    ...base,
+    getStatus: async () => ({ ...(await base.getStatus()), status: "running" as const }),
+    subscribeEvents: (listener: typeof emit) => {
+      emit = listener;
+      return () => {};
+    },
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api })));
+  const event = (type: string, toolCallId?: string, runPhase?: string) => emit({ type: "event", event: { type, toolCallId, runPhase } });
+  await flush(() => {
+    event("agent_start");
+    if (startsObserved) {
+      event("tool_execution_start", "one");
+      event("tool_execution_start", "two");
+    }
+  });
+  if (startsObserved) expect(document.body.textContent).toContain("Tool running");
+  await flush(() => event("tool_execution_end", "one", "tool"));
+  expect(document.body.textContent).toContain("Tool running");
+  await flush(() => event("tool_execution_end", "two", "starting"));
+  expect(document.body.textContent).toContain("Waiting for model");
+  expect(document.body.textContent).not.toContain("Tool running");
+});

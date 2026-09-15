@@ -1277,5 +1277,9 @@
   "最近搜索节点": "Nodos de búsquedas recientes",
   "搜索关系 {v0} / {v1}": "Relaciones encontradas {v0} / {v1}",
   "关系页：偏移 {v0} · 下一偏移 {v1} · 已截断 {v2}": "Página de relaciones: desplazamiento {v0} · Siguiente desplazamiento {v1} · Truncado {v2}",
-  "最近搜索关系": "Relaciones de búsquedas recientes"
+  "最近搜索关系": "Relaciones de búsquedas recientes",
+  "压缩较早的会话历史，释放上下文空间。": "Comprima el historial de conversación más antiguo para liberar espacio de contexto.",
+  "处理 {v0} 个工具错误后再继续长任务。": "Resuelva {v0} errores de herramientas antes de continuar con la tarea larga.",
+  "检查 {v0} 条无法安全测量的消息，其结构可能过深、循环或包含访问器。": "Revise {v0} mensajes que no se pueden medir de forma segura; pueden tener una estructura demasiado profunda, circular o con accesores.",
+  "检查 {v0} 条超大消息，优先引用摘要或文件路径。": "Revise {v0} mensajes demasiado grandes; dé prioridad a resúmenes o rutas de archivos."
 }

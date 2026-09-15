@@ -526,7 +526,7 @@ export default {
             content: [
               {
                 type: "text",
-                text: `${resultDetails.status}: ${resultDetails.messageCount} messages, ${resultDetails.oversizedMessages} oversized, ${resultDetails.toolErrors} tool errors.`,
+                text: JSON.stringify(resultDetails),
               },
             ],
             details: resultDetails,

@@ -44,6 +44,31 @@ describe("context doctor", () => {
     expect(report.recommendations).toHaveLength(3);
   });
 
+  test("includes usage and recommendations in model-visible tool content", async () => {
+    const fixture = await createDoctor({
+      messages: [{ role: "user", content: "short" }],
+      getContextUsage: () => ({ percent: 82, tokens: 820, contextWindow: 1000 }),
+      compact: () => Promise.resolve(),
+    });
+    try {
+      const result = await fixture.tool.execute("audit", {}, undefined, undefined, {} as never);
+      const text = result.content.find((item) => item.type === "text");
+      expect(text?.type).toBe("text");
+      const visible = JSON.parse(text!.type === "text" ? text!.text : "") as Record<string, unknown>;
+      expect(visible).toMatchObject({
+        usagePercent: 82,
+        tokens: 820,
+        contextWindow: 1000,
+        messageCount: 1,
+        compacted: false,
+        compaction: { status: "idle" },
+        recommendations: ["压缩较早的会话历史，释放上下文空间。"],
+      });
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("stays healthy when usage and messages are within limits", () => {
     const report = inspectMessages([{ role: "user", content: "short" }], { percent: 20, tokens: 20, contextWindow: 1000 }, 75, 1024);
     expect(report).toMatchObject({ status: "ok", usagePercent: 20, messageCount: 1, oversizedMessages: 0, toolErrors: 0, recommendations: [] });

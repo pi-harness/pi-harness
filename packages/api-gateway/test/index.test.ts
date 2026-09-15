@@ -2059,6 +2059,15 @@ describe("API gateway plugin", () => {
     expect((await status()).run).toMatchObject({ phase: "responding", startedAt });
     emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "read", args: {} });
     expect((await status()).run).toMatchObject({ phase: "tool", startedAt });
+    emit({ type: "tool_execution_start", toolCallId: "call-2", toolName: "read", args: {} });
+    const firstEnd = { type: "tool_execution_end", toolCallId: "call-1", toolName: "read", result: {}, isError: false };
+    emit(firstEnd);
+    expect(firstEnd).toHaveProperty("runPhase", "tool");
+    expect((await status()).run).toMatchObject({ phase: "tool", startedAt });
+    const lastEnd = { type: "tool_execution_end", toolCallId: "call-2", toolName: "read", result: {}, isError: false };
+    emit(lastEnd);
+    expect(lastEnd).toHaveProperty("runPhase", "starting");
+    expect((await status()).run).toMatchObject({ phase: "starting", startedAt });
 
     session.isStreaming = false;
     emit({ type: "agent_settled" });
