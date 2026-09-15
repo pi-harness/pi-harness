@@ -363,3 +363,23 @@ test("reuses an uncertain submission ID only for the unchanged draft, annotation
     revision: "same-request",
   });
 });
+
+test("persists annotation-only submission identity for receipt recovery after reload", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  const annotations = [{ id: 1, quote: "quote", note: "note", revision: "annotation-one" }];
+  const submission = { prompt: "formatted annotations", delivery: "prompt" as const, annotations };
+  promptUi.writeStoredPromptDraft(storage, "one", "", "request-one", submission);
+  const saved = promptUi.readStoredPromptDraftSnapshot(storage, "one");
+  expect(saved).toEqual({ sessionId: "one", draft: "", revision: "request-one", submission });
+  expect(promptUi.promptSubmissionIdentity(saved, "", submission.prompt, "prompt", annotations).revision).toBe("request-one");
+  expect(promptUi.promptSubmissionIdentity(saved, "", submission.prompt, "prompt", [{ ...annotations[0]!, revision: "recreated" }]).revision).not.toBe(
+    "request-one",
+  );
+  promptUi.clearSubmittedPromptDraft(storage, "one", "request-one");
+  expect(promptUi.readStoredPromptDraftSnapshot(storage, "one")).toBeUndefined();
+});

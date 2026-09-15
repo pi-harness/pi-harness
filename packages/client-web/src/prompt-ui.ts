@@ -1,3 +1,4 @@
+import { isClientAnnotation, sameAnnotation, type ClientAnnotation } from "./annotation-ui.js";
 export class AcceptedPromptError extends Error {
   override readonly name = "AcceptedPromptError";
 }
@@ -43,7 +44,7 @@ export interface StoredPromptDraft {
   readonly sessionId: string;
   readonly draft: string;
   readonly revision: string;
-  readonly submission?: { readonly prompt: string; readonly delivery: "prompt" | "steer" };
+  readonly submission?: { readonly prompt: string; readonly delivery: "prompt" | "steer"; readonly annotations?: readonly ClientAnnotation[] };
 }
 
 export function createPromptDraftRevision(): string {
@@ -70,14 +71,19 @@ export function readStoredPromptDraftSnapshot(storage: Pick<Storage, "getItem"> 
     let submission: StoredPromptDraft["submission"];
     if (candidate.submission !== undefined) {
       if (candidate.submission === null || typeof candidate.submission !== "object") return undefined;
-      const value = candidate.submission as { prompt?: unknown; delivery?: unknown };
+      const value = candidate.submission as { prompt?: unknown; delivery?: unknown; annotations?: unknown };
       if (
         typeof value.prompt !== "string" ||
         value.prompt.length > maxStoredPromptDraftCharacters ||
         (value.delivery !== "prompt" && value.delivery !== "steer")
       )
         return undefined;
-      submission = { prompt: value.prompt, delivery: value.delivery };
+      if (value.annotations !== undefined && (!Array.isArray(value.annotations) || !value.annotations.every(isClientAnnotation))) return undefined;
+      submission = {
+        prompt: value.prompt,
+        delivery: value.delivery,
+        ...(value.annotations === undefined ? {} : { annotations: value.annotations }),
+      };
     }
     return { sessionId, draft: candidate.draft, revision: candidate.revision, ...(submission === undefined ? {} : { submission }) };
   } catch {
@@ -102,7 +108,7 @@ export function writeStoredPromptDraft(
 ): string | undefined {
   if (storage === undefined || sessionId === undefined) return undefined;
   try {
-    if (draft === "" || draft.length > maxStoredPromptDraftCharacters) {
+    if ((draft === "" && submission === undefined) || draft.length > maxStoredPromptDraftCharacters) {
       clearStoredPromptDraft(storage, sessionId);
       return undefined;
     }
@@ -164,8 +170,12 @@ export function promptSubmissionIdentity(
   draft: string,
   prompt: string,
   delivery: "prompt" | "steer",
+  annotations: readonly ClientAnnotation[] = [],
 ): { revision: string; delivery: "prompt" | "steer" } {
-  return saved?.draft === draft && saved.submission?.prompt === prompt
+  const savedAnnotations = saved?.submission?.annotations ?? [];
+  const unchangedAnnotations =
+    savedAnnotations.length === annotations.length && annotations.every((annotation, index) => sameAnnotation(annotation, savedAnnotations[index]));
+  return saved?.draft === draft && saved.submission?.prompt === prompt && unchangedAnnotations
     ? { revision: saved.revision, delivery: saved.submission.delivery }
     : { revision: createPromptDraftRevision(), delivery };
 }

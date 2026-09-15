@@ -58,7 +58,10 @@ import {
   annotationDraftDuringSessionRestore,
   annotationDraftForSession,
   captureSelectionForSession,
-  clearStoredAnnotationDraft,
+  clearStoredSubmittedAnnotations,
+  readStoredAnnotationSubmissions,
+  rememberAnnotationSubmission,
+  forgetAnnotationSubmission,
   clearSubmittedAnnotations,
   formatAnnotationPrompt,
   parseAnnotationPrompt,
@@ -8899,17 +8902,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setPendingModel(undefined);
     setModelSelectionError("");
   }, [data.session?.sessionId, initialSessionRestorePending]);
-  useEffect(() => {
-    const sessionId = data.session?.sessionId;
-    const saved = readStoredPromptDraftSnapshot(browserSessionStorage(), sessionId);
-    const receipt = acceptedPromptReceipt(data.session?.entries ?? [], sessionId, saved?.revision);
-    if (!receipt) return;
-    const cleared = clearSubmittedPromptDraft(browserSessionStorage(), sessionId, saved?.revision);
-    setStoredPromptUi((current) => {
-      const next = clearAcceptedPromptDraft(current, sessionId, saved?.revision, cleared);
-      return next === current ? current : { ...next, error: receipt.persistenceError ?? "" };
-    });
-  }, [data.session?.entries, data.session?.sessionId]);
   const [storedAnnotationDraft, setStoredAnnotationDraft] = useState<ClientAnnotationDraft>(() =>
     readStoredAnnotationDraft(browserSessionStorage(), undefined),
   );
@@ -8933,6 +8925,30 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     };
   }, [data.session?.sessionId, initialSessionRestorePending]);
   useEffect(() => writeStoredAnnotationDraft(browserSessionStorage(), storedAnnotationDraft), [storedAnnotationDraft]);
+  // Reconcile after the draft persistence effect so an older render cannot re-store annotations that this receipt just cleared.
+  useEffect(() => {
+    const sessionId = data.session?.sessionId;
+    const saved = readStoredPromptDraftSnapshot(browserSessionStorage(), sessionId);
+    for (const submission of readStoredAnnotationSubmissions(browserSessionStorage(), sessionId)) {
+      const receipt = acceptedPromptReceipt(data.session?.entries ?? [], sessionId, submission.requestId);
+      if (!receipt) continue;
+      clearStoredSubmittedAnnotations(browserSessionStorage(), sessionId, submission.annotations);
+      setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, sessionId, submission.annotations));
+      forgetAnnotationSubmission(browserSessionStorage(), sessionId, submission.requestId);
+      if (receipt.persistenceError)
+        setStoredPromptUi((current) => (current.sessionId === sessionId ? { ...current, error: receipt.persistenceError ?? "" } : current));
+    }
+    const receipt = acceptedPromptReceipt(data.session?.entries ?? [], sessionId, saved?.revision);
+    if (!receipt) return;
+    const submittedAnnotations = saved?.submission?.annotations ?? [];
+    clearStoredSubmittedAnnotations(browserSessionStorage(), sessionId, submittedAnnotations);
+    setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, sessionId, submittedAnnotations));
+    const cleared = clearSubmittedPromptDraft(browserSessionStorage(), sessionId, saved?.revision);
+    setStoredPromptUi((current) => {
+      const next = clearAcceptedPromptDraft(current, sessionId, saved?.revision, cleared);
+      return next === current ? current : { ...next, error: receipt.persistenceError ?? "" };
+    });
+  }, [data.session?.entries, data.session?.sessionId]);
   const [search, setSearch] = useState("");
   const [sessionQuery, setSessionQuery] = useState("");
   const sessionQueryRef = useRef("");
@@ -9663,8 +9679,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       submittedDraft,
       prompt,
       delivery,
+      annotations,
     );
-    const submission = { prompt, delivery: submittedDelivery };
+    const submittedAnnotations = annotations;
+    rememberAnnotationSubmission(browserSessionStorage(), submittedSessionId, submittedDraftRevision, submittedAnnotations);
+    const submission = { prompt, delivery: submittedDelivery, ...(submittedAnnotations.length === 0 ? {} : { annotations: submittedAnnotations }) };
     writeStoredPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraft, submittedDraftRevision, submission);
     const submissionId = ++promptSubmissionIdRef.current;
     setModelSelectionError("");
@@ -9684,8 +9703,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         accepted: () => {
           const submittedVersionCleared = clearSubmittedPromptDraft(browserSessionStorage(), submittedPromptSessionId, submittedDraftRevision);
           setStoredPromptUi((current) => clearAcceptedPromptDraft(current, submittedPromptSessionId, submittedDraftRevision, submittedVersionCleared));
-          clearStoredAnnotationDraft(browserSessionStorage(), submittedSessionId);
-          setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId));
+          clearStoredSubmittedAnnotations(browserSessionStorage(), submittedSessionId, submittedAnnotations);
+          forgetAnnotationSubmission(browserSessionStorage(), submittedSessionId, submittedDraftRevision);
+          setStoredAnnotationDraft((current) => clearSubmittedAnnotations(current, submittedSessionId, submittedAnnotations));
         },
         rejected: (cause) => {
           // Preserve uncertain submissions until a receipt arrives, without replacing a newer draft.
@@ -9723,7 +9743,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         ...scoped,
         annotations: [
           ...scoped.annotations,
-          { id: scoped.annotations.length === 0 ? 1 : Math.max(...scoped.annotations.map((item) => item.id)) + 1, quote, note: annotationNote.trim() },
+          {
+            id: scoped.annotations.length === 0 ? 1 : Math.max(...scoped.annotations.map((item) => item.id)) + 1,
+            quote,
+            note: annotationNote.trim(),
+            revision: createPromptDraftRevision(),
+          },
         ],
         selection: "",
         note: "",
