@@ -3,7 +3,9 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/server-dist/**", "**/node_modules/**", "packages/api-gateway/scripts/**"],
+    // Rust build output. Tauri writes generated .js codegen assets under src-tauri/target, and the type-aware
+    // rules try to parse them against a tsconfig that does not include them, so a desktop build breaks lint:check.
+    ignores: ["**/dist/**", "**/server-dist/**", "**/target/**", "**/node_modules/**", "packages/api-gateway/scripts/**"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
