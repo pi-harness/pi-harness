@@ -1161,6 +1161,45 @@ export function ProviderAuthNotice({ model, providers, onConfigure }: { model?: 
   );
 }
 
+// The model is runtime state, not session state, so restarting the console drops every session back to the boot default. Nothing in the console said so, and a session that had been running on one model answered its next prompt on another without a word.
+export function sessionLastModel(session: Pick<ClientSession, "messages"> | undefined): string | undefined {
+  const messages = session?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const provider = message?.provider;
+    const model = message?.model;
+    if (typeof provider === "string" && provider !== "" && typeof model === "string" && model !== "") return `${provider}/${model}`;
+  }
+  return undefined;
+}
+
+export function SessionModelNotice({
+  session,
+  current,
+  busy,
+  onRestore,
+}: {
+  session: Pick<ClientSession, "messages"> | undefined;
+  current?: string;
+  busy: boolean;
+  onRestore: (model: string) => void;
+}) {
+  const previous = sessionLastModel(session);
+  if (previous === undefined || current === undefined || previous === current) return null;
+  return (
+    <div className="session-model-notice" role="status">
+      <div className="action-error-summary">
+        <strong>{t("这个会话上次用的是另一个模型")}</strong>
+        <span>{previous}</span>
+        <span>{t("现在会用 {model} 继续。", { model: current })}</span>
+      </div>
+      <button className="tool-chip" disabled={busy} onClick={() => onRestore(previous)} type="button">
+        {t("切回 {model}", { model: previous })}
+      </button>
+    </div>
+  );
+}
+
 export function modelSelectable(model: Pick<ClientModel, "provider">, providers: readonly ClientProvider[]): boolean {
   return providers.find((provider) => provider.provider === model.provider)?.auth?.configured !== false;
 }
@@ -9015,6 +9054,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const { draft, pendingPrompt, busy: promptBusy, error: promptError } = promptUi;
   const [pendingModel, setPendingModel] = useState<string>();
   const [modelSelectionError, setModelSelectionError] = useState("");
+  const [modelChoiceMade, setModelChoiceMade] = useState(false);
   const promptScopeRef = useRef<{ sessionId: string | undefined }>({ sessionId: data.session?.sessionId });
   const promptSubmissionIdRef = useRef(0);
   const settingsBackPendingRef = useRef(false);
@@ -9898,6 +9938,43 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
   }, [draft]);
+  // Shared by the model picker and the notice that offers to put a reopened session back on the model it was last run with.
+  const applyModelSelection = useCallback(
+    (selectedModel: string) => {
+      // Whoever chose a model in this page load has now been told what the runtime is on, so the notice has nothing left to say and must not nag after a deliberate switch.
+      setModelChoiceMade(true);
+      const [provider, ...modelParts] = selectedModel.split("/");
+      const model = modelParts.join("/");
+      if (!provider || !model) return;
+      const promptScope = promptScopeRef.current;
+      setPromptError("");
+      setModelSelectionError("");
+      setPendingModel(selectedModel);
+      void api.selectModel(provider, model).then(
+        (result) => {
+          if (promptScopeRef.current !== promptScope) return;
+          // The mutation response is newer than every snapshot already in flight. Advance the live-status barrier before applying it so an older poll cannot visually undo a successful switch.
+          liveRefreshSequenceRef.current.status = Math.max(liveRefreshSequenceRef.current.status, refreshSequenceRef.current.requested + 1);
+          setData((current) => ({
+            ...current,
+            status: current.status ? { ...current.status, model: `${result.model.provider}/${result.model.id}` } : current.status,
+            models: current.models.map((item) => ({
+              ...item,
+              active: item.provider === result.model.provider && item.id === result.model.id,
+            })),
+          }));
+          setPendingModel(undefined);
+          void refresh();
+        },
+        (cause: unknown) => {
+          if (promptScopeRef.current !== promptScope) return;
+          setPendingModel(undefined);
+          setModelSelectionError(cause instanceof Error ? cause.message : String(cause));
+        },
+      );
+    },
+    [api, refresh, setPromptError],
+  );
   const filteredSessions = data.sessions;
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -10451,6 +10528,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         </div>
         <div className="composer-stack">
           <ProviderAuthNotice model={data.status?.model} providers={data.providers} onConfigure={() => openSettings("providers")} />
+          {modelChoiceMade ? null : (
+            <SessionModelNotice
+              busy={promptBusy || pendingModel !== undefined}
+              current={pendingModel ?? data.status?.model}
+              onRestore={applyModelSelection}
+              session={data.session}
+            />
+          )}
           {modelSelectionError ? (
             <PromptError action="model" message={modelSelectionError} />
           ) : promptError ? (
@@ -10628,38 +10713,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 aria-label={t("模型")}
                 disabled={!hasSelectableModel || promptBusy || pendingModel !== undefined}
                 value={pendingModel ?? data.status?.model ?? ""}
-                onChange={(event) => {
-                  const selectedModel = event.target.value;
-                  const [provider, ...modelParts] = selectedModel.split("/");
-                  const model = modelParts.join("/");
-                  if (!provider || !model) return;
-                  const promptScope = promptScopeRef.current;
-                  setPromptError("");
-                  setModelSelectionError("");
-                  setPendingModel(selectedModel);
-                  void api.selectModel(provider, model).then(
-                    (result) => {
-                      if (promptScopeRef.current !== promptScope) return;
-                      // The mutation response is newer than every snapshot already in flight. Advance the live-status barrier before applying it so an older poll cannot visually undo a successful switch.
-                      liveRefreshSequenceRef.current.status = Math.max(liveRefreshSequenceRef.current.status, refreshSequenceRef.current.requested + 1);
-                      setData((current) => ({
-                        ...current,
-                        status: current.status ? { ...current.status, model: `${result.model.provider}/${result.model.id}` } : current.status,
-                        models: current.models.map((item) => ({
-                          ...item,
-                          active: item.provider === result.model.provider && item.id === result.model.id,
-                        })),
-                      }));
-                      setPendingModel(undefined);
-                      void refresh();
-                    },
-                    (cause: unknown) => {
-                      if (promptScopeRef.current !== promptScope) return;
-                      setPendingModel(undefined);
-                      setModelSelectionError(cause instanceof Error ? cause.message : String(cause));
-                    },
-                  );
-                }}
+                onChange={(event) => applyModelSelection(event.target.value)}
               >
                 {data.models.length ? (
                   data.models.map((model) => {

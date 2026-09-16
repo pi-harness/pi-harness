@@ -24,9 +24,11 @@ import {
   restartRequiredNotice,
   restartPendingForProcess,
   runSessionPopoverAction,
+  SessionModelNotice,
   fileCompletionDetail,
   parseUnifiedDiff,
   sessionHeadingTitle,
+  sessionLastModel,
   sessionListEmptyMessage,
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
@@ -328,6 +330,36 @@ test("localizes an empty session title in the sidebar", async () => {
   } finally {
     await setLocale(previousLocale);
   }
+});
+
+describe("session model drift", () => {
+  const message = (provider: string, model: string) => ({ role: "assistant", provider, model });
+  const render = (messages: readonly Record<string, unknown>[], current?: string) =>
+    renderToStaticMarkup(createElement(SessionModelNotice, { session: { messages }, current, busy: false, onRestore: () => {} }));
+
+  test("reads the model from the most recent message that names one", () => {
+    expect(sessionLastModel({ messages: [message("everyapi", "kimi-k2.7-code"), { role: "user" }] })).toBe("everyapi/kimi-k2.7-code");
+    expect(sessionLastModel({ messages: [message("everyapi", "a"), message("everyapi", "b")] })).toBe("everyapi/b");
+  });
+
+  test("has nothing to report for a session that has never run", () => {
+    expect(sessionLastModel({ messages: [] })).toBeUndefined();
+    expect(sessionLastModel(undefined)).toBeUndefined();
+  });
+
+  // Restarting the console drops every session back to the boot model, and the console used to say nothing about it.
+  test("warns when the runtime has moved off the model the session was last run with", () => {
+    const html = render([message("everyapi", "kimi-k2.7-code")], "everyapi/deepseek-v4-flash");
+
+    expect(html).toContain("everyapi/kimi-k2.7-code");
+    expect(html).toContain("everyapi/deepseek-v4-flash");
+  });
+
+  test("stays out of the way when the model has not moved, or cannot be known", () => {
+    expect(render([message("everyapi", "kimi-k2.7-code")], "everyapi/kimi-k2.7-code")).toBe("");
+    expect(render([message("everyapi", "kimi-k2.7-code")], undefined)).toBe("");
+    expect(render([{ role: "user" }], "everyapi/deepseek-v4-flash")).toBe("");
+  });
 });
 
 describe("file completion detail", () => {
