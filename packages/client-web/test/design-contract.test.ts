@@ -74,7 +74,6 @@ describe("Pi Harness design contract", () => {
     expect(marketplaceStatisticItems(undefined)).toEqual([]);
   });
 
-
   // The console header and the plugin detail pane are written inline inside ControlRoom, which cannot be
   // mounted without booting the whole room, so the heading outline is asserted against the source instead.
   it("gives every view a single top-level heading", () => {
