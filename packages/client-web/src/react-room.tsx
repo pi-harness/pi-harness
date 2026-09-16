@@ -7580,7 +7580,7 @@ function Settings({
             </button>
             <div className="settings-header-copy">
               <strong>{tab === "general" ? t("通用") : tab === "providers" ? t("提供商") : t("运行配置")}</strong>
-              <small>{tab === "toml" ? t("配置即代码，改完重载") : t("运行时状态与快捷键")}</small>
+              <small>{tab === "toml" ? t("配置即代码，改完重载") : tab === "providers" ? t("模型来源与认证") : t("运行时状态与快捷键")}</small>
             </div>
           </header>
           <div className="settings-body">
@@ -7608,6 +7608,23 @@ function Settings({
                         {option.label}
                       </option>
                     ))}
+                  </select>
+                </div>
+                <div className="general-row">
+                  <div>
+                    <strong>{t("发送消息快捷键")}</strong>
+                    <small>{t("决定在输入框里按什么键发送，另一个组合则换行。这个偏好保存在浏览器里。")}</small>
+                  </div>
+                  <select
+                    aria-label={t("发送消息快捷键")}
+                    className="setting-select"
+                    onChange={(event) => {
+                      onSendShortcutChange(event.target.value === "mod-enter" ? "mod-enter" : "enter");
+                    }}
+                    value={sendShortcut}
+                  >
+                    <option value="enter">{t("Enter")}</option>
+                    <option value="mod-enter">{t("Cmd/Ctrl+Enter")}</option>
                   </select>
                 </div>
                 {[
@@ -7935,18 +7952,6 @@ function Settings({
                           <strong>{t("模型默认值")}</strong>
                           <small>{t("新会话启动时使用的模型和思考级别")}</small>
                         </header>
-                        <label className="config-field">
-                          <span>{t("发送消息快捷键")}</span>
-                          <select
-                            value={sendShortcut}
-                            onChange={(event) => {
-                              onSendShortcutChange(event.target.value === "mod-enter" ? "mod-enter" : "enter");
-                            }}
-                          >
-                            <option value="enter">{t("Enter")}</option>
-                            <option value="mod-enter">{t("Cmd/Ctrl+Enter")}</option>
-                          </select>
-                        </label>
                         <label className="config-field">
                           <span>{t("提供商")}</span>
                           <select

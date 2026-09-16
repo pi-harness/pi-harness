@@ -495,11 +495,16 @@ button:disabled {
 .header-spacer {
   @apply [flex:1];
 }
+/* The activity text is built to ellipsise, but that only helps if the indicator itself can give up width: as a non-shrinking flex item it pushed the view tabs and the details toggle past the right edge of a narrow window, where nothing scrolls to reach them. */
 .run-indicator {
-  @apply [display:flex] [min-width:0] [max-width:min(52vw,_560px)] [align-items:center] [gap:6px] [flex:none] [padding:4px_5px_4px_8px] [border:1px_solid_rgba(53,_101,_197,_0.18)] [border-radius:8px] [background:var(--color-blue-soft)] [color:var(--color-muted)] [font:10.5px_var(--font-mono)];
+  @apply [display:flex] [min-width:0] [max-width:min(52vw,_560px)] [align-items:center] [gap:6px] [flex:0_1_auto] [padding:4px_5px_4px_8px] [border:1px_solid_rgba(53,_101,_197,_0.18)] [border-radius:8px] [background:var(--color-blue-soft)] [color:var(--color-muted)] [font:10.5px_var(--font-mono)];
 }
 .run-indicator .run-dot {
-  @apply [width:6px] [height:6px] [border-radius:50%] [background:var(--color-green)] [animation:var(--animate-pulse-soft)];
+  @apply [width:6px] [height:6px] [flex:none] [border-radius:50%] [background:var(--color-green)] [animation:var(--animate-pulse-soft)];
+}
+.run-indicator .run-phase,
+.run-indicator .run-clock {
+  @apply [flex:none];
 }
 .run-indicator > span:not(.run-dot) {
   @apply [white-space:nowrap];
