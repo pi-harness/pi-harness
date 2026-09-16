@@ -156,6 +156,7 @@
   "主题数据无效，未应用颜色。": "Données de thème invalides ; aucune couleur n'a été appliquée.",
   "书签以标签追加到 Pi 原生会话记录，不修改已有消息；内存会话不会落盘。": "Les signets sont ajoutés sous forme d'étiquettes au journal de session natif de Pi sans modifier les messages existants ; les sessions en mémoire ne sont jamais écrites sur disque.",
   "事件": "Événements",
+  "事件 {from}–{to} · {label}": "Événements {from}–{to} · {label}",
   "事件名已截断。": "Les noms d'événements ont été tronqués.",
   "事件名：{names}": "Noms d'événement : {names}",
   "事件详情": "Détails de l'événement",

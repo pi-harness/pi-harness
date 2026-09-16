@@ -1143,8 +1143,9 @@ button:disabled {
 .trajectory-history {
   @apply [margin-left:9px] [color:var(--color-blue)] [font:10.5px_var(--font-mono)];
 }
+/* The bar count is bucketed to fit, and the gap and floor below are what make that bucket count fit the narrowest container the layout produces; overflow is hidden so a future change cannot silently spill out of a row that has nothing to scroll. */
 .timeline {
-  @apply [display:flex] [gap:3px] [height:26px] [margin-top:8px];
+  @apply [display:flex] [gap:2px] [overflow:hidden] [height:26px] [margin-top:8px];
 }
 .timeline-turn {
   @apply [display:flex] [align-items:stretch] [padding:0] [background:var(--color-line)] [border-radius:3px] [overflow:hidden];
@@ -2415,7 +2416,7 @@ button:disabled {
   @apply [padding:5px_8px] [color:var(--color-faint)] [font:10px_var(--font-mono)];
 }
 .timeline-turn {
-  @apply [flex:1] [min-width:4px];
+  @apply [flex:1] [min-width:2px];
 }
 .timeline-strip {
   @apply [height:100%] [background:var(--color-blue)] [border-radius:3px];

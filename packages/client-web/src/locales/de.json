@@ -156,6 +156,7 @@
   "主题数据无效，未应用颜色。": "Ungültige Theme-Daten; es wurden keine Farben angewendet.",
   "书签以标签追加到 Pi 原生会话记录，不修改已有消息；内存会话不会落盘。": "Lesezeichen werden als Tags an das native Pi-Sitzungsprotokoll angehängt, ohne bestehende Nachrichten zu ändern; Sitzungen im Arbeitsspeicher werden nicht auf die Festplatte geschrieben.",
   "事件": "Ereignisse",
+  "事件 {from}–{to} · {label}": "Ereignisse {from}–{to} · {label}",
   "事件名已截断。": "Die Ereignisnamen wurden abgeschnitten.",
   "事件名：{names}": "Ereignisnamen: {names}",
   "事件详情": "Ereignisdetails",
