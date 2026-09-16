@@ -2168,6 +2168,20 @@ button:disabled {
 .provider-auth-notice .action-error-summary {
   @apply [flex:1] [min-width:0] [flex-wrap:wrap];
 }
+/* A session carrying on with a different model than last time is worth saying, but it is not a failure, so it does not borrow the red of one. */
+.session-model-notice {
+  @apply [display:flex] [align-items:center] [gap:8px] [margin-bottom:8px] [padding:9px_11px] [border:1px_solid_rgba(53,_101,_197,_0.18)] [border-radius:9px] [background:var(--color-blue-soft)] [color:var(--color-muted)] [font-size:11.5px];
+}
+.session-model-notice .action-error-summary {
+  @apply [flex:1] [min-width:0] [flex-wrap:wrap];
+}
+.session-model-notice .action-error-summary strong,
+.session-model-notice .action-error-summary span {
+  @apply [color:var(--color-ink)];
+}
+.session-model-notice .action-error-summary span {
+  @apply [color:var(--color-muted)];
+}
 .action-error-summary strong {
   @apply [flex:none] [font-size:11.5px] [color:var(--color-red)];
 }
