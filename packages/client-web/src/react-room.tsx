@@ -1522,11 +1522,18 @@ export function Trajectory({
         </div>
       </div>
       <div className="source-filters">
-        <button className={`filter ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")} type="button">
+        <button aria-pressed={filter === "all"} className={`filter ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")} type="button">
           {t("全部 {v0}", { v0: events.length })}
         </button>
         {[...counts].map(([type, count]) => (
-          <button className={`filter ${filter === type ? "active" : ""}`} key={type} onClick={() => setFilter(type)} title={type} type="button">
+          <button
+            aria-pressed={filter === type}
+            className={`filter ${filter === type ? "active" : ""}`}
+            key={type}
+            onClick={() => setFilter(type)}
+            title={type}
+            type="button"
+          >
             {eventKindLabel(type)} {count}
           </button>
         ))}
@@ -8002,10 +8009,20 @@ function Settings({
                     <strong>{t("运行时配置")}</strong>
                     <span>{config?.path ?? "~/.pi/agent/settings.json"}</span>
                   </div>
-                  <button className={configMode === "form" ? "active" : ""} onClick={() => setConfigMode("form")} type="button">
+                  <button
+                    aria-pressed={configMode === "form"}
+                    className={configMode === "form" ? "active" : ""}
+                    onClick={() => setConfigMode("form")}
+                    type="button"
+                  >
                     {t("表单")}
                   </button>
-                  <button className={configMode === "source" ? "active" : ""} onClick={() => setConfigMode("source")} type="button">
+                  <button
+                    aria-pressed={configMode === "source"}
+                    className={configMode === "source" ? "active" : ""}
+                    onClick={() => setConfigMode("source")}
+                    type="button"
+                  >
                     {t("源码")}
                   </button>
                   <button
@@ -11165,6 +11182,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   />
                 )}
                 <button
+                  aria-current="true"
                   className="session-row active"
                   onClick={() => {
                     setSettings(undefined);
@@ -11261,6 +11279,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       />
                     )}
                     <button
+                      aria-current={session.sessionId === data.session?.sessionId ? "true" : undefined}
                       className={`session-row ${session.sessionId === data.session?.sessionId ? "active" : ""}`}
                       onClick={() => openSession(session)}
                       type="button"
@@ -11437,6 +11456,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             ＋
           </button>
           <button
+            aria-current={!settings && (page === "plugins" || page === "marketplace") ? "page" : undefined}
             aria-label={t("插件，已安装 {count} 个", { count: installedPluginCount })}
             className={`sidebar-link ${page === "plugins" || page === "marketplace" ? "active" : ""}`}
             onClick={() => pushInstalledPluginRoute(undefined)}
@@ -11447,6 +11467,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <b>{installedPluginCount}</b>
           </button>
           <button
+            aria-current={settings ? "page" : undefined}
             aria-label={t("设置")}
             className={`sidebar-link ${settings ? "active" : ""}`}
             onClick={() => openSettings("general")}

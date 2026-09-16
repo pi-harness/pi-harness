@@ -109,6 +109,19 @@ describe("Pi Harness design contract", () => {
     expect((source.match(/toLocaleString\(formatLocale\(\)\)/g) ?? []).length).toBeGreaterThanOrEqual(26);
   });
 
+  it("exposes an active control's state to assistive technology, not only to CSS", () => {
+    const source = readFileSync(fileURLToPath(new URL("../src/react-room.tsx", import.meta.url)), "utf8");
+    const buttons = source.match(/<button\b[^>]*>/gs) ?? [];
+    const activeButtons = buttons.filter((tag) => /\bactive\b/.test(tag));
+
+    // A control that shows it is on by swapping a class says nothing to a screen reader: the trace filters
+    // read as plain buttons with no indication of which one is applied. A toggle carries aria-pressed; the
+    // current item in a set of pages carries aria-current.
+    expect(activeButtons.length).toBeGreaterThanOrEqual(14);
+    const silent = activeButtons.filter((tag) => !/aria-pressed|aria-current/.test(tag));
+    expect(silent).toEqual([]);
+  });
+
   it("reports every failed control-room refresh surface without hiding partial failures", () => {
     expect(
       failedRefreshLabels(
