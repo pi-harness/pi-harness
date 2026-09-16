@@ -2,6 +2,7 @@
 // The Chinese text is the message key, so this script is also what keeps the catalogs in step with the source: run it after adding UI copy.
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { pathToFileURL } from "node:url";
 import process from "node:process";
 import ts from "typescript";
 
@@ -9,6 +10,7 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const SRC = join(ROOT, "packages/client-web/src");
 const LOCALES = join(SRC, "locales");
 const WRITE = process.argv.includes("--write");
+const PRUNE = process.argv.includes("--prune");
 const CJK = /[一-鿿]/u;
 
 // Attributes whose value a person reads. Every other attribute holding Chinese would be a React key or a selector, and translating those changes behaviour rather than wording.
@@ -23,11 +25,23 @@ function sourceFiles() {
     .map((name) => join(SRC, name));
 }
 
-/** @param {ts.Node} node */
+/**
+ * The message argument of a t() call, including the branches of a conditional that picks between two messages: `t(plural ? "a 条" : "b 条", vars)` is already translated, and wrapping its branches again produces `t(t("a 条"), vars)`, which looks up an already-translated string as a key.
+ * @param {ts.Node} node
+ */
 function isInsideTranslateCall(node) {
-  const parent = node.parent;
+  let current = node;
+  let parent = current.parent;
+  while (parent !== undefined && (ts.isParenthesizedExpression(parent) || ts.isConditionalExpression(parent))) {
+    current = parent;
+    parent = current.parent;
+  }
   return (
-    parent !== undefined && ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === "t" && parent.arguments[0] === node
+    parent !== undefined &&
+    ts.isCallExpression(parent) &&
+    ts.isIdentifier(parent.expression) &&
+    parent.expression.text === "t" &&
+    parent.arguments[0] === current
   );
 }
 
@@ -146,37 +160,62 @@ function collect(file) {
   return { text, edits, strings, skipped, source };
 }
 
-/** @type {Set<string>} */
-const allStrings = new Set();
-/** @type {{ file: string; text: string; why: string; line: number }[]} */
-const allSkipped = [];
-let changedFiles = 0;
-for (const file of sourceFiles()) {
-  const { text, edits, strings, skipped, source } = collect(file);
-  strings.forEach((value) => allStrings.add(value));
-  skipped.forEach((entry) => allSkipped.push({ file: relative(ROOT, file), ...entry }));
-  if (!WRITE || edits.length === 0) continue;
-  let next = text;
-  for (const edit of [...edits].sort((left, right) => right.start - left.start)) next = next.slice(0, edit.start) + edit.replacement + next.slice(edit.end);
-  writeFileSync(file, withTranslateImport(next, source));
-  changedFiles += 1;
-  process.stdout.write(`${relative(ROOT, file)}: ${edits.length} 处\n`);
+/**
+ * Every message key the console can display, in catalog order. Exported so a test can hold the shipped catalogs to the strings the source actually asks for, instead of trusting that whoever added the copy also remembered to run this script.
+ * @param {{ write?: boolean }} [options]
+ */
+export function extractTranslatableKeys(options = {}) {
+  const write = options.write === true;
+  /** @type {Set<string>} */
+  const allStrings = new Set();
+  /** @type {{ file: string; text: string; why: string; line: number }[]} */
+  const allSkipped = [];
+  /** @type {{ file: string; edits: number }[]} */
+  const rewritten = [];
+  for (const file of sourceFiles()) {
+    const { text, edits, strings, skipped, source } = collect(file);
+    strings.forEach((value) => allStrings.add(value));
+    skipped.forEach((entry) => allSkipped.push({ file: relative(ROOT, file), ...entry }));
+    if (!write || edits.length === 0) continue;
+    let next = text;
+    for (const edit of [...edits].sort((left, right) => right.start - left.start)) next = next.slice(0, edit.start) + edit.replacement + next.slice(edit.end);
+    writeFileSync(file, withTranslateImport(next, source));
+    rewritten.push({ file: relative(ROOT, file), edits: edits.length });
+  }
+  return { keys: [...allStrings].sort(), skipped: allSkipped, rewritten };
 }
 
-const keys = [...allStrings].sort();
-if (WRITE) {
-  for (const name of readdirSync(LOCALES).filter((entry) => entry.endsWith(".json"))) {
-    const path = join(LOCALES, name);
-    /** @type {unknown} */
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${path} does not contain an object`);
-    const existing = /** @type {Record<string, string>} */ (parsed);
-    /** @type {Record<string, string>} */
-    const merged = {};
-    for (const key of keys) merged[key] = existing[key] ?? "";
-    writeFileSync(path, `${JSON.stringify(merged, undefined, 2)}\n`);
-  }
+/**
+ * A catalog holding every key the scan found, sorted, with the existing translations kept.
+ *
+ * The scan only reads the console's own sources, but the catalogs also carry copy the plugin packages publish and the console translates at render time. Dropping every key the scan did not produce would delete those translations, so a regeneration only adds keys; --prune is how a deliberate cleanup asks for the other behaviour.
+ * @param {Record<string, string>} existing
+ * @param {readonly string[]} keys
+ * @param {{ prune?: boolean }} [options]
+ */
+export function mergeCatalog(existing, keys, options = {}) {
+  const preserved = options.prune === true ? [] : Object.keys(existing).filter((key) => existing[key] !== "" && !keys.includes(key));
+  /** @type {Record<string, string>} */
+  const merged = {};
+  for (const key of [...keys, ...preserved].sort()) merged[key] = existing[key] ?? "";
+  return merged;
 }
-process.stdout.write(`\n可翻译字符串 ${keys.length} 条，改写文件 ${changedFiles} 个，跳过 ${allSkipped.length} 处\n`);
-if (process.argv.includes("--skipped"))
-  for (const entry of allSkipped) process.stdout.write(`  ${entry.file}:${entry.line} [${entry.why}] ${entry.text.replace(/\n/g, " ").slice(0, 80)}\n`);
+
+// Importing this module must only make the extractor available; the scan, the rewrite and the catalog merge belong to the command line.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const { keys, skipped: allSkipped, rewritten } = extractTranslatableKeys({ write: WRITE });
+  for (const entry of rewritten) process.stdout.write(`${entry.file}: ${entry.edits} 处\n`);
+  if (WRITE) {
+    for (const name of readdirSync(LOCALES).filter((entry) => entry.endsWith(".json"))) {
+      const path = join(LOCALES, name);
+      /** @type {unknown} */
+      const parsed = JSON.parse(readFileSync(path, "utf8"));
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${path} does not contain an object`);
+      const existing = /** @type {Record<string, string>} */ (parsed);
+      writeFileSync(path, `${JSON.stringify(mergeCatalog(existing, keys, { prune: PRUNE }), undefined, 2)}\n`);
+    }
+  }
+  process.stdout.write(`\n可翻译字符串 ${keys.length} 条，改写文件 ${rewritten.length} 个，跳过 ${allSkipped.length} 处\n`);
+  if (process.argv.includes("--skipped"))
+    for (const entry of allSkipped) process.stdout.write(`  ${entry.file}:${entry.line} [${entry.why}] ${entry.text.replace(/\n/g, " ").slice(0, 80)}\n`);
+}

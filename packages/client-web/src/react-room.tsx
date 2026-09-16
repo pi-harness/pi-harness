@@ -1228,6 +1228,69 @@ function UserMessageBubble({ text }: { text: string }) {
   );
 }
 
+export interface DiffLine {
+  readonly no: string;
+  readonly sign: string;
+  readonly text: string;
+  readonly kind: "added" | "removed" | "context" | "meta";
+}
+
+// Beyond this a diff is a file dump rather than a change to read, and one row per line would cost more DOM than the panel can justify; the plain text stays available instead.
+const DIFF_RENDER_LINE_LIMIT = 2_000;
+
+// A unified diff carries the line numbers a reviewer needs in its hunk headers, so recovering them is what separates a readable diff from the wrapped text blob the panel used to print.
+export function parseUnifiedDiff(diff: string): readonly DiffLine[] {
+  const lines = diff.split("\n");
+  if (lines.length > DIFF_RENDER_LINE_LIMIT) return [];
+  const parsed: DiffLine[] = [];
+  let oldNo = 0;
+  let newNo = 0;
+  let inHunk = false;
+  for (const line of lines) {
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) {
+      oldNo = Number(hunk[1]);
+      newNo = Number(hunk[2]);
+      inHunk = true;
+      parsed.push({ no: "", sign: "", text: line, kind: "meta" });
+      continue;
+    }
+    if (!inHunk || line.startsWith("\\")) {
+      parsed.push({ no: "", sign: "", text: line, kind: "meta" });
+      continue;
+    }
+    if (line.startsWith("+")) {
+      parsed.push({ no: String(newNo++), sign: "+", text: line.slice(1), kind: "added" });
+      continue;
+    }
+    if (line.startsWith("-")) {
+      parsed.push({ no: String(oldNo++), sign: "-", text: line.slice(1), kind: "removed" });
+      continue;
+    }
+    parsed.push({ no: String(newNo++), sign: "", text: line.startsWith(" ") ? line.slice(1) : line, kind: "context" });
+    oldNo += 1;
+  }
+  // A trailing newline is an artefact of splitting, not a line anyone wants to see numbered.
+  while (parsed.length > 0 && parsed[parsed.length - 1]?.text === "") parsed.pop();
+  return parsed;
+}
+
+export function FileDiff({ diff }: { diff: string }) {
+  const lines = useMemo(() => parseUnifiedDiff(diff), [diff]);
+  if (lines.length === 0) return <pre className="tool-output">{diff}</pre>;
+  return (
+    <div className="diff-preview">
+      {lines.map((line, index) => (
+        <div className={`diff-line ${line.kind}`} key={`${index}-${line.no}`}>
+          <span className="diff-no">{line.no}</span>
+          <span className="diff-sign">{line.sign}</span>
+          <span className="diff-text">{line.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Details({
   event,
   onClose,
@@ -1290,7 +1353,11 @@ export function Details({
           <div className="detail-section">
             <small>{t("输出")}</small>
             {/* A tool result is text wrapped in a content envelope, and printing the envelope made the panel show JSON where the file the tool read should be. The raw payload is still one disclosure below. */}
-            <pre className="tool-output">{outputText ?? JSON.stringify(output, null, 2)}</pre>
+            {fileDetail && outputText !== undefined ? (
+              <FileDiff diff={outputText} />
+            ) : (
+              <pre className="tool-output">{outputText ?? JSON.stringify(output, null, 2)}</pre>
+            )}
           </div>
         )}
         <div className="detail-section">
@@ -8310,6 +8377,19 @@ export function sessionListTitle(session: Record<string, unknown>): string {
   );
 }
 
+// The sidebar names an unnamed session after its first prompt, but it reads that from the session list; the active session object carries no firstMessage of its own, so a heading rendered from it alone falls back to a raw session id and the same session ends up wearing two different names at once.
+export function sessionHeadingTitle(
+  session: Pick<ClientSession, "sessionId" | "name" | "messages"> | undefined,
+  sessions: readonly Record<string, unknown>[],
+): string {
+  if (!session) return t("新会话");
+  if (session.name) return session.name;
+  const listed = sessions.find((item) => item.sessionId === session.sessionId);
+  const firstMessage = typeof listed?.firstMessage === "string" ? listed.firstMessage : "";
+  if (firstMessage) return truncateSessionTitle(firstMessage);
+  return session.messages.length ? session.sessionId.slice(0, 12) : t("新会话");
+}
+
 export function scrollActiveOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
   option?.scrollIntoView({ block: "nearest" });
 }
@@ -8702,6 +8782,25 @@ const SESSION_TITLE_LIMIT = 80;
 function truncateSessionTitle(text: string): string {
   return previewText(text, SESSION_TITLE_LIMIT);
 }
+
+// Which data source failed is remembered as a message key and translated where the warning renders, so these have to stay untranslated here: a label translated at request time would freeze the wording at whatever locale was active when the request failed, and would stop matching the entry that clears once the resource recovers.
+const REFRESH_SOURCE_LABELS = {
+  status: "运行状态",
+  session: "当前会话",
+  sessionList: "会话列表",
+  pluginPanel: "插件面板",
+  files: "文件",
+  workspaceFiles: "工作区文件",
+  models: "模型",
+  providers: "提供商",
+  plugins: "插件",
+  marketplace: "插件市场",
+  commands: "命令",
+  workspaces: "工作区",
+} as const;
+
+// The composer stops growing here and starts scrolling instead, so a pasted spec cannot push the transcript off the screen.
+const COMPOSER_MAX_HEIGHT = 180;
 
 const TOOL_ARGUMENT_PREVIEW_LIMIT = 140;
 // A tool result is untrusted text of any length, and the row it belongs to is collapsed, so the transcript keeps a readable head of it rather than pushing megabytes of file contents into the document.
@@ -9361,8 +9460,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api.listWorkspaces(),
     ] as const;
 
-    const statusLabel = "运行状态";
-    const sessionLabel = "当前会话";
+    const statusLabel = REFRESH_SOURCE_LABELS.status;
+    const sessionLabel = REFRESH_SOURCE_LABELS.session;
     const setLiveIssue = (label: string, failed: boolean) => {
       setRefreshIssues((current) => {
         const remaining = current.filter((item) => item !== label);
@@ -9398,7 +9497,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     );
     // Conversation readiness depends on runtime reads, not optional catalog requests.
     void Promise.allSettled([requests[0], requests[1]]).then(() => setInitialRefreshPending(false));
-    const sessionListLabel = "会话列表";
+    const sessionListLabel = REFRESH_SOURCE_LABELS.sessionList;
     const applySessions = (result: PromiseSettledResult<Awaited<ReturnType<ClientApi["listSessions"]>>>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.sessions) return;
       liveRefreshSequenceRef.current.sessions = sequence;
@@ -9417,7 +9516,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       (value) => applySessions({ status: "fulfilled", value }),
       (reason: unknown) => applySessions({ status: "rejected", reason }),
     );
-    const pluginPanelLabel = "插件面板";
+    const pluginPanelLabel = REFRESH_SOURCE_LABELS.pluginPanel;
     const applyPluginPanels = (result: PromiseSettledResult<RoomData["pluginPanels"]>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.pluginPanels) return;
       liveRefreshSequenceRef.current.pluginPanels = sequence;
@@ -9448,12 +9547,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         (reason: unknown) => apply({ status: "rejected", reason }),
       );
     };
-    observeResource(requests[3], "files", "文件", (result) => ({ files: result.items, fileRepository: result.repository }));
-    observeResource(requests[4], "workspaceFiles", "工作区文件", (result) => ({ workspaceFiles: result.items, workspaceFilesTruncated: result.truncated }));
-    observeResource(requests[5], "models", "模型", (models) => ({ models }));
-    observeResource(requests[6], "providers", "提供商", (providers) => ({ providers }));
-    observeResource(requests[7], "plugins", "插件", (plugins) => ({ plugins }));
-    observeResource(requests[8], "marketplace", "插件市场", (result) => ({
+    observeResource(requests[3], "files", REFRESH_SOURCE_LABELS.files, (result) => ({ files: result.items, fileRepository: result.repository }));
+    observeResource(requests[4], "workspaceFiles", REFRESH_SOURCE_LABELS.workspaceFiles, (result) => ({
+      workspaceFiles: result.items,
+      workspaceFilesTruncated: result.truncated,
+    }));
+    observeResource(requests[5], "models", REFRESH_SOURCE_LABELS.models, (models) => ({ models }));
+    observeResource(requests[6], "providers", REFRESH_SOURCE_LABELS.providers, (providers) => ({ providers }));
+    observeResource(requests[7], "plugins", REFRESH_SOURCE_LABELS.plugins, (plugins) => ({ plugins }));
+    observeResource(requests[8], "marketplace", REFRESH_SOURCE_LABELS.marketplace, (result) => ({
       marketplace: result.items,
       marketplaceLocale: locale,
       marketplaceCapabilities: result.capabilities,
@@ -9462,8 +9564,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       marketplacePage: result.page,
       marketplaceHasNext: result.hasNext,
     }));
-    observeResource(requests[9], "commands", "命令", (commands) => ({ commands }));
-    observeResource(requests[10], "workspaces", "工作区", (workspaces) => ({ workspaces }));
+    observeResource(requests[9], "commands", REFRESH_SOURCE_LABELS.commands, (commands) => ({ commands }));
+    observeResource(requests[10], "workspaces", REFRESH_SOURCE_LABELS.workspaces, (workspaces) => ({ workspaces }));
     // Local actions can await refreshed workspace state without waiting for the optional catalog.
     await Promise.allSettled(requests.filter((_, index) => index !== 8));
   }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery, sessionPage, sessionQuery]);
@@ -9746,6 +9848,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     });
     return () => window.cancelAnimationFrame(frame);
   }, [data.session?.messages.length, data.status?.events, streamingAssistant?.text.length, streamingAssistant?.thinking.length, pendingPrompt, promptBusy]);
+  const activeSessionTitle = useMemo(() => sessionHeadingTitle(data.session, data.sessions), [data.session, data.sessions]);
+  // The grown height lives in an inline style, so keying it to the draft is what makes it shrink again: submitting, picking a starter card, accepting a completion and switching sessions all replace the draft without a keystroke, and a keystroke-only resize would leave the composer frozen at the height of text that is no longer there.
+  useEffect(() => {
+    const input = promptInputRef.current;
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+  }, [draft]);
   const filteredSessions = data.sessions;
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -10381,8 +10491,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 setDraft(value);
                 setPromptCaret(event.currentTarget.selectionStart ?? event.target.value.length);
                 setPromptCompletionSuppressed(false);
-                event.currentTarget.style.height = "auto";
-                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`;
               }}
               onKeyDown={(event) => {
                 if (isComposingKey(event.nativeEvent)) return;
@@ -10869,7 +10977,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 >
                   <span className="session-dot ok"></span>
                   <span className="session-copy">
-                    <strong>{data.session.name ?? (data.session.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话"))}</strong>
+                    <strong>{activeSessionTitle}</strong>
                     <small>
                       {contextMessageCountLabel(data.session.messages.length)}
                       {sessionStatusSuffix(data.session)}
@@ -10883,13 +10991,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     aria-label={t("当前会话操作")}
                     className="session-row-more"
                     data-session-popover
-                    onClick={(event) =>
-                      openSessionMenu(
-                        activeSessionPath,
-                        data.session?.name ?? (data.session?.messages.length ? data.session?.sessionId.slice(0, 12) : t("新会话")),
-                        event.currentTarget,
-                      )
-                    }
+                    onClick={(event) => openSessionMenu(activeSessionPath, activeSessionTitle, event.currentTarget)}
                     type="button"
                   >
                     ⋯
@@ -11162,7 +11264,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   ? installedPluginId || marketplacePluginId
                     ? t("插件详情")
                     : t("插件")
-                  : (data.session?.name ?? (data.session?.messages.length ? data.session.sessionId.slice(0, 12) : t("新会话")))}
+                  : activeSessionTitle}
             </strong>
             <small>
               {settings
@@ -11230,9 +11332,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     setSessionMenuPosition(undefined);
                     sessionPopoverTriggerRef.current = event.currentTarget;
                     setSessionActionTarget(
-                      !closeCurrentMenu && activeSessionPath
-                        ? { name: data.session?.sessionId?.slice(0, 12) || t("当前会话"), path: activeSessionPath }
-                        : undefined,
+                      !closeCurrentMenu && activeSessionPath ? { name: activeSessionTitle || t("当前会话"), path: activeSessionPath } : undefined,
                     );
                     setSessionMenuOpen(!closeCurrentMenu);
                   }}
@@ -11247,7 +11347,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       className="session-action"
                       disabled={!activeSessionPath || sessionOperationsBusy}
                       onClick={() => {
-                        setSessionNameDraft(data.session?.name ?? data.session?.sessionId?.slice(0, 12) ?? "");
+                        setSessionNameDraft(data.session?.name ?? activeSessionTitle);
                         setSessionDialog("rename");
                         setSessionMenuOpen(false);
                       }}

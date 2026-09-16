@@ -24,6 +24,8 @@ import {
   restartRequiredNotice,
   restartPendingForProcess,
   runSessionPopoverAction,
+  parseUnifiedDiff,
+  sessionHeadingTitle,
   sessionListEmptyMessage,
   shouldInterruptRun,
   shouldRefreshForRuntimeEvent,
@@ -325,6 +327,75 @@ test("localizes an empty session title in the sidebar", async () => {
   } finally {
     await setLocale(previousLocale);
   }
+});
+
+describe("unified diff parsing", () => {
+  const diff = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index 0000000..286dfca 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -40,3 +40,4 @@",
+    " const timeout = 8_000",
+    "-const attempts = 1",
+    "+const attempts = 2",
+    "+const jitter = true",
+    "",
+  ].join("\n");
+
+  test("numbers added, removed and context lines from the hunk header", () => {
+    expect(parseUnifiedDiff(diff).filter((line) => line.kind !== "meta")).toEqual([
+      { no: "40", sign: "", text: "const timeout = 8_000", kind: "context" },
+      { no: "41", sign: "-", text: "const attempts = 1", kind: "removed" },
+      { no: "41", sign: "+", text: "const attempts = 2", kind: "added" },
+      { no: "42", sign: "+", text: "const jitter = true", kind: "added" },
+    ]);
+  });
+
+  test("keeps the git headers as unnumbered metadata rows", () => {
+    expect(
+      parseUnifiedDiff(diff)
+        .filter((line) => line.kind === "meta")
+        .map((line) => line.text),
+    ).toEqual(["diff --git a/src/app.ts b/src/app.ts", "index 0000000..286dfca 100644", "--- a/src/app.ts", "+++ b/src/app.ts", "@@ -40,3 +40,4 @@"]);
+  });
+
+  test("does not mistake a +++ header inside a hunk-less preamble for an added line", () => {
+    expect(parseUnifiedDiff("--- /dev/null\n+++ b/src/app.ts").every((line) => line.kind === "meta")).toBe(true);
+  });
+
+  test("declines diffs too large to render as rows so the caller can fall back to plain text", () => {
+    expect(parseUnifiedDiff(Array.from({ length: 2_001 }, () => "+line").join("\n"))).toEqual([]);
+  });
+});
+
+describe("session heading title", () => {
+  const sessions = [{ sessionId: "01a0a79b-fd6b-70cb", firstMessage: "Build Orbit, a Linear-style project management app" }];
+
+  test("names the active session after its first prompt, like the sidebar does", () => {
+    const title = sessionHeadingTitle({ sessionId: "01a0a79b-fd6b-70cb", messages: [{}, {}] }, sessions);
+    expect(title).not.toContain("01a0a79b");
+    expect(title.startsWith("Build Orbit")).toBe(true);
+  });
+
+  test("prefers an explicit name over the first prompt", () => {
+    expect(sessionHeadingTitle({ sessionId: "01a0a79b-fd6b-70cb", name: "Orbit v1", messages: [{}] }, sessions)).toBe("Orbit v1");
+  });
+
+  test("falls back to the session id only when the list knows nothing about it", () => {
+    expect(sessionHeadingTitle({ sessionId: "01a0a79b-fd6b-70cb", messages: [{}] }, [])).toBe("01a0a79b-fd6");
+  });
+
+  test("keeps the empty-session wording when no prompt has been sent", async () => {
+    const previousLocale = activeLocale();
+    await setLocale("en");
+    try {
+      expect(sessionHeadingTitle({ sessionId: "01a0a79b-fd6b-70cb", messages: [] }, [])).toBe("New session");
+      expect(sessionHeadingTitle(undefined, [])).toBe("New session");
+    } finally {
+      await setLocale(previousLocale);
+    }
+  });
 });
 
 describe("provider auth readiness", () => {

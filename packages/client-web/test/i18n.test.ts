@@ -103,6 +103,16 @@ describe("catalog integrity", () => {
     }
   });
 
+  // Catalogs that agree with each other can still all be missing the same string: the source is the only place that knows which messages the console can actually display.
+  test("covers every message the source asks t() for", async () => {
+    const { extractTranslatableKeys } = (await import("../../../scripts/i18n-extract.mjs")) as {
+      extractTranslatableKeys: () => { keys: readonly string[] };
+    };
+    const shipped = new Set(Object.keys(readCatalog("en")));
+    const missing = extractTranslatableKeys().keys.filter((key) => !shipped.has(key));
+    expect(missing).toEqual([]);
+  });
+
   test("no entry is left empty", () => {
     for (const name of catalogFiles) {
       const empty = Object.entries(readCatalog(name.replace(".json", "")))
