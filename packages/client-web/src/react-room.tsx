@@ -1335,7 +1335,7 @@ export function Details({
   return (
     <aside aria-label={title} aria-modal="true" className="details-panel" ref={dialogRef} role="dialog" tabIndex={-1}>
       <header>
-        <strong>{title}</strong>
+        <strong title={title}>{title}</strong>
         <button aria-label={fileDetail ? t("关闭文件差异") : t("关闭事件详情")} data-dialog-initial-focus onClick={onClose} type="button">
           ×
         </button>
@@ -8336,7 +8336,8 @@ function PromptCompletionPopover({
           const detail =
             kind === "command"
               ? ((item as ClientCommand).description ?? (item as ClientCommand).source ?? t("由当前运行时注册"))
-              : (item as ClientFile).status || t("工作区");
+              : // The porcelain code alone reads as a broken glyph — "??" against every untracked file — and the label beside it in the same payload is the word a person is looking for. The global search already pairs them this way.
+                fileCompletionDetail(item as ClientFile);
           return (
             <button
               aria-selected={index === activeIndex}
@@ -8421,6 +8422,14 @@ export function sessionHeadingTitle(
   const firstMessage = typeof listed?.firstMessage === "string" ? listed.firstMessage : "";
   if (firstMessage) return truncateSessionTitle(firstMessage);
   return session.messages.length ? session.sessionId.slice(0, 12) : t("新会话");
+}
+
+export function fileCompletionDetail(file: Pick<ClientFile, "label" | "status">): string {
+  const label = typeof file.label === "string" ? file.label.trim() : "";
+  const status = typeof file.status === "string" ? file.status.trim() : "";
+  if (label === "" && status === "") return t("工作区");
+  if (label === "" || status === "") return label || status;
+  return `${label} · ${status}`;
 }
 
 export function scrollActiveOptionIntoView(option: Pick<HTMLElement, "scrollIntoView"> | null): void {
