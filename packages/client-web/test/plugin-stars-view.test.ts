@@ -18,6 +18,37 @@ describe("plugin stars view", () => {
     ]);
   });
 
+  it("accepts a query in any script up to the character limit its plugin advertises", () => {
+    const payload = (query: string) => ({
+      source: "https://raw.githubusercontent.com/fixture/ranking/main/plugins.json",
+      limit: 10,
+      timeoutMs: 15_000,
+      latest: {
+        source: "fixture",
+        generatedAt: "2026-09-05T00:00:00Z",
+        total: 1,
+        query,
+        fetchedAt: "2026-09-05T00:01:00Z",
+        results: [{ fullName: "owner/fixture", name: "fixture", stars: 2, htmlUrl: "https://github.com/owner/fixture", updatedAt: "2026-09-05" }],
+      },
+      inventory: { total: 1, shown: 1, truncated: false },
+      limits: { responseBytes: 2_097_152, sourceItems: 1_000, resultItems: 10, panelItems: 20, queryCharacters: 120, timeoutMs: 15_000 },
+    });
+    const malformed = (query: string) => (pluginStarsPanelView(payload(query)) as { malformed?: boolean }).malformed === true;
+
+    // The plugin bounds its query at 120 characters and publishes that number as queryCharacters. Passing it as
+    // the byte bound too refused any non-Latin script long before then: 41 CJK characters are 123 UTF-8 bytes,
+    // and one rejected field discards the whole panel.
+    expect(malformed("\u754c".repeat(41))).toBe(false);
+    expect(malformed("\u754c".repeat(120))).toBe(false);
+    expect(malformed("\u{1f600}".repeat(60))).toBe(false);
+
+    // The character limit itself still holds, for every script.
+    expect(malformed("\u754c".repeat(121))).toBe(true);
+    expect(malformed("a".repeat(121))).toBe(true);
+    expect(malformed("a".repeat(120))).toBe(false);
+  });
+
   it("normalizes a complete plugin stars panel payload", () => {
     expect(
       pluginStarsPanelView({

@@ -100,9 +100,12 @@ function ownDataArray(value: unknown, maximum: number): unknown[] | undefined {
   }
 }
 
-function text(value: unknown, maximum: number, allowEmpty = true): string | undefined {
+// The byte bound defaults to the character bound, which is right wherever the caller passes a constant with
+// room to spare. It is not right where the bound is an exact published limit: UTF-8 spends up to four bytes on
+// one character, so a query in a non-Latin script is refused well before the limit its own plugin advertises.
+function text(value: unknown, maximum: number, allowEmpty = true, maximumBytes = maximum): string | undefined {
   if (typeof value !== "string" || (!allowEmpty && value.length === 0) || unsafeUnicode.test(value)) return undefined;
-  if ([...value].length > maximum || new TextEncoder().encode(value).byteLength > maximum) return undefined;
+  if ([...value].length > maximum || new TextEncoder().encode(value).byteLength > maximumBytes) return undefined;
   return value;
 }
 
@@ -219,7 +222,7 @@ export function pluginStarsPanelView(data: unknown): PluginStarsPanelView {
     if (latestSource === undefined || !exact(latestSource, latestKeys)) return malformedView();
     const latestName = text(latestSource.source, 256, false);
     const generatedAt = text(latestSource.generatedAt, 64, false);
-    const query = text(latestSource.query, limits.queryCharacters);
+    const query = text(latestSource.query, limits.queryCharacters, true, limits.queryCharacters * 4);
     const fetchedAt = text(latestSource.fetchedAt, 64, false);
     const latestTotal = integer(latestSource.total, 0, limits.sourceItems);
     const rawResults = ownDataArray(latestSource.results, limits.panelItems);
