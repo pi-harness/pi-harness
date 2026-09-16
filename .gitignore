@@ -1,5 +1,6 @@
 dist/
 server-dist/
+target/
 node_modules/
 .bin
 coverage/
