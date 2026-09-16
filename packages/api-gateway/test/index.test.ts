@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:http";
@@ -1913,6 +1913,38 @@ describe("API gateway plugin", () => {
       messages: [{ role: "user", content: "hello", timestamp: 1 }, { role: "assistant" }],
       events: [{ type: "tool_execution_start", toolName: "read" }],
     });
+  });
+
+  test("refuses to rename a session file that is not there", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-session-ghost-"));
+    temporaryDirectories.push(workspace);
+    const sessionDir = join(workspace, "sessions");
+    const sessionManager = SessionManager.create(workspace, sessionDir);
+    const sessionFile = sessionManager.newSession();
+    if (!sessionFile) throw new Error("Unable to create test session");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: sessionManager.getSessionId(), sessionFile, sessionManager, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const ghost = join(sessionDir, "2026-01-01T00-00-00-000Z_00000000-0000-0000-0000-000000000000.jsonl");
+    expect(existsSync(ghost)).toBe(false);
+
+    const post = (path: string, body: unknown) =>
+      fetch(context.webServer.url + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    // A rename that writes nothing must not answer like one that did: export and fork already 404 a missing non-active path.
+    const rename = await post("/api/session/rename", { path: ghost, name: "Ghost session" });
+    expect(rename.status).toBe(404);
+    await expect(rename.json()).resolves.toEqual({ error: "Session not found" });
+    expect(existsSync(ghost)).toBe(false);
+
+    // The session that does exist is still renamed.
+    await expect(post("/api/session/rename", { path: sessionFile, name: "Real session" }).then((r) => r.status)).resolves.toBe(200);
   });
 
   test("persists the current session name before an empty session is replaced", async () => {

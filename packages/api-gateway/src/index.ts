@@ -2709,6 +2709,11 @@ export default {
             sendJson(response, 400, { error: "Session name must be at most 120 characters" });
             return;
           }
+          // The active session's file is deferred until its first entry, and renaming it before then is a real action the deferred-persistence branch below carries out. Any other path that does not exist names a session that was deleted or moved, and opening it appends nothing — so reporting 200 would hand the caller a success it cannot tell from a rename that happened.
+          if (path !== services.runtime.session.sessionFile && !existsSync(path)) {
+            sendJson(response, 404, { error: "Session not found" });
+            return;
+          }
           if (path === services.runtime.session.sessionFile && typeof manager.appendSessionInfo === "function") {
             manager.appendSessionInfo(name);
             if (name) persistSessionBeforeFirstAssistant(manager);
