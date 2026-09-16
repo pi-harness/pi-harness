@@ -392,6 +392,16 @@ function sessionPathInDirectory(path: string, manager: SessionManager): boolean 
   return true;
 }
 
+/**
+ * Pi defers creating a session's JSONL file until its first entry, so the active session may legitimately have
+ * no file yet. Every other path that does not exist names a session that was deleted or moved, and acting on it
+ * writes nothing a reader can ever see — /api/session/export and /api/session/fork already say so in their own
+ * comments, and /api/session/open answers 404.
+ */
+function sessionMissing(path: string, activeSessionFile: string | undefined): boolean {
+  return path !== activeSessionFile && !existsSync(path);
+}
+
 function canonicalSessionPath(path: string, manager: SessionManager): string | undefined {
   if (!sessionPathInDirectory(path, manager)) return undefined;
   const root = resolve(manager.getSessionDir());
@@ -2710,7 +2720,7 @@ export default {
             return;
           }
           // The active session's file is deferred until its first entry, and renaming it before then is a real action the deferred-persistence branch below carries out. Any other path that does not exist names a session that was deleted or moved, and opening it appends nothing — so reporting 200 would hand the caller a success it cannot tell from a rename that happened.
-          if (path !== services.runtime.session.sessionFile && !existsSync(path)) {
+          if (sessionMissing(path, services.runtime.session.sessionFile)) {
             sendJson(response, 404, { error: "Session not found" });
             return;
           }
@@ -2799,6 +2809,12 @@ export default {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
+          // Metadata is keyed by path and persisted, so an entry for a session that is not there outlives every
+          // session in the file and nothing ever removes it: the list is built from the files on disk.
+          if (sessionMissing(path, services.runtime.session.sessionFile)) {
+            sendJson(response, 404, { error: "Session not found" });
+            return;
+          }
           const nextMetadata = await mutateSessionMetadata(manager, context.logger, (metadata) => {
             const currentMetadata = metadata[path] ?? {};
             const updated: SessionMetadata = {
@@ -2845,6 +2861,11 @@ export default {
             return;
           }
           const paths = [...new Set(canonicalPaths as string[])];
+          const missing = paths.filter((path) => sessionMissing(path, services.runtime.session.sessionFile));
+          if (action !== "delete" && missing.length > 0) {
+            sendJson(response, 404, { error: `Session not found: ${missing.join(", ")}` });
+            return;
+          }
           if (action === "delete") {
             await runSessionOperation(response, "Cannot delete the active session while a prompt is running", async () => {
               const rootIdentity = sessionRootIdentity(manager);
