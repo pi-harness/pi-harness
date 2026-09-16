@@ -6,6 +6,16 @@ import { agentDirectory, coreUpdateNotice, harnessHomeDirectory } from "@pi-harn
 import { runCli, type CliEnvironment } from "./main.js";
 import { shouldRelaunchForDevelopmentProfile, superviseDevelopmentProcess } from "./relaunch.js";
 
+// The only "error" listener on these streams is the one NodeStdio installs in its constructor, and runCli does
+// not construct it until after --help, --version, --dump-config and every usage error have already written. A
+// reader that closes early — `pih --help | head` — otherwise raises an unhandled EPIPE and Node prints a crash
+// dump over the output that was asked for. A reader going away is not a failure; anything else still fails.
+for (const stream of new Set([process.stdout, process.stderr])) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EPIPE") process.exitCode = 1;
+  });
+}
+
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
 const agentDir = agentDirectory();

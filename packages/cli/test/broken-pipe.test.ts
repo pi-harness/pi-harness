@@ -8,6 +8,29 @@ import { describe, expect, test } from "vitest";
 const BIN = join(import.meta.dirname, "..", "dist", "bin.js");
 
 describe("broken output pipe", () => {
+  // NodeStdio installs the only "error" listener on these streams in its constructor, which runCli does not
+  // reach until after --help, --version, --dump-config and every usage error have written. Those writes need
+  // their own guard, or `pih --help | head` ends in a Node crash dump instead of the help it asked for.
+  test.each([["--help"], ["--version"], ["--profile"]])(
+    "survives a reader that closes before it writes: %s",
+    async (flag) => {
+      const producer = spawn(process.execPath, [BIN, flag], { stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      producer.stderr.setEncoding("utf8");
+      producer.stderr.on("data", (chunk: string) => {
+        stderr += chunk;
+      });
+      producer.stdout.destroy();
+
+      const code = await new Promise<number | null>((resolve) => producer.once("exit", resolve));
+
+      expect(stderr).not.toContain("EPIPE");
+      expect(stderr).not.toContain("Unhandled 'error' event");
+      expect(code).not.toBeNull();
+    },
+    30_000,
+  );
+
   test("finishes the run and disposes the tree when the reader closes the pipe mid-stream", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-harness-epipe-"));
     const markerPath = join(directory, "marker.txt");
