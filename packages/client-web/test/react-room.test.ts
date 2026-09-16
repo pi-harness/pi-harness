@@ -611,6 +611,20 @@ describe("session search requests", () => {
     expect(source).not.toContain("marketplaceQuery, search, sessionPage]");
   });
 
+  test("issues the catalog read with the same ticket order as its query", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const refresh = source.slice(source.indexOf("const refresh = useCallback(async () => {"));
+    const body = refresh.slice(0, refresh.indexOf("}, [refreshCore"));
+
+    // refreshMarketplace takes its barrier ticket when it is called but builds its request from the render
+    // that created it. Called after an await, a stale query gets a newer ticket than a fresher request issued
+    // during that await, and the barrier compares sequences alone, so the stale catalog wins. Issuing it
+    // before the await takes the ticket and the query at the same instant; the await still excludes it.
+    expect(body.indexOf("refreshMarketplace()")).toBeGreaterThanOrEqual(0);
+    expect(body.indexOf("refreshMarketplace()")).toBeLessThan(body.indexOf("await Promise.allSettled"));
+    expect(body).not.toContain("void refreshMarketplace()");
+  });
+
   test("keeps the transcript read out of the query-parameter reads", async () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
 

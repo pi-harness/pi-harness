@@ -9764,9 +9764,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     await Promise.allSettled(requests);
   }, [api]);
   // Callers that act on the workspace still await every read except the optional catalog, as before.
+  // The catalog is issued with the other two rather than after them: refreshMarketplace takes its barrier
+  // ticket when it is called but builds its request from the render that created it, so calling it past an
+  // await hands a stale query a newer ticket than a fresher request issued during that await, and the
+  // per-resource barrier — which compares sequences alone — then keeps the stale catalog. Only the await
+  // excludes it, which is what not waiting for the optional catalog meant.
   const refresh = useCallback(async () => {
+    refreshMarketplace();
     await Promise.allSettled([refreshCore(), refreshSessionList()]);
-    void refreshMarketplace();
   }, [refreshCore, refreshMarketplace, refreshSessionList]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
