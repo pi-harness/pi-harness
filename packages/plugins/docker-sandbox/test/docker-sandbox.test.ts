@@ -113,6 +113,26 @@ process.exit(1);
     }
   });
 
+  test("normalises Windows line endings instead of replacing every carriage return", async () => {
+    if (process.platform === "win32") return;
+    const fixture = await createFixture();
+    // CR is a Cc control, so a sanitiser loop that spares only \t and \n turns every CRLF into a replacement
+    // character and leaves the CR normalisation below it unreachable. Any container writing Windows line
+    // endings then reaches the model and the panel as "a\uFFFD".
+    await installFakeDocker(fixture.cwd, "a\r\nb\r\nc\rd\u0000\u001b[31mx\u001b[0m");
+    const result = await fixture.tool.execute("run", { command: ["printf", "x"], image: "alpine:3.20" }, undefined, undefined, {} as never);
+    const details = result.details as { output: string; status: string };
+
+    expect(details.status).toBe("completed");
+    expect(details.output).toContain("a\nb\nc\nd");
+    expect(details.output).not.toContain("a\uFFFD");
+    expect(details.output).not.toContain("\r");
+    // the characters that are genuinely unsafe are still neutralised
+    expect(details.output).toContain("\uFFFD");
+    expect(details.output).not.toContain("\u0000");
+    expect(details.output).not.toContain("\u001b");
+  });
+
   test("uses the enforced isolation argv and bounds captured output by UTF-8 bytes", async () => {
     if (process.platform === "win32") return;
     const fixture = await createFixture();

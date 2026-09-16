@@ -130,11 +130,14 @@ function boundedOutput(value: string): string {
   return notice + bytes.subarray(start).toString("utf8");
 }
 
+// CR is a Cc control, so sparing it here is what lets the normalisation below run at all: replacing it in the
+// loop left every CRLF as a replacement character and made replaceAll(/\r\n?/) dead code. No CR reaches the
+// caller either way — it is turned into a newline one line down.
 function safeOutput(value: string): string {
   const withoutTerminalSequences = stripVTControlCharacters(value);
   let normalized = "";
   for (const character of withoutTerminalSequences) {
-    normalized += unsafeUnicode.test(character) && character !== "\t" && character !== "\n" ? "�" : character;
+    normalized += unsafeUnicode.test(character) && character !== "\t" && character !== "\n" && character !== "\r" ? "�" : character;
   }
   return boundedOutput(normalized.replaceAll(/\r\n?/gu, "\n"));
 }
