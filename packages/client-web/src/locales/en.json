@@ -156,6 +156,7 @@
   "主题数据无效，未应用颜色。": "Invalid theme data; no colors were applied.",
   "书签以标签追加到 Pi 原生会话记录，不修改已有消息；内存会话不会落盘。": "Bookmarks are appended as tags to the native Pi session log without altering existing messages; in-memory sessions are never written to disk.",
   "事件": "Events",
+  "事件 {from}–{to} · {label}": "Events {from}–{to} · {label}",
   "事件名已截断。": "The event names were truncated.",
   "事件名：{names}": "Event names: {names}",
   "事件详情": "Event details",

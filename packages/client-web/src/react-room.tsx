@@ -1381,6 +1381,27 @@ export function Details({
   );
 }
 
+// The strip that summarises a run has a fixed width, so one bar per event only works for a short one: a 1,311-event session laid 9,174px of bars into a 1,272px row that has nothing to scroll, showing its first 185 events and silently dropping the other 1,126. Bucketing keeps the whole run on screen, and keeps the bar count low enough that the 4px floor still fits a narrow window.
+const TIMELINE_MAX_BARS = 100;
+
+export interface TimelineBar {
+  readonly from: number;
+  readonly to: number;
+  readonly count: number;
+}
+
+export function timelineBars(events: readonly unknown[], max: number = TIMELINE_MAX_BARS): readonly TimelineBar[] {
+  if (events.length === 0 || max < 1) return [];
+  const bars = Math.min(events.length, max);
+  const out: TimelineBar[] = [];
+  for (let index = 0; index < bars; index += 1) {
+    const from = Math.floor((index * events.length) / bars);
+    const to = Math.floor(((index + 1) * events.length) / bars) - 1;
+    out.push({ from, to, count: to - from + 1 });
+  }
+  return out;
+}
+
 export function Trajectory({
   events,
   sessionMessages,
@@ -1410,9 +1431,16 @@ export function Trajectory({
         {historicalCount > 0 && <small className="trajectory-history">{t("已从会话日志恢复 {count} 个历史事件", { count: historicalCount })}</small>}
         <div className="timeline">
           {events.length ? (
-            events.map((event, index) => (
-              <span className="timeline-turn" key={index}>
-                <i className="timeline-strip" title={eventLabel(event)}></i>
+            timelineBars(events).map((bar) => (
+              <span className="timeline-turn" key={bar.from}>
+                <i
+                  className="timeline-strip"
+                  title={
+                    bar.count === 1
+                      ? eventLabel(events[bar.from] ?? {})
+                      : t("事件 {from}–{to} · {label}", { from: bar.from + 1, to: bar.to + 1, label: eventLabel(events[bar.from] ?? {}) })
+                  }
+                ></i>
               </span>
             ))
           ) : (
