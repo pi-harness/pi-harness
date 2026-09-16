@@ -64,6 +64,14 @@ async function sendSafeFile(root: string, path: string, response: ServerResponse
   await sendFile(pathReal, response);
 }
 
+// The gateway registers every one of its endpoints as an exact path, so a request under /api that reached
+// this fallback names an endpoint that does not exist. Answering it with the console's index.html gives the
+// caller HTTP 200 and an HTML document, so response.json() throws a parse error where a plain 404 belongs —
+// which is how a typo or a removed endpoint stays hidden.
+function isGatewayPath(path: string): boolean {
+  return path === "/api" || path.startsWith("/api/");
+}
+
 export default {
   name: "pi-web-app",
   inject: ["webServer"],
@@ -72,6 +80,11 @@ export default {
     if (!existsSync(root)) throw new Error("Web frontend dist does not exist: " + root);
     const dispose = context.webServer.registerFallback(async (request: IncomingMessage, response: ServerResponse) => {
       const requestPath = new URL(request.url ?? "/", context.webServer.url).pathname;
+      if (isGatewayPath(requestPath)) {
+        response.writeHead(404, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
+        response.end(JSON.stringify({ error: "Not found" }));
+        return;
+      }
       const requested = safePath(root, requestPath);
       const index = join(root, "index.html");
       if (requested !== undefined) {

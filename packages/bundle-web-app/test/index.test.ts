@@ -88,6 +88,39 @@ describe("web app plugin", () => {
     expect(icon.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
+  test("answers an unregistered gateway path with a 404 instead of the console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-harness-web-root-"));
+    await writeFile(join(root, "index.html"), "<main>console</main>", "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    await context.plugin(webAppPlugin, { staticDir: root });
+    context.webServer.register({
+      path: "/api/status",
+      handler: (_request, response) => {
+        response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true }));
+      },
+    });
+
+    // A registered endpoint is untouched.
+    const status = await fetch(context.webServer.url + "/api/status");
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toEqual({ ok: true });
+
+    // Everything else under the gateway's namespace is a 404 the caller can parse, not a 200 page it cannot.
+    for (const path of ["/api/nope", "/api/status/extra", "/api/", "/api"]) {
+      const response = await fetch(context.webServer.url + path);
+      expect([path, response.status]).toEqual([path, 404]);
+      expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+      await expect(response.json()).resolves.toEqual({ error: "Not found" });
+    }
+
+    // A client route that is not the gateway's still reaches the console.
+    await expect(fetch(context.webServer.url + "/apiary").then((response) => response.text())).resolves.toBe("<main>console</main>");
+    await expect(fetch(context.webServer.url + "/missing-route").then((response) => response.text())).resolves.toBe("<main>console</main>");
+  });
+
   test("reports a read failure raised after the headers are sent instead of writing the SPA fallback over it", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-harness-web-root-"));
     await writeFile(join(root, "index.html"), "<main>console</main>", "utf8");
