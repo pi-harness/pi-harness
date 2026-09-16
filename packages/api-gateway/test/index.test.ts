@@ -1915,6 +1915,46 @@ describe("API gateway plugin", () => {
     });
   });
 
+  test("refuses to tag a session file that is not there, on both paths that write metadata", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-metadata-ghost-"));
+    temporaryDirectories.push(workspace);
+    const sessionDir = join(workspace, "sessions");
+    const sessionManager = SessionManager.create(workspace, sessionDir);
+    const sessionFile = sessionManager.newSession();
+    if (!sessionFile) throw new Error("Unable to create test session");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: sessionManager.getSessionId(), sessionFile, sessionManager, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const ghost = join(sessionDir, "2026-01-01T00-00-00-000Z_00000000-0000-0000-0000-000000000000.jsonl");
+    expect(existsSync(ghost)).toBe(false);
+    const post = (path: string, body: unknown) =>
+      fetch(context.webServer.url + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    // Metadata is keyed by path and persisted, so an entry written for a session that is not there would outlive
+    // every session in the file and nothing would remove it: the list is built from the files on disk.
+    const single = await post("/api/session/metadata", { path: ghost, pinned: true });
+    expect(single.status).toBe(404);
+    await expect(single.json()).resolves.toEqual({ error: "Session not found" });
+
+    const batch = await post("/api/sessions/batch", { action: "pin", paths: [sessionFile, ghost] });
+    expect(batch.status).toBe(404);
+    await expect((batch.json() as Promise<{ error: string }>).then((body) => body.error)).resolves.toContain("Session not found");
+
+    const metadataFile = join(sessionDir, ".pi-harness-session-meta.json");
+    const stored = existsSync(metadataFile) ? (JSON.parse(await readFile(metadataFile, "utf8")) as Record<string, unknown>) : {};
+    expect(Object.keys(stored)).not.toContain(ghost);
+
+    // The session that does exist is still tagged, one at a time and in a batch.
+    await expect(post("/api/session/metadata", { path: sessionFile, pinned: true }).then((r) => r.status)).resolves.toBe(200);
+    await expect(post("/api/sessions/batch", { action: "archive", paths: [sessionFile] }).then((r) => r.status)).resolves.toBe(200);
+  });
+
   test("refuses to rename a session file that is not there", async () => {
     const context = new Context();
     contexts.push(context);
@@ -4928,6 +4968,8 @@ describe("API gateway plugin", () => {
     await context.plugin(apiPlugin);
 
     const paths = Array.from({ length: 8 }, (_, index) => join(directory, `2026-08-30T00-00-0${index}-000Z_session-${index}.jsonl`));
+    // Metadata is only written for a session that is there, so these need files; the store is what is under test.
+    await Promise.all(paths.map((path) => writeFile(path, "{}\\n", "utf8")));
     const responses = await Promise.all(
       paths.map((path, index) =>
         index % 2 === 0
@@ -4984,6 +5026,7 @@ describe("API gateway plugin", () => {
     await expect(stat(metadataFile)).rejects.toMatchObject({ code: "ENOENT" });
 
     const path = join(directory, "2026-08-30T00-00-00-000Z_pinned.jsonl");
+    await writeFile(path, "{}\\n", "utf8");
     const update = await fetch(context.webServer.url + "/api/session/metadata", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -5944,7 +5987,7 @@ describe("API gateway plugin", () => {
     context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
     await context.plugin(apiPlugin);
 
-    for (const path of [first, missing, stuck, last]) {
+    for (const path of [first, stuck, last]) {
       const pinned = await fetch(context.webServer.url + "/api/session/metadata", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -6131,6 +6174,8 @@ describe("API gateway plugin", () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-metadata-eisdir-"));
     temporaryDirectories.push(directory);
     const metadataFile = join(directory, ".pi-harness-session-meta.json");
+    const pinnedPath = join(directory, "2026-08-30T00-00-00-000Z_pinned.jsonl");
+    await writeFile(pinnedPath, "{}\n", "utf8");
     // A directory at the metadata path makes readFile fail with EISDIR while rename would still succeed, which is exactly the shape of a transient read failure.
     await mkdir(metadataFile);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -6154,7 +6199,7 @@ describe("API gateway plugin", () => {
     const update = await fetch(context.webServer.url + "/api/session/metadata", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path: join(directory, "2026-08-30T00-00-00-000Z_pinned.jsonl"), pinned: true }),
+      body: JSON.stringify({ path: pinnedPath, pinned: true }),
     });
     expect(update.status).toBe(400);
     expect((await stat(metadataFile)).isDirectory()).toBe(true);
@@ -6200,6 +6245,7 @@ describe("API gateway plugin", () => {
       const list = fetch(context.webServer.url + "/api/sessions");
       await held;
       const path = join(directory, "2026-08-30T00-00-00-000Z_pinned.jsonl");
+      await writeFile(path, "{}\\n", "utf8");
       const update = fetch(context.webServer.url + "/api/session/metadata", {
         method: "POST",
         headers: { "content-type": "application/json" },
