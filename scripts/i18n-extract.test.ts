@@ -11,20 +11,20 @@ const merge = mergeCatalog;
 describe("catalog merge", () => {
   // The console's catalogs also translate copy that the plugin packages publish, and the scan never reads those packages. A merge that kept only the keys it found deleted every one of those translations.
   test("keeps translated keys the scan cannot see", () => {
-    const existing = { "面板数据异常": "Invalid panel data", "已连接": "Connected" };
+    const existing = { 面板数据异常: "Invalid panel data", 已连接: "Connected" };
     expect(merge(existing, ["已连接"])).toEqual(existing);
   });
 
   test("adds the keys the source asks for with an empty translation", () => {
-    expect(merge({ "已连接": "Connected" }, ["已连接", "目录"])).toEqual({ "已连接": "Connected", "目录": "" });
+    expect(merge({ 已连接: "Connected" }, ["已连接", "目录"])).toEqual({ 已连接: "Connected", 目录: "" });
   });
 
   test("drops keys that were never translated in the first place", () => {
-    expect(merge({ "已连接": "Connected", "目录": "" }, ["已连接"])).toEqual({ "已连接": "Connected" });
+    expect(merge({ 已连接: "Connected", 目录: "" }, ["已连接"])).toEqual({ 已连接: "Connected" });
   });
 
   test("prunes everything outside the scan only when asked", () => {
-    expect(merge({ "面板数据异常": "Invalid panel data", "已连接": "Connected" }, ["已连接"], { prune: true })).toEqual({ "已连接": "Connected" });
+    expect(merge({ 面板数据异常: "Invalid panel data", 已连接: "Connected" }, ["已连接"], { prune: true })).toEqual({ 已连接: "Connected" });
   });
 
   test("sorts the result so a regeneration is a stable diff", () => {

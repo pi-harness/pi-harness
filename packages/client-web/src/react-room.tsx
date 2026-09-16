@@ -9548,7 +9548,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       );
     };
     observeResource(requests[3], "files", REFRESH_SOURCE_LABELS.files, (result) => ({ files: result.items, fileRepository: result.repository }));
-    observeResource(requests[4], "workspaceFiles", REFRESH_SOURCE_LABELS.workspaceFiles, (result) => ({ workspaceFiles: result.items, workspaceFilesTruncated: result.truncated }));
+    observeResource(requests[4], "workspaceFiles", REFRESH_SOURCE_LABELS.workspaceFiles, (result) => ({
+      workspaceFiles: result.items,
+      workspaceFilesTruncated: result.truncated,
+    }));
     observeResource(requests[5], "models", REFRESH_SOURCE_LABELS.models, (models) => ({ models }));
     observeResource(requests[6], "providers", REFRESH_SOURCE_LABELS.providers, (providers) => ({ providers }));
     observeResource(requests[7], "plugins", REFRESH_SOURCE_LABELS.plugins, (plugins) => ({ plugins }));
@@ -10988,13 +10991,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     aria-label={t("当前会话操作")}
                     className="session-row-more"
                     data-session-popover
-                    onClick={(event) =>
-                      openSessionMenu(
-                        activeSessionPath,
-                        activeSessionTitle,
-                        event.currentTarget,
-                      )
-                    }
+                    onClick={(event) => openSessionMenu(activeSessionPath, activeSessionTitle, event.currentTarget)}
                     type="button"
                   >
                     ⋯
@@ -11335,9 +11332,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     setSessionMenuPosition(undefined);
                     sessionPopoverTriggerRef.current = event.currentTarget;
                     setSessionActionTarget(
-                      !closeCurrentMenu && activeSessionPath
-                        ? { name: activeSessionTitle || t("当前会话"), path: activeSessionPath }
-                        : undefined,
+                      !closeCurrentMenu && activeSessionPath ? { name: activeSessionTitle || t("当前会话"), path: activeSessionPath } : undefined,
                     );
                     setSessionMenuOpen(!closeCurrentMenu);
                   }}

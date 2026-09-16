@@ -36,7 +36,13 @@ function isInsideTranslateCall(node) {
     current = parent;
     parent = current.parent;
   }
-  return parent !== undefined && ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === "t" && parent.arguments[0] === current;
+  return (
+    parent !== undefined &&
+    ts.isCallExpression(parent) &&
+    ts.isIdentifier(parent.expression) &&
+    parent.expression.text === "t" &&
+    parent.arguments[0] === current
+  );
 }
 
 /**

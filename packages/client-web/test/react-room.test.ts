@@ -353,13 +353,11 @@ describe("unified diff parsing", () => {
   });
 
   test("keeps the git headers as unnumbered metadata rows", () => {
-    expect(parseUnifiedDiff(diff).filter((line) => line.kind === "meta").map((line) => line.text)).toEqual([
-      "diff --git a/src/app.ts b/src/app.ts",
-      "index 0000000..286dfca 100644",
-      "--- a/src/app.ts",
-      "+++ b/src/app.ts",
-      "@@ -40,3 +40,4 @@",
-    ]);
+    expect(
+      parseUnifiedDiff(diff)
+        .filter((line) => line.kind === "meta")
+        .map((line) => line.text),
+    ).toEqual(["diff --git a/src/app.ts b/src/app.ts", "index 0000000..286dfca 100644", "--- a/src/app.ts", "+++ b/src/app.ts", "@@ -40,3 +40,4 @@"]);
   });
 
   test("does not mistake a +++ header inside a hunk-less preamble for an added line", () => {
