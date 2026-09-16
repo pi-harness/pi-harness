@@ -2509,8 +2509,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               </div>
               <div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-3">
                 {[
-                  [t("消息"), report.totalMessages.toLocaleString("en-US")],
-                  [t("工具调用 / 结果"), `${report.toolCalls.toLocaleString("en-US")} / ${report.toolResults.toLocaleString("en-US")}`],
+                  [t("消息"), report.totalMessages.toLocaleString(formatLocale())],
+                  [t("工具调用 / 结果"), `${report.toolCalls.toLocaleString(formatLocale())} / ${report.toolResults.toLocaleString(formatLocale())}`],
                   [t("SDK 成本"), `$${report.cost.toFixed(4)}`],
                 ].map(([label, item]) => (
                   <div className="min-w-0 rounded-lg bg-[var(--color-soft)] px-3 py-2" key={label}>
@@ -2522,13 +2522,13 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               <div className="min-w-0 rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-[var(--color-ink)]">{t("累计 token")}</span>
-                  <strong className="break-all font-mono text-[14px] text-[var(--color-blue)]">{report.tokens.total.toLocaleString("en-US")}</strong>
+                  <strong className="break-all font-mono text-[14px] text-[var(--color-blue)]">{report.tokens.total.toLocaleString(formatLocale())}</strong>
                 </div>
                 <div className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4 text-[var(--color-muted)]">
-                  <span>{t("输入 {v0}", { v0: report.tokens.input.toLocaleString("en-US") })}</span>
-                  <span>{t("输出 {v0}", { v0: report.tokens.output.toLocaleString("en-US") })}</span>
-                  <span>{t("缓存读取 {v0}", { v0: report.tokens.cacheRead.toLocaleString("en-US") })}</span>
-                  <span>{t("缓存写入 {v0}", { v0: report.tokens.cacheWrite.toLocaleString("en-US") })}</span>
+                  <span>{t("输入 {v0}", { v0: report.tokens.input.toLocaleString(formatLocale()) })}</span>
+                  <span>{t("输出 {v0}", { v0: report.tokens.output.toLocaleString(formatLocale()) })}</span>
+                  <span>{t("缓存读取 {v0}", { v0: report.tokens.cacheRead.toLocaleString(formatLocale()) })}</span>
+                  <span>{t("缓存写入 {v0}", { v0: report.tokens.cacheWrite.toLocaleString(formatLocale()) })}</span>
                 </div>
               </div>
               <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
@@ -2544,11 +2544,11 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">{t("当前模型未提供上下文窗口。")}</p>
                 ) : contextUsage.tokens === null ? (
                   <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">
-                    {t("压缩后 token 暂不可估算 · 上下文窗口 {v0}", { v0: contextUsage.contextWindow.toLocaleString("en-US") })}
+                    {t("压缩后 token 暂不可估算 · 上下文窗口 {v0}", { v0: contextUsage.contextWindow.toLocaleString(formatLocale()) })}
                   </p>
                 ) : (
                   <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">
-                    {contextUsage.tokens.toLocaleString("en-US")} / {contextUsage.contextWindow.toLocaleString("en-US")} tokens
+                    {contextUsage.tokens.toLocaleString(formatLocale())} / {contextUsage.contextWindow.toLocaleString(formatLocale())} tokens
                   </p>
                 )}
               </div>
@@ -7003,7 +7003,7 @@ function InstalledPluginDetail({
             <div className="flex flex-wrap items-end justify-between gap-5">
               <div className="min-w-0">
                 <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-faint)]">PLUGIN DETAIL</p>
-                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[var(--color-ink)]">{title}</h1>
+                <h2 className="text-3xl font-semibold tracking-[-0.03em] text-[var(--color-ink)]">{title}</h2>
                 <code className="mt-3 block break-all text-[12px] text-[var(--color-faint)]">
                   {plugin.name}
                   {metadata ? ` · v${metadata.version}` : ""}
@@ -7053,7 +7053,7 @@ function InstalledPluginDetail({
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
               <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("影响范围")}</h2>
+                <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("影响范围")}</h3>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {(metadata?.capabilities.length ? metadata.capabilities.map(capabilityLabel) : [capability(plugin.name)]).map((item) => (
                     <span className="rounded-md bg-[var(--color-blue-soft)] px-2 py-1 text-[11px] text-[var(--color-muted)]" key={item}>
@@ -7064,7 +7064,7 @@ function InstalledPluginDetail({
               </section>
               {metadata?.hooks.length ? (
                 <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-                  <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("扩展点")}</h2>
+                  <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("扩展点")}</h3>
                   <div className="mt-4 space-y-2">
                     {metadata.hooks.map((item) => (
                       <div className="rounded-md bg-[var(--color-soft)] px-3 py-2 font-mono text-[11px] text-[var(--color-muted)]" key={item}>
@@ -7077,7 +7077,7 @@ function InstalledPluginDetail({
               <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("实时详情")}</h2>
+                    <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("实时详情")}</h3>
                     <p className="mt-1 text-[12px] text-[var(--color-faint)]">{t("当前本机会话中的插件运行状态。")}</p>
                   </div>
                   <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-faint)]">LIVE</span>
@@ -7090,7 +7090,7 @@ function InstalledPluginDetail({
               </section>
             </div>
             <aside className="h-fit rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-              <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("插件信息")}</h2>
+              <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("插件信息")}</h3>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[var(--color-faint)]">{t("运行状态")}</dt>
@@ -7467,7 +7467,7 @@ function MarketplaceDetail({
             <div className="flex flex-wrap items-end justify-between gap-5">
               <div className="min-w-0">
                 <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-faint)]">PLUGIN DETAIL</p>
-                <h1 className="text-3xl font-semibold tracking-[-0.03em] text-[var(--color-ink)]">{plugin.name}</h1>
+                <h2 className="text-3xl font-semibold tracking-[-0.03em] text-[var(--color-ink)]">{plugin.name}</h2>
                 <code className="mt-3 block break-all text-[12px] text-[var(--color-faint)]">
                   {plugin.packageName} · v{plugin.version}
                 </code>
@@ -7498,7 +7498,7 @@ function MarketplaceDetail({
           <div className="grid gap-4 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
               <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("影响范围")}</h2>
+                <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("影响范围")}</h3>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {plugin.capabilities.map((item) => (
                     <span className="rounded-md bg-[var(--color-blue-soft)] px-2 py-1 text-[11px] text-[var(--color-muted)]" key={item}>
@@ -7508,7 +7508,7 @@ function MarketplaceDetail({
                 </div>
               </section>
               <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("扩展点")}</h2>
+                <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("扩展点")}</h3>
                 <div className="mt-4 space-y-2">
                   {plugin.hooks.map((item) => (
                     <div className="rounded-md bg-[var(--color-soft)] px-3 py-2 font-mono text-[11px] text-[var(--color-muted)]" key={item}>
@@ -7518,7 +7518,7 @@ function MarketplaceDetail({
                 </div>
               </section>
               <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-                <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("运行配置")}</h2>
+                <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("运行配置")}</h3>
                 <p className="mt-1 text-[12px] text-[var(--color-faint)]">{t("安装后会写入当前运行 profile。")}</p>
                 <pre className="mt-4 overflow-auto rounded-lg bg-[var(--color-soft)] p-4 text-[11px] leading-6 text-[var(--color-ink)]">
                   <code>{JSON.stringify(plugin.profile, null, 2)}</code>
@@ -7526,7 +7526,7 @@ function MarketplaceDetail({
               </section>
             </div>
             <aside className="h-fit rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-              <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("插件信息")}</h2>
+              <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("插件信息")}</h3>
               <dl className="mt-4 divide-y divide-[#eef0f3] text-[12px]">
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-[var(--color-faint)]">{t("作者")}</dt>
@@ -7697,7 +7697,7 @@ function Settings({
               {t("← 返回会话")}
             </button>
             <div className="settings-header-copy">
-              <strong>{tab === "general" ? t("通用") : tab === "providers" ? t("提供商") : t("运行配置")}</strong>
+              <h2>{tab === "general" ? t("通用") : tab === "providers" ? t("提供商") : t("运行配置")}</h2>
               <small>{tab === "toml" ? t("配置即代码，改完重载") : tab === "providers" ? t("模型来源与认证") : t("运行时状态与快捷键")}</small>
             </div>
           </header>
@@ -9006,7 +9006,7 @@ export const ChatTurnArticle = memo(
               <span>
                 {tokensBefore === undefined
                   ? t("摘要保留在上下文中")
-                  : t("压缩前约 {tokens} tokens，摘要保留在上下文中", { tokens: tokensBefore.toLocaleString() })}
+                  : t("压缩前约 {tokens} tokens，摘要保留在上下文中", { tokens: tokensBefore.toLocaleString(formatLocale()) })}
               </span>
             </summary>
             <div className="compaction-body">
@@ -11426,7 +11426,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       <section className="main-pane">
         <header className={`main-header ${!settings && page === "session" ? "session-track" : ""}`}>
           <div className="active-heading">
-            <strong>
+            <h1>
               {settings
                 ? t("设置")
                 : page === "plugins" || page === "marketplace"
@@ -11434,7 +11434,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     ? t("插件详情")
                     : t("插件")
                   : activeSessionTitle}
-            </strong>
+            </h1>
             <small>
               {settings
                 ? t("运行时状态与配置")
