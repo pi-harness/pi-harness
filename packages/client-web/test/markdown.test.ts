@@ -48,6 +48,25 @@ describe("markdown sanitizer configuration", () => {
     expect(MARKDOWN_SANITIZE_CONFIG.FORBID_ATTR).toEqual(["style", "class", "id"]);
   });
 
+  // A model can write any link it likes, and nothing in this config touches URI handling: that a javascript: or data: href is neutralised rests entirely on DOMPurify's defaults. Measured directly in Chromium against this exact config, `<a href="javascript:alert(1)">` sanitizes to `<a>` and a `data:text/html` href goes the same way — so the property holds, and these assertions are what keep the config from quietly opting out of it.
+  //
+  // It is asserted on the config rather than on rendered output because the one DOM this suite can run in, happy-dom, does not reproduce DOMPurify's real behaviour: under it the allowlist is not enforced at all, so a behavioural test here would pass while proving nothing.
+  test("never widens what counts as a safe URI", () => {
+    for (const weakening of [
+      "ALLOWED_URI_REGEXP",
+      "ADD_URI_SAFE_ATTR",
+      "ALLOW_UNKNOWN_PROTOCOLS",
+      "ALLOW_SELF_CLOSE_IN_ATTR",
+      "WHOLE_DOCUMENT",
+      "RETURN_DOM",
+      "RETURN_DOM_FRAGMENT",
+    ])
+      expect(MARKDOWN_SANITIZE_CONFIG).not.toHaveProperty(weakening);
+    // SANITIZE_DOM and the namespace checks are on by default; turning either off is how a sanitized string stops being one.
+    for (const guard of ["SANITIZE_DOM", "SANITIZE_NAMED_PROPS", "ALLOW_ARIA_ATTR", "ALLOW_DATA_ATTR"])
+      expect(MARKDOWN_SANITIZE_CONFIG[guard as keyof typeof MARKDOWN_SANITIZE_CONFIG]).toBeUndefined();
+  });
+
   test("renders nothing when no sanitizer is available", () => {
     expect(renderMarkdown("**bold**", undefined)).toBe("");
   });
