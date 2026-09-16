@@ -483,12 +483,12 @@ button:disabled {
 .active-heading {
   @apply [display:flex] [min-width:0] [flex-direction:column];
 }
-.active-heading strong,
+.active-heading h1,
 .active-heading small {
   @apply [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap];
 }
-.active-heading strong {
-  @apply [font-size:13px] [font-weight:600];
+.active-heading h1 {
+  @apply [margin:0] [font-size:13px] [font-weight:600];
 }
 .active-heading small {
   @apply [color:var(--color-faint)] [font:10px_var(--font-mono)];
@@ -1591,8 +1591,8 @@ button:disabled {
 .settings-header-copy {
   @apply [display:flex] [min-width:0] [align-items:baseline] [gap:10px];
 }
-.settings-header-copy strong {
-  @apply [flex:none] [font-size:13px];
+.settings-header-copy h2 {
+  @apply [margin:0] [flex:none] [font-size:13px] [font-weight:600];
 }
 .settings-header-copy small {
   @apply [min-width:0] [overflow:hidden] [color:var(--color-muted)] [font-size:11px] [text-overflow:ellipsis] [white-space:nowrap];
@@ -2051,7 +2051,7 @@ button:disabled {
 .active-heading {
   @apply [gap:1px];
 }
-.active-heading strong {
+.active-heading h1 {
   @apply [font-size:13.5px];
 }
 .active-heading small {
@@ -2538,7 +2538,7 @@ body {
   padding-right: max(24px, calc((100% - 960px) / 2));
   padding-left: max(24px, calc((100% - 960px) / 2));
 }
-.active-heading strong {
+.active-heading h1 {
   @apply [font-size:15px];
 }
 .active-heading small {
@@ -3108,7 +3108,7 @@ body {
   .active-heading {
     @apply [min-width:0];
   }
-  .active-heading strong {
+  .active-heading h1 {
     @apply [font-size:14px];
   }
   .composer-tools {

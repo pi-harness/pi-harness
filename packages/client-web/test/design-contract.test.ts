@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { failedRefreshLabels } from "../src/control-room.js";
 import { DESIGN_EVENTS, DESIGN_PLUGINS, DESIGN_SESSIONS, DESIGN_WORKSPACES, DESIGN_TURNS, DESIGN_PROVIDERS, DESIGN_TOML } from "../src/design-contract.js";
@@ -70,6 +72,31 @@ describe("Pi Harness design contract", () => {
       { label: "npm 更新时间", value: "2026-08-30" },
     ]);
     expect(marketplaceStatisticItems(undefined)).toEqual([]);
+  });
+
+
+  // The console header and the plugin detail pane are written inline inside ControlRoom, which cannot be
+  // mounted without booting the whole room, so the heading outline is asserted against the source instead.
+  it("gives every view a single top-level heading", () => {
+    const source = readFileSync(fileURLToPath(new URL("../src/react-room.tsx", import.meta.url)), "utf8");
+    const headings = source.match(/<h[1-6][\s>]/g) ?? [];
+    const levelOne = headings.filter((tag) => tag.startsWith("<h1"));
+
+    // One h1 in the file: the page title in the header, rendered on the session, plugin, marketplace and settings views.
+    expect(levelOne).toHaveLength(1);
+    expect(source).toContain('<div className="active-heading">\n            <h1>');
+
+    // The plugin detail pane sits under that title, so its own heading is an h2 and its sections are h3.
+    expect(source).not.toMatch(/<h2 className="text-\[13px\] font-semibold/);
+    expect(source.match(/<h2 className="text-3xl font-semibold/g) ?? []).toHaveLength(2);
+    expect((source.match(/<h3 className="text-\[13px\] font-semibold/g) ?? []).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("styles the header title by tag so it carries no browser default margin", () => {
+    const styles = readFileSync(fileURLToPath(new URL("../../../apps/web/src/style.css", import.meta.url)), "utf8");
+    expect(styles).not.toContain(".active-heading strong");
+    expect(styles).toContain(".active-heading h1");
+    expect(styles).toMatch(/\.active-heading h1 \{\n\s*@apply \[margin:0\]/);
   });
 
   it("reports every failed control-room refresh surface without hiding partial failures", () => {
