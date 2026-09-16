@@ -26,6 +26,7 @@ import {
   runSessionPopoverAction,
   SessionModelNotice,
   fileCompletionDetail,
+  runtimeExplanation,
   parseUnifiedDiff,
   sessionHeadingTitle,
   sessionLastModel,
@@ -451,6 +452,50 @@ describe("session heading title", () => {
     } finally {
       await setLocale(previousLocale);
     }
+  });
+});
+
+describe("runtime explanations", () => {
+  // The runtime answers a refused session action with the reason in plain words; the console used to replace it with "try again", which is advice that cannot work while the run continues.
+  test("shows a session refusal in the runtime's own words", () => {
+    const html = renderToStaticMarkup(createElement(PromptError, { action: "session", message: "Cannot fork a session while a prompt is running" }));
+
+    expect(html).toContain("Cannot fork a session while a prompt is running");
+    expect(html).not.toContain("运行时没有接受这次会话操作，请重试。");
+  });
+
+  test("keeps the generic line when the runtime said nothing useful", () => {
+    const html = renderToStaticMarkup(createElement(PromptError, { action: "session", message: "Request failed with status 500" }));
+
+    expect(html).toContain("运行时没有接受这次会话操作，请重试。");
+  });
+
+  test("leaves machine output behind the disclosure", () => {
+    expect(runtimeExplanation('{"error":"boom"}')).toBeUndefined();
+    expect(runtimeExplanation("TypeError: x is not a function\n    at foo (bar.js:1:1)")).toBeUndefined();
+    expect(runtimeExplanation("boom at thing (file.js:2:3)")).toBeUndefined();
+    expect(runtimeExplanation("nope")).toBeUndefined();
+    expect(runtimeExplanation("x".repeat(240))).toBeUndefined();
+  });
+
+  // The raw text was always one disclosure away, but promoting it to the line everyone reads is a different exposure.
+  test("does not promote anything that looks like a credential", () => {
+    expect(runtimeExplanation("Upstream rejected the request: Bearer abc123 is expired")).toBeUndefined();
+    expect(runtimeExplanation("Provider error: api_key was rejected")).toBeUndefined();
+    expect(runtimeExplanation(`Upstream said ${"z".repeat(40)}`)).toBeUndefined();
+    expect(runtimeExplanation("Cannot fork a session while a prompt is running")).toBe("Cannot fork a session while a prompt is running");
+  });
+
+  test("still quotes a message that merely names a session", () => {
+    const message = "Cannot delete session 01a0a79b-fd6b-70cb-96da-2089eca2712f while a prompt is running";
+
+    expect(runtimeExplanation(message)).toBe(message);
+  });
+
+  test("does not override the advice the auth cases carry", () => {
+    const html = renderToStaticMarkup(createElement(PromptError, { message: "No API key found for everyapi" }));
+
+    expect(html).toContain("everyapi use pi-web");
   });
 });
 

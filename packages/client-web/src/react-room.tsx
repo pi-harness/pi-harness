@@ -1213,10 +1213,29 @@ export async function runSessionPopoverAction(action: () => Promise<void>, resto
   }
 }
 
+// The runtime often answers a refused action with the reason in plain words — "Cannot fork a session while a prompt is running" — and replacing that with a generic line costs the reader the answer while telling them to retry something that cannot yet succeed. Machine output is a different matter and stays behind the disclosure.
+export function runtimeExplanation(message: string): string | undefined {
+  const text = message.trim();
+  if (text.length < 8 || text.length > 200) return undefined;
+  if (text.includes("\n")) return undefined;
+  if (/^[[{<]/.test(text)) return undefined;
+  if (/\bat\s+\S+\s+\(/.test(text)) return undefined;
+  // "Request failed with status 500" is the client's own stand-in for a body it could not read, and says nothing anyone can act on.
+  if (/^Request failed with status \d+$/.test(text)) return undefined;
+  // An upstream provider can put a credential in its own error text. That text was always one disclosure away, but promoting it to the line everyone reads is a different exposure, so anything that looks like a secret stays where it was.
+  if (/\b(?:authorization|bearer|api[_-]?key|secret|token|password)\b/i.test(text)) return undefined;
+  // A session id is a long run of characters too, and refusing every message that names one would suppress most of what is worth quoting, so identifiers are set aside before looking for a secret.
+  const withoutIds = text.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "");
+  if (/[A-Za-z0-9_-]{32,}/.test(withoutIds)) return undefined;
+  return text;
+}
+
 export function PromptError({ message, action = "prompt" }: { message: string; action?: "prompt" | "model" | "session" }) {
   const receiptFailure = message.includes("Prompt accepted; receipt persistence failed.");
   const everyApiAuth = /No API key(?: found)? for everyapi/i.test(message);
   const requiresAuth = everyApiAuth || /No API key(?: found)?|authentication|未配置认证/i.test(message);
+  // The auth cases carry advice the runtime does not have, and a receipt failure needs its own warning, so only the remaining cases defer to what the runtime said.
+  const explanation = requiresAuth || receiptFailure ? undefined : runtimeExplanation(message);
   return (
     <div className="action-error" role="alert">
       <div className="action-error-summary">
@@ -1236,13 +1255,14 @@ export function PromptError({ message, action = "prompt" }: { message: string; a
             ? t("请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
             : requiresAuth
               ? t("请在设置 → 提供商中配置 API key，然后重试。")
-              : action === "model"
-                ? t("运行时没有接受模型切换；当前模型保持不变。")
-                : action === "session"
-                  ? t("运行时没有接受这次会话操作，请重试。")
-                  : receiptFailure
-                    ? t("请求已接受，但确认记录保存失败。重启后重试前，请先检查执行结果。")
-                    : t("请求未正常结束。请先检查会话中的执行结果，再决定是否重试。")}
+              : (explanation ??
+                (action === "model"
+                  ? t("运行时没有接受模型切换；当前模型保持不变。")
+                  : action === "session"
+                    ? t("运行时没有接受这次会话操作，请重试。")
+                    : receiptFailure
+                      ? t("请求已接受，但确认记录保存失败。重启后重试前，请先检查执行结果。")
+                      : t("请求未正常结束。请先检查会话中的执行结果，再决定是否重试。")))}
         </span>
       </div>
       <details>
