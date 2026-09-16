@@ -48,11 +48,21 @@ export function messageToolCalls(message: Record<string, unknown>): readonly Cha
 }
 
 export interface ChatTurn {
-  readonly role: "user" | "assistant";
+  readonly role: "user" | "assistant" | "compaction";
   readonly text: string;
   readonly thinking: string;
   readonly tools: readonly ChatToolCall[];
   readonly stopped: boolean;
+  /** How much context the compaction reclaimed, on a compaction turn only. */
+  readonly tokensBefore?: number;
+}
+
+/** The runtime writes a compactionSummary message where it replaced the history it dropped. */
+export function compactionTurn(message: Record<string, unknown>): ChatTurn | undefined {
+  if (message.role !== "compactionSummary") return undefined;
+  const summary = typeof message.summary === "string" ? message.summary : messageText(message);
+  const tokensBefore = typeof message.tokensBefore === "number" ? message.tokensBefore : undefined;
+  return { role: "compaction", text: summary, thinking: "", tools: [], stopped: false, ...(tokensBefore === undefined ? {} : { tokensBefore }) };
 }
 
 export function projectChatTurns(messages: readonly Record<string, unknown>[]): readonly ChatTurn[] {
@@ -65,6 +75,12 @@ export function projectChatTurns(messages: readonly Record<string, unknown>[]): 
   const turns: ChatTurn[] = [];
   for (const message of messages) {
     if (message.role === "toolResult") continue;
+    // A compaction is the one point where the transcript stops being a record of what was said, so it is the one place the transcript has to say so itself.
+    const compaction = compactionTurn(message);
+    if (compaction) {
+      turns.push(compaction);
+      continue;
+    }
     const role = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : undefined;
     if (!role) continue;
     const text = messageText(message);

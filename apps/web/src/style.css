@@ -703,6 +703,25 @@ button:disabled {
 .turn-tool.failed .turn-tool-status {
   @apply [color:var(--color-red)];
 }
+/* A compaction is a seam in the transcript rather than something anyone said, so it reads as a rule across the column with the summary folded behind it. */
+.turn.compaction {
+  @apply [width:100%] [max-width:960px];
+}
+.compaction-turn {
+  @apply [border:1px_dashed_var(--color-line)] [border-radius:9px] [background:var(--color-soft)];
+}
+.compaction-head {
+  @apply [display:flex] [align-items:baseline] [gap:9px] [flex-wrap:wrap] [padding:9px_12px] [cursor:pointer] [color:var(--color-muted)] [font-size:11.5px];
+}
+.compaction-head strong {
+  @apply [color:var(--color-ink)] [font-size:11.5px] [font-weight:600];
+}
+.compaction-head span {
+  @apply [font:10.5px_var(--font-mono)] [color:var(--color-faint)];
+}
+.compaction-body {
+  @apply [padding:2px_12px_12px] [border-top:1px_solid_var(--color-line)];
+}
 .turn-tool-output {
   @apply [max-height:320px] [margin:0] [overflow:auto] [border-top:1px_solid_var(--color-line)] [padding:10px] [font:11.5px_var(--font-mono)] [line-height:1.65] [white-space:pre-wrap] [word-break:break-word];
 }
