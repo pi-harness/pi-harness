@@ -904,12 +904,15 @@ button:disabled {
   @apply [color:var(--color-blue)] [font:10.5px_var(--font-sans)];
 }
 .tool-output,
-.diff-preview,
 .toml {
   @apply [margin:0] [padding:10px_12px] [border-top:1px_solid_rgba(0,_0,_0,_0.06)] [background:var(--color-soft)] [white-space:pre-wrap] [word-break:break-word] [color:var(--color-muted)] [font:11.5px/1.7_var(--font-mono)];
 }
+/* A diff is read column by column, so its lines scroll sideways instead of wrapping: a wrapped hunk loses the alignment that makes the change legible in the first place. */
+.diff-preview {
+  @apply [margin:0] [overflow-x:auto] [padding:10px_0] [border-top:1px_solid_rgba(0,_0,_0,_0.06)] [background:var(--color-soft)];
+}
 .diff-line {
-  @apply [display:flex] [gap:10px] [padding:0_8px] [font:11.5px/1.7_var(--font-mono)];
+  @apply [display:flex] [gap:10px] [min-width:max-content] [padding:0_8px] [font:11.5px/1.7_var(--font-mono)];
 }
 .diff-line.added {
   @apply [background:var(--color-green-soft)];
@@ -918,10 +921,19 @@ button:disabled {
   @apply [background:var(--color-red-soft)];
 }
 .diff-no {
-  @apply [width:30px] [color:var(--color-faint)] [text-align:right];
+  @apply [flex:none] [width:38px] [color:var(--color-faint)] [text-align:right];
 }
 .diff-sign {
-  @apply [width:8px] [color:var(--color-green)];
+  @apply [flex:none] [width:8px] [color:var(--color-green)];
+}
+.diff-text {
+  @apply [white-space:pre] [color:var(--color-ink)];
+}
+.diff-line.meta .diff-text {
+  @apply [color:var(--color-faint)];
+}
+.diff-line.context .diff-text {
+  @apply [color:var(--color-muted)];
 }
 .diff-line.removed .diff-sign {
   @apply [color:var(--color-red)];
@@ -1113,6 +1125,9 @@ button:disabled {
 }
 .effective-config span {
   @apply [color:var(--color-muted)] [font:10.5px_var(--font-mono)];
+}
+.effective-config a {
+  @apply [margin-left:auto] [color:var(--color-blue)] [font:10.5px_var(--font-mono)];
 }
 .trajectory-summary {
   @apply [flex:none] [padding:12px_24px_10px] [border-bottom:1px_solid_var(--color-line)] [color:var(--color-muted)] [font-size:11.5px];
@@ -2516,7 +2531,8 @@ body {
   @apply [min-height:44px] [padding:10px_13px];
 }
 .effective-config span,
-.effective-config code {
+.effective-config code,
+.effective-config a {
   @apply [font-size:11px];
 }
 .starter-card {
