@@ -607,8 +607,21 @@ describe("session search requests", () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
     expect(source).toContain("setSessionQuery(search)");
     expect(source).toContain("api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery)");
-    expect(source).toContain("marketplaceSearchQuery, sessionPage, sessionQuery]");
+    expect(source).toContain("}, [api, includeArchivedSessions, sessionPage, sessionQuery]);");
     expect(source).not.toContain("marketplaceQuery, search, sessionPage]");
+  });
+
+  test("keeps the transcript read out of the query-parameter reads", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+
+    // api.getSession() returns the whole transcript — 3.7 MB on a long session. While it shared a
+    // dependency array with the sidebar and marketplace queries, six characters typed into the session
+    // search re-read it eight times, 30 MB in all. It now only depends on the api itself.
+    const core = source.slice(source.indexOf("const refreshCore = useCallback("));
+    expect(core).toContain("api.getSession()");
+    expect(core.slice(0, core.indexOf("}, [api]);"))).toContain("api.getStatus()");
+    expect(core.slice(0, core.indexOf("}, [api]);"))).not.toContain("api.listSessions(");
+    expect(core.slice(0, core.indexOf("}, [api]);"))).not.toContain("api.listMarketplace(");
   });
 
   test("debounces marketplace queries before they participate in the broad refresh", async () => {

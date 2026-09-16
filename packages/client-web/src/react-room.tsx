@@ -9596,20 +9596,72 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       cancelled = true;
     };
   }, [api, installedPluginId, locale, marketplaceCatalog]);
-  const refresh = useCallback(async () => {
+  // The session list and the marketplace are the only reads that take query parameters, so they are
+  // fetched on their own. Folding them into the full refresh made every keystroke in the sidebar search
+  // re-read the whole transcript: six characters cost eight reads of /api/session, 30 MB in all.
+  const refreshSessionList = useCallback(async () => {
+    const sequence = ++refreshSequenceRef.current.requested;
+    const request = api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery);
+    const label = REFRESH_SOURCE_LABELS.sessionList;
+    const apply = (result: PromiseSettledResult<Awaited<ReturnType<ClientApi["listSessions"]>>>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.sessions) return;
+      liveRefreshSequenceRef.current.sessions = sequence;
+      if (result.status === "fulfilled") {
+        setData((current) => ({ ...current, sessions: result.value.items }));
+        setSessionsLoaded(true);
+        setSessionTotal(result.value.total);
+        setSessionHasNext(result.value.hasNext);
+      }
+      setRefreshIssues((current) => {
+        const remaining = current.filter((item) => item !== label);
+        return result.status === "fulfilled" ? remaining : [...remaining, label];
+      });
+    };
+    void request.then(
+      (value) => apply({ status: "fulfilled", value }),
+      (reason: unknown) => apply({ status: "rejected", reason }),
+    );
+    await Promise.allSettled([request]);
+  }, [api, includeArchivedSessions, sessionPage, sessionQuery]);
+  const refreshMarketplace = useCallback(() => {
+    const sequence = ++refreshSequenceRef.current.requested;
+    const request = api.listMarketplace(marketplaceSearchQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale);
+    const apply = (result: PromiseSettledResult<Awaited<ReturnType<ClientApi["listMarketplace"]>>>) => {
+      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.marketplace) return;
+      liveRefreshSequenceRef.current.marketplace = sequence;
+      setRefreshIssues((current) => {
+        const remaining = current.filter((item) => item !== REFRESH_SOURCE_LABELS.marketplace);
+        return result.status === "fulfilled" ? remaining : [...remaining, REFRESH_SOURCE_LABELS.marketplace];
+      });
+      if (result.status !== "fulfilled") return;
+      setData((current) => ({
+        ...current,
+        marketplace: result.value.items,
+        marketplaceLocale: locale,
+        marketplaceCapabilities: result.value.capabilities,
+        marketplaceCategories: result.value.categories,
+        marketplaceTotal: result.value.total,
+        marketplacePage: result.value.page,
+        marketplaceHasNext: result.value.hasNext,
+      }));
+    };
+    void request.then(
+      (value) => apply({ status: "fulfilled", value }),
+      (reason: unknown) => apply({ status: "rejected", reason }),
+    );
+  }, [api, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery]);
+  const refreshCore = useCallback(async () => {
     const sequence = ++refreshSequenceRef.current.requested;
     const pendingNavigation = pendingSessionNavigationRef.current;
     const pluginPanels = api.listPluginPanels();
     const requests = [
       api.getStatus(),
       api.getSession(),
-      api.listSessions(sessionPage, 30, includeArchivedSessions, sessionQuery),
       api.getFiles(),
       api.getWorkspaceFiles(),
       api.listModels(),
       api.listProviders(),
       api.listPlugins(),
-      api.listMarketplace(marketplaceSearchQuery, marketplaceCapability, marketplacePage, 24, marketplaceCategory, locale),
       api.listCommands(),
       api.listWorkspaces(),
     ] as const;
@@ -9651,25 +9703,6 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     );
     // Conversation readiness depends on runtime reads, not optional catalog requests.
     void Promise.allSettled([requests[0], requests[1]]).then(() => setInitialRefreshPending(false));
-    const sessionListLabel = REFRESH_SOURCE_LABELS.sessionList;
-    const applySessions = (result: PromiseSettledResult<Awaited<ReturnType<ClientApi["listSessions"]>>>) => {
-      if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.sessions) return;
-      liveRefreshSequenceRef.current.sessions = sequence;
-      if (result.status === "fulfilled") {
-        setData((current) => ({ ...current, sessions: result.value.items }));
-        setSessionsLoaded(true);
-        setSessionTotal(result.value.total);
-        setSessionHasNext(result.value.hasNext);
-      }
-      setRefreshIssues((current) => {
-        const remaining = current.filter((label) => label !== sessionListLabel);
-        return result.status === "fulfilled" ? remaining : [...remaining, sessionListLabel];
-      });
-    };
-    void requests[2].then(
-      (value) => applySessions({ status: "fulfilled", value }),
-      (reason: unknown) => applySessions({ status: "rejected", reason }),
-    );
     const pluginPanelLabel = REFRESH_SOURCE_LABELS.pluginPanel;
     const applyPluginPanels = (result: PromiseSettledResult<RoomData["pluginPanels"]>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.pluginPanels) return;
@@ -9701,28 +9734,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         (reason: unknown) => apply({ status: "rejected", reason }),
       );
     };
-    observeResource(requests[3], "files", REFRESH_SOURCE_LABELS.files, (result) => ({ files: result.items, fileRepository: result.repository }));
-    observeResource(requests[4], "workspaceFiles", REFRESH_SOURCE_LABELS.workspaceFiles, (result) => ({
+    observeResource(requests[2], "files", REFRESH_SOURCE_LABELS.files, (result) => ({ files: result.items, fileRepository: result.repository }));
+    observeResource(requests[3], "workspaceFiles", REFRESH_SOURCE_LABELS.workspaceFiles, (result) => ({
       workspaceFiles: result.items,
       workspaceFilesTruncated: result.truncated,
     }));
-    observeResource(requests[5], "models", REFRESH_SOURCE_LABELS.models, (models) => ({ models }));
-    observeResource(requests[6], "providers", REFRESH_SOURCE_LABELS.providers, (providers) => ({ providers }));
-    observeResource(requests[7], "plugins", REFRESH_SOURCE_LABELS.plugins, (plugins) => ({ plugins }));
-    observeResource(requests[8], "marketplace", REFRESH_SOURCE_LABELS.marketplace, (result) => ({
-      marketplace: result.items,
-      marketplaceLocale: locale,
-      marketplaceCapabilities: result.capabilities,
-      marketplaceCategories: result.categories,
-      marketplaceTotal: result.total,
-      marketplacePage: result.page,
-      marketplaceHasNext: result.hasNext,
-    }));
-    observeResource(requests[9], "commands", REFRESH_SOURCE_LABELS.commands, (commands) => ({ commands }));
-    observeResource(requests[10], "workspaces", REFRESH_SOURCE_LABELS.workspaces, (workspaces) => ({ workspaces }));
-    // Local actions can await refreshed workspace state without waiting for the optional catalog.
-    await Promise.allSettled(requests.filter((_, index) => index !== 8));
-  }, [api, includeArchivedSessions, locale, marketplaceCapability, marketplaceCategory, marketplacePage, marketplaceSearchQuery, sessionPage, sessionQuery]);
+    observeResource(requests[4], "models", REFRESH_SOURCE_LABELS.models, (models) => ({ models }));
+    observeResource(requests[5], "providers", REFRESH_SOURCE_LABELS.providers, (providers) => ({ providers }));
+    observeResource(requests[6], "plugins", REFRESH_SOURCE_LABELS.plugins, (plugins) => ({ plugins }));
+    observeResource(requests[7], "commands", REFRESH_SOURCE_LABELS.commands, (commands) => ({ commands }));
+    observeResource(requests[8], "workspaces", REFRESH_SOURCE_LABELS.workspaces, (workspaces) => ({ workspaces }));
+    await Promise.allSettled(requests);
+  }, [api]);
+  // Callers that act on the workspace still await every read except the optional catalog, as before.
+  const refresh = useCallback(async () => {
+    await Promise.allSettled([refreshCore(), refreshSessionList()]);
+    void refreshMarketplace();
+  }, [refreshCore, refreshMarketplace, refreshSessionList]);
   const scheduleRefresh = useCallback(() => {
     refreshQueuedRef.current = true;
     if (refreshTimerRef.current !== undefined) return;
@@ -9864,8 +9892,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     refreshRef.current = refresh;
   }, [handleRuntimeEvent, refresh]);
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshCore();
+  }, [refreshCore]);
+  useEffect(() => {
+    void refreshSessionList();
+  }, [refreshSessionList]);
+  useEffect(() => {
+    void refreshMarketplace();
+  }, [refreshMarketplace]);
   useEffect(() => subscribeRuntimeEvents(api, handleRuntimeEventRef, handleEventStreamStateRef), [api]);
   useEffect(() => {
     const timer = window.setInterval(() => void refreshRef.current(), 5000);
