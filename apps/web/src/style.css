@@ -603,7 +603,7 @@ button:disabled {
   @apply [display:flex] [justify-content:flex-end];
 }
 .user-bubble {
-  @apply [max-width:84%] [padding:10px_14px] [border-radius:10px] [background:var(--color-blue-soft)] [white-space:pre-wrap];
+  @apply [max-width:84%] [overflow-wrap:anywhere] [padding:10px_14px] [border-radius:10px] [background:var(--color-blue-soft)] [white-space:pre-wrap];
 }
 .pending-turn .user-bubble {
   @apply [opacity:0.72];
@@ -611,8 +611,12 @@ button:disabled {
 .turn-stopped {
   @apply [display:inline-block] [margin:8px_0_0] [border:1px_solid_rgba(236,_19,_19,_0.24)] [border-radius:6px] [padding:1px_7px] [color:var(--color-red)] [font:10.5px_var(--font-mono)];
 }
+/* Model prose is where a long URL, a hash or a base64 blob arrives, and one unbroken token was enough to give the whole transcript a horizontal scrollbar. The tool-output surfaces already break them; these two did not. A fenced block is exempt, because code that rewraps stops being readable and scrolls inside its own box instead. */
 .turn-markdown {
-  @apply [margin:0] [min-width:0] [font-size:13.5px] [line-height:1.78];
+  @apply [margin:0] [min-width:0] [overflow-wrap:anywhere] [font-size:13.5px] [line-height:1.78];
+}
+.turn-markdown .markdown-code {
+  @apply [overflow-wrap:normal];
 }
 .turn-markdown p {
   @apply [margin:0_0_10px] [white-space:pre-wrap];
