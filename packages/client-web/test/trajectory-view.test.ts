@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
-import { Trajectory, timelineBars } from "../src/react-room.js";
+import { Trajectory, nextTrajectoryRow, timelineBars } from "../src/react-room.js";
 
 function renderTrajectory(events: readonly Record<string, unknown>[], sessionMessages: number): string {
   return renderToStaticMarkup(createElement(Trajectory, { events, sessionMessages, onSelect: () => {} }));
@@ -76,5 +76,39 @@ describe("trajectory timeline", () => {
 
   test("has nothing to draw for an empty run", () => {
     expect(timelineBars([])).toEqual([]);
+  });
+});
+
+describe("trajectory row navigation", () => {
+  // 1,237 rows for 23 on screen means a keyboard user pays a thousand keystrokes to get past the table, so it is one tab stop with arrows inside it.
+  test("moves one row at a time and stops at both ends", () => {
+    expect(nextTrajectoryRow("ArrowDown", 0, 5)).toBe(1);
+    expect(nextTrajectoryRow("ArrowUp", 3, 5)).toBe(2);
+    expect(nextTrajectoryRow("ArrowDown", 4, 5)).toBe(4);
+    expect(nextTrajectoryRow("ArrowUp", 0, 5)).toBe(0);
+  });
+
+  test("jumps to either end", () => {
+    expect(nextTrajectoryRow("Home", 3, 5)).toBe(0);
+    expect(nextTrajectoryRow("End", 1, 5)).toBe(4);
+  });
+
+  test("leaves every other key to the browser", () => {
+    expect(nextTrajectoryRow("Enter", 1, 5)).toBeUndefined();
+    expect(nextTrajectoryRow("Tab", 1, 5)).toBeUndefined();
+    expect(nextTrajectoryRow(" ", 1, 5)).toBeUndefined();
+  });
+
+  test("has nowhere to go in an empty table", () => {
+    expect(nextTrajectoryRow("ArrowDown", 0, 0)).toBeUndefined();
+    expect(nextTrajectoryRow("Home", 0, 0)).toBeUndefined();
+  });
+
+  test("puts exactly one row in the tab order", () => {
+    const events = Array.from({ length: 40 }, (_, index) => ({ type: "tool_call", toolName: `tool-${index}` }));
+    const html = renderTrajectory(events, 40);
+
+    expect(html.split('tabindex="0"').length - 1).toBe(1);
+    expect(html.split('tabindex="-1"').length - 1).toBe(39);
   });
 });

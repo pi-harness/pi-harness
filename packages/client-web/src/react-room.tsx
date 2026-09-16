@@ -1441,6 +1441,16 @@ export function timelineBars(events: readonly unknown[], max: number = TIMELINE_
   return out;
 }
 
+// A long run puts one focusable row per event in the tab order — 1,237 of them for 23 on screen — so reaching anything past the table costs a thousand keystrokes. One stop for the table and arrows inside it is the usual answer, and it needs to know where to land.
+export function nextTrajectoryRow(key: string, active: number, total: number): number | undefined {
+  if (total === 0) return undefined;
+  if (key === "ArrowDown") return Math.min(active + 1, total - 1);
+  if (key === "ArrowUp") return Math.max(active - 1, 0);
+  if (key === "Home") return 0;
+  if (key === "End") return total - 1;
+  return undefined;
+}
+
 export function Trajectory({
   events,
   sessionMessages,
@@ -1453,6 +1463,8 @@ export function Trajectory({
   const historicalCount = events.filter((event) => event.historical === true && event.type !== "historical_events_omitted").length;
   const resumed = events.length === 0 && sessionMessages > 0;
   const [filter, setFilter] = useState("all");
+  const [activeRow, setActiveRow] = useState(0);
+  const rowsRef = useRef<HTMLDivElement>(null);
   const counts = useMemo(() => {
     const map = new Map<string, number>();
     events.forEach((event) => {
@@ -1462,6 +1474,8 @@ export function Trajectory({
     return map;
   }, [events]);
   const visible = events.filter((event) => filter === "all" || value(event.type, "event") === filter);
+  // Narrowing the filter can leave the stored index past the end of the shorter list, and a table whose only tab stop is out of range has no tab stop at all, so the index is clamped where it is read rather than corrected in state.
+  const rovingRow = Math.min(activeRow, Math.max(0, visible.length - 1));
   return (
     <section className="view-panel trajectory-view">
       <div className="trajectory-summary">
@@ -1497,7 +1511,17 @@ export function Trajectory({
           </button>
         ))}
       </div>
-      <div className="event-table">
+      <div
+        className="event-table"
+        onKeyDown={(keyEvent) => {
+          const next = nextTrajectoryRow(keyEvent.key, rovingRow, visible.length);
+          if (next === undefined) return;
+          keyEvent.preventDefault();
+          setActiveRow(next);
+          rowsRef.current?.querySelectorAll<HTMLButtonElement>(".event-row")[next]?.focus();
+        }}
+        ref={rowsRef}
+      >
         <div className="event-head">
           <span>{t("时间")}</span>
           <span>{t("类型")}</span>
@@ -1506,7 +1530,14 @@ export function Trajectory({
           <span>{t("耗时")}</span>
         </div>
         {visible.map((event, index) => (
-          <button className="event-row" key={index} onClick={(clickEvent) => onSelect(event, clickEvent.currentTarget)} type="button">
+          <button
+            className="event-row"
+            key={index}
+            onClick={(clickEvent) => onSelect(event, clickEvent.currentTarget)}
+            onFocus={() => setActiveRow(index)}
+            tabIndex={index === rovingRow ? 0 : -1}
+            type="button"
+          >
             <span>{formatEventClock(event)}</span>
             <span title={value(event.type, "event")}>
               <i className="event-dot"></i>
