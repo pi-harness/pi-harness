@@ -478,6 +478,20 @@ describe("runtime explanations", () => {
     expect(runtimeExplanation("x".repeat(240))).toBeUndefined();
   });
 
+  // The raw text was always one disclosure away, but promoting it to the line everyone reads is a different exposure.
+  test("does not promote anything that looks like a credential", () => {
+    expect(runtimeExplanation("Upstream rejected the request: Bearer abc123 is expired")).toBeUndefined();
+    expect(runtimeExplanation("Provider error: api_key was rejected")).toBeUndefined();
+    expect(runtimeExplanation(`Upstream said ${"z".repeat(40)}`)).toBeUndefined();
+    expect(runtimeExplanation("Cannot fork a session while a prompt is running")).toBe("Cannot fork a session while a prompt is running");
+  });
+
+  test("still quotes a message that merely names a session", () => {
+    const message = "Cannot delete session 01a0a79b-fd6b-70cb-96da-2089eca2712f while a prompt is running";
+
+    expect(runtimeExplanation(message)).toBe(message);
+  });
+
   test("does not override the advice the auth cases carry", () => {
     const html = renderToStaticMarkup(createElement(PromptError, { message: "No API key found for everyapi" }));
 

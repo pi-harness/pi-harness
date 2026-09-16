@@ -1222,6 +1222,11 @@ export function runtimeExplanation(message: string): string | undefined {
   if (/\bat\s+\S+\s+\(/.test(text)) return undefined;
   // "Request failed with status 500" is the client's own stand-in for a body it could not read, and says nothing anyone can act on.
   if (/^Request failed with status \d+$/.test(text)) return undefined;
+  // An upstream provider can put a credential in its own error text. That text was always one disclosure away, but promoting it to the line everyone reads is a different exposure, so anything that looks like a secret stays where it was.
+  if (/\b(?:authorization|bearer|api[_-]?key|secret|token|password)\b/i.test(text)) return undefined;
+  // A session id is a long run of characters too, and refusing every message that names one would suppress most of what is worth quoting, so identifiers are set aside before looking for a secret.
+  const withoutIds = text.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "");
+  if (/[A-Za-z0-9_-]{32,}/.test(withoutIds)) return undefined;
   return text;
 }
 
