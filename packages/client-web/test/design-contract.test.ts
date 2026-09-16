@@ -122,6 +122,16 @@ describe("Pi Harness design contract", () => {
     expect(silent).toEqual([]);
   });
 
+  it("says so when a session link names something this workspace cannot open", () => {
+    const source = readFileSync(fileURLToPath(new URL("../src/react-room.tsx", import.meta.url)), "utf8");
+    const restore = source.slice(source.indexOf("const target = data.sessions.find"));
+    const notFoundBranch = restore.slice(0, restore.indexOf("setInitialSessionRestorePending(false);"));
+
+    // Falling back to the open session is right, but doing it silently rewrites the address bar to a different
+    // conversation, so a stale or foreign link looks exactly like one that worked.
+    expect(notFoundBranch).toContain("setSessionActionError(");
+  });
+
   it("reports every failed control-room refresh surface without hiding partial failures", () => {
     expect(
       failedRefreshLabels(

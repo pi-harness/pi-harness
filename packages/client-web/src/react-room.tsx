@@ -9953,6 +9953,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     }
     const target = data.sessions.find((session) => session.path === path);
     if (!target || typeof target.path !== "string") {
+      // Falling back to the open session is right — there is nothing else to show — but doing it silently
+      // rewrites the address bar to a different conversation, so a stale or foreign link is indistinguishable
+      // from one that worked. The catch below already reports a failed open through the same surface.
+      setSessionActionError(t("链接指向的会话不在这个工作区，或已不存在；当前会话保持打开。"));
       setSelectedSessionPath(undefined);
       setInitialSessionRestorePending(false);
       return;

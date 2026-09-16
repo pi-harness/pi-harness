@@ -1251,6 +1251,7 @@
   "重试结束": "Wiederholung beendet",
   "重载": "Neu laden",
   "重载中…": "Wird neu geladen…",
+  "链接指向的会话不在这个工作区，或已不存在；当前会话保持打开。": "Die Sitzung, auf die dieser Link verweist, ist nicht in diesem Arbeitsbereich oder existiert nicht mehr; die aktuelle Sitzung bleibt geöffnet.",
   "错误": "Fehler",
   "错误上限 {v0} 字符": "Fehlergrenze {v0} Zeichen",
   "门禁失败": "Gate fehlgeschlagen",
