@@ -49,8 +49,9 @@ button:disabled {
 [hidden] {
   @apply [display:none!important];
 }
+/* clip, not hidden: `hidden` leaves the shell a scroll container, so anything the browser decides to scroll into view — a dialog's initial focus, for one — can slide the whole application sideways with no scrollbar to bring it back. */
 .app-frame {
-  @apply [display:flex] [width:100%] [height:100%] [overflow:hidden] [background:var(--color-surface)] [color:var(--color-ink)];
+  @apply [display:flex] [width:100%] [height:100%] [overflow:clip] [background:var(--color-surface)] [color:var(--color-ink)];
 }
 .sidebar {
   @apply [width:264px] [flex:0_0_264px] [display:flex] [flex-direction:column] [min-height:0] [background:var(--color-soft)] [border-right:1px_solid_rgba(0,_0,_0,_0.06)];
@@ -1264,8 +1265,9 @@ button:disabled {
 .details-panel > header {
   @apply [height:56px] [display:flex] [flex:0_0_56px] [align-items:center] [gap:8px] [padding:0_12px_0_16px] [border-bottom:1px_solid_rgba(0,_0,_0,_0.06)];
 }
+/* The title is whatever the event carries, and a tool call carries an absolute path with no break opportunity in it. Without a floor of zero the heading refuses to shrink, pushes the close button out of the panel, and the shell scrolls to chase it. */
 .details-panel > header strong {
-  @apply [flex:1] [font-size:13px];
+  @apply [flex:1] [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap] [font-size:13px];
 }
 .details-panel > header button {
   @apply [display:grid] [width:32px] [height:32px] [flex:none] [place-items:center] [border-radius:7px] [color:var(--color-muted)] [font-size:19px] [line-height:1];

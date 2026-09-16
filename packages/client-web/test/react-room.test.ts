@@ -24,6 +24,7 @@ import {
   restartRequiredNotice,
   restartPendingForProcess,
   runSessionPopoverAction,
+  fileCompletionDetail,
   parseUnifiedDiff,
   sessionHeadingTitle,
   sessionListEmptyMessage,
@@ -327,6 +328,29 @@ test("localizes an empty session title in the sidebar", async () => {
   } finally {
     await setLocale(previousLocale);
   }
+});
+
+describe("file completion detail", () => {
+  // The @-file popover printed file.status on its own, so every untracked file was labelled "??" — which reads as a missing glyph rather than as a git status.
+  test("names the change before quoting the porcelain code", () => {
+    expect(fileCompletionDetail({ label: "untracked", status: "??" })).toBe("untracked · ??");
+    expect(fileCompletionDetail({ label: "modified", status: " M" })).toBe("modified · M");
+  });
+
+  test("falls back to whichever of the two the payload actually carries", () => {
+    expect(fileCompletionDetail({ label: "untracked", status: "" })).toBe("untracked");
+    expect(fileCompletionDetail({ label: "", status: "??" })).toBe("??");
+  });
+
+  test("says where the file came from when it carries neither", async () => {
+    const previousLocale = activeLocale();
+    await setLocale("en");
+    try {
+      expect(fileCompletionDetail({ label: "", status: "" })).toBe("Workspace");
+    } finally {
+      await setLocale(previousLocale);
+    }
+  });
 });
 
 describe("unified diff parsing", () => {
