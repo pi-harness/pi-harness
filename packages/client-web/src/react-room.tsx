@@ -8963,17 +8963,38 @@ export const ChatTurnArticle = memo(
     thinking,
     tools = [],
     stopped = false,
+    tokensBefore,
     onMouseUp,
   }: {
-    role: "user" | "assistant";
+    role: "user" | "assistant" | "compaction";
     text: string;
     thinking: string;
     tools?: readonly ChatToolCall[];
     stopped?: boolean;
+    tokensBefore?: number;
     onMouseUp: () => void;
     // The turn is memoised on its content, so the active language has to arrive as a prop: without it a switch would leave every turn already on screen labelled in the old language.
     locale?: string;
   }) {
+    // Without this the transcript simply begins part-way through itself: the runtime drops the history it summarised, and the reader is left with a conversation that starts at their most recent prompt and no sign that anything came before it.
+    if (role === "compaction")
+      return (
+        <article className="turn compaction">
+          <details className="compaction-turn">
+            <summary className="compaction-head">
+              <strong>{t("已压缩较早的对话")}</strong>
+              <span>
+                {tokensBefore === undefined
+                  ? t("摘要保留在上下文中")
+                  : t("压缩前约 {tokens} tokens，摘要保留在上下文中", { tokens: tokensBefore.toLocaleString() })}
+              </span>
+            </summary>
+            <div className="compaction-body">
+              {text.trim() ? <MarkdownMessage text={text} /> : <span className="empty-state">{t("运行时没有提供摘要内容。")}</span>}
+            </div>
+          </details>
+        </article>
+      );
     return (
       <article className={`turn ${role === "user" ? "user" : "text"}`}>
         {role === "user" ? (
@@ -10487,6 +10508,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               stopped={turn.stopped}
               text={turn.text}
               thinking={turn.thinking}
+              tokensBefore={turn.tokensBefore}
               tools={turn.tools}
             />
           ))

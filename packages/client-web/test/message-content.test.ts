@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { messageThinking, messageText, projectChatTurns } from "../src/message-content.js";
+import { compactionTurn, messageThinking, messageText, projectChatTurns } from "../src/message-content.js";
 
 describe("message content projection", () => {
   test("keeps assistant text separate from thinking and tool calls", () => {
@@ -128,5 +128,41 @@ describe("message content projection", () => {
     expect(projectChatTurns([{ role: "assistant", content: [{ type: "text", text: "已完成" }], stopReason: "stop" }])).toEqual([
       { role: "assistant", text: "已完成", thinking: "", tools: [], stopped: false },
     ]);
+  });
+});
+
+describe("compaction in the transcript", () => {
+  const summary = { role: "compactionSummary", summary: "## Goal\n- Build Orbit", tokensBefore: 110121, timestamp: 1789537747845 };
+
+  // The runtime drops the history it summarised. Without a turn for the summary the transcript simply begins part-way through itself.
+  test("keeps the summary the runtime wrote where the history used to be", () => {
+    const turns = projectChatTurns([summary, { role: "user", content: "Round 12" }]);
+
+    expect(turns).toHaveLength(2);
+    expect(turns[0]?.role).toBe("compaction");
+    expect(turns[0]?.text).toContain("Build Orbit");
+    expect(turns[0]?.tokensBefore).toBe(110121);
+    expect(turns[1]?.role).toBe("user");
+  });
+
+  test("reads a summary delivered as content instead of a summary field", () => {
+    const turn = compactionTurn({ role: "compactionSummary", content: [{ type: "text", text: "earlier work" }] });
+
+    expect(turn?.role).toBe("compaction");
+    expect(turn?.text).toBe("earlier work");
+    expect(turn?.tokensBefore).toBeUndefined();
+  });
+
+  test("is not confused with an ordinary message", () => {
+    expect(compactionTurn({ role: "assistant", content: "hello" })).toBeUndefined();
+    expect(compactionTurn({ role: "user", content: "hello" })).toBeUndefined();
+  });
+
+  test("still produces a turn when the runtime sends no summary text", () => {
+    const turns = projectChatTurns([{ role: "compactionSummary", tokensBefore: 42 }]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.role).toBe("compaction");
+    expect(turns[0]?.text).toBe("");
   });
 });
