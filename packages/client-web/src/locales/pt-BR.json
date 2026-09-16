@@ -1251,6 +1251,7 @@
   "重试结束": "Fim da repetição",
   "重载": "Recarregar",
   "重载中…": "Recarregando…",
+  "链接指向的会话不在这个工作区，或已不存在；当前会话保持打开。": "A sessão para a qual este link aponta não está neste espaço de trabalho ou não existe mais; a sessão atual continua aberta.",
   "错误": "Erro",
   "错误上限 {v0} 字符": "Limite do erro: {v0} caracteres",
   "门禁失败": "Controle reprovado",

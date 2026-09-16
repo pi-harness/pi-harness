@@ -1251,6 +1251,7 @@
   "重试结束": "Retry ended",
   "重载": "Reload",
   "重载中…": "Reloading…",
+  "链接指向的会话不在这个工作区，或已不存在；当前会话保持打开。": "The session this link points to is not in this workspace, or no longer exists; the current session stayed open.",
   "错误": "Error",
   "错误上限 {v0} 字符": "Error limit {v0} characters",
   "门禁失败": "Gate failed",
