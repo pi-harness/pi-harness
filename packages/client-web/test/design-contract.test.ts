@@ -98,6 +98,17 @@ describe("Pi Harness design contract", () => {
     expect(styles).toMatch(/\.active-heading h1 \{\n\s*@apply \[margin:0\]/);
   });
 
+  it("formats every number in the console for the active language", () => {
+    const source = readFileSync(fileURLToPath(new URL("../src/react-room.tsx", import.meta.url)), "utf8");
+
+    // A hard-coded locale groups 110121 as "110,121" in a German or French UI, where the language wants
+    // "110.121" and "110 121". A bare call follows the browser instead of the language the console is set to.
+    expect(source).not.toMatch(/toLocaleString\(\s*"/);
+    expect(source).not.toMatch(/toLocaleString\(\s*\)/);
+    expect(source).not.toMatch(/Intl\.(?:Number|DateTime|RelativeTime)Format\(\s*[")]/);
+    expect((source.match(/toLocaleString\(formatLocale\(\)\)/g) ?? []).length).toBeGreaterThanOrEqual(26);
+  });
+
   it("reports every failed control-room refresh surface without hiding partial failures", () => {
     expect(
       failedRefreshLabels(

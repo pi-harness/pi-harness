@@ -2509,8 +2509,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               </div>
               <div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-3">
                 {[
-                  [t("消息"), report.totalMessages.toLocaleString("en-US")],
-                  [t("工具调用 / 结果"), `${report.toolCalls.toLocaleString("en-US")} / ${report.toolResults.toLocaleString("en-US")}`],
+                  [t("消息"), report.totalMessages.toLocaleString(formatLocale())],
+                  [t("工具调用 / 结果"), `${report.toolCalls.toLocaleString(formatLocale())} / ${report.toolResults.toLocaleString(formatLocale())}`],
                   [t("SDK 成本"), `$${report.cost.toFixed(4)}`],
                 ].map(([label, item]) => (
                   <div className="min-w-0 rounded-lg bg-[var(--color-soft)] px-3 py-2" key={label}>
@@ -2522,13 +2522,13 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               <div className="min-w-0 rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-[var(--color-ink)]">{t("累计 token")}</span>
-                  <strong className="break-all font-mono text-[14px] text-[var(--color-blue)]">{report.tokens.total.toLocaleString("en-US")}</strong>
+                  <strong className="break-all font-mono text-[14px] text-[var(--color-blue)]">{report.tokens.total.toLocaleString(formatLocale())}</strong>
                 </div>
                 <div className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4 text-[var(--color-muted)]">
-                  <span>{t("输入 {v0}", { v0: report.tokens.input.toLocaleString("en-US") })}</span>
-                  <span>{t("输出 {v0}", { v0: report.tokens.output.toLocaleString("en-US") })}</span>
-                  <span>{t("缓存读取 {v0}", { v0: report.tokens.cacheRead.toLocaleString("en-US") })}</span>
-                  <span>{t("缓存写入 {v0}", { v0: report.tokens.cacheWrite.toLocaleString("en-US") })}</span>
+                  <span>{t("输入 {v0}", { v0: report.tokens.input.toLocaleString(formatLocale()) })}</span>
+                  <span>{t("输出 {v0}", { v0: report.tokens.output.toLocaleString(formatLocale()) })}</span>
+                  <span>{t("缓存读取 {v0}", { v0: report.tokens.cacheRead.toLocaleString(formatLocale()) })}</span>
+                  <span>{t("缓存写入 {v0}", { v0: report.tokens.cacheWrite.toLocaleString(formatLocale()) })}</span>
                 </div>
               </div>
               <div className="min-w-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-3">
@@ -2544,11 +2544,11 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">{t("当前模型未提供上下文窗口。")}</p>
                 ) : contextUsage.tokens === null ? (
                   <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">
-                    {t("压缩后 token 暂不可估算 · 上下文窗口 {v0}", { v0: contextUsage.contextWindow.toLocaleString("en-US") })}
+                    {t("压缩后 token 暂不可估算 · 上下文窗口 {v0}", { v0: contextUsage.contextWindow.toLocaleString(formatLocale()) })}
                   </p>
                 ) : (
                   <p className="mt-2 text-[10px] leading-4 text-[var(--color-faint)]">
-                    {contextUsage.tokens.toLocaleString("en-US")} / {contextUsage.contextWindow.toLocaleString("en-US")} tokens
+                    {contextUsage.tokens.toLocaleString(formatLocale())} / {contextUsage.contextWindow.toLocaleString(formatLocale())} tokens
                   </p>
                 )}
               </div>
@@ -9006,7 +9006,7 @@ export const ChatTurnArticle = memo(
               <span>
                 {tokensBefore === undefined
                   ? t("摘要保留在上下文中")
-                  : t("压缩前约 {tokens} tokens，摘要保留在上下文中", { tokens: tokensBefore.toLocaleString() })}
+                  : t("压缩前约 {tokens} tokens，摘要保留在上下文中", { tokens: tokensBefore.toLocaleString(formatLocale()) })}
               </span>
             </summary>
             <div className="compaction-body">
