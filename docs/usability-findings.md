@@ -76,7 +76,7 @@ MCP initialization failed: This extension ctx is stale after session replacement
 **修复**:
 
 - `.streaming-placeholder` 添加了 spinner 旋转动画 + 文字呼吸动画
-- `.reasoning-head` 添加了 "..." 跳动动画（CSS `content` + `steps()`）
+- 运行中的思考标题添加了 "..." 跳动动画（`.thinking-dots`，CSS `content` + `steps()`）
 - 新增 `streaming-elapsed` 计时器，显示已运行秒数（如 "思考中… 8s"）
   **文件**:
 - `packages/client-web/src/react-room.tsx` — 添加 `streamingStartedAt` / `elapsedSeconds` state + `useEffect` 计时器

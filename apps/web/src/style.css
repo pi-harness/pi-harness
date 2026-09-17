@@ -624,6 +624,10 @@ button:disabled {
 .turn-markdown p:last-child {
   @apply [margin-bottom:0];
 }
+/* A turn is a sequence of parts the model wrote in order, so its prose is no longer always the last thing in it. The tool row and the reasoning disclosure declare a bottom margin only, which left a sentence sitting flush against the row it introduced while the sentence after that row had a gap, and left two merged messages reading as one paragraph. The gap matches the one between paragraphs of a single document, and collapses with the margin the next part declares rather than adding to it. */
+.turn-markdown:not(:last-child) {
+  @apply [margin-bottom:10px];
+}
 .turn-markdown h1,
 .turn-markdown h2,
 .turn-markdown h3,
@@ -810,7 +814,7 @@ button:disabled {
     filter: drop-shadow(0 0 8px currentColor);
   }
 }
-.reasoning-head::after {
+.thinking-dots::after {
   content: "...";
   display: inline-block;
   animation: thinking-dots 1.5s steps(1, end) infinite;
@@ -2015,7 +2019,7 @@ button:disabled {
   .run-indicator .run-dot,
   .initial-loading > span,
   .streaming-spinner,
-  .reasoning-head::after {
+  .thinking-dots::after {
     @apply [animation:none];
   }
 }
