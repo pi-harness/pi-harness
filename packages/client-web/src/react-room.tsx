@@ -559,6 +559,14 @@ function readSendShortcut(): "enter" | "mod-enter" {
   }
 }
 
+function readWideMode(): boolean {
+  try {
+    return browserStorage()?.getItem("pi-harness.wideMode") === "on";
+  } catch {
+    return false;
+  }
+}
+
 function browserSessionStorage(): Storage | undefined {
   try {
     return typeof sessionStorage === "undefined" ? undefined : sessionStorage;
@@ -7613,11 +7621,15 @@ function Settings({
   onRefresh,
   sendShortcut,
   onSendShortcutChange,
+  wideMode,
+  onWideModeChange,
 }: {
   data: RoomData;
   api: ClientApi;
   sendShortcut: "enter" | "mod-enter";
   onSendShortcutChange: (shortcut: "enter" | "mod-enter") => void;
+  wideMode: boolean;
+  onWideModeChange: (wide: boolean) => void;
   tab: SettingsTab;
   onTab: (tab: SettingsTab) => void;
   onClose: () => void;
@@ -7750,6 +7762,23 @@ function Settings({
                   >
                     <option value="enter">{t("Enter")}</option>
                     <option value="mod-enter">{t("Cmd/Ctrl+Enter")}</option>
+                  </select>
+                </div>
+                <div className="general-row">
+                  <div>
+                    <strong>{t("宽屏模式")}</strong>
+                    <small>{t("让消息、上下文条和输入框铺满窗口宽度，而不是停在居中的一栏里。这个偏好保存在浏览器里。")}</small>
+                  </div>
+                  <select
+                    aria-label={t("宽屏模式")}
+                    className="setting-select"
+                    onChange={(event) => {
+                      onWideModeChange(event.target.value === "wide");
+                    }}
+                    value={wideMode ? "wide" : "standard"}
+                  >
+                    <option value="standard">{t("标准宽度")}</option>
+                    <option value="wide">{t("铺满窗口")}</option>
                   </select>
                 </div>
                 {[
@@ -9082,6 +9111,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const initialQueryState = useMemo(readQueryState, []);
   const [sendShortcut, setSendShortcut] = useState<"enter" | "mod-enter">(readSendShortcut);
   const sendShortcutLabel = sendShortcut === "mod-enter" ? "Cmd/Ctrl+Enter" : "Enter";
+  const [wideMode, setWideMode] = useState<boolean>(readWideMode);
+  // The width cap lives in CSS on several elements at once, so the preference is carried on the
+  // document rather than threaded through every one of them as a prop.
+  useEffect(() => {
+    document.body.classList.toggle("wide-mode", wideMode);
+    return () => {
+      document.body.classList.remove("wide-mode");
+    };
+  }, [wideMode]);
   const [data, setData] = useState<RoomData>({
     sessions: [],
     files: [],
@@ -10422,6 +10460,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       data={data}
       tab={settings}
       sendShortcut={sendShortcut}
+      wideMode={wideMode}
+      onWideModeChange={(wide) => {
+        setWideMode(wide);
+        try {
+          browserStorage()?.setItem("pi-harness.wideMode", wide ? "on" : "off");
+        } catch {
+          // A blocked preference store must not discard the current view's selection.
+        }
+      }}
       onSendShortcutChange={(shortcut) => {
         setSendShortcut(shortcut);
         try {

@@ -3121,3 +3121,16 @@ body {
     @apply [min-width:0] [width:100%];
   }
 }
+
+/* Wide mode. The transcript is a centred column by default — 748px, widened to 960px in the chat — which on a large display spends roughly half the window on symmetric margin. Turning this on lets the same elements use the width they are given; the scroll container's own 24px padding still keeps the text off the edge. It is a browser preference, so it is carried on the body rather than threaded through every element that caps itself. */
+body.wide-mode .turn,
+body.wide-mode .chat-scroll .turn,
+body.wide-mode .turn.compaction,
+body.wide-mode .composer-stack,
+body.wide-mode .context-shell {
+  max-width: none;
+}
+body.wide-mode .main-header.session-track {
+  padding-right: 24px;
+  padding-left: 24px;
+}
