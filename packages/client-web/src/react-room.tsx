@@ -6821,9 +6821,11 @@ function Plugins({
   }, [capabilityLabel, catalogByPackage, installedPlugins, query]);
   // Chip counts describe what the current search left behind, so they agree with the "n / m plugins" counter and with the list. Categories the query emptied stay on the rail at zero rather than disappearing, because dropping one would fire the reset effect below and silently throw away the facet the user picked.
   const installedCategories = useMemo(() => {
+    const installedCounts = new Map<string, number>();
     const counts = new Map<string, ClientMarketplaceCategory>();
     for (const plugin of installedPlugins) {
       const category = pluginCategory(plugin);
+      installedCounts.set(category.id, (installedCounts.get(category.id) ?? 0) + 1);
       if (!counts.has(category.id)) counts.set(category.id, { ...category, count: 0 });
     }
     for (const plugin of queryMatchedPlugins) {
@@ -6831,8 +6833,11 @@ function Plugins({
       const current = counts.get(category.id);
       counts.set(category.id, { ...category, count: (current?.count ?? 0) + 1 });
     }
+    // Ordering by the installed count rather than the displayed one is what keeps the rail still: a rail ranked by the query's own counts re-sorts itself on every keystroke and slides the chip out from under the pointer already reaching for it, which is the jitter the zero chips exist to avoid.
     return marketplaceCategoryTabs(
-      [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, formatLocale())),
+      [...counts.values()].sort(
+        (left, right) => (installedCounts.get(right.id) ?? 0) - (installedCounts.get(left.id) ?? 0) || left.label.localeCompare(right.label, formatLocale()),
+      ),
     );
   }, [installedPlugins, pluginCategory, queryMatchedPlugins]);
   const visiblePlugins = useMemo(() => {
@@ -8385,8 +8390,8 @@ function Settings({
                             }
                             value={config.settings.advanced.mermaid}
                           >
-                            {/* "关闭" is the dialog dismiss verb elsewhere in this file, so every locale translated it as an imperative ("Close", "Schließen"). A select option needs the state word. */}
-                            <option value="off">{t("已关闭")}</option>
+                            {/* "关闭" is the dialog dismiss verb elsewhere in this file, so every locale translated it as an imperative ("Close", "Schließen"), and the "已关闭" state word is an adjective the Romance catalogs already inflected for the feature that shares it. Naming what the option does instead keeps this set parallel with the other two and leaves no adjective to agree with anything. */}
+                            <option value="off">{t("不渲染")}</option>
                             <option value="final">{t("完成后渲染")}</option>
                             <option value="streaming">{t("流式渲染")}</option>
                           </select>
@@ -9430,6 +9435,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const importInputRef = useRef<HTMLInputElement>(null);
   const sessionPopoverTriggerRef = useRef<HTMLButtonElement | null>(null);
   const activeSessionRowRef = useRef<HTMLButtonElement | null>(null);
+  const scrolledSessionRowRef = useRef<string | undefined>(undefined);
   const restoreSessionPopoverFocus = () => {
     const trigger = sessionPopoverTriggerRef.current;
     window.requestAnimationFrame(() => {
@@ -10203,9 +10209,14 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     });
     return () => window.cancelAnimationFrame(frame);
   }, [data.session?.messages.length, data.status?.events, streamingAssistant?.text.length, streamingAssistant?.thinking.length, pendingPrompt, promptBusy]);
-  // A session can be opened from anywhere — the command palette, global search, a fork — and the sidebar keeps whatever scroll offset it had, so the highlighted row lands off-screen and the list stops saying where you are. The session list is also a dependency because it commonly arrives after the session itself.
+  // A session can be opened from anywhere — the command palette, global search, a fork — and the sidebar keeps whatever scroll offset it had, so the highlighted row lands off-screen and the list stops saying where you are. The list has to be a dependency too, because it commonly arrives after the session itself and the row cannot be scrolled to before it exists; but every five-second poll parses a new array out of the response, so the session the scroll was already spent on is remembered and only a session it has not been spent on moves the sidebar. Without that the list would haul itself back to the active row every five seconds while the user is scrolling through older sessions.
   useEffect(() => {
-    scrollActiveOptionIntoView(activeSessionRowRef.current);
+    const sessionId = data.session?.sessionId;
+    if (sessionId === undefined || scrolledSessionRowRef.current === sessionId) return;
+    const row = activeSessionRowRef.current;
+    if (!row) return;
+    scrolledSessionRowRef.current = sessionId;
+    scrollActiveOptionIntoView(row);
   }, [data.session?.sessionId, data.sessions]);
   const activeSessionTitle = useMemo(() => sessionHeadingTitle(data.session, data.sessions), [data.session, data.sessions]);
   // The grown height lives in an inline style, so keying it to the draft is what makes it shrink again: submitting, picking a starter card, accepting a completion and switching sessions all replace the draft without a keystroke, and a keystroke-only resize would leave the composer frozen at the height of text that is no longer there.
@@ -11353,11 +11364,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <div className="session-group">
               <div className="group-label">{t("当前")}</div>
               <div className="session-row-wrap current-session-row">
+                {/* The row below is the control and carries the session's own name, so this box is the tick it draws and nothing more. Announcing it as well would hand a screen reader two checkboxes for one session, both toggling the same state. */}
                 {sessionSelectionMode && (
                   <input
-                    aria-label={t("选择当前会话")}
+                    aria-hidden="true"
                     checked={activeSessionPath ? selectedSessionPaths.has(activeSessionPath) : false}
                     onChange={() => activeSessionPath && toggleSessionSelection(activeSessionPath)}
+                    tabIndex={-1}
                     type="checkbox"
                   />
                 )}
@@ -11464,13 +11477,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 <div className="group-label">{sessionGroupLabel(groupId)}</div>
                 {sessions.map((session, index) => (
                   <div className="session-row-wrap" key={index}>
+                    {/* Presentational for the same reason as the current-session row: the row button is the single announced control for this session. */}
                     {sessionSelectionMode && (
                       <input
-                        aria-label={t("选择会话 {name}", { name: value(session.name ?? session.firstMessage, t("未命名会话")) })}
+                        aria-hidden="true"
                         checked={typeof session.path === "string" && selectedSessionPaths.has(session.path)}
                         onChange={() => {
                           if (typeof session.path === "string") toggleSessionSelection(session.path);
                         }}
+                        tabIndex={-1}
                         type="checkbox"
                       />
                     )}
@@ -11727,8 +11742,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 {formatRunClock(runTelemetry.elapsedSeconds)}
               </span>
               <span className="run-activity">{runToneText(runTelemetry)}</span>
-              {/* Offering Stop while the runtime is unreachable promises an abort the POST cannot deliver. */}
-              <button className="stop-button" disabled={runTelemetry.tone === "offline"} onClick={stopRun} title={t("停止当前运行（⌃C）")} type="button">
+              {/* The tone describes the last status poll, which is not evidence about a POST that has not been sent: a poll can fail on one blip while the abort still lands, and ⌃C and the slow-run warning's own Stop never consulted it. Stop therefore stays live in every tone and reports its own failure, rather than taking the primary abort away for up to a poll interval. */}
+              <button className="stop-button" onClick={stopRun} title={t("停止当前运行（⌃C）")} type="button">
                 {t("停止")}
               </button>
             </div>

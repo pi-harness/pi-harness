@@ -18,9 +18,10 @@ async function flush(update: () => void): Promise<void> {
 
 const context = { id: "context", label: "Context management" };
 const observability = { id: "observability", label: "Observability" };
+// The bigger category is the one the query will empty, so a rail ranked by the query's own counts would have to move it.
 const plugins: readonly ClientPlugin[] = [
   { id: "1", name: "@pi-harness/plugin-token-guard", enabled: true, state: "loaded", removable: true, category: context },
-  { id: "2", name: "@pi-harness/plugin-history-compressor", enabled: true, state: "loaded", removable: true, category: context },
+  { id: "2", name: "@pi-harness/plugin-history-compressor", enabled: true, state: "loaded", removable: true, category: observability },
   { id: "3", name: "@pi-harness/plugin-cost-meter", enabled: true, state: "loaded", removable: true, category: observability },
 ];
 const marketplace: ClientMarketplacePage = { items: [], total: 0, page: 0, pageSize: 24, hasNext: false, capabilities: [], categories: [] };
@@ -90,23 +91,24 @@ afterEach(async () => {
 
 test("counts the categories the current search left behind and stops offering the emptied ones", async () => {
   await flush(() => root.render(createElement(ControlRoomView, { api })));
-  expect(chips()).toEqual(["All3", "Context management2", "Observability1"]);
+  expect(chips()).toEqual(["All3", "Observability2", "Context management1"]);
 
   await flush(() => typeQuery("token"));
   expect(document.querySelector(".plugins-toolbar [aria-live]")?.textContent).toBe("1 / 3 plugins");
-  expect(chips()).toEqual(["All1", "Context management1", "Observability0"]);
+  // Counting the query's result must not also reorder the rail: the chip a user is reaching for has to still be where it was before the keystroke.
+  expect(chips()).toEqual(["All1", "Observability0", "Context management1"]);
   const emptied = [...document.querySelectorAll<HTMLButtonElement>(".marketplace-category")].find((chip) => chip.textContent === "Observability0");
   expect(emptied?.disabled).toBe(true);
 
   await flush(() => typeQuery("zzzz"));
-  expect(chips()).toEqual(["All0", "Context management0", "Observability0"]);
+  expect(chips()).toEqual(["All0", "Observability0", "Context management0"]);
 });
 
 test("keeps a category the search emptied on the rail so the chosen facet survives a keystroke", async () => {
   await flush(() => root.render(createElement(ControlRoomView, { api })));
-  const observabilityChip = [...document.querySelectorAll<HTMLButtonElement>(".marketplace-category")].find((chip) => chip.textContent === "Observability1");
+  const observabilityChip = [...document.querySelectorAll<HTMLButtonElement>(".marketplace-category")].find((chip) => chip.textContent === "Observability2");
   await flush(() => observabilityChip?.click());
-  expect(document.querySelector('.marketplace-category[aria-pressed="true"]')?.textContent).toBe("Observability1");
+  expect(document.querySelector('.marketplace-category[aria-pressed="true"]')?.textContent).toBe("Observability2");
 
   await flush(() => typeQuery("token"));
   expect(document.querySelector('.marketplace-category[aria-pressed="true"]')?.textContent).toBe("Observability0");

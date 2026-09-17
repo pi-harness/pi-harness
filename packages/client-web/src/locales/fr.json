@@ -143,6 +143,7 @@
   "不会在浏览器显示": "Non affiché dans le navigateur",
   "不可用": "Indisponible",
   "不执行": "Ne pas exécuter",
+  "不渲染": "Ne pas rendre",
   "不读取或保存事件属性。此服务不拦截网络，也不阻止其他事件监听器。": "Les propriétés des événements ne sont ni lues ni enregistrées. Ce service n'intercepte pas le réseau et ne bloque pas les autres écouteurs d'événements.",
   "专注": "Concentration",
   "丢弃 {v0} 次 · 总线观察 {v1} 次": "{v0} abandonnés · {v1} observés sur le bus",

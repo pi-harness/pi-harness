@@ -143,6 +143,7 @@
   "不会在浏览器显示": "Not shown in the browser",
   "不可用": "Unavailable",
   "不执行": "Do not run",
+  "不渲染": "Do not render",
   "不读取或保存事件属性。此服务不拦截网络，也不阻止其他事件监听器。": "Event properties are neither read nor stored. This service does not intercept the network, nor does it block other event listeners.",
   "专注": "Focus",
   "丢弃 {v0} 次 · 总线观察 {v1} 次": "{v0} dropped · {v1} observed on the bus",
