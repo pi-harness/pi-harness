@@ -189,6 +189,41 @@ test("takes back the slash the Commands chip wrote when the list is dismissed", 
   expect(document.querySelector("#prompt-completion-list")).toBeNull();
 });
 
+// Escape was the only dismissal that took the slash back. Clicking away closed the same list and left it behind, and at position 0 a leftover slash is the runtime's own condition for routing the whole prompt as a command.
+test("takes the slash back when the list is dismissed by a click elsewhere too", async () => {
+  await type("fix the bug");
+  await flush(() => document.querySelector<HTMLButtonElement>(".composer-tools .tool-chip")?.click());
+  expect(composer().value).toBe("/ fix the bug");
+
+  await flush(() => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+
+  expect(composer().value).toBe("fix the bug");
+  expect(document.querySelector("#prompt-completion-list")).toBeNull();
+});
+
+test("leaves nothing behind when the chip's list is dismissed by a click on an empty composer", async () => {
+  await flush(() => document.querySelector<HTMLButtonElement>(".composer-tools .tool-chip")?.click());
+  expect(composer().value).toBe("/");
+
+  await flush(() => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+
+  expect(composer().value).toBe("");
+});
+
+// The chip is part of the completion UI, so its own pointerdown must not count as a click away: dismissing there would take back the slash the click that follows is about to write again.
+test("keeps the slash when the chip is clicked a second time", async () => {
+  await type("fix the bug");
+  const chip = document.querySelector<HTMLButtonElement>(".composer-tools .tool-chip");
+  await flush(() => chip?.click());
+  await flush(() => {
+    chip?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    chip?.click();
+  });
+
+  expect(composer().value).toBe("/ fix the bug");
+  expect(options()).toEqual(["/plan"]);
+});
+
 test("leaves a slash the user typed alone when the list is dismissed", async () => {
   await type("/pl");
   expect(options()).toEqual(["/plan"]);
@@ -196,4 +231,14 @@ test("leaves a slash the user typed alone when the list is dismissed", async () 
   await press("Escape");
   expect(composer().value).toBe("/pl");
   expect(document.querySelector("#prompt-completion-list")).toBeNull();
+});
+
+// The chip writes "/ " and the accepted command arrives with its own trailing space, so the command used to be followed by two. The runtime passes everything after the first space to the handler as its arguments, which puts the second space inside them.
+test("accepts a command after the chip without doubling the space in front of the arguments", async () => {
+  await type("fix the bug");
+  await flush(() => document.querySelector<HTMLButtonElement>(".composer-tools .tool-chip")?.click());
+  expect(composer().value).toBe("/ fix the bug");
+
+  expect(await press("Enter")).toBe(true);
+  expect(composer().value).toBe("/plan fix the bug");
 });

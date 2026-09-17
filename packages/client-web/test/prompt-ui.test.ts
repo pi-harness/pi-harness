@@ -99,6 +99,31 @@ describe("prompt UI state", () => {
     expect(restored?.truncated).toBeUndefined();
   });
 
+  // The flag the write leaves behind is only worth storing if the restore acts on it, and the composer cannot say the tail is missing unless the state it renders from carries the fact.
+  test("carries the truncation into the restored state and drops it once the draft is the user's own again", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    const empty = { sessionId: undefined, draft: "", pendingPrompt: "", busy: false, error: "" };
+
+    promptUi.writeStoredPromptDraft(storage, "session-one", "y".repeat(130_000), "truncated-revision");
+    const restored = promptUi.promptUiDuringSessionRestore(empty, promptUi.readStoredPromptDraftSnapshot(storage, "session-one"), "session-one", false);
+    expect(restored.draftTruncated).toBe(true);
+    expect(restored.draft.length).toBe(128_000);
+
+    expect(promptUi.updatePromptDraft(restored, "session-one", "typed over it", "next-revision").draftTruncated).toBeUndefined();
+    expect(promptUi.startPromptSubmission(restored, "session-one", 4, restored.draft, "truncated-revision").draftTruncated).toBeUndefined();
+    expect(promptUi.clearAcceptedPromptDraft(restored, "session-one", "truncated-revision", true).draftTruncated).toBeUndefined();
+
+    promptUi.writeStoredPromptDraft(storage, "session-one", "a draft that fits", "whole-revision");
+    expect(
+      promptUi.promptUiDuringSessionRestore(empty, promptUi.readStoredPromptDraftSnapshot(storage, "session-one"), "session-one", false).draftTruncated,
+    ).toBeUndefined();
+  });
+
   test("leaves the stored draft alone when the payload as a whole cannot be written", () => {
     const values = new Map<string, string>();
     const storage = {

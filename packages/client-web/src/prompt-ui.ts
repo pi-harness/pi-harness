@@ -33,6 +33,8 @@ export interface ClientPromptUiState {
   readonly error: string;
   readonly draftRevision?: string;
   readonly submissionId?: number;
+  /** Set while the composer is holding a draft that came back from storage shortened, so the view can say the tail did not survive instead of presenting the beginning as the whole thing. Any edit makes the draft the user's own again and clears it. */
+  readonly draftTruncated?: boolean;
 }
 
 const promptDraftStorageKeyPrefix = "pi-harness.prompt-draft";
@@ -45,7 +47,7 @@ export interface StoredPromptDraft {
   readonly sessionId: string;
   readonly draft: string;
   readonly revision: string;
-  /** Set when what was stored is only the beginning of what the composer held, so a restore can say the tail did not survive rather than present a short draft as the whole one. */
+  /** Set when what was stored is only the beginning of what the composer held, so a restore says the tail did not survive rather than presenting a short draft as the whole one. */
   readonly truncated?: boolean;
   readonly submission?: { readonly prompt: string; readonly delivery: "prompt" | "steer"; readonly annotations?: readonly ClientAnnotation[] };
 }
@@ -220,6 +222,7 @@ export function promptUiDuringSessionRestore(
     busy: false,
     error: "",
     ...(storedDraft === undefined ? {} : { draftRevision: storedDraft.revision }),
+    ...(storedDraft?.truncated === true ? { draftTruncated: true } : {}),
   };
 }
 
@@ -232,6 +235,7 @@ export function clearAcceptedPromptDraft(
   if (!submittedVersionCleared || state.sessionId !== submittedSessionId || state.draftRevision !== submittedDraftRevision) return state;
   const cleared = { ...state };
   delete cleared.draftRevision;
+  delete cleared.draftTruncated;
   return { ...cleared, draft: "" };
 }
 
@@ -245,6 +249,8 @@ export function updatePromptDraft(
   const draft = typeof value === "function" ? value(scoped.draft) : value;
   const updated = { ...scoped };
   delete updated.draftRevision;
+  // Once the user has edited the draft, what is in the composer is what they meant to have there, and the restore-time warning about a lost tail no longer describes it.
+  delete updated.draftTruncated;
   return { ...updated, draft, ...(draft === "" || draftRevision === undefined ? {} : { draftRevision }) };
 }
 
@@ -255,8 +261,10 @@ export function startPromptSubmission(
   prompt: string,
   submittedDraftRevision?: string,
 ): ClientPromptUiState {
+  const scoped = { ...promptUiForSession(state, sessionId) };
+  delete scoped.draftTruncated;
   return {
-    ...promptUiForSession(state, sessionId),
+    ...scoped,
     draft: "",
     pendingPrompt: prompt,
     busy: true,

@@ -313,6 +313,7 @@
   "删除会话": "Delete session",
   "刷新中…": "Refreshing…",
   "刷新列表": "Refresh list",
+  "刷新后只恢复了草稿的前 {max} 字符，其余内容未能保存": "Only the first {max} characters of the draft were restored after the reload; the rest was never saved",
   "前 {v0} / 共 {v1}": "First {v0} of {v1}",
   "前置任务：": "Depends on:",
   "副本": "Duplicate",

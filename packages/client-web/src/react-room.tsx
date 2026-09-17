@@ -8648,10 +8648,20 @@ export function sessionHeadingTitle(
   return session.messages.length ? session.sessionId.slice(0, 12) : t("新会话");
 }
 
-/** A file query is matched against the path alone. The label beside a path is a constant — every indexed file is labelled "workspace" and every changed one "untracked" — so matching it made each of those words match the whole workspace, and let "spa" pull in files whose path contains nothing of the kind while the file actually being typed was ranked behind them. The label stays visible as detail through fileCompletionDetail. */
+/** The label the gateway puts on every file it lists out of the workspace index, as opposed to the added/modified/deleted/untracked labels it derives per entry from Git. */
+const workspaceFileLabel = "workspace";
+
+/** An @ reference is matched against the path alone, because the reference the user is typing is a path and nothing else goes into the prompt. Matching the label beside it meant the catalogue label, carried unchanged by every indexed file, answered for the whole index: "spa" is a substring of "workspace", so a query aimed at one file returned thousands and ranked the file actually being typed behind them. The label stays visible as detail through fileCompletionDetail. */
 export function fileMatchesQuery(file: Pick<ClientFile, "path">, query: string): boolean {
   const needle = query.trim().toLowerCase();
   return needle === "" || file.path.toLowerCase().includes(needle);
+}
+
+/** Global search is a search rather than a reference, so a file is also found by the word describing how Git sees it: "modified" lists the modified files, "untracked" the untracked ones. Only the constant workspace label is left out, since a word every indexed file carries — and every substring of it — would otherwise match the entire index. */
+export function globalSearchFileMatchesQuery(file: ClientFile, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return true;
+  return `${file.path} ${file.label === workspaceFileLabel ? "" : file.label} ${file.status}`.toLowerCase().includes(needle);
 }
 
 export function fileCompletionDetail(file: Pick<ClientFile, "label" | "status">): string {
@@ -8786,7 +8796,7 @@ export function GlobalSearch({
     ...(onSearchSessions ? searchedSessions : sessions)
       .filter((session) => matches(`${value(session.name, "")} ${value(session.firstMessage, "")} ${value(session.sessionId, "")}`))
       .map((session) => ({ kind: "session" as const, session })),
-    ...files.filter((file) => fileMatchesQuery(file, query)).map((file) => ({ kind: "file" as const, file })),
+    ...files.filter((file) => globalSearchFileMatchesQuery(file, query)).map((file) => ({ kind: "file" as const, file })),
   ];
   const selectedIndex = items.length ? Math.min(activeIndex, items.length - 1) : -1;
   const activeItemId = selectedIndex >= 0 ? `global-search-option-${selectedIndex}` : undefined;
@@ -8940,6 +8950,15 @@ const RUN_QUIET_AFTER_MS = 30_000;
 
 /** How often the console polls /api/status. The run tone reads it to decide whether a failed poll has had time to be confirmed by silence on the event stream, so the two have to be the same number. */
 const STATUS_POLL_INTERVAL_MS = 5_000;
+
+/** How many status polls have to fail in a row before the console is willing to say the runtime cannot be reached. */
+const STATUS_POLL_FAILURES_BEFORE_OFFLINE = 2;
+
+/** What a run of failed status polls says about the runtime. One failure is a dropped request — a timeout under load, a renewed connection — and a long tool call is exactly when the event stream has nothing to contradict it with, so a single failure withdraws the verdict instead of reversing it: the tone falls back to what the event stream shows until a second poll fails behind it and the two of them agree the runtime is gone. */
+export function statusReachabilityAfterPolls(consecutiveFailures: number): boolean | undefined {
+  if (consecutiveFailures === 0) return true;
+  return consecutiveFailures >= STATUS_POLL_FAILURES_BEFORE_OFFLINE ? false : undefined;
+}
 
 function clampedTimestamp(value: string, fallback: number, now: number): number {
   const parsed = Date.parse(value);
@@ -9306,7 +9325,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     error: "",
   });
   const promptUi = promptUiForSession(storedPromptUi, data.session?.sessionId);
-  const { draft, pendingPrompt, busy: promptBusy, error: promptError } = promptUi;
+  const { draft, pendingPrompt, busy: promptBusy, error: promptError, draftTruncated } = promptUi;
   const [pendingModel, setPendingModel] = useState<string>();
   const [modelSelectionError, setModelSelectionError] = useState("");
   const [modelChoiceMade, setModelChoiceMade] = useState(false);
@@ -9481,6 +9500,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [runClockAt, setRunClockAt] = useState(() => Date.now());
   const [eventStreamState, setEventStreamState] = useState<ClientEventStreamState>("connecting");
   const [statusReachable, setStatusReachable] = useState<boolean>();
+  const statusPollFailuresRef = useRef(0);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   // What the Commands chip wrote into the draft, kept so dismissing the list can take it back. The draft it produced is recorded with it: anything else in the composer by then was typed by the user and is theirs to keep.
   const commandInsertionRef = useRef<{ readonly start: number; readonly text: string; readonly draft: string; readonly caret: number } | undefined>(undefined);
@@ -9550,6 +9570,23 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   // The popover opens on the token alone, empty or not: a path that matches nothing is exactly the moment the reader needs to be told so, and gating the popover on having items meant a mistyped @ reference looked the same as one that had not been recognised as a reference at all. The keydown handler keeps its own gate on the item count, so Enter still sends the prompt rather than being swallowed by a list with nothing to accept.
   const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed);
   const promptCompletionActiveIndex = Math.min(promptCompletionIndex, Math.max(promptCompletionItems.length - 1, 0));
+  // Every way of closing the completion list without accepting an item goes through here, because the slash the Commands chip wrote is one the user never typed and it must not outlive any of them: written at the front of the draft it is the runtime's own condition for routing the whole prompt as a command, so a leftover slash does not read as a stray character but turns the next send into an unknown command. A draft that has moved on since the insertion is the user's own and is left exactly as it is.
+  const dismissPromptCompletion = useCallback(() => {
+    setPromptCompletionSuppressed(true);
+    const insertion = commandInsertionRef.current;
+    commandInsertionRef.current = undefined;
+    const field = promptInputRef.current;
+    if (insertion === undefined || field === null || field.value !== insertion.draft) return;
+    setDraft(`${insertion.draft.slice(0, insertion.start)}${insertion.draft.slice(insertion.start + insertion.text.length)}`);
+    setPromptCaret(insertion.caret);
+    // The caret is only put back where the chip found it while the composer still holds the focus; a dismissal by pointer landed on something else on purpose and must not be dragged back.
+    if (typeof document === "undefined" || document.activeElement !== field) return;
+    requestAnimationFrame(() => {
+      const input = promptInputRef.current;
+      input?.focus();
+      input?.setSelectionRange(insertion.caret, insertion.caret);
+    });
+  }, [setDraft]);
   const installedPackages = useMemo(
     () => new Set(data.plugins.filter((plugin) => plugin.removable && plugin.state !== RESTART_REQUIRED_PLUGIN_STATE).map((plugin) => plugin.name)),
     [data.plugins],
@@ -9661,11 +9698,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         setCommandOpen(false);
         setCommandQuery("");
       }
-      if (promptCompletionOpen && !target?.closest("[data-prompt-completion]")) setPromptCompletionSuppressed(true);
+      if (promptCompletionOpen && !target?.closest("[data-prompt-completion]")) dismissPromptCompletion();
     };
     document.addEventListener("pointerdown", dismissTransientLists);
     return () => document.removeEventListener("pointerdown", dismissTransientLists);
-  }, [commandOpen, promptCompletionOpen]);
+  }, [commandOpen, dismissPromptCompletion, promptCompletionOpen]);
   useEffect(() => {
     const dismissProviderModels = (event: PointerEvent | KeyboardEvent) => {
       if (event instanceof KeyboardEvent && (isComposingKey(event) || event.key !== "Escape")) return;
@@ -9888,7 +9925,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     const applyLiveStatus = (result: PromiseSettledResult<ClientStatus>) => {
       if (sequence < refreshSequenceRef.current.applied || sequence < liveRefreshSequenceRef.current.status) return;
       liveRefreshSequenceRef.current.status = sequence;
-      setStatusReachable(result.status === "fulfilled");
+      statusPollFailuresRef.current = result.status === "fulfilled" ? 0 : statusPollFailuresRef.current + 1;
+      setStatusReachable(statusReachabilityAfterPolls(statusPollFailuresRef.current));
       setLiveIssue(statusLabel, result.status === "rejected");
       if (result.status === "fulfilled") setData((current) => ({ ...current, status: result.value }));
     };
@@ -10953,8 +10991,12 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               </button>
             </div>
           ) : null}
-          {/* The composer accepts a draft of any length but the stored copy stops at the cap, and a draft this long is precisely the one nobody wants to find shortened after a reload with no warning that anything was left behind. */}
-          {draft.length > maxStoredPromptDraftCharacters ? (
+          {/* The composer accepts a draft of any length but the stored copy stops at the cap, and a draft this long is precisely the one nobody wants to find shortened after a reload with no warning that anything was left behind. The restored draft says so in the past tense, because by then the tail is already gone and the reader is looking at a prompt that ends mid-sentence with no other sign of why. */}
+          {draftTruncated ? (
+            <p className="composer-overflow" role="status">
+              {t("刷新后只恢复了草稿的前 {max} 字符，其余内容未能保存", { max: maxStoredPromptDraftCharacters.toLocaleString(formatLocale()) })}
+            </p>
+          ) : draft.length > maxStoredPromptDraftCharacters ? (
             <p className="composer-overflow" role="status">
               {t("草稿超过 {max} 字符，超出部分不会被保存，刷新后会丢失", { max: maxStoredPromptDraftCharacters.toLocaleString(formatLocale()) })}
             </p>
@@ -10995,6 +11037,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   event.preventDefault();
                   const item = items[Math.min(promptCompletionIndex, items.length - 1)];
                   if (item && completion) {
+                    // An accepted item makes the chip's slash part of the command the user chose, so there is nothing left to take back.
+                    commandInsertionRef.current = undefined;
                     const value = completion.kind === "command" ? `/${(item as ClientCommand).invocationName}` : `@${(item as ClientFile).path}`;
                     const replacement = replacePromptCompletion(event.currentTarget.value, completion, `${value} `);
                     setDraft(replacement.text);
@@ -11010,19 +11054,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 }
                 if (event.key === "Escape" && completion && !promptCompletionSuppressed) {
                   event.preventDefault();
-                  setPromptCompletionSuppressed(true);
-                  // Dismissing the list also takes back the slash the Commands chip wrote, which the user never typed: left on an otherwise empty composer it is sent as an unknown command, and in front of a draft it is a stray character the model has to read past. A draft that has moved on since the insertion is the user's own and is left exactly as it is.
-                  const insertion = commandInsertionRef.current;
-                  commandInsertionRef.current = undefined;
-                  if (insertion === undefined || event.currentTarget.value !== insertion.draft) return;
-                  const restored = `${insertion.draft.slice(0, insertion.start)}${insertion.draft.slice(insertion.start + insertion.text.length)}`;
-                  setDraft(restored);
-                  setPromptCaret(insertion.caret);
-                  requestAnimationFrame(() => {
-                    const field = promptInputRef.current;
-                    field?.focus();
-                    field?.setSelectionRange(insertion.caret, insertion.caret);
-                  });
+                  dismissPromptCompletion();
                   return;
                 }
                 const sendOnModifier = sendShortcut === "mod-enter";
@@ -11066,6 +11098,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 kind={promptCompletion.kind}
                 onActiveIndexChange={setPromptCompletionIndex}
                 onUse={(value) => {
+                  commandInsertionRef.current = undefined;
                   const replacement = replacePromptCompletion(draft, promptCompletion, `${value} `);
                   setDraft(replacement.text);
                   setPromptCaret(replacement.caret);
@@ -11102,7 +11135,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               </select>
               {/* The title rides on the wrapper because a disabled button never shows one, and the empty runtime is exactly when the explanation is needed. */}
               <span className="tool-chip-hint" title={data.commands.length ? t("插入斜杠并列出命令") : t("当前运行时还没有注册任何命令")}>
-                <button className="tool-chip" disabled={!data.commands.length} onClick={openCommandCompletion} type="button">
+                {/* The chip belongs to the completion UI, so a pointer landing on it is not a click away from the list: dismissing on its own pointerdown would take back the slash the click that follows is about to write again. */}
+                <button className="tool-chip" data-prompt-completion disabled={!data.commands.length} onClick={openCommandCompletion} type="button">
                   {t("／ 命令")}
                 </button>
               </span>

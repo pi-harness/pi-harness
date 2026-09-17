@@ -313,6 +313,7 @@
   "删除会话": "Eliminar sesión",
   "刷新中…": "Actualizando…",
   "刷新列表": "Actualizar la lista",
+  "刷新后只恢复了草稿的前 {max} 字符，其余内容未能保存": "Tras recargar solo se restauraron los primeros {max} caracteres del borrador; el resto no se guardó",
   "前 {v0} / 共 {v1}": "Primeros {v0} de {v1}",
   "前置任务：": "Tareas previas:",
   "副本": "Copia",

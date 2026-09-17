@@ -313,6 +313,7 @@
   "删除会话": "Sitzung löschen",
   "刷新中…": "Wird aktualisiert…",
   "刷新列表": "Liste aktualisieren",
+  "刷新后只恢复了草稿的前 {max} 字符，其余内容未能保存": "Nach dem Neuladen wurden nur die ersten {max} Zeichen des Entwurfs wiederhergestellt; der Rest wurde nicht gespeichert",
   "前 {v0} / 共 {v1}": "Erste {v0} von {v1}",
   "前置任务：": "Vorgänger:",
   "副本": "Kopie",

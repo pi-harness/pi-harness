@@ -21,6 +21,8 @@ export function getPromptCompletion(text: string, caret: number): PromptCompleti
 }
 
 export function replacePromptCompletion(text: string, completion: PromptCompletion, value: string): { text: string; caret: number } {
-  const nextText = `${text.slice(0, completion.start)}${value}${text.slice(completion.end)}`;
+  // The value carries the separator the caret lands after, so it must not be doubled when what follows the replaced token already begins with one: the runtime hands a command everything after the first space as its arguments, which means a second space is not cosmetic but the first character of the argument the handler receives.
+  const tail = text.slice(completion.end);
+  const nextText = `${text.slice(0, completion.start)}${value}${value.endsWith(" ") && tail.startsWith(" ") ? tail.slice(1) : tail}`;
   return { text: nextText, caret: completion.start + value.length };
 }

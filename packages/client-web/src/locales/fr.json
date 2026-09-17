@@ -313,6 +313,7 @@
   "删除会话": "Supprimer la session",
   "刷新中…": "Actualisation…",
   "刷新列表": "Actualiser la liste",
+  "刷新后只恢复了草稿的前 {max} 字符，其余内容未能保存": "Après le rechargement, seuls les {max} premiers caractères du brouillon ont été restaurés ; le reste n'a pas été enregistré",
   "前 {v0} / 共 {v1}": "{v0} premiers sur {v1}",
   "前置任务：": "Tâches prérequises :",
   "副本": "Copie",

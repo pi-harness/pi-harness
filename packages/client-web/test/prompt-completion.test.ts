@@ -18,6 +18,17 @@ describe("prompt completion", () => {
     expect(getPromptCompletion("@calc", 5)).toEqual({ kind: "file", query: "calc", start: 0, end: 5 });
   });
 
+  // The runtime gives a command handler everything after the first space as its arguments, so a doubled separator is not cosmetic: it is the first character of the argument the handler reads.
+  it("does not double a separator the replaced token is already followed by", () => {
+    const completion = getPromptCompletion("/ fix the bug", 1);
+    expect(completion).not.toBeNull();
+    expect(replacePromptCompletion("/ fix the bug", completion!, "/plan ")).toEqual({ text: "/plan fix the bug", caret: 6 });
+
+    const file = getPromptCompletion("@calc 后续", 5);
+    expect(file).not.toBeNull();
+    expect(replacePromptCompletion("@calc 后续", file!, "@src/calc.js ")).toEqual({ text: "@src/calc.js 后续", caret: 13 });
+  });
+
   it("replaces only the active token and returns the next caret", () => {
     const completion = getPromptCompletion("/subagents-do 后续", 13);
     expect(completion).not.toBeNull();

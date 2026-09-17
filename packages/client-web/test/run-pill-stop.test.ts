@@ -74,8 +74,8 @@ afterEach(async () => {
   environment.IS_REACT_ACT_ENVIRONMENT = false;
 });
 
-// The pill's tone is what the last status poll saw; Stop is a POST that has not been sent yet. Tying one to the other took the primary abort away for a whole poll interval on a single failed request, while ⌃C and the slow-run warning's own Stop went on working.
-test("calls the run offline on a failing status poll but keeps Stop live and delivering", async () => {
+// The pill's tone is what the status polls saw; Stop is a POST that has not been sent yet. Tying one to the other took the primary abort away for a whole poll interval on a single failed request, while ⌃C and the slow-run warning's own Stop went on working. A single failed poll is not yet a verdict either: one dropped request during a long tool call, which is precisely when the event stream has nothing to say, used to be enough to tell the reader the runtime was gone.
+test("waits for a second failed status poll before calling the run offline, and keeps Stop live and delivering throughout", async () => {
   let polls = 0;
   const abort = vi.fn(() => Promise.resolve({ aborted: true }));
   const getStatus = (): Promise<ClientStatus> => {
@@ -88,10 +88,33 @@ test("calls the run offline on a failing status poll but keeps Stop live and del
   await act(async () => {
     await vi.advanceTimersByTimeAsync(5000);
   });
+  expect(document.querySelector(".run-indicator")?.className).not.toContain("offline");
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
   expect(document.querySelector(".run-indicator")?.className).toContain("offline");
 
   const stop = document.querySelector<HTMLButtonElement>(".stop-button");
   expect(stop?.disabled).toBe(false);
   await flush(() => stop?.click());
   expect(abort).toHaveBeenCalledOnce();
+});
+
+// A poll that fails once and succeeds next is a dropped request, and the run it was asking about never stopped answering.
+test("forgets a single failed poll as soon as the next one answers", async () => {
+  let polls = 0;
+  const abort = vi.fn(() => Promise.resolve({ aborted: true }));
+  const getStatus = (): Promise<ClientStatus> => {
+    polls += 1;
+    return polls === 2 || polls === 4 ? Promise.reject(new Error("status unreachable")) : Promise.resolve(runningStatus());
+  };
+  await flush(() => root.render(createElement(ControlRoomView, { api: api(getStatus, abort) })));
+
+  for (let poll = 0; poll < 4; poll += 1) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect([poll, document.querySelector(".run-indicator")?.className.includes("offline")]).toEqual([poll, false]);
+  }
 });
