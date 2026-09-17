@@ -12,13 +12,18 @@ type HarnessWebServer = WebServer;
 process.stdout.on("error", () => {});
 process.stderr.on("error", () => {});
 
+/** A launcher argument or environment variable the user got wrong, reported as the single line that names it rather than as a throw out of module evaluation. */
+class StartupOptionError extends Error {
+  override readonly name = "StartupOptionError";
+}
+
 function commandLineValue(args: readonly string[], name: string): string | undefined {
   const prefix = `${name}=`;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === name) {
       const value = args[index + 1];
-      if (value === undefined || value.startsWith("--")) throw new Error(`${name} requires a value`);
+      if (value === undefined || value.startsWith("--")) throw new StartupOptionError(`${name} requires a value`);
       return value;
     }
     if (argument?.startsWith(prefix)) return argument.slice(prefix.length);
@@ -26,21 +31,13 @@ function commandLineValue(args: readonly string[], name: string): string | undef
   return undefined;
 }
 
-const commandLineArgs = process.argv.slice(2);
-// Accept the bracketed URL form of an IPv6 literal (e.g. "[::1]") but bind the bare address: net.Server.listen resolves the host through getaddrinfo, which rejects brackets with ENOTFOUND.
-const rawHost = commandLineValue(commandLineArgs, "--host") ?? process.env.PI_HARNESS_HOST ?? "127.0.0.1";
-const host = rawHost.startsWith("[") && rawHost.endsWith("]") ? rawHost.slice(1, -1) : rawHost;
+interface NetworkOptions {
+  readonly host: string;
+  readonly port: number;
+  readonly allowedHosts: readonly string[];
+}
+
 const DEFAULT_PI_HARNESS_PORT = 3141;
-const port = Number(commandLineValue(commandLineArgs, "--port") ?? process.env.PI_HARNESS_PORT ?? DEFAULT_PI_HARNESS_PORT);
-if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("PI_HARNESS_PORT must be an integer between 0 and 65535");
-const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-if (!loopbackHosts.has(host) && process.env.PI_HARNESS_ALLOW_REMOTE !== "1")
-  throw new Error("Refusing non-loopback PI_HARNESS_HOST; set PI_HARNESS_ALLOW_REMOTE=1 only on a trusted network");
-// Extra hostnames the web server accepts in the Host header, comma separated, for a deployment reached through a reverse proxy under a name this machine does not resolve to itself.
-const allowedHosts = (process.env.PI_HARNESS_ALLOWED_HOSTS ?? "")
-  .split(",")
-  .map((entry) => entry.trim())
-  .filter((entry) => entry.length > 0);
 // The web server compares each entry against a Host header hostname, so an entry carrying a scheme, port, path or credentials can never match; rejecting it here turns a silently ineffective deployment setting into a startup error.
 const isBareHostname = (entry: string): boolean => {
   let url: URL;
@@ -51,27 +48,38 @@ const isBareHostname = (entry: string): boolean => {
   }
   return url.hostname !== "" && url.port === "" && url.pathname === "/" && url.username === "" && url.password === "" && url.search === "" && url.hash === "";
 };
-const invalidAllowedHost = allowedHosts.find((entry) => !isBareHostname(entry));
-if (invalidAllowedHost !== undefined)
-  throw new Error("PI_HARNESS_ALLOWED_HOSTS entries must be bare hostnames without a scheme, port or path: " + invalidAllowedHost);
+
+// Every rejection here names the source the value actually came from, because a user who typed `--port abc` cannot act on advice about PI_HARNESS_PORT, a variable they never set. The caller runs this inside the same guard as the boot itself so a wrong argument reports one line instead of a Node code frame.
+function resolveNetworkOptions(args: readonly string[], env: NodeJS.ProcessEnv): NetworkOptions {
+  const hostArgument = commandLineValue(args, "--host");
+  const hostSource = hostArgument === undefined ? "PI_HARNESS_HOST" : "--host";
+  // Accept the bracketed URL form of an IPv6 literal (e.g. "[::1]") but bind the bare address: net.Server.listen resolves the host through getaddrinfo, which rejects brackets with ENOTFOUND.
+  const rawHost = hostArgument ?? env.PI_HARNESS_HOST ?? "127.0.0.1";
+  const host = rawHost.startsWith("[") && rawHost.endsWith("]") ? rawHost.slice(1, -1) : rawHost;
+  const portArgument = commandLineValue(args, "--port");
+  const portSource = portArgument === undefined ? "PI_HARNESS_PORT" : "--port";
+  const port = Number(portArgument ?? env.PI_HARNESS_PORT ?? DEFAULT_PI_HARNESS_PORT);
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new StartupOptionError(`${portSource} must be an integer between 0 and 65535`);
+  const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+  if (!loopbackHosts.has(host) && env.PI_HARNESS_ALLOW_REMOTE !== "1")
+    throw new StartupOptionError(`Refusing non-loopback ${hostSource}; set PI_HARNESS_ALLOW_REMOTE=1 only on a trusted network`);
+  // Extra hostnames the web server accepts in the Host header, comma separated, for a deployment reached through a reverse proxy under a name this machine does not resolve to itself.
+  const allowedHosts = (env.PI_HARNESS_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const invalidAllowedHost = allowedHosts.find((entry) => !isBareHostname(entry));
+  if (invalidAllowedHost !== undefined)
+    throw new StartupOptionError("PI_HARNESS_ALLOWED_HOSTS entries must be bare hostnames without a scheme, port or path: " + invalidAllowedHost);
+  return { host, port, allowedHosts };
+}
+
+const commandLineArgs = process.argv.slice(2);
 const cwd = process.cwd();
 const agentDir = agentDirectory(process.env, cwd);
 const staticDir = fileURLToPath(new URL("../dist", import.meta.url));
 const builtinProfilePath = fileURLToPath(new URL("../profile/cordis.yml", import.meta.url));
-// The web console installs marketplace plugins with npm and then imports them, so the profile it edits and the node_modules it installs into live in a directory the user owns rather than inside the installed package, which npm replaces on every upgrade.
-const profilePath = await prepareHarnessProfile({ builtinProfilePath, profileName: "web", cwd });
 process.env.PI_HARNESS_WEB_DIST = staticDir;
-process.env.PI_HARNESS_HOST = host;
-process.env.PI_HARNESS_PORT = String(port);
-process.env.PI_HARNESS_ALLOWED_HOSTS = allowedHosts.join(",");
-if (process.env.PI_HARNESS_DISABLE_UPDATE_CHECK !== "1") {
-  void coreUpdateNotice().then(
-    (notice) => {
-      if (notice !== undefined) process.stderr.write(notice);
-    },
-    () => undefined,
-  );
-}
 const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
 const startupAbort = new AbortController();
 let shuttingDown = false;
@@ -87,10 +95,13 @@ const UNREGISTERED_EVERYAPI_MODEL = /Pi model is not registered: (everyapi\/[^\s
 const ADDRESS_IN_USE = /\bEADDRINUSE\b/u;
 // This launcher takes no arguments and has no help output, so the one place a user can learn that the frames are still available is the failure that dropped them.
 const DEBUG_HINT = "Set PI_HARNESS_DEBUG=1 and start again to keep the stack frames.";
-const formatStartupError = (error: unknown): string => {
+const formatStartupError = (error: unknown, network: NetworkOptions | undefined): string => {
   const message = error instanceof Error ? error.message : String(error);
   const debug = process.env.PI_HARNESS_DEBUG === "1";
-  if (ADDRESS_IN_USE.test(message)) {
+  // The frames behind a rejected argument belong to this file's own parsing and say nothing the reader can act on, so the hint that offers them is left off rather than promising detail the debug flag does not add.
+  if (error instanceof StartupOptionError) return message;
+  if (network !== undefined && ADDRESS_IN_USE.test(message)) {
+    const { host, port } = network;
     const authority = `${host.includes(":") ? `[${host}]` : host}:${port}`;
     const holder = process.platform === "win32" ? `netstat -ano | findstr :${port}` : `lsof -nP -iTCP:${port} -sTCP:LISTEN`;
     const remedy = `Port ${port} on ${host} is already in use. If that is a Pi Harness you already started, its console is at http://${authority}/. Otherwise set PI_HARNESS_PORT to a free port, or stop whatever holds this one (${holder}).`;
@@ -138,7 +149,23 @@ for (const signal of signals) {
     void shutdown(signal);
   });
 }
+// The argument checks run inside this guard rather than at module top level so a rejected value reports the same single line as a boot failure. Nothing before this point touches the disk or the network, so a wrong argument still leaves the machine exactly as it found it.
+let network: NetworkOptions | undefined;
 try {
+  network = resolveNetworkOptions(commandLineArgs, process.env);
+  process.env.PI_HARNESS_HOST = network.host;
+  process.env.PI_HARNESS_PORT = String(network.port);
+  process.env.PI_HARNESS_ALLOWED_HOSTS = network.allowedHosts.join(",");
+  if (process.env.PI_HARNESS_DISABLE_UPDATE_CHECK !== "1") {
+    void coreUpdateNotice().then(
+      (notice) => {
+        if (notice !== undefined) process.stderr.write(notice);
+      },
+      () => undefined,
+    );
+  }
+  // The web console installs marketplace plugins with npm and then imports them, so the profile it edits and the node_modules it installs into live in a directory the user owns rather than inside the installed package, which npm replaces on every upgrade.
+  const profilePath = await prepareHarnessProfile({ builtinProfilePath, profileName: "web", cwd });
   harness = await bootHarness({
     configPath: profilePath,
     pluginResolutionAnchor: fileURLToPath(import.meta.url),
@@ -153,6 +180,6 @@ try {
 } catch (error) {
   if (!shuttingDown) {
     process.exitCode = 1;
-    process.stderr.write(formatStartupError(error) + "\n");
+    process.stderr.write(formatStartupError(error, network) + "\n");
   }
 }
