@@ -15,8 +15,12 @@ const execFileAsync = promisify(execFile);
 // The shipped profiles enable infrastructure only, because an official plugin is installed from the plugin center like a community one. Exercising a plugin against a real host therefore needs a profile that enables it, so this one names the plugins these tests drive end to end.
 const PLUGIN_PROFILES_DIR = fileURLToPath(new URL("profiles", import.meta.url));
 
+// A fresh Pi agent directory carries Pi's built-in catalog, which registers deepseek but no everyapi, so this is the selection a test can boot without provisioning anything.
+const REGISTERED_WITHOUT_PROVISIONING = { provider: "deepseek", model: "deepseek-v4-pro" } as const;
+
 afterEach(async () => {
   await Promise.all(booted.splice(0).map(async (harness) => harness.dispose()));
+  vi.unstubAllEnvs();
 });
 
 async function bootProfile(profile: string, profilesDir: string = BUILTIN_PROFILES_DIR): Promise<{ harness: BootedHarness; cwd: string }> {
@@ -53,16 +57,40 @@ describe("packaged profiles", () => {
 
   test("boots the shipped default profile with infrastructure only", async () => {
     // A fresh install must arrive with nothing pluggable switched on: every official plugin is installed from the plugin center, exactly like a community one.
+    vi.stubEnv("PI_HARNESS_PROVIDER", REGISTERED_WITHOUT_PROVISIONING.provider);
+    vi.stubEnv("PI_HARNESS_MODEL", REGISTERED_WITHOUT_PROVISIONING.model);
     const { harness } = await bootProfile("default");
     const names = [...harness.context.loader.entries()].map((entry) => entry.options.name);
 
-    expect(harness.context.get("piModels")?.model.provider).toBe("deepseek");
     expect(harness.context.get("piApplication")).toBeDefined();
     expect(harness.context.get("piRuntime")).toBeDefined();
     expect(names.filter((name) => name.startsWith("@pi-harness/plugin-"))).toEqual([]);
     expect(names).toEqual(expect.arrayContaining(["@pi-harness/core/plugins/tools", "@pi-harness/core/plugins/runtime", "@pi-harness/core/plugins/stdio"]));
     expect(harness.context.get("piTools")?.snapshot().customTools).toEqual([]);
   }, 15_000);
+
+  test.each(["default", "development"])(
+    "selects the same everyapi model the web profile does from the shipped %s profile",
+    async (profile) => {
+      // `everyapi use pi-web` is the one provisioning step the quickstart names, and it registers everyapi alone. A CLI profile pinning a different provider would leave that step unable to boot the CLI at all, so both shipped profiles have to ask for the same pair the web profile asks for.
+      await expect(bootProfile(profile)).rejects.toThrow(/Pi model is not registered: everyapi\/deepseek-v4-flash/u);
+    },
+    15_000,
+  );
+
+  test.each(["default", "development"])(
+    "honours PI_HARNESS_PROVIDER and PI_HARNESS_MODEL in the shipped %s profile",
+    async (profile) => {
+      // The same indirection the web profile carries is what lets a user who provisioned some other provider run the CLI without editing the booted copy by hand.
+      vi.stubEnv("PI_HARNESS_PROVIDER", REGISTERED_WITHOUT_PROVISIONING.provider);
+      vi.stubEnv("PI_HARNESS_MODEL", REGISTERED_WITHOUT_PROVISIONING.model);
+      const { harness } = await bootProfile(profile);
+
+      expect(harness.context.get("piModels")?.model.provider).toBe(REGISTERED_WITHOUT_PROVISIONING.provider);
+      expect(harness.context.get("piModels")?.model.id).toBe(REGISTERED_WITHOUT_PROVISIONING.model);
+    },
+    15_000,
+  );
 
   test("boots the production plugin profile without HMR", async () => {
     const { harness, cwd } = await bootProfile("plugins", PLUGIN_PROFILES_DIR);
@@ -330,6 +358,8 @@ describe("packaged profiles", () => {
   }, 15_000);
 
   test("boots the development profile with logger, timer, and HMR plugins", async () => {
+    vi.stubEnv("PI_HARNESS_PROVIDER", REGISTERED_WITHOUT_PROVISIONING.provider);
+    vi.stubEnv("PI_HARNESS_MODEL", REGISTERED_WITHOUT_PROVISIONING.model);
     const { harness, cwd } = await bootProfile("development");
     const entries = [...harness.context.loader.entries()];
     const names = entries.map((entry) => entry.options.name);
