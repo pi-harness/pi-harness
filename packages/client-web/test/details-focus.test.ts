@@ -14,7 +14,7 @@ function DetailsHarness({ invoker }: { invoker: HTMLElement | (() => HTMLElement
     ? createElement(Details, {
         event: { type: "file_diff", path: "src/app.ts", output: "+fixed" },
         onClose: () => setOpen(false),
-        onCopy: () => {},
+        onCopy: () => Promise.resolve(true),
         returnFocusTarget: invoker,
       })
     : null;

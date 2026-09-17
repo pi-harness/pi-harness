@@ -2455,6 +2455,114 @@ describe("API gateway plugin", () => {
     await expect(response.json()).resolves.toMatchObject({ sessionId: "active-session", sessionFile: path, messages: [{ role: "user" }] });
   });
 
+  // The import route has always refused a header version it cannot migrate. A file already sitting in the session directory is exactly as unreadable, and the gateway used to list it, adopt it, and then append current-version records to it.
+  test("refuses to open a session whose header version the import route would reject", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-session-version-"));
+    temporaryDirectories.push(directory);
+    const cwd = join(directory, "workspace");
+    const readable = join(directory, "2026-08-30T00-00-00-000Z_readable.jsonl");
+    const future = join(directory, "2026-08-30T00-00-01-000Z_future.jsonl");
+    await writeFile(readable, persistedUserSession("readable-session", cwd, "readable session"), "utf8");
+    await writeFile(
+      future,
+      persistedUserSession("future-session", cwd, "future session").replace('"version":3', `"version":${CURRENT_SESSION_VERSION + 96}`),
+      "utf8",
+    );
+    const manager = SessionManager.create(cwd, directory);
+    const session = {
+      get sessionId() {
+        return manager.getSessionId();
+      },
+      get sessionFile() {
+        return manager.getSessionFile();
+      },
+      get messages() {
+        return manager.buildSessionContext().messages;
+      },
+      isStreaming: false,
+      sessionManager: manager,
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const sessionRuntime = {
+      cwd,
+      switchSession(target: string) {
+        manager.setSessionFile(target);
+        return Promise.resolve({ cancelled: false });
+      },
+    };
+    context.provide("piRuntime", { session, sessionRuntime, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd, agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const listed = await fetch(context.webServer.url + "/api/sessions?includeArchived=true");
+    expect(listed.status).toBe(200);
+    const payload = (await listed.json()) as { items: { path: string; unsupportedVersion?: boolean }[] };
+    expect(payload.items.find((item) => item.path === future)?.unsupportedVersion).toBe(true);
+    expect(payload.items.find((item) => item.path === readable)).not.toHaveProperty("unsupportedVersion");
+
+    const refused = await fetch(context.webServer.url + "/api/session/open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: future }),
+    });
+    expect(refused.status).toBe(409);
+    const refusal = (await refused.json()) as { error: string };
+    expect(refusal.error).toContain("unsupported session version");
+
+    const accepted = await fetch(context.webServer.url + "/api/session/open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: readable }),
+    });
+    expect(accepted.status).toBe(200);
+  });
+
+  // A duplicate copies the source's messages verbatim, and Pi derives `modified` from the last message in the transcript, so a copy made just now reports the activity time of the conversation it came from and sorts below every session in the list.
+  test("orders a duplicated session by when the copy was made, not by the transcript it copied", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-session-recency-"));
+    temporaryDirectories.push(directory);
+    const cwd = join(directory, "workspace");
+    const aged = Date.parse("2026-09-10T01:00:04.000Z");
+    const path = join(directory, "2026-09-10T01-00-00-000Z_aged.jsonl");
+    await writeFile(
+      path,
+      `${JSON.stringify({ type: "session", version: 3, id: "aged-session", timestamp: new Date(aged).toISOString(), cwd })}\n${JSON.stringify({ type: "message", id: "aged-message", parentId: null, timestamp: new Date(aged).toISOString(), message: { role: "user", content: [{ type: "text", text: "aged session" }], timestamp: aged } })}\n`,
+      "utf8",
+    );
+    const manager = SessionManager.create(cwd, directory);
+    const session = { sessionId: "current", sessionFile: undefined, messages: [], isStreaming: false, sessionManager: manager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, sessionRuntime: { cwd }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd, agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const forked = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    expect(forked.status).toBe(200);
+    const fork = (await forked.json()) as { sessionId: string; sessionFile: string };
+
+    const listed = await fetch(context.webServer.url + "/api/sessions?includeArchived=true");
+    expect(listed.status).toBe(200);
+    const payload = (await listed.json()) as { items: Array<{ path: string; created: string; modified: string; recency: string }> };
+    expect(payload.items.map((item) => item.path)).toEqual([fork.sessionFile, path]);
+    const copy = payload.items[0];
+    // The copy inherits the source's message activity time, so `modified` stays four days behind `created`; `recency` is the moment the copy can prove about itself.
+    expect(Date.parse(copy?.modified ?? "")).toBe(aged);
+    expect(Date.parse(copy?.recency ?? "")).toBe(Date.parse(copy?.created ?? ""));
+    expect(Date.parse(copy?.recency ?? "")).toBeGreaterThan(aged);
+  });
+
   test("a fork of a pre-current session keeps its whole transcript readable", async () => {
     const context = new Context();
     contexts.push(context);

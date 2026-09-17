@@ -282,6 +282,9 @@ button:disabled {
 .session-dialog-target {
   @apply [margin:5px_17px_15px] [overflow:hidden] [border-radius:7px] [background:var(--color-soft)] [padding:9px] [color:var(--color-muted)] [font:11px_var(--font-mono)] [text-overflow:ellipsis] [white-space:nowrap];
 }
+.session-dialog-error {
+  @apply [margin:0_17px_4px] [padding:8px_10px] [border:1px_solid_rgba(236,_19,_19,_0.16)] [border-radius:7px] [background:var(--color-red-soft)] [color:var(--color-red)] [font-size:11px] [line-height:1.45];
+}
 .session-dialog-actions {
   @apply [display:flex] [justify-content:flex-end] [gap:7px] [padding:11px_17px_15px] [border-top:1px_solid_rgba(0,_0,_0,_0.06)];
 }
@@ -1228,6 +1231,13 @@ button:disabled {
 }
 .event-dot {
   @apply [width:6px] [height:6px] [flex:none] [border-radius:2px] [background:var(--color-blue)];
+}
+/* A failed tool result reads as a failure in the trace for the same reason it does in the transcript, where .turn-tool.failed has always said so. */
+.event-row.failed {
+  @apply [background:var(--color-red-soft)];
+}
+.event-dot.failed {
+  @apply [background:var(--color-red)];
 }
 .files-content {
   @apply [width:100%] [min-height:0] [flex:1] [max-width:none] [overflow:auto] [padding:24px];
@@ -2397,6 +2407,9 @@ button:disabled {
 .file-summary {
   @apply [margin:-8px_0_12px] [color:var(--color-muted)] [font:10.5px_var(--font-mono)];
 }
+.file-summary-truncated {
+  @apply [display:block] [margin-top:4px] [color:var(--color-red)];
+}
 .settings-note {
   @apply [display:block] [margin-top:10px] [color:var(--color-muted)] [font-size:11px] [line-height:1.5];
 }
@@ -2490,6 +2503,9 @@ button:disabled {
 }
 .detail-actions button:disabled {
   @apply [cursor:not-allowed] [opacity:0.5];
+}
+.detail-copy-note {
+  @apply [margin:8px_0_0] [color:var(--color-red)] [font-size:11px] [line-height:1.45];
 }
 
 /* Legibility pass for wide desktop viewports. */

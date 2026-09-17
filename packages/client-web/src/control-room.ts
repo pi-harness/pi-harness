@@ -114,6 +114,8 @@ export interface ClientFile {
 export interface ClientFileList {
   readonly items: readonly ClientFile[];
   readonly repository: boolean;
+  /** Set when git status was killed on its output limit, so the items are a prefix of the worktree's changes rather than all of them. */
+  readonly truncated?: boolean;
 }
 export interface ClientWorkspaceFileList {
   readonly items: readonly ClientFile[];

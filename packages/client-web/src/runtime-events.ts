@@ -40,7 +40,8 @@ function boundedHistoricalEvents(events: readonly RuntimeEvent[], limit: number)
 /** Rebuild the durable part of the tool timeline from Pi's append-only session entries. Runtime events are ephemeral, but tool calls and results persist in JSONL with stable call ids and timestamps. */
 export function historicalTrajectoryEvents(entries: readonly unknown[]): readonly RuntimeEvent[] {
   const events: RuntimeEvent[] = [];
-  const startedAt = new Map<string, number>();
+  // A call reconstructed from the log knows only when its assistant entry was appended and when its result was, and for a batch of parallel calls Pi appends the whole batch at one instant on each side. Subtracting those two instants gives every call in the batch the wall time of the slowest one — a 40 ms call read as 6.1 s next to the 6.1 s call it ran beside. Only a call that was alone in its assistant entry has a duration the log can actually prove, so the batch size is carried alongside the start.
+  const startedAt = new Map<string, { readonly clock: number; readonly batchSize: number }>();
   for (const candidate of entries) {
     const entry = record(candidate);
     if (entry === undefined) continue;
@@ -50,10 +51,14 @@ export function historicalTrajectoryEvents(entries: readonly unknown[]): readonl
     const receivedAt = entryClock(entry, message);
     if (receivedAt === undefined) continue;
     if (message.role === "assistant" && Array.isArray(message.content)) {
-      for (const item of message.content) {
-        const content = record(item);
-        if (content?.type !== "toolCall" || typeof content.id !== "string" || typeof content.name !== "string") continue;
-        startedAt.set(content.id, receivedAt);
+      const calls = message.content
+        .map(record)
+        .filter(
+          (content): content is RuntimeEvent & { readonly id: string; readonly name: string } =>
+            content?.type === "toolCall" && typeof content.id === "string" && typeof content.name === "string",
+        );
+      for (const content of calls) {
+        startedAt.set(content.id, { clock: receivedAt, batchSize: calls.length });
         events.push({
           type: "tool_execution_start",
           toolCallId: content.id,
@@ -67,6 +72,14 @@ export function historicalTrajectoryEvents(entries: readonly unknown[]): readonl
     }
     if (message.role !== "toolResult" || typeof message.toolCallId !== "string" || typeof message.toolName !== "string") continue;
     const start = startedAt.get(message.toolCallId);
+    const elapsed = start === undefined ? undefined : Math.max(0, receivedAt - start.clock);
+    // A batch keeps its reconstructed figure under a key of its own so the details panel can say it is the wall time of the whole batch, which is the only thing the two instants measure.
+    const timing =
+      start === undefined || elapsed === undefined
+        ? {}
+        : start.batchSize > 1
+          ? { batchDurationMs: elapsed, batchToolCalls: start.batchSize }
+          : { durationMs: elapsed };
     events.push({
       type: "tool_execution_end",
       toolCallId: message.toolCallId,
@@ -77,7 +90,7 @@ export function historicalTrajectoryEvents(entries: readonly unknown[]): readonl
       },
       isError: message.isError === true,
       receivedAt,
-      ...(start === undefined ? {} : { durationMs: Math.max(0, receivedAt - start) }),
+      ...timing,
       historical: true,
     });
   }
@@ -196,6 +209,13 @@ export function formatEventDuration(event: RuntimeEvent): string {
   const duration = event.durationMs;
   if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0) return "—";
   return duration >= 1000 ? `${(duration / 1000).toFixed(duration >= 10_000 ? 0 : 1)} s` : `${Math.round(duration)} ms`;
+}
+
+/** The wall time of the parallel batch a reconstructed tool result belongs to, for the rows whose own duration the session log cannot prove. Undefined for every event that has a duration of its own. */
+export function formatEventBatchDuration(event: RuntimeEvent): string | undefined {
+  const batch = event.batchDurationMs;
+  if (typeof batch !== "number" || !Number.isFinite(batch) || batch < 0) return undefined;
+  return formatEventDuration({ durationMs: batch });
 }
 
 /** The readable text a tool result carries, so the details panel shows what the tool returned rather than the envelope it came in. */
