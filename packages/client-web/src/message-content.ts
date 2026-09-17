@@ -78,7 +78,7 @@ export function messageParts(message: Record<string, unknown>): readonly ChatTur
 }
 
 export interface ChatTurn {
-  readonly role: "user" | "assistant" | "compaction";
+  readonly role: "user" | "assistant" | "compaction" | "custom";
   /** The prose of the turn on its own: what a user prompt or a compaction summary says, and what an assistant turn reads as with its tool rows taken out. */
   readonly text: string;
   readonly parts: readonly ChatTurnPart[];
@@ -116,6 +116,15 @@ export function compactionTurn(message: Record<string, unknown>): ChatTurn | und
   };
 }
 
+/** An extension writes its own messages into the conversation, and the ones it marks display:true were written to be read: a slash command such as /subagents-doctor answers this way and has no other surface to answer on, so dropping them left the transcript empty for a command that had in fact replied. A message the runtime marked display:false is context for the model alone and stays out of the transcript. */
+export function customTurn(message: Record<string, unknown>): ChatTurn | undefined {
+  if (message.role !== "custom" || message.display !== true) return undefined;
+  const text = messageText(message);
+  // An extension that displays an image-only or empty message has nothing for a text transcript to show, and an empty row reads as a rendering fault rather than as output.
+  if (!text) return undefined;
+  return { role: "custom", text, parts: [{ type: "text", value: text }], stopped: false };
+}
+
 export function projectChatTurns(messages: readonly Record<string, unknown>[]): readonly ChatTurn[] {
   // A tool result is its own message and arrives after the assistant message that asked for the call, so the results are collected first and joined back onto the call by id.
   const results = new Map<string, { readonly text: string; readonly failed: boolean }>();
@@ -130,6 +139,11 @@ export function projectChatTurns(messages: readonly Record<string, unknown>[]): 
     const compaction = compactionTurn(message);
     if (compaction) {
       turns.push(compaction);
+      continue;
+    }
+    const custom = customTurn(message);
+    if (custom) {
+      turns.push(custom);
       continue;
     }
     const role = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : undefined;

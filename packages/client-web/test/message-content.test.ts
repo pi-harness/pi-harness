@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { compactionTurn, messageParts, messageThinking, messageText, projectChatTurns } from "../src/message-content.js";
+import { compactionTurn, customTurn, messageParts, messageThinking, messageText, projectChatTurns } from "../src/message-content.js";
 
 describe("message content projection", () => {
   test("keeps assistant text separate from thinking and tool calls", () => {
@@ -263,5 +263,50 @@ describe("compaction in the transcript", () => {
     expect(turns).toHaveLength(1);
     expect(turns[0]?.role).toBe("compaction");
     expect(turns[0]?.text).toBe("");
+  });
+});
+
+describe("extension output in the transcript", () => {
+  const doctor = {
+    role: "custom",
+    customType: "subagent-slash-result",
+    display: true,
+    content: "## Subagent result\n\nSubagents doctor report",
+    timestamp: 1789537747845,
+  };
+
+  // A slash command answers through a display message and has no other surface to answer on, so dropping the message left the console showing nothing at all for a command that had replied.
+  test("keeps a message the runtime marked for display as its own turn", () => {
+    const turns = projectChatTurns([{ role: "user", content: "/subagents-doctor" }, doctor]);
+
+    expect(turns).toHaveLength(2);
+    expect(turns[1]).toEqual({
+      role: "custom",
+      text: "## Subagent result\n\nSubagents doctor report",
+      parts: [{ type: "text", value: "## Subagent result\n\nSubagents doctor report" }],
+      stopped: false,
+    });
+  });
+
+  test("reads a display message delivered as content parts", () => {
+    expect(customTurn({ role: "custom", customType: "plan", display: true, content: [{ type: "text", text: "plan ready" }] })?.text).toBe("plan ready");
+  });
+
+  test("leaves the model's own context out of the transcript", () => {
+    expect(customTurn({ role: "custom", customType: "memory", display: false, content: "context only" })).toBeUndefined();
+    expect(customTurn({ role: "custom", customType: "image", display: true, content: [{ type: "image", image: "data:," }] })).toBeUndefined();
+    expect(customTurn({ role: "assistant", content: "hello" })).toBeUndefined();
+    expect(projectChatTurns([{ role: "custom", customType: "memory", display: false, content: "context only" }])).toEqual([]);
+  });
+
+  // The two assistant messages around it were written apart, and merging them across the command output would have printed the answer before the output that produced it.
+  test("breaks the assistant merge it sits between", () => {
+    const turns = projectChatTurns([
+      { role: "assistant", content: [{ type: "text", text: "running the doctor" }] },
+      doctor,
+      { role: "assistant", content: [{ type: "text", text: "all good" }] },
+    ]);
+
+    expect(turns.map((turn) => turn.role)).toEqual(["assistant", "custom", "assistant"]);
   });
 });

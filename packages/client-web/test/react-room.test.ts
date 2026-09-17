@@ -26,6 +26,7 @@ import {
   runSessionPopoverAction,
   SessionModelNotice,
   fileCompletionDetail,
+  fileMatchesQuery,
   runtimeExplanation,
   parseUnifiedDiff,
   sessionHeadingTitle,
@@ -1113,8 +1114,16 @@ describe("run telemetry", () => {
     expect(view(quiet, "reconnecting", true, now)).toEqual({ phase: "thinking", tone: "reconnecting", elapsedSeconds: 70, quietSeconds: 40 });
     expect(view(quiet, "closed", false, now)).toEqual({ phase: "thinking", tone: "offline", elapsedSeconds: 70, quietSeconds: 40 });
     expect(view(active, "connecting", true, now)).toEqual({ phase: "thinking", tone: "connecting", elapsedSeconds: 70, quietSeconds: 2 });
-    // An EventSource can sit in the "open" state long after the socket has died, and the last successful status payload keeps claiming the run is live, so a failing status poll alone has to be enough to stop the pill promising the model is still answering.
-    expect(view(active, "open", false, now)).toEqual({ phase: "thinking", tone: "offline", elapsedSeconds: 70, quietSeconds: 2 });
+    // An EventSource sits in the "open" state long after its socket has died, so the connection state cannot be what corroborates a failed poll; the stream's own silence is. A run nobody has heard from for a poll interval is called unreachable.
+    expect(view(quiet, "open", false, now)).toEqual({ phase: "thinking", tone: "offline", elapsedSeconds: 70, quietSeconds: 40 });
+    expect(view({ ...active, lastActivityAt: now - 5_000 }, "open", false, now)).toEqual({
+      phase: "thinking",
+      tone: "offline",
+      elapsedSeconds: 70,
+      quietSeconds: 5,
+    });
+    // A stream that delivered a delta two seconds ago proves the runtime is alive, whatever the status poll did, and the pill must not announce it unreachable over an answer the reader is watching arrive.
+    expect(view(active, "open", false, now)).toEqual({ phase: "thinking", tone: "active", elapsedSeconds: 70, quietSeconds: 2 });
   });
 
   test("renders a running placeholder from status and observes the stable connection ref", async () => {
@@ -1126,7 +1135,7 @@ describe("run telemetry", () => {
     expect(source).toContain("subscribeRuntimeEvents(api, handleRuntimeEventRef, handleEventStreamStateRef)");
     expect(source).toContain("className={`run-indicator running ${runTelemetry.tone}`}");
     expect(source).toContain(') : data.status?.status !== "running" ? (');
-    expect(source).toContain('data.session?.messages.length || data.status?.status === "running" ? "" : "is-empty"');
+    expect(source).toContain('chatTurns.length || data.status?.status === "running" ? "" : "is-empty"');
     expect(styles).toContain(".main-header:has(.run-indicator) .active-heading");
   });
 });
@@ -1231,6 +1240,24 @@ describe("chat transcript turns", () => {
       "turn-tool",
       "turn-markdown",
     ]);
+  });
+
+  // Command output used to be dropped before it reached a turn at all, which left the console blank for a command that had answered in full.
+  test("renders command output as its own row rather than as something the model said", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ChatTurnArticle, {
+        role: "custom",
+        text: "## Subagent result\n\nSubagents doctor report",
+        parts: [{ type: "text", value: "## Subagent result\n\nSubagents doctor report" }],
+        onMouseUp: () => {},
+      }),
+    );
+
+    expect(markup).toContain('class="turn custom"');
+    expect(markup).toContain('class="custom-turn-body"><div class="turn-markdown"');
+    expect(markup).toContain("命令输出");
+    expect(markup).not.toContain('class="turn text"');
+    expect(markup).not.toContain('class="turn user"');
   });
 
   test("is memoised so an unchanged turn is not re-parsed on every poll", () => {
@@ -1470,16 +1497,37 @@ describe("streaming transcript scrolling", () => {
 });
 
 describe("command palette insertion", () => {
-  test("adds the command to what the user already typed instead of replacing it", () => {
-    expect(insertCommandDraft("把登录改成 OAuth", 11, "/commit")).toEqual({ text: "把登录改成 OAuth /commit ", caret: 20 });
-    expect(insertCommandDraft("修好 bug", 3, "/commit")).toEqual({ text: "修好 /commit bug", caret: 11 });
-    expect(insertCommandDraft("修好这个 ", 5, "/commit")).toEqual({ text: "修好这个 /commit ", caret: 13 });
+  // The runtime dispatches a command only when the prompt begins with it, so a command dropped where the caret happened to be was sent to the model as prose and never ran.
+  test("puts the command in front of what the user already typed instead of replacing it", () => {
+    expect(insertCommandDraft("把登录改成 OAuth", "/commit")).toEqual({ text: "/commit 把登录改成 OAuth", caret: 8 });
+    expect(insertCommandDraft("修好 bug", "/commit")).toEqual({ text: "/commit 修好 bug", caret: 8 });
+    expect(insertCommandDraft("  修好这个 ", "/commit")).toEqual({ text: "/commit 修好这个 ", caret: 8 });
   });
 
-  test("behaves like a plain fill when the composer is empty and clamps a caret it cannot trust", () => {
-    expect(insertCommandDraft("", 0, "/commit")).toEqual({ text: "/commit ", caret: 8 });
-    expect(insertCommandDraft("修好这个", 99, "/commit")).toEqual({ text: "修好这个 /commit ", caret: 13 });
-    expect(insertCommandDraft("修好这个", -3, "/commit")).toEqual({ text: "/commit 修好这个", caret: 8 });
+  test("behaves like a plain fill when the composer is empty", () => {
+    expect(insertCommandDraft("", "/commit")).toEqual({ text: "/commit ", caret: 8 });
+    expect(insertCommandDraft("   ", "/commit")).toEqual({ text: "/commit ", caret: 8 });
+  });
+});
+
+describe("file completion matching", () => {
+  const files = [
+    { path: "README.md", label: "workspace", status: "" },
+    { path: "space name.txt", label: "workspace", status: "" },
+    { path: "src/calc.js", label: "untracked", status: "??" },
+  ];
+
+  // Every indexed file carries the same constant label, so matching it made "workspace" and "untracked" match the whole index and let unrelated files outrank the one being typed.
+  test("matches the path and not the constant label beside it", () => {
+    expect(files.filter((file) => fileMatchesQuery(file, "spa")).map((file) => file.path)).toEqual(["space name.txt"]);
+    expect(files.filter((file) => fileMatchesQuery(file, "workspace"))).toEqual([]);
+    expect(files.filter((file) => fileMatchesQuery(file, "untracked"))).toEqual([]);
+    expect(files.filter((file) => fileMatchesQuery(file, "??"))).toEqual([]);
+  });
+
+  test("is case-insensitive, ignores surrounding space, and keeps the whole list for an empty query", () => {
+    expect(files.filter((file) => fileMatchesQuery(file, " CALC "))[0]?.path).toBe("src/calc.js");
+    expect(files.filter((file) => fileMatchesQuery(file, ""))).toHaveLength(3);
   });
 });
 
