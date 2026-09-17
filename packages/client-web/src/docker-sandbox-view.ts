@@ -148,11 +148,12 @@ function runView(value: unknown): DockerSandboxRunView | undefined {
     exitCode,
     status: source.status,
     output: displayText(output, maxVisibleOutputLength),
+    // displayText cuts by code point, so the badge has to count the same way. Measuring the UTF-16 length here instead reports a truncation that never happened as soon as the text holds an astral character, which takes two units and one code point.
     truncated:
-      image.length > 512 ||
+      [...image].length > 512 ||
       command.length > maxVisibleArguments ||
-      command.some((argument) => argument.length > maxVisibleArgumentLength) ||
-      output.length > maxVisibleOutputLength,
+      command.some((argument) => [...argument].length > maxVisibleArgumentLength) ||
+      [...output].length > maxVisibleOutputLength,
   };
 }
 

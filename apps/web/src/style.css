@@ -3130,7 +3130,10 @@ body.wide-mode .composer-stack,
 body.wide-mode .context-shell {
   max-width: none;
 }
-body.wide-mode .main-header.session-track {
-  padding-right: 24px;
-  padding-left: 24px;
+/* The session header pads itself symmetrically to line up with the centred column, so lifting the cap means flattening that padding to the same 24px the scroll container uses. Only above 760px: below it the header is already narrower than the column it was tracking, so there is no cap left to lift, and an unconditional rule here would beat the responsive 16px and 8px padding and pull the header out of line with the transcript underneath it. */
+@media (min-width: 761px) {
+  body.wide-mode .main-header.session-track {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
 }
