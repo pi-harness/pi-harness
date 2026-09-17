@@ -810,7 +810,7 @@ button:disabled {
     filter: drop-shadow(0 0 8px currentColor);
   }
 }
-.reasoning-head::after {
+.thinking-dots::after {
   content: "...";
   display: inline-block;
   animation: thinking-dots 1.5s steps(1, end) infinite;
@@ -2015,7 +2015,7 @@ button:disabled {
   .run-indicator .run-dot,
   .initial-loading > span,
   .streaming-spinner,
-  .reasoning-head::after {
+  .thinking-dots::after {
     @apply [animation:none];
   }
 }

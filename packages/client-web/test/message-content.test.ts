@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { compactionTurn, messageThinking, messageText, projectChatTurns } from "../src/message-content.js";
+import { compactionTurn, messageParts, messageThinking, messageText, projectChatTurns } from "../src/message-content.js";
 
 describe("message content projection", () => {
   test("keeps assistant text separate from thinking and tool calls", () => {
@@ -16,12 +16,49 @@ describe("message content projection", () => {
     expect(messageText(message)).toBe("项目使用 Cordis。");
   });
 
+  test("keeps the order the model wrote a message in, including text that came before the call it announced", () => {
+    // The model narrating before it calls is the common shape, and a bucket of tools rendered ahead of a bucket of text tells the reader the opposite happened.
+    expect(
+      messageParts({
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "改 JSDoc" },
+          { type: "text", text: "先修正说明：" },
+          { type: "toolCall", id: "call-1", name: "edit", arguments: { path: "src/calc.js" } },
+          { type: "text", text: "改完了。" },
+        ],
+      }),
+    ).toEqual([
+      { type: "thinking", value: "改 JSDoc" },
+      { type: "text", value: "先修正说明：" },
+      { type: "tool", id: "call-1", name: "edit", arguments: { path: "src/calc.js" }, failed: false },
+      { type: "text", value: "改完了。" },
+    ]);
+  });
+
+  test("joins the chunks one message streamed the same way the whole-message readers do", () => {
+    expect(
+      messageParts({
+        role: "assistant",
+        content: [
+          { type: "text", text: "名字是 " },
+          { type: "text", text: "pi-harness。" },
+          { type: "thinking", thinking: "先读文件" },
+          { type: "thinking", thinking: "再确认" },
+        ],
+      }),
+    ).toEqual([
+      { type: "text", value: "名字是 pi-harness。" },
+      { type: "thinking", value: "先读文件\n\n再确认" },
+    ]);
+  });
+
   test("does not leak tool result text into the assistant transcript", () => {
     expect(messageText({ role: "toolResult", content: [{ type: "text", text: "secret command output" }] })).toBe("secret command output");
     expect(messageText({ role: "assistant", content: [{ type: "toolResult", text: "not assistant prose" }] })).toBe("");
   });
 
-  test("merges contiguous assistant messages into one thinking block", () => {
+  test("merges contiguous assistant messages while keeping each message's reasoning where it was written", () => {
     expect(
       projectChatTurns([
         { role: "user", content: [{ type: "text", text: "修复问题" }] },
@@ -36,9 +73,39 @@ describe("message content projection", () => {
         },
       ]),
     ).toEqual([
-      { role: "user", text: "修复问题", thinking: "", tools: [], stopped: false },
-      { role: "assistant", text: "已修复", thinking: "先检查再确认", tools: [], stopped: false },
+      { role: "user", text: "修复问题", parts: [{ type: "text", value: "修复问题" }], stopped: false },
+      {
+        role: "assistant",
+        text: "已修复",
+        parts: [
+          { type: "thinking", value: "先检查" },
+          { type: "thinking", value: "再确认" },
+          { type: "text", value: "已修复" },
+        ],
+        stopped: false,
+      },
     ]);
+  });
+
+  test("keeps two consecutive assistant messages apart instead of running their sentences together", () => {
+    // Glued with a bare +, the trailing colon of one message and the opening word of the next read as one sentence, and the second message's leading blank line stops being a markdown block boundary.
+    const turns = projectChatTurns([
+      { role: "assistant", content: [{ type: "text", text: "先修正说明：" }] },
+      { role: "assistant", content: [{ type: "text", text: "已加上 JSDoc：\n\n```js\n// ok\n```" }] },
+    ]);
+
+    expect(turns).toEqual([
+      {
+        role: "assistant",
+        text: "先修正说明：\n\n已加上 JSDoc：\n\n```js\n// ok\n```",
+        parts: [
+          { type: "text", value: "先修正说明：" },
+          { type: "text", value: "已加上 JSDoc：\n\n```js\n// ok\n```" },
+        ],
+        stopped: false,
+      },
+    ]);
+    expect(turns[0]?.text).not.toContain("：已加上");
   });
 
   test("marks the turn the user interrupted, including when the runtime closed it with an empty message", () => {
@@ -47,14 +114,14 @@ describe("message content projection", () => {
         { role: "user", content: [{ type: "text", text: "跑测试" }] },
         { role: "assistant", content: [{ type: "text", text: "正在读取" }], stopReason: "aborted" },
       ]).at(-1),
-    ).toEqual({ role: "assistant", text: "正在读取", thinking: "", tools: [], stopped: true });
+    ).toEqual({ role: "assistant", text: "正在读取", parts: [{ type: "text", value: "正在读取" }], stopped: true });
 
     expect(
       projectChatTurns([
         { role: "assistant", content: [{ type: "text", text: "正在读取" }], stopReason: "stop" },
         { role: "assistant", content: [], stopReason: "aborted" },
       ]),
-    ).toEqual([{ role: "assistant", text: "正在读取", thinking: "", tools: [], stopped: true }]);
+    ).toEqual([{ role: "assistant", text: "正在读取", parts: [{ type: "text", value: "正在读取" }], stopped: true }]);
   });
 
   test("keeps the mark when the interrupted message is merged with a later one", () => {
@@ -63,7 +130,17 @@ describe("message content projection", () => {
         { role: "assistant", content: [{ type: "text", text: "正在读取" }], stopReason: "aborted" },
         { role: "assistant", content: [{ type: "text", text: "（已停止）" }], stopReason: "stop" },
       ]),
-    ).toEqual([{ role: "assistant", text: "正在读取（已停止）", thinking: "", tools: [], stopped: true }]);
+    ).toEqual([
+      {
+        role: "assistant",
+        text: "正在读取\n\n（已停止）",
+        parts: [
+          { type: "text", value: "正在读取" },
+          { type: "text", value: "（已停止）" },
+        ],
+        stopped: true,
+      },
+    ]);
   });
 
   test("gives an interrupt that landed before any output a turn of its own", () => {
@@ -73,8 +150,8 @@ describe("message content projection", () => {
         { role: "assistant", content: [], stopReason: "aborted" },
       ]),
     ).toEqual([
-      { role: "user", text: "跑测试", thinking: "", tools: [], stopped: false },
-      { role: "assistant", text: "", thinking: "", tools: [], stopped: true },
+      { role: "user", text: "跑测试", parts: [{ type: "text", value: "跑测试" }], stopped: false },
+      { role: "assistant", text: "", parts: [], stopped: true },
     ]);
   });
 
@@ -94,12 +171,15 @@ describe("message content projection", () => {
 
     // Without the call in the turn the transcript jumped from the prompt to an answer the model had no way to know.
     expect(turns).toEqual([
-      { role: "user", text: "读 package.json", thinking: "", tools: [], stopped: false },
+      { role: "user", text: "读 package.json", parts: [{ type: "text", value: "读 package.json" }], stopped: false },
       {
         role: "assistant",
         text: "名字是 pi-harness。",
-        thinking: "先读文件",
-        tools: [{ id: "call-1", name: "read", arguments: { path: "package.json" }, result: '{ "name": "pi-harness" }', failed: false }],
+        parts: [
+          { type: "thinking", value: "先读文件" },
+          { type: "tool", id: "call-1", name: "read", arguments: { path: "package.json" }, result: '{ "name": "pi-harness" }', failed: false },
+          { type: "text", value: "名字是 pi-harness。" },
+        ],
         stopped: false,
       },
     ]);
@@ -117,16 +197,16 @@ describe("message content projection", () => {
       { role: "toolResult", toolCallId: "call-1", toolName: "bash", isError: true, content: [{ type: "text", text: "exit 1" }] },
     ]);
 
-    expect(turns.at(-1)?.tools).toEqual([
-      { id: "call-1", name: "bash", arguments: { command: "false" }, result: "exit 1", failed: true },
+    expect(turns.at(-1)?.parts).toEqual([
+      { type: "tool", id: "call-1", name: "bash", arguments: { command: "false" }, result: "exit 1", failed: true },
       // A call still running has no result at all, which is what tells the transcript to say 执行中 rather than 完成.
-      { id: "call-2", name: "read", arguments: { path: "a.txt" }, failed: false },
+      { type: "tool", id: "call-2", name: "read", arguments: { path: "a.txt" }, failed: false },
     ]);
   });
 
   test("leaves a turn that finished on its own unmarked", () => {
     expect(projectChatTurns([{ role: "assistant", content: [{ type: "text", text: "已完成" }], stopReason: "stop" }])).toEqual([
-      { role: "assistant", text: "已完成", thinking: "", tools: [], stopped: false },
+      { role: "assistant", text: "已完成", parts: [{ type: "text", value: "已完成" }], stopped: false },
     ]);
   });
 });

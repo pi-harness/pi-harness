@@ -52,7 +52,7 @@ import {
   mergeTrajectoryEvents,
 } from "./runtime-events.js";
 import { MarkdownMessage } from "./markdown.js";
-import { type ChatToolCall, messageText, messageThinking, projectChatTurns } from "./message-content.js";
+import { type ChatToolCall, type ChatTurnPart, messageText, messageThinking, projectChatTurns } from "./message-content.js";
 import {
   annotationDraftDuringSessionRestore,
   annotationDraftForSession,
@@ -9070,6 +9070,14 @@ function toolSignatureValue(input: unknown): string {
   }
 }
 
+// The arguments that say which thing a call acted on, in the order they win the preview budget when the call also carries a payload large enough to fill it on its own.
+const TOOL_ARGUMENT_IDENTITY_KEYS = ["path", "file", "filePath", "command", "pattern", "url"];
+
+function toolArgumentRank(key: string): number {
+  const index = TOOL_ARGUMENT_IDENTITY_KEYS.indexOf(key);
+  return index === -1 ? TOOL_ARGUMENT_IDENTITY_KEYS.length : index;
+}
+
 /** The arguments of a call as one line, so the row says which file was read rather than only that `read` ran. */
 export function toolArgumentSummary(args: unknown): string {
   if (args === undefined || args === null) return "";
@@ -9077,6 +9085,8 @@ export function toolArgumentSummary(args: unknown): string {
   if (typeof args !== "object") return previewText(value(args, ""), TOOL_ARGUMENT_PREVIEW_LIMIT);
   const parts = Object.entries(args as Record<string, unknown>)
     .filter(([, item]) => item !== undefined && item !== null && item !== "")
+    // An `edit` call lists its replacement blocks before the file it edits, so in insertion order the payload eats the whole preview and the row never says which file was touched. Sorting is stable, so everything else keeps the order the tool wrote it in.
+    .sort(([left], [right]) => toolArgumentRank(left) - toolArgumentRank(right))
     .map(([key, item]) => `${key}=${toolSignatureValue(item)}`);
   return previewText(parts.join(" · "), TOOL_ARGUMENT_PREVIEW_LIMIT);
 }
@@ -9087,21 +9097,24 @@ export function toolSignature(tools: readonly ChatToolCall[]): string {
     .join("|");
 }
 
-// Memoised on primitive props so a poll that returns an identical transcript does not re-run marked + DOMPurify over every turn. The tool list is a fresh array on every poll, so it is compared by content instead of by identity, which is what the default shallow comparison would do.
+/** A turn is re-rendered when what it says changes, and where a call sits among the prose is part of what it says. */
+export function turnPartsSignature(parts: readonly ChatTurnPart[]): string {
+  return parts.map((part) => (part.type === "tool" ? `tool:${toolSignature([part])}` : `${part.type}:${part.value}`)).join(" ");
+}
+
+// Memoised on primitive props so a poll that returns an identical transcript does not re-run marked + DOMPurify over every turn. The part list is a fresh array on every poll, so it is compared by content instead of by identity, which is what the default shallow comparison would do.
 export const ChatTurnArticle = memo(
   function ChatTurnArticle({
     role,
     text,
-    thinking,
-    tools = [],
+    parts = [],
     stopped = false,
     tokensBefore,
     onMouseUp,
   }: {
     role: "user" | "assistant" | "compaction";
     text: string;
-    thinking: string;
-    tools?: readonly ChatToolCall[];
+    parts?: readonly ChatTurnPart[];
     stopped?: boolean;
     tokensBefore?: number;
     onMouseUp: () => void;
@@ -9133,27 +9146,32 @@ export const ChatTurnArticle = memo(
           <UserMessageBubble text={text} />
         ) : (
           <>
-            {/* A model that emits only whitespace as its reasoning would otherwise open an empty disclosure titled 思考. */}
-            {thinking.trim() && (
-              <details className="reasoning message-reasoning" open={false}>
-                <summary className="reasoning-head">{t("思考")}</summary>
-                <div className="reasoning-body">
-                  <MarkdownMessage text={thinking} />
-                </div>
-              </details>
-            )}
-            {/* Without these rows the transcript jumps from the prompt to an answer the model could not have known, because a message whose only content is a tool call carries no text at all. */}
-            {tools.map((tool, index) => (
-              <details className={`turn-tool ${tool.failed ? "failed" : ""}`} key={tool.id || `${tool.name}-${index}`}>
-                <summary className="turn-tool-head">
-                  <strong>{tool.name}</strong>
-                  <span className="turn-tool-args">{toolArgumentSummary(tool.arguments)}</span>
-                  <span className="turn-tool-status">{tool.result === undefined ? t("执行中…") : tool.failed ? t("失败") : t("完成")}</span>
-                </summary>
-                {tool.result !== undefined && <pre className="turn-tool-output">{previewText(tool.result, TOOL_RESULT_PREVIEW_LIMIT, false)}</pre>}
-              </details>
-            ))}
-            {text && <MarkdownMessage onMouseUp={onMouseUp} text={text} />}
+            {/* The parts are walked in the order the model produced them: a row rendered out of order tells the reader the model answered before it looked, or looked before it said it would. Without the tool rows the transcript jumps from the prompt to an answer the model could not have known, because a message whose only content is a tool call carries no text at all. */}
+            {parts.map((part, index) => {
+              if (part.type === "tool")
+                return (
+                  <details className={`turn-tool ${part.failed ? "failed" : ""}`} key={part.id || `${part.name}-${index}`}>
+                    <summary className="turn-tool-head">
+                      <strong>{part.name}</strong>
+                      <span className="turn-tool-args">{toolArgumentSummary(part.arguments)}</span>
+                      <span className="turn-tool-status">{part.result === undefined ? t("执行中…") : part.failed ? t("失败") : t("完成")}</span>
+                    </summary>
+                    {part.result !== undefined && <pre className="turn-tool-output">{previewText(part.result, TOOL_RESULT_PREVIEW_LIMIT, false)}</pre>}
+                  </details>
+                );
+              // A model that emits only whitespace as its reasoning would otherwise open an empty disclosure titled 思考.
+              if (part.type === "thinking")
+                return part.value.trim() ? (
+                  <details className="reasoning message-reasoning" key={`thinking-${index}`} open={false}>
+                    <summary className="reasoning-head">{t("思考")}</summary>
+                    <div className="reasoning-body">
+                      <MarkdownMessage text={part.value} />
+                    </div>
+                  </details>
+                ) : null;
+              // Each piece of prose stays its own document, so an unclosed code fence in one of them cannot swallow the next.
+              return <MarkdownMessage key={`text-${index}`} onMouseUp={onMouseUp} text={part.value} />;
+            })}
             {/* An interrupted turn otherwise looks exactly like one that finished on its own, and the aborted flag the prompt call returns is gone after a reload, so the marker is read back from the stored message. */}
             {stopped && <p className="turn-stopped">{t("已中断")}</p>}
           </>
@@ -9165,10 +9183,9 @@ export const ChatTurnArticle = memo(
     previous.locale === next.locale &&
     previous.role === next.role &&
     previous.text === next.text &&
-    previous.thinking === next.thinking &&
     previous.stopped === next.stopped &&
     previous.onMouseUp === next.onMouseUp &&
-    toolSignature(previous.tools ?? []) === toolSignature(next.tools ?? []),
+    turnPartsSignature(previous.parts ?? []) === turnPartsSignature(next.parts ?? []),
 );
 
 export function ControlRoomView({ api = createClientApi(), appVersion }: { api?: ClientApi; appVersion?: string }) {
@@ -10720,12 +10737,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               key={index}
               locale={locale}
               onMouseUp={captureAnnotationSelection}
+              parts={turn.parts}
               role={turn.role}
               stopped={turn.stopped}
               text={turn.text}
-              thinking={turn.thinking}
               tokensBefore={turn.tokensBefore}
-              tools={turn.tools}
             />
           ))
         ) : data.status?.status !== "running" ? (
@@ -10746,6 +10762,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               <details className="reasoning message-reasoning" open={false}>
                 <summary className="reasoning-head">
                   {t("思考中…")}
+                  {/* The animated dots belong to the run that is still going, so they are rendered here rather than attached to every reasoning header by CSS, where they left finished turns looking like they were still working. */}
+                  <span aria-hidden="true" className="thinking-dots" />
                   <span className="streaming-elapsed">{formatRunClock(runTelemetry.elapsedSeconds)}</span>
                 </summary>
                 <div className="reasoning-body">

@@ -38,6 +38,7 @@ import {
   subscribeRuntimeEvents,
   toolArgumentSummary,
   toolSignature,
+  turnPartsSignature,
   withoutInstalledPackages,
   writeRestartPendingPackages,
   nextSessionSearchPage,
@@ -1171,11 +1172,23 @@ describe("marketplace detail resolution", () => {
 
 describe("chat transcript turns", () => {
   test("renders a user bubble and an assistant turn with its reasoning", () => {
-    const user = renderToStaticMarkup(createElement(ChatTurnArticle, { role: "user", text: "帮我看看", thinking: "", onMouseUp: () => {} }));
-    const assistant = renderToStaticMarkup(
-      createElement(ChatTurnArticle, { role: "assistant", text: "**已完成**", thinking: "先读文件", onMouseUp: () => {} }),
+    const user = renderToStaticMarkup(
+      createElement(ChatTurnArticle, { role: "user", text: "帮我看看", parts: [{ type: "text", value: "帮我看看" }], onMouseUp: () => {} }),
     );
-    const withoutReasoning = renderToStaticMarkup(createElement(ChatTurnArticle, { role: "assistant", text: "**已完成**", thinking: "", onMouseUp: () => {} }));
+    const assistant = renderToStaticMarkup(
+      createElement(ChatTurnArticle, {
+        role: "assistant",
+        text: "**已完成**",
+        parts: [
+          { type: "thinking", value: "先读文件" },
+          { type: "text", value: "**已完成**" },
+        ],
+        onMouseUp: () => {},
+      }),
+    );
+    const withoutReasoning = renderToStaticMarkup(
+      createElement(ChatTurnArticle, { role: "assistant", text: "**已完成**", parts: [{ type: "text", value: "**已完成**" }], onMouseUp: () => {} }),
+    );
 
     expect(user).toContain("帮我看看");
     expect(user).toContain('class="turn user"');
@@ -1187,8 +1200,39 @@ describe("chat transcript turns", () => {
     expect(withoutReasoning.match(/turn-markdown/gu)).toHaveLength(1);
   });
 
+  test("renders a turn in the order the model produced it rather than every call ahead of every sentence", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ChatTurnArticle, {
+        role: "assistant",
+        text: "先修正说明：\n\n改完了。",
+        parts: [
+          { type: "text", value: "先修正说明：" },
+          { type: "tool", id: "call-1", name: "edit", arguments: { path: "src/calc.js" }, result: "ok", failed: false },
+          { type: "text", value: "改完了。" },
+        ],
+        onMouseUp: () => {},
+      }),
+    );
+
+    // The model narrated before it called the tool, and a row hoisted above that narration says it did the opposite. Two pieces of prose written either side of a call also stay two documents, so neither can be parsed as a continuation of the other.
+    expect([...markup.matchAll(/class="(turn-markdown|turn-tool )/gu)].map((match) => match[1]?.trim())).toEqual([
+      "turn-markdown",
+      "turn-tool",
+      "turn-markdown",
+    ]);
+  });
+
   test("is memoised so an unchanged turn is not re-parsed on every poll", () => {
     expect((ChatTurnArticle as unknown as { $$typeof?: symbol }).$$typeof).toBe(Symbol.for("react.memo"));
+  });
+
+  test("re-renders a turn whose calls only moved among its prose", () => {
+    const tool = { type: "tool", id: "call-1", name: "edit", arguments: { path: "src/calc.js" }, result: "ok", failed: false } as const;
+    const before = [{ type: "text", value: "先修正说明：" }, tool] as const;
+    const after = [tool, { type: "text", value: "先修正说明：" }] as const;
+
+    expect(turnPartsSignature(before)).not.toBe(turnPartsSignature(after));
+    expect(turnPartsSignature(before)).toBe(turnPartsSignature([{ type: "text", value: "先修正说明：" }, { ...tool }]));
   });
 });
 
@@ -1366,14 +1410,11 @@ describe("interrupting a run with the advertised shortcut", () => {
   });
 
   test("marks the interrupted turn so it does not read as a finished one", () => {
-    const stopped = renderToStaticMarkup(
-      createElement(ChatTurnArticle, { role: "assistant", text: "正在读取", thinking: "", stopped: true, onMouseUp: () => {} }),
-    );
+    const parts = [{ type: "text" as const, value: "正在读取" }];
+    const stopped = renderToStaticMarkup(createElement(ChatTurnArticle, { role: "assistant", text: "正在读取", parts, stopped: true, onMouseUp: () => {} }));
 
     expect(stopped).toContain("已中断");
-    expect(renderToStaticMarkup(createElement(ChatTurnArticle, { role: "assistant", text: "正在读取", thinking: "", onMouseUp: () => {} }))).not.toContain(
-      "已中断",
-    );
+    expect(renderToStaticMarkup(createElement(ChatTurnArticle, { role: "assistant", text: "正在读取", parts, onMouseUp: () => {} }))).not.toContain("已中断");
   });
 
   test("keeps the stop control reachable at the width that hides the run label", async () => {
@@ -1464,6 +1505,33 @@ describe("tool transcript rendering", () => {
 
     expect(() => toolArgumentSummary(argumentsValue)).not.toThrow();
     expect(toolArgumentSummary(argumentsValue)).toContain("path=a.ts");
+  });
+
+  test("keeps the file an edit touched in the preview, ahead of the replacement blocks that would fill it", () => {
+    // An edit lists its blocks first, so in insertion order the row read `edits=[{"newText":"…` truncated mid-payload and never said which file it changed.
+    const summary = toolArgumentSummary({ edits: [{ oldText: "a".repeat(160), newText: "b".repeat(160) }], path: "src/calc.js" });
+
+    expect(summary).toContain("path=src/calc.js");
+    expect(summary.indexOf("path=")).toBeLessThan(summary.indexOf("edits="));
+    // The rest of the arguments still follow in the order the tool wrote them.
+    expect(toolArgumentSummary({ offset: 10, path: "a.ts", limit: 20 })).toBe("path=a.ts · offset=10 · limit=20");
+  });
+
+  test("animates the thinking dots only while a run is going, and keeps the elapsed clock last", async () => {
+    const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
+    const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
+    const streamingHead = source.slice(source.indexOf('{t("思考中…")}'), source.indexOf('{t("思考中…")}') + 400);
+
+    // Attached to every .reasoning-head, the dots kept cycling on turns that finished hours ago, so a completed run looked like it was still working.
+    expect(css).not.toContain(".reasoning-head::after");
+    expect(css).toContain(".thinking-dots::after");
+    expect(streamingHead).toContain('className="thinking-dots"');
+    expect(streamingHead.indexOf('className="thinking-dots"')).toBeLessThan(streamingHead.indexOf('className="streaming-elapsed"'));
+    const finished = renderToStaticMarkup(
+      createElement(ChatTurnArticle, { role: "assistant", text: "已完成", parts: [{ type: "thinking", value: "先读文件" }], onMouseUp: () => {} }),
+    );
+    expect(finished).toContain("reasoning-head");
+    expect(finished).not.toContain("thinking-dots");
   });
 });
 
