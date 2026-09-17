@@ -115,7 +115,7 @@ function credentialProviderName(message: string): string | undefined {
   return CREDENTIAL_PROVIDER_PATTERN.exec(message)?.[1];
 }
 
-// Only deepseek has an environment variable this launcher can promise, because that is the provider the built-in profiles select and the one whose key Pi reads straight from the environment. Every other provider reaches Pi through an agent directory entry, so naming a `<PROVIDER>_API_KEY` for it would invent a variable nothing reads.
+// Only deepseek has an environment variable this launcher can promise, because it is the one provider whose key Pi reads straight from the environment; the built-in profiles no longer select it, so this is the one case where the hint is worth more than the provider-agnostic wording. Every other provider reaches Pi through an agent directory entry, so naming a `<PROVIDER>_API_KEY` for it would invent a variable nothing reads.
 function credentialEnvironmentHint(provider: string | undefined): string {
   return provider === "deepseek" ? "set the DEEPSEEK_API_KEY environment variable, " : "";
 }

@@ -31,7 +31,7 @@ npm run web
 
 Основные переменные окружения: `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL`. Адрес по умолчанию — `http://127.0.0.1:3141`.
 
-Profile веб-консоли ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) по умолчанию выбирает `everyapi/deepseek-v4-flash`. Выбор модели работает по принципу fail-closed: если этот провайдер не зарегистрирован в активном `PI_AGENT_DIR`, запуск прерывается ошибкой `Pi model is not registered: <provider>/<model>`, а не переключается на другого провайдера. Поэтому после чистой установки сначала подготовьте каталог моделей: установите CLI EveryAPI командой `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (в Windows — `irm https://dl.everyapi.ai/install.ps1 | iex`) и выполните `everyapi use pi-web` — он создаёт изолированный каталог Pi agent с каталогом провайдеров EveryAPI и запускает Pi Harness, — либо укажите в `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL` модель, уже зарегистрированную в этом каталоге. Встроенные в CLI profile `default` и `development` выбирают ту же пару через те же две переменные, поэтому одной подготовки хватает и для CLI, и для веб-консоли.
+Profile веб-консоли ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) по умолчанию выбирает `everyapi/deepseek-v4-flash`. Выбор модели работает по принципу fail-closed: если этот провайдер не зарегистрирован в активном `PI_AGENT_DIR`, запуск прерывается ошибкой `Pi model is not registered: <provider>/<model>`, а не переключается на другого провайдера. Поэтому после чистой установки сначала подготовьте каталог моделей: установите CLI EveryAPI командой `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (в Windows — `irm https://dl.everyapi.ai/install.ps1 | iex`) и выполните `everyapi use pi-web` — он записывает каталог провайдеров EveryAPI в постоянный каталог Pi agent, заданный `PI_CODING_AGENT_DIR`, а не в отдельный изолированный, — либо укажите в `PI_HARNESS_PROVIDER` и `PI_HARNESS_MODEL` модель, уже зарегистрированную в этом каталоге. Встроенные в CLI profile `default` и `development` выбирают ту же пару через те же две переменные, поэтому одной подготовки хватает и для CLI, и для веб-консоли.
 
 ## CLI
 
@@ -60,4 +60,4 @@ npm run build
 
 ## Лицензия
 
-MIT. См. [LICENSE](LICENSE).
+MIT. См. [LICENSE](../LICENSE).

@@ -63,18 +63,18 @@ Profiles are Cordis Loader entry arrays. Each entry has a unique `id` and module
 
 Common environment variables:
 
-| Variable                          | Purpose                                                        | Default             |
-| --------------------------------- | -------------------------------------------------------------- | ------------------- |
-| `PI_HARNESS_HOST`                 | Web bind host                                                  | `127.0.0.1`         |
-| `PI_HARNESS_PORT`                 | Web bind port                                                  | `3141`              |
-| `PI_CODING_AGENT_DIR`             | Pi state and credentials directory                             | `~/.pi/agent`       |
-| `PI_AGENT_DIR`                    | Compatibility alias, ignored when `PI_CODING_AGENT_DIR` is set | `~/.pi/agent`       |
-| `PI_HARNESS_HOME`                 | Booted profile copies and marketplace-installed plugins        | `~/.pi-harness`     |
-| `PI_HARNESS_PROVIDER`             | Model provider for the built-in profiles                       | `everyapi`          |
-| `PI_HARNESS_MODEL`                | Model id for the built-in profiles                             | `deepseek-v4-flash` |
-| `PI_HARNESS_ALLOW_REMOTE`         | Allow a non-loopback host when set to `1`                      | unset               |
-| `PI_HARNESS_ALLOWED_HOSTS`        | Extra `Host` header names accepted, comma-separated            | unset               |
-| `PI_HARNESS_DISABLE_UPDATE_CHECK` | Disable the background update check when set to `1`            | unset               |
+| Variable                          | Purpose                                                                     | Default             |
+| --------------------------------- | --------------------------------------------------------------------------- | ------------------- |
+| `PI_HARNESS_HOST`                 | Web bind host                                                               | `127.0.0.1`         |
+| `PI_HARNESS_PORT`                 | Web bind port                                                               | `3141`              |
+| `PI_CODING_AGENT_DIR`             | Pi state and credentials directory                                          | `~/.pi/agent`       |
+| `PI_AGENT_DIR`                    | Compatibility alias, read only when `PI_CODING_AGENT_DIR` is unset or blank | `~/.pi/agent`       |
+| `PI_HARNESS_HOME`                 | Booted profile copies and marketplace-installed plugins                     | `~/.pi-harness`     |
+| `PI_HARNESS_PROVIDER`             | Model provider for the built-in profiles                                    | `everyapi`          |
+| `PI_HARNESS_MODEL`                | Model id for the built-in profiles                                          | `deepseek-v4-flash` |
+| `PI_HARNESS_ALLOW_REMOTE`         | Allow a non-loopback host when set to `1`                                   | unset               |
+| `PI_HARNESS_ALLOWED_HOSTS`        | Extra `Host` header names accepted, comma-separated                         | unset               |
+| `PI_HARNESS_DISABLE_UPDATE_CHECK` | Disable the background update check when set to `1`                         | unset               |
 
 The web server answers only requests whose `Host` header names loopback, the configured bind host, or (on a wildcard bind such as `0.0.0.0`) one of this machine's own addresses or its hostname; anything else is rejected as a DNS-rebinding attempt. `PI_HARNESS_ALLOWED_HOSTS` adds names the machine does not know about itself, such as a LAN alias or a reverse proxy.
 

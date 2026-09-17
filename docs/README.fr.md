@@ -31,7 +31,7 @@ Au démarrage, Pi Harness vérifie en arrière-plan les nouvelles versions compa
 
 Variables courantes : `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` et `PI_HARNESS_MODEL`. L’adresse par défaut est `http://127.0.0.1:3141`.
 
-Le profile de la console web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) sélectionne `everyapi/deepseek-v4-flash` par défaut. La sélection du modèle est fail-closed : si ce fournisseur n’est pas enregistré dans le `PI_AGENT_DIR` actif, le démarrage échoue avec `Pi model is not registered: <provider>/<model>` au lieu de basculer vers un autre fournisseur. Après une installation neuve, préparez donc d’abord le catalogue de modèles : installez la CLI EveryAPI avec `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (`irm https://dl.everyapi.ai/install.ps1 | iex` sous Windows), puis exécutez `everyapi use pi-web` — elle prépare un répertoire d’agent Pi isolé contenant le catalogue de fournisseurs EveryAPI et le démarre — ou pointez `PI_HARNESS_PROVIDER` et `PI_HARNESS_MODEL` vers un modèle déjà enregistré dans ce répertoire. Les profiles `default` et `development` intégrés à la CLI sélectionnent le même couple via ces deux mêmes variables : un seul approvisionnement suffit donc pour la CLI comme pour la console web.
+Le profile de la console web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) sélectionne `everyapi/deepseek-v4-flash` par défaut. La sélection du modèle est fail-closed : si ce fournisseur n’est pas enregistré dans le `PI_AGENT_DIR` actif, le démarrage échoue avec `Pi model is not registered: <provider>/<model>` au lieu de basculer vers un autre fournisseur. Après une installation neuve, préparez donc d’abord le catalogue de modèles : installez la CLI EveryAPI avec `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (`irm https://dl.everyapi.ai/install.ps1 | iex` sous Windows), puis exécutez `everyapi use pi-web` — elle inscrit le catalogue de fournisseurs EveryAPI dans le répertoire d’agent Pi durable désigné par `PI_CODING_AGENT_DIR`, et non dans un répertoire isolé qui lui serait propre — ou pointez `PI_HARNESS_PROVIDER` et `PI_HARNESS_MODEL` vers un modèle déjà enregistré dans ce répertoire. Les profiles `default` et `development` intégrés à la CLI sélectionnent le même couple via ces deux mêmes variables : un seul approvisionnement suffit donc pour la CLI comme pour la console web.
 
 ## CLI
 
@@ -60,4 +60,4 @@ Consultez la [référence en anglais](README.reference.md) pour le catalogue sé
 
 ## Licence
 
-MIT. Voir [LICENSE](LICENSE).
+MIT. Voir [LICENSE](../LICENSE).

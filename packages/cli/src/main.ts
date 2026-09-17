@@ -59,9 +59,9 @@ with a dash.
 
 The profile that boots is a copy under <PI_HARNESS_HOME or ~/.pi-harness>/profiles/<name>/cordis.yml;
 edit it to change the provider and model, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL, which the
-built-in profiles read before their everyapi/deepseek-v4-flash default. Provider credentials are read from auth.json in
-<PI_CODING_AGENT_DIR, PI_AGENT_DIR, or ~/.pi/agent>; there is no /login command. Set PI_HARNESS_DEBUG=1 to keep the
-stack frames in a startup failure.
+built-in profiles read before their everyapi/deepseek-v4-flash default. Provider credentials are read
+from auth.json in <PI_CODING_AGENT_DIR, PI_AGENT_DIR, or ~/.pi/agent>; there is no /login command. Set
+PI_HARNESS_DEBUG=1 to keep the stack frames in a startup failure.
 `;
 
 const FLUSH_TIMEOUT_MS = 2_000;

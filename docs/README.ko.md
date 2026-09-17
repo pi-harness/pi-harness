@@ -31,7 +31,7 @@ npm run web
 
 주요 환경 변수는 `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER`, `PI_HARNESS_MODEL`입니다. 기본 주소는 `http://127.0.0.1:3141`입니다.
 
-웹 콘솔 profile([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml))은 기본적으로 `everyapi/deepseek-v4-flash`를 선택합니다. 모델 선택은 fail-closed 방식이라 해당 provider가 현재 `PI_AGENT_DIR`에 등록되어 있지 않으면 다른 provider로 대체하지 않고 `Pi model is not registered: <provider>/<model>` 오류로 기동이 중단됩니다. 따라서 새로 설치한 뒤에는 모델 카탈로그를 먼저 준비해야 합니다. EveryAPI CLI를 `curl -fsSL https://dl.everyapi.ai/install.sh | bash`(Windows에서는 `irm https://dl.everyapi.ai/install.ps1 | iex`)로 설치한 뒤 `everyapi use pi-web`를 실행하세요. EveryAPI provider 카탈로그를 갖춘 격리된 Pi agent 디렉터리를 준비하고 기동합니다. 또는 `PI_HARNESS_PROVIDER`와 `PI_HARNESS_MODEL`을 해당 agent 디렉터리에 이미 등록된 모델로 지정하세요. CLI 내장 `default`와 `development` profile도 같은 두 변수를 거쳐 같은 조합을 선택하므로, 한 번의 준비로 CLI와 웹 콘솔이 함께 기동합니다.
+웹 콘솔 profile([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml))은 기본적으로 `everyapi/deepseek-v4-flash`를 선택합니다. 모델 선택은 fail-closed 방식이라 해당 provider가 현재 `PI_AGENT_DIR`에 등록되어 있지 않으면 다른 provider로 대체하지 않고 `Pi model is not registered: <provider>/<model>` 오류로 기동이 중단됩니다. 따라서 새로 설치한 뒤에는 모델 카탈로그를 먼저 준비해야 합니다. EveryAPI CLI를 `curl -fsSL https://dl.everyapi.ai/install.sh | bash`(Windows에서는 `irm https://dl.everyapi.ai/install.ps1 | iex`)로 설치한 뒤 `everyapi use pi-web`를 실행하세요. 격리된 별도 디렉터리가 아니라 `PI_CODING_AGENT_DIR`가 가리키는 지속되는 Pi agent 디렉터리에 EveryAPI provider 카탈로그를 등록합니다. 또는 `PI_HARNESS_PROVIDER`와 `PI_HARNESS_MODEL`을 해당 agent 디렉터리에 이미 등록된 모델로 지정하세요. CLI 내장 `default`와 `development` profile도 같은 두 변수를 거쳐 같은 조합을 선택하므로, 한 번의 준비로 CLI와 웹 콘솔이 함께 기동합니다.
 
 ## CLI
 
@@ -60,4 +60,4 @@ npm run build
 
 ## 라이선스
 
-MIT. [LICENSE](LICENSE)를 참조하세요.
+MIT. [LICENSE](../LICENSE)를 참조하세요.

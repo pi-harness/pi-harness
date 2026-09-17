@@ -32,7 +32,7 @@ npm run web
 
 常用环境变量：`PI_HARNESS_HOST`、`PI_HARNESS_PORT`、`PI_AGENT_DIR`、`PI_HARNESS_PROVIDER`、`PI_HARNESS_MODEL`。默认地址为 `http://127.0.0.1:3141`，默认 Pi 数据目录为 `~/.pi/agent`。非回环地址必须显式设置 `PI_HARNESS_ALLOW_REMOTE=1`。
 
-Web 控制台的 profile（[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)）默认选择 `everyapi/deepseek-v4-flash`，而模型选择是 fail-closed 的：当前 `PI_AGENT_DIR` 里没有注册该 provider 时，启动会直接以 `Pi model is not registered: <provider>/<model>` 失败，而不会回退到别的 provider。所以全新安装后要先准备好模型目录：用 `curl -fsSL https://dl.everyapi.ai/install.sh | bash`（Windows 用 `irm https://dl.everyapi.ai/install.ps1 | iex`）装好 EveryAPI CLI，再运行 `everyapi use pi-web`，它会用隔离的 Pi agent 目录写入 EveryAPI provider 目录并启动；或者把 `PI_HARNESS_PROVIDER` 和 `PI_HARNESS_MODEL` 指向该 agent 目录里已经注册的模型。CLI 内置的 `default` 和 `development` profile 经由同样的两个变量选择同一组合，所以一次准备同时供 CLI 和 Web 控制台使用。
+Web 控制台的 profile（[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)）默认选择 `everyapi/deepseek-v4-flash`，而模型选择是 fail-closed 的：当前 `PI_AGENT_DIR` 里没有注册该 provider 时，启动会直接以 `Pi model is not registered: <provider>/<model>` 失败，而不会回退到别的 provider。所以全新安装后要先准备好模型目录：用 `curl -fsSL https://dl.everyapi.ai/install.sh | bash`（Windows 用 `irm https://dl.everyapi.ai/install.ps1 | iex`）装好 EveryAPI CLI，再运行 `everyapi use pi-web`，它会把 EveryAPI 的 provider 目录写进 `PI_CODING_AGENT_DIR` 指向的持久 Pi agent 目录，而不是它自己隔离的目录；或者把 `PI_HARNESS_PROVIDER` 和 `PI_HARNESS_MODEL` 指向该 agent 目录里已经注册的模型。CLI 内置的 `default` 和 `development` profile 经由同样的两个变量选择同一组合，所以一次准备同时供 CLI 和 Web 控制台使用。
 
 ## CLI
 
@@ -68,4 +68,4 @@ npm run build
 
 ## 许可证
 
-MIT，见 [LICENSE](LICENSE)。
+MIT，见 [LICENSE](../LICENSE)。

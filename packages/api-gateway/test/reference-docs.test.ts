@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
@@ -75,8 +75,9 @@ describe("reference documentation", () => {
   });
 
   it("inventories every workspace directory under packages and apps, and no directory that is gone", async () => {
-    // These two lists are what a contributor reads instead of running `ls`, so a name that has moved sends them looking for code that is not there, and an omission hides a whole workspace.
+    // These two lists are what a contributor reads instead of running `ls`, so a name that has moved sends them looking for code that is not there, and an omission hides a whole workspace. The reference is narrowed to its own layout section first, because the prose elsewhere names some of these directories in passing and would otherwise satisfy the inventory on their behalf.
     const reference = await readText("docs/README.reference.md");
+    const layout = /\n## Workspace layout\n(?<entries>[\S\s]*?)\n## /u.exec(reference)?.groups?.entries ?? "";
     const agents = await readText("AGENTS.md");
     const directories = (
       await Promise.all(
@@ -88,20 +89,31 @@ describe("reference documentation", () => {
       )
     ).flat();
 
-    for (const directory of directories) expect(reference, `${directory} is missing from the workspace layout`).toContain(`\`${directory}\``);
+    expect(layout).not.toBe("");
+    for (const directory of directories) expect(layout, `${directory} is missing from the workspace layout`).toContain(`\`${directory}\``);
     for (const named of [...agents.matchAll(/`((?:packages|apps)\/[a-z0-9-]+)`/gu)].map((match) => match[1] ?? ""))
       expect(directories, `AGENTS.md names ${named}, which does not exist`).toContain(named);
   });
 
-  it("links repository files with paths that resolve from the docs directory", async () => {
-    // Every link in this file is resolved relative to docs/, so one written as if it sat at the repository root 404s on GitHub, which is where most readers open it.
-    const reference = await readText("docs/README.reference.md");
-    const targets = [...reference.matchAll(/\]\((?!https?:|#)([^)#]+)/gu)].map((match) => match[1] ?? "");
+  it("links repository files with paths that resolve from the file that carries the link", async () => {
+    // A relative link is resolved against the directory of the document it sits in, so the `LICENSE` that works from the repository root 404s from docs/, and every translation repeats whatever the English page does. GitHub is where these are read, so an unresolvable target is a dead end for the reader rather than a lint detail.
+    const documents = [
+      "README.md",
+      "AGENTS.md",
+      ...(await readdir(resolve(repositoryRoot, "docs"))).filter((name) => name.endsWith(".md")).map((name) => `docs/${name}`),
+    ];
+    const links = (
+      await Promise.all(
+        documents.map(async (document) =>
+          [...(await readText(document)).matchAll(/\]\((?!https?:|#|mailto:)([^)#]+)/gu)].map((match) => ({ document, target: match[1] ?? "" })),
+        ),
+      )
+    ).flat();
     const unresolved = (
       await Promise.all(
-        targets.map(async (target) => ({
-          target,
-          exists: await stat(resolve(repositoryRoot, "docs", target)).then(
+        links.map(async (link) => ({
+          link,
+          exists: await stat(resolve(repositoryRoot, dirname(link.document), link.target)).then(
             () => true,
             () => false,
           ),
@@ -109,9 +121,10 @@ describe("reference documentation", () => {
       )
     )
       .filter((entry) => !entry.exists)
-      .map((entry) => entry.target);
+      .map((entry) => `${entry.link.document} -> ${entry.link.target}`);
 
-    expect(targets.length).toBeGreaterThan(0);
+    expect(documents.length).toBeGreaterThan(10);
+    expect(links.length).toBeGreaterThan(0);
     expect(unresolved).toEqual([]);
   });
 });
