@@ -1,12 +1,13 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { bootHarness, type BootedHarness } from "../src/boot.js";
 
 const booted: BootedHarness[] = [];
 const consoleLoggerEntry = import.meta.resolve("@deepseek-ai/cordis-plugin-logger-console");
+const stderrLoggerEntry = "@pi-harness/core/plugins/logger";
 
 afterEach(async () => {
   await Promise.all(booted.splice(0).map(async (harness) => harness.dispose()));
@@ -306,6 +307,30 @@ describe("bootHarness", () => {
 
     expect(output).toHaveBeenCalledOnce();
     expect(output.mock.calls[0]?.[0]).toContain("warning diagnostic");
+  });
+
+  test("gives the harness stderr exporter the same warn-level default as the upstream console logger", async () => {
+    const output = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const profile = await createProfile([{ id: "logger", name: stderrLoggerEntry, config: {} }]);
+    // The profile lives in a temporary directory with no node_modules, so the package specifier the shipped profiles use is resolved from the launcher anchor exactly as it is in an installation.
+    const harness = await bootHarness({ configPath: profile.profilePath, pluginResolutionAnchor: fileURLToPath(import.meta.url) });
+    booted.push(harness);
+    output.mockClear();
+
+    harness.context.logger("audit").warn("warning diagnostic");
+
+    expect(output).toHaveBeenCalledOnce();
+    expect(String(output.mock.calls[0]?.[0])).toContain("warning diagnostic");
+  });
+
+  test("rejects an unsafe config on the harness stderr exporter, which takes the same config as the exporter it extends", async () => {
+    const profile = await createProfile([{ id: "logger", name: stderrLoggerEntry, config: { maxLength: -5, bogusKey: 1 } }]);
+
+    await expect(
+      bootHarness({ configPath: profile.profilePath }).then((harness) => {
+        booted.push(harness);
+      }),
+    ).rejects.toThrow(/console logger config contains unknown option "bogusKey"/iu);
   });
 
   test("retains warnings and debug diagnostics in the bounded logger buffer", async () => {

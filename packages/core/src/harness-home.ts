@@ -72,12 +72,17 @@ export async function prepareHarnessProfile(options: HarnessHomeOptions): Promis
   return profilePath;
 }
 
-/** Where the dumped profile came from, so an inspection can say whether it is reading the file that boots or the template a first boot would install. */
-export type HarnessProfileOrigin = "builtin" | "home" | "home-modified";
+/**
+ * Where the dumped profile came from, so an inspection can say whether it is reading the file that boots or the template a first boot would install.
+ *
+ * `home-outdated` is the copy `prepareHarnessProfile` still owns: it matches the seed, so nothing was edited into it, and the next boot replaces it with the template the installation now ships.
+ */
+export type HarnessProfileOrigin = "builtin" | "home" | "home-modified" | "home-outdated";
 
 export interface HarnessProfileDocument {
-  /** File the contents were read from. */
+  /** File the report is about: the copy under the harness home once one exists, and the shipped template before that. */
   readonly path: string;
+  /** Document the next boot reads, which for a copy left over from an earlier release is the template that replaces it rather than what is on disk today. */
   readonly contents: string;
   readonly origin: HarnessProfileOrigin;
 }
@@ -85,13 +90,17 @@ export interface HarnessProfileDocument {
 /**
  * Reads the profile a boot would use without creating or rewriting anything.
  *
- * Inspecting a profile must not be the call that materializes a harness home or pulls an existing copy forward to the shipped template, because both are changes the user did not ask for and cannot see. When no copy exists yet this reports the template the next boot would install there instead.
+ * Inspecting a profile must not be the call that materializes a harness home or pulls an existing copy forward to the shipped template, because both are changes the user did not ask for and cannot see. When no copy exists yet this reports the template the next boot would install there instead. It classifies the copy against the seed exactly as `prepareHarnessProfile` does, because a report that called an untouched copy from an older release a user's own edit would name the one file the next boot overwrites.
  */
 export async function readHarnessProfile(options: HarnessHomeOptions): Promise<HarnessProfileDocument> {
   const directory = options.directory ?? harnessHomeDirectory(options.env ?? process.env, options.cwd ?? process.cwd());
-  const profilePath = join(directory, "profiles", options.profileName, "cordis.yml");
+  const profileDirectory = join(directory, "profiles", options.profileName);
+  const profilePath = join(profileDirectory, "cordis.yml");
   const builtin = await readFile(options.builtinProfilePath, "utf8");
   const current = await readIfPresent(profilePath);
   if (current === undefined) return { path: options.builtinProfilePath, contents: builtin, origin: "builtin" };
-  return { path: profilePath, contents: current, origin: current === builtin ? "home" : "home-modified" };
+  if (current === builtin) return { path: profilePath, contents: current, origin: "home" };
+  const seed = await readIfPresent(join(profileDirectory, "cordis.seed.yml"));
+  if (current === seed) return { path: profilePath, contents: builtin, origin: "home-outdated" };
+  return { path: profilePath, contents: current, origin: "home-modified" };
 }

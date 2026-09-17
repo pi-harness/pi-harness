@@ -54,10 +54,20 @@ describe("resolveProfileConfig", () => {
 
   test("accepts the other extensions the loader parses", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-harness-config-extensions-"));
-    await writeFile(join(cwd, "custom.YAML"), "[]\n", "utf8");
+    await writeFile(join(cwd, "custom.yaml"), "[]\n", "utf8");
     await writeFile(join(cwd, "custom.json"), "[]\n", "utf8");
 
-    await expect(resolveProfileConfig({ configPath: "custom.YAML", cwd })).resolves.toBe(resolve(cwd, "custom.YAML"));
+    await expect(resolveProfileConfig({ configPath: "custom.yaml", cwd })).resolves.toBe(resolve(cwd, "custom.yaml"));
     await expect(resolveProfileConfig({ configPath: "custom.json", cwd })).resolves.toBe(resolve(cwd, "custom.json"));
+  });
+
+  test("rejects an extension the loader would reject for its case alone", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-harness-config-extension-case-"));
+    await writeFile(join(cwd, "custom.YAML"), "[]\n", "utf8");
+
+    // The loader's supported set holds lowercase keys and compares against the extension as written, so accepting this spelling here would only move the rejection back to `extension ".YAML" not supported`, the failure this check exists to replace.
+    await expect(resolveProfileConfig({ configPath: "custom.YAML", cwd })).rejects.toThrow(
+      `Pi Harness profile config must end in .yml, .yaml or .json: ${resolve(cwd, "custom.YAML")}`,
+    );
   });
 });

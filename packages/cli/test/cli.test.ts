@@ -144,6 +144,26 @@ describe("runCli", () => {
     expect(await readFile(join(profileDirectory, "cordis.yml"), "utf8")).toBe("- id: edited\n");
   });
 
+  test("dumps the document the next run installs over a copy left from an earlier release", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-dump-stale-"));
+    const harnessHome = join(directory, "home");
+    const profileDirectory = join(harnessHome, "profiles", "default");
+    await mkdir(profileDirectory, { recursive: true });
+    // A copy that matches its seed was never edited, so the next run replaces it with the shipped template; printing the copy would name a document no run ever boots and call an untouched installation a user's divergence.
+    await writeFile(join(profileDirectory, "cordis.yml"), "- id: shipped-last-release\n", "utf8");
+    await writeFile(join(profileDirectory, "cordis.seed.yml"), "- id: shipped-last-release\n", "utf8");
+    const environment = Object.assign(createEnvironment(directory), { harnessHome });
+
+    const exitCode = await runCli(["--profile", "default", "--dump-config"], environment);
+
+    expect(exitCode).toBe(0);
+    expect(environment.output.join("")).toContain("@pi-harness/core/plugins/models");
+    expect(environment.output.join("")).not.toContain("shipped-last-release");
+    expect(environment.errors.join("")).toContain("This copy is untouched since an earlier release");
+    expect(environment.errors.join("")).not.toContain("This copy differs from");
+    expect(await readFile(join(profileDirectory, "cordis.yml"), "utf8")).toBe("- id: shipped-last-release\n");
+  });
+
   test("runs the application plugin and disposes the Cordis tree", async () => {
     const profile = await createApplicationProfile(
       `import { appendFileSync, writeFileSync } from "node:fs"; export default { apply(ctx, config) { writeFileSync(config.markerPath, "started"); ctx.effect(() => () => appendFileSync(config.markerPath, ":disposed")); ctx.provide("piApplication", { async run() { appendFileSync(config.markerPath, ":run"); return 7; } }); } };`,

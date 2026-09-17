@@ -120,7 +120,7 @@ describe("readHarnessProfile", () => {
     await expect(readdir(home)).rejects.toThrow(/ENOENT/u);
   });
 
-  test("reports an existing copy without pulling it forward to the shipped template", async () => {
+  test("reports the shipped template for an untouched copy the next boot replaces", async () => {
     const { builtinProfilePath, directory } = await createDistribution("- id: one\n");
     const home = join(directory, "home");
     const profilePath = await prepareHarnessProfile({ builtinProfilePath, profileName: "web", directory: home });
@@ -128,8 +128,21 @@ describe("readHarnessProfile", () => {
 
     const profile = await readHarnessProfile({ builtinProfilePath, profileName: "web", directory: home });
 
-    expect(profile).toEqual({ path: profilePath, contents: "- id: one\n", origin: "home-modified" });
+    // The copy still matches its seed, so prepareHarnessProfile owns it and the next boot overwrites it: reporting what is on disk today would name a document nothing ever runs.
+    expect(profile).toEqual({ path: profilePath, contents: "- id: one\n- id: two\n", origin: "home-outdated" });
     expect(await readFile(profilePath, "utf8")).toBe("- id: one\n");
+  });
+
+  test("reports an edit made on top of an outdated copy as the user's own", async () => {
+    const { builtinProfilePath, directory } = await createDistribution("- id: one\n");
+    const home = join(directory, "home");
+    const profilePath = await prepareHarnessProfile({ builtinProfilePath, profileName: "web", directory: home });
+    await writeFile(profilePath, "- id: one\n- id: marketplace\n", "utf8");
+    await writeFile(builtinProfilePath, "- id: one\n- id: two\n", "utf8");
+
+    const profile = await readHarnessProfile({ builtinProfilePath, profileName: "web", directory: home });
+
+    expect(profile).toEqual({ path: profilePath, contents: "- id: one\n- id: marketplace\n", origin: "home-modified" });
   });
 
   test("reports a copy that still matches the shipped template as unmodified", async () => {

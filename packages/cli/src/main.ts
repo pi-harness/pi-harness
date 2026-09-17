@@ -123,6 +123,10 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
       environment.stderr.write(`Profile: ${profile.path}\n`);
       if (profile.origin === "builtin")
         environment.stderr.write("No copy exists under the harness home yet; this is the profile the next run would install there.\n");
+      if (profile.origin === "home-outdated")
+        environment.stderr.write(
+          `This copy is untouched since an earlier release, so the next run replaces it with the profile the installation ships at ${configPath}; that replacement is the document printed here.\n`,
+        );
       if (profile.origin === "home-modified") environment.stderr.write(`This copy differs from the profile the installation ships at ${configPath}.\n`);
       environment.stdout.write(profile.contents);
       return 0;

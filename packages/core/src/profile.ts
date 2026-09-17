@@ -34,7 +34,7 @@ export async function resolveProfileConfig(_options: ResolveProfileConfigOptions
   // These throws stay outside the block above so the "does not exist" wording cannot swallow a path that exists and is simply the wrong kind of thing.
   if (stats.isDirectory()) throw new Error(`Pi Harness profile config is a directory, not a YAML or JSON file: ${configPath}`);
   if (!stats.isFile()) throw new Error(`Pi Harness profile config is not a file: ${configPath}`);
-  if (!PROFILE_CONFIG_EXTENSIONS.has(extname(configPath).toLowerCase()))
-    throw new Error(`Pi Harness profile config must end in .yml, .yaml or .json: ${configPath}`);
+  // The comparison is case-sensitive because the loader's is: folding the case here would let `.YAML` past this message and back into the opaque loader rejection it exists to replace.
+  if (!PROFILE_CONFIG_EXTENSIONS.has(extname(configPath))) throw new Error(`Pi Harness profile config must end in .yml, .yaml or .json: ${configPath}`);
   return configPath;
 }

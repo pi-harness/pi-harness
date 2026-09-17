@@ -179,7 +179,8 @@ try {
   await processExit;
 } catch (error) {
   if (!shuttingDown) {
-    process.exitCode = 1;
+    // A value the user typed exits 2, the code `pih` already returns for its own usage errors, so a script that launches either binary reads one mistake as one condition. Everything else is a runtime failure and keeps 1.
+    process.exitCode = error instanceof StartupOptionError ? 2 : 1;
     process.stderr.write(formatStartupError(error, network) + "\n");
   }
 }

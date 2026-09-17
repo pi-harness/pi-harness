@@ -367,7 +367,8 @@ describe("web launcher startup guards", () => {
       expect(run.stderr).not.toMatch(/^\s+at /mu);
       expect(run.stderr.trim().split("\n")).toHaveLength(1);
       expect(run.stdout).not.toContain("Pi Harness web console:");
-      expect(run.code).toBe(1);
+      // 2 is the code `pih` returns for a bad --config or --profile, and a value the user typed is the same class of mistake whichever binary reads it.
+      expect(run.code).toBe(2);
     }
     expect(runs[2]?.stderr.trim()).toBe("--port requires a value");
   }, 60_000);

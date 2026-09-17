@@ -353,13 +353,19 @@ describe("packaged profiles", () => {
       return true;
     });
     try {
-      harness.context.logger("profile-test").info("development profile log record");
+      const logger = harness.context.logger("profile-test");
+      logger.info("development profile log record info");
+      // A warn record is only reported because the profile's logger entry reaches the console-logger hardening, which injects levels.default = 2; the upstream threshold of 1 drops it. Losing this line is how a rename out of that hardening shows up, so the level belongs in the test that covers the entry.
+      logger.warn("development profile log record warn");
+      logger.error("development profile log record error");
     } finally {
       stdout.mockRestore();
       stderr.mockRestore();
     }
 
-    expect(written.filter((entry) => entry.chunk.includes("development profile log record")).map((entry) => entry.stream)).toEqual(["stderr"]);
+    const records = written.filter((entry) => entry.chunk.includes("development profile log record"));
+    expect(records.map((entry) => entry.chunk.match(/\[[A-Z]\]/u)?.[0])).toEqual(["[I]", "[W]", "[E]"]);
+    expect(records.map((entry) => entry.stream)).toEqual(["stderr", "stderr", "stderr"]);
     expect(written.every((entry) => entry.stream === "stderr")).toBe(true);
   });
 
