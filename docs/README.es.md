@@ -31,7 +31,7 @@ Al iniciar, Pi Harness comprueba en segundo plano si existe una versión compati
 
 Variables habituales: `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` y `PI_HARNESS_MODEL`. La dirección predeterminada es `http://127.0.0.1:3141`.
 
-El profile de la consola web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) selecciona `everyapi/deepseek-v4-flash` de forma predeterminada. La selección de modelo es fail-closed: si ese proveedor no está registrado en el `PI_AGENT_DIR` activo, el arranque se aborta con `Pi model is not registered: <provider>/<model>` en lugar de recurrir a otro proveedor. Por eso, tras una instalación nueva hay que preparar antes el catálogo de modelos: ejecuta `everyapi use pi-web` si tienes la CLI de EveryAPI, que prepara un directorio de agente Pi aislado con el catálogo de proveedores de EveryAPI y lo arranca, o apunta `PI_HARNESS_PROVIDER` y `PI_HARNESS_MODEL` a un modelo ya registrado en ese directorio. El profile `default` integrado en la CLI selecciona `deepseek/deepseek-v4-flash`.
+El profile de la consola web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) selecciona `everyapi/deepseek-v4-flash` de forma predeterminada. La selección de modelo es fail-closed: si ese proveedor no está registrado en el `PI_AGENT_DIR` activo, el arranque se aborta con `Pi model is not registered: <provider>/<model>` en lugar de recurrir a otro proveedor. Por eso, tras una instalación nueva hay que preparar antes el catálogo de modelos: instala la CLI de EveryAPI con `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (`irm https://dl.everyapi.ai/install.ps1 | iex` en Windows) y ejecuta `everyapi use pi-web`, que registra el catálogo de proveedores de EveryAPI en el directorio de agente Pi duradero que nombra `PI_CODING_AGENT_DIR`, no en uno aislado propio, o apunta `PI_HARNESS_PROVIDER` y `PI_HARNESS_MODEL` a un modelo ya registrado en ese directorio. Los profiles `default` y `development` integrados en la CLI seleccionan la misma pareja a través de esas mismas dos variables, así que un único aprovisionamiento sirve para la CLI y para la consola web.
 
 ## CLI
 
@@ -60,4 +60,4 @@ Consulta la [referencia en inglés](README.reference.md) para el catálogo selec
 
 ## Licencia
 
-MIT. Consulta [LICENSE](LICENSE).
+MIT. Consulta [LICENSE](../LICENSE).

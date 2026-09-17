@@ -31,7 +31,7 @@ All’avvio Pi Harness verifica in background la presenza di una versione compat
 
 Le variabili principali sono `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` e `PI_HARNESS_MODEL`. L’indirizzo predefinito è `http://127.0.0.1:3141`.
 
-Il profile della console web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) seleziona `everyapi/deepseek-v4-flash` come impostazione predefinita. La selezione del modello è fail-closed: se quel provider non è registrato nel `PI_AGENT_DIR` attivo, l’avvio si interrompe con `Pi model is not registered: <provider>/<model>` invece di ripiegare su un altro provider. Dopo un’installazione nuova prepara quindi prima il catalogo dei modelli: esegui `everyapi use pi-web` se hai la CLI di EveryAPI — predispone una directory agent Pi isolata con il catalogo dei provider EveryAPI e avvia Pi Harness — oppure imposta `PI_HARNESS_PROVIDER` e `PI_HARNESS_MODEL` su un modello già registrato in quella directory. Il profile `default` incluso nella CLI seleziona invece `deepseek/deepseek-v4-flash`.
+Il profile della console web ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) seleziona `everyapi/deepseek-v4-flash` come impostazione predefinita. La selezione del modello è fail-closed: se quel provider non è registrato nel `PI_AGENT_DIR` attivo, l’avvio si interrompe con `Pi model is not registered: <provider>/<model>` invece di ripiegare su un altro provider. Dopo un’installazione nuova prepara quindi prima il catalogo dei modelli: installa la CLI di EveryAPI con `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (`irm https://dl.everyapi.ai/install.ps1 | iex` su Windows) ed esegui `everyapi use pi-web` — registra il catalogo dei provider EveryAPI nella directory agent Pi durevole indicata da `PI_CODING_AGENT_DIR`, non in una isolata propria — oppure imposta `PI_HARNESS_PROVIDER` e `PI_HARNESS_MODEL` su un modello già registrato in quella directory. I profile `default` e `development` inclusi nella CLI selezionano la stessa coppia tramite quelle stesse due variabili, quindi un solo provisioning serve sia la CLI sia la console web.
 
 ## CLI
 
@@ -60,4 +60,4 @@ Consulta il [riferimento in inglese](README.reference.md) per il catalogo selezi
 
 ## Licenza
 
-MIT. Vedi [LICENSE](LICENSE).
+MIT. Vedi [LICENSE](../LICENSE).

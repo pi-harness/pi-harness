@@ -7,7 +7,7 @@ Pi Harness is a TypeScript monorepo providing the `pih` CLI and the `pi-harness`
 - `packages/cli`: canonical `pih` command-line launcher.
 - `packages/core`, `packages/plugin-api`, and `packages/plugins`: runtime, plugin contract, and built-in plugins.
 - `apps/web`: web server entry point and bundled profile; `apps/web/src` contains server code.
-- `apps/web-app` and `packages/client-web`: browser application and client code.
+- `packages/bundle-web-app` and `packages/client-web`: browser application and client code.
 - `apps/*/test`, `packages/*/test`, and `scripts/*.test.ts`: Vitest tests.
 - `docs/` and `docs/assets/`: translated/reference documentation and images.
 

@@ -109,7 +109,7 @@ const formatStartupError = (error: unknown, network: NetworkOptions | undefined)
   }
   const unregistered = UNREGISTERED_EVERYAPI_MODEL.exec(message);
   if (unregistered === null) return debug ? message : `${message}\n${DEBUG_HINT}`;
-  const remedy = `The EveryAPI model catalog is not provisioned in PI_CODING_AGENT_DIR (or its PI_AGENT_DIR compatibility alias). Start with \`everyapi use pi-web\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
+  const remedy = `The EveryAPI model catalog is not provisioned in PI_CODING_AGENT_DIR (or its PI_AGENT_DIR compatibility alias). Install the EveryAPI CLI with \`curl -fsSL https://dl.everyapi.ai/install.sh | bash\` and start with \`everyapi use pi-web\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
   // Under the debug flag the message already carries the frames bootHarness kept, and a reader who asked for them wants the remedy as well as the detail, not instead of it.
   return debug ? `${remedy}\n${message}` : `${remedy}\nPi model is not registered: ${unregistered[1]}`;
 };

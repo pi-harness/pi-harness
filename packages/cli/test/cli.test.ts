@@ -293,6 +293,24 @@ describe("runCli", () => {
     expect(environment.errors.join("")).not.toMatch(/^\s+at /mu);
   });
 
+  test("leads an unprovisioned EveryAPI catalog with the step that provisions it", async () => {
+    // The shipped profiles select everyapi, which nothing registers out of the box, so this is the failure a first run produces. Cordis reports it through its own loader frames, and a user reading `Pi model is not registered` alone has no way to learn which command registers it.
+    const profile = await createApplicationProfile(
+      `export default { apply() { throw new Error("Pi model is not registered: everyapi/deepseek-v4-flash"); } };`,
+    );
+    const environment = createEnvironment(profile.directory);
+
+    const exitCode = await runCli(["--config", profile.configPath], environment);
+    const reported = environment.errors.join("");
+
+    expect(exitCode).toBe(1);
+    expect(reported).toContain("https://dl.everyapi.ai/install.sh");
+    expect(reported).toContain("everyapi use pi-web");
+    expect(reported).toContain("PI_HARNESS_PROVIDER and PI_HARNESS_MODEL");
+    expect(reported).toContain("Pi model is not registered: everyapi/deepseek-v4-flash");
+    expect(reported).not.toMatch(/^\s+at /mu);
+  });
+
   test("returns a usage error for a missing config", async () => {
     const environment = createEnvironment();
 

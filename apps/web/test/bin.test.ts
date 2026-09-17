@@ -280,6 +280,8 @@ describe("web launcher startup guards", () => {
     const run = await runLauncherToExit({ PI_HARNESS_PROVIDER: "everyapi", PI_HARNESS_MODEL: "missing-model" });
 
     expect(run.stderr).toContain("everyapi use pi-web");
+    // This launcher is the first command the quickstart gives, so it is where an unprovisioned catalog is met first; naming the command without naming where the binary comes from leaves that reader with nothing to run.
+    expect(run.stderr).toContain("https://dl.everyapi.ai/install.sh");
     expect(run.stderr).not.toContain("everyapi use pi-harness");
     expect(run.stdout).not.toContain("Pi Harness web console:");
     expect(run.code).not.toBe(0);

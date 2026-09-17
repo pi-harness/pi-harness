@@ -58,17 +58,28 @@ application plugin. The bundled stdio application reads its prompt from --prompt
 with a dash.
 
 The profile that boots is a copy under <PI_HARNESS_HOME or ~/.pi-harness>/profiles/<name>/cordis.yml;
-edit it to change the provider and model. Provider credentials are read from auth.json in
-<PI_CODING_AGENT_DIR, PI_AGENT_DIR, or ~/.pi/agent>; there is no /login command. Set PI_HARNESS_DEBUG=1 to keep the
-stack frames in a startup failure.
+edit it to change the provider and model, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL, which the
+built-in profiles read before their everyapi/deepseek-v4-flash default. Provider credentials are read
+from auth.json in <PI_CODING_AGENT_DIR, PI_AGENT_DIR, or ~/.pi/agent>; there is no /login command. Set
+PI_HARNESS_DEBUG=1 to keep the stack frames in a startup failure.
 `;
 
 const FLUSH_TIMEOUT_MS = 2_000;
 
+// The shipped profiles select the EveryAPI catalog, which nothing registers until the user provisions it, so the first run of a fresh installation is the run most likely to hit this failure. Cordis reports it through its own loader entry and fiber frames, none of which name the one step that fixes it, so the recognized case leads with the remedy exactly as the web launcher does.
+const UNREGISTERED_EVERYAPI_MODEL = /Pi model is not registered: (everyapi\/[^\s"'`,;)\]]+)/u;
+
 /** A failure report is a message a user can act on; the frames behind it belong to Cordis and the launcher's own async plumbing, so they are kept behind the same flag `bootHarness` uses. The hint rides along with the report because a user who needs the frames is reading this line, not the help text. */
 function errorReport(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
-  if (process.env.PI_HARNESS_DEBUG === "1") return error.stack ?? error.message;
+  const debug = process.env.PI_HARNESS_DEBUG === "1";
+  const unregistered = UNREGISTERED_EVERYAPI_MODEL.exec(error.message);
+  if (unregistered !== null) {
+    const remedy = `The EveryAPI model catalog is not provisioned in PI_CODING_AGENT_DIR (or its PI_AGENT_DIR compatibility alias). Install the EveryAPI CLI with \`curl -fsSL https://dl.everyapi.ai/install.sh | bash\` and start with \`everyapi use pi-web\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
+    // Under the debug flag the reader asked for the detail as well as the remedy, so the full chain and its frames follow rather than replace it.
+    return debug ? `${remedy}\n${error.stack ?? error.message}` : `${remedy}\nPi model is not registered: ${unregistered[1]}`;
+  }
+  if (debug) return error.stack ?? error.message;
   return error.stack === undefined ? error.message : `${error.message}\nSet PI_HARNESS_DEBUG=1 and run again to keep the stack frames.`;
 }
 

@@ -31,7 +31,7 @@ Beim Start prüft Pi Harness im Hintergrund auf eine kompatible neue Version von
 
 Wichtige Umgebungsvariablen sind `PI_HARNESS_HOST`, `PI_HARNESS_PORT`, `PI_AGENT_DIR`, `PI_HARNESS_PROVIDER` und `PI_HARNESS_MODEL`. Die Standardadresse lautet `http://127.0.0.1:3141`.
 
-Das Profile der Web-Konsole ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) wählt standardmäßig `everyapi/deepseek-v4-flash`. Die Modellauswahl ist fail-closed: Ist dieser Anbieter im aktiven `PI_AGENT_DIR` nicht registriert, bricht der Start mit `Pi model is not registered: <provider>/<model>` ab, statt auf einen anderen Anbieter auszuweichen. Nach einer frischen Installation muss der Modellkatalog deshalb zuerst bereitstehen: Führen Sie `everyapi use pi-web` aus, wenn die EveryAPI-CLI installiert ist — sie legt ein isoliertes Pi-Agent-Verzeichnis mit dem EveryAPI-Anbieterkatalog an und startet damit —, oder setzen Sie `PI_HARNESS_PROVIDER` und `PI_HARNESS_MODEL` auf ein Modell, das in diesem Verzeichnis bereits registriert ist. Das in der CLI eingebaute Profile `default` wählt dagegen `deepseek/deepseek-v4-flash`.
+Das Profile der Web-Konsole ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) wählt standardmäßig `everyapi/deepseek-v4-flash`. Die Modellauswahl ist fail-closed: Ist dieser Anbieter im aktiven `PI_AGENT_DIR` nicht registriert, bricht der Start mit `Pi model is not registered: <provider>/<model>` ab, statt auf einen anderen Anbieter auszuweichen. Nach einer frischen Installation muss der Modellkatalog deshalb zuerst bereitstehen: Installieren Sie die EveryAPI-CLI mit `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (unter Windows `irm https://dl.everyapi.ai/install.ps1 | iex`) und führen Sie `everyapi use pi-web` aus — das trägt den EveryAPI-Anbieterkatalog in das dauerhafte, von `PI_CODING_AGENT_DIR` benannte Pi-Agent-Verzeichnis ein statt in ein isoliertes eigenes —, oder setzen Sie `PI_HARNESS_PROVIDER` und `PI_HARNESS_MODEL` auf ein Modell, das in diesem Verzeichnis bereits registriert ist. Die in der CLI eingebauten Profiles `default` und `development` wählen über dieselben beiden Variablen dasselbe Paar, ein einziger Bereitstellungsschritt versorgt also CLI und Web-Konsole zugleich.
 
 ## CLI
 
@@ -60,4 +60,4 @@ Der ausgewählte Plugin-Katalog sowie Konfiguration, sämtliche HTTP-API-Routen,
 
 ## Lizenz
 
-MIT. Siehe [LICENSE](LICENSE).
+MIT. Siehe [LICENSE](../LICENSE).
