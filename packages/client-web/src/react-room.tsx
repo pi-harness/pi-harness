@@ -260,6 +260,65 @@ export async function runFilesMutationAction(
   }
 }
 
+/**
+ * The menu pattern that role="menu" and role="menuitem" promise to a screen reader: arrows move between items, Home
+ * and End jump to the ends, focus enters the menu when it opens, and Tab leaves rather than walking through the items
+ * one at a time into the page behind an menu that is still open. Escape is left alone — each menu already handles it
+ * and already restores its trigger.
+ *
+ * Without this the roles are a false advertisement: they tell assistive technology to use the arrow keys, and the
+ * arrow keys do nothing.
+ */
+function useMenuKeys(open: boolean, onClose: () => void) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const items = () =>
+      Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []).filter(
+        (item) => !(item as HTMLButtonElement).disabled && item.getClientRects().length > 0,
+      );
+    const frame = window.requestAnimationFrame(() => {
+      const menu = menuRef.current;
+      if (menu && !menu.contains(document.activeElement)) items()[0]?.focus();
+    });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isComposingKey(event)) return;
+      const menu = menuRef.current;
+      if (!menu) return;
+      if (event.key === "Tab") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (!menu.contains(document.activeElement)) return;
+      const list = items();
+      if (!list.length) return;
+      const current = list.indexOf(document.activeElement as HTMLElement);
+      const next =
+        event.key === "ArrowDown"
+          ? (current + 1) % list.length
+          : event.key === "ArrowUp"
+            ? (current - 1 + list.length) % list.length
+            : event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? list.length - 1
+                : undefined;
+      if (next === undefined) return;
+      event.preventDefault();
+      list[next]?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [open]);
+  return menuRef;
+}
+
 function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: boolean, onClose: () => void, busy = false, returnFocusTarget?: ModalFocusReturnTarget) {
   const dialogRef = useRef<T>(null);
   const closeRef = useRef(onClose);
@@ -1084,6 +1143,7 @@ function SessionActionMenu({
   pinned,
   position,
   themeStyle,
+  onClose,
   onRename,
   onFork,
   onArchive,
@@ -1095,21 +1155,24 @@ function SessionActionMenu({
   pinned: boolean;
   position: { left: number; top: number };
   themeStyle?: CSSProperties;
+  onClose: () => void;
   onRename: () => void;
   onFork: () => void;
   onArchive: () => void;
   onPin: () => void;
   onDelete: () => void;
 }) {
+  const menuRef = useMenuKeys(true, onClose);
   return createPortal(
     <div
       className="session-row-menu-popover"
       data-session-popover
       onClick={(event) => event.stopPropagation()}
+      ref={menuRef}
       role="menu"
       style={{ ...themeStyle, ...position }}
     >
-      <button autoFocus disabled={busy} onClick={onRename} role="menuitem" type="button">
+      <button disabled={busy} onClick={onRename} role="menuitem" type="button">
         {t("重命名")}
       </button>
       <button disabled={busy} onClick={onFork} role="menuitem" type="button">
@@ -8413,6 +8476,7 @@ export function CommandPalette({
                 onMouseEnter={() => onActiveIndexChange(index)}
                 ref={index === activeIndex ? activeOptionRef : undefined}
                 role="option"
+                tabIndex={-1}
                 type="button"
               >
                 <code>{invocation}</code>
@@ -8483,6 +8547,7 @@ function PromptCompletionPopover({
               onMouseEnter={() => onActiveIndexChange(index)}
               ref={index === activeIndex ? activeOptionRef : undefined}
               role="option"
+              tabIndex={-1}
               type="button"
             >
               <strong>{label}</strong>
@@ -8788,6 +8853,7 @@ export function GlobalSearch({
                         onMouseEnter={() => setActiveIndex(index)}
                         ref={index === selectedIndex ? activeOptionRef : undefined}
                         role="option"
+                        tabIndex={-1}
                         type="button"
                       >
                         <strong>{title}</strong>
@@ -9311,6 +9377,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const marketplacePageCapabilities = marketplacePageCurrent ? data.marketplaceCapabilities : EMPTY_MARKETPLACE_CAPABILITIES;
   const marketplacePageCategories = marketplacePageCurrent ? data.marketplaceCategories : EMPTY_MARKETPLACE_CATEGORIES;
   const [installedPluginId, setInstalledPluginId] = useState<string | undefined>(initialQueryState.installedPlugin);
+
+  const viewHostRef = useRef<HTMLDivElement>(null);
+  // Changing the route can unmount the very control that was activated — Settings' back button, the Plugins subnav, a "view details" link, a plugin detail's back link — and then nothing holds focus: the ring disappears and a screen reader is left on the document with nothing said about where it now is. Landing on the new region repairs that. The guard is what keeps it honest: a control that survives its own re-render, like the view tabs or the Settings tabs, still has focus, and taking it away from them would be its own defect.
+  const viewRoute = `${settings === undefined ? page : `settings:${settings}`}:${installedPluginId ?? ""}:${marketplacePluginId ?? ""}`;
+  const previousViewRouteRef = useRef(viewRoute);
+  useEffect(() => {
+    if (previousViewRouteRef.current === viewRoute) return;
+    previousViewRouteRef.current = viewRoute;
+    window.requestAnimationFrame(() => {
+      if (document.activeElement === document.body) viewHostRef.current?.focus();
+    });
+  }, [viewRoute]);
   const [installedPluginMetadata, setInstalledPluginMetadata] = useState<ClientMarketplacePlugin>();
   const [marketplacePage, setMarketplacePage] = useState(initialQueryState.marketplacePage);
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
@@ -10403,6 +10481,17 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     setSessionMenuPosition(sidebarPopoverPosition(trigger, 142, 190, "beside"));
     setSessionMenuOpen(true);
   };
+  const sessionToolsMenuRef = useMenuKeys(sessionToolsOpen, () => {
+    setSessionToolsOpen(false);
+    setSessionToolsPosition(undefined);
+    restoreSessionPopoverFocus();
+  });
+  const headerSessionMenuRef = useMenuKeys(sessionMenuOpen && !sessionMenuPath, () => {
+    setSessionMenuOpen(false);
+    setSessionMenuPath(undefined);
+    setSessionMenuPosition(undefined);
+    restoreSessionPopoverFocus();
+  });
   const closeSessionMenu = () => {
     setSessionMenuOpen(false);
     setSessionMenuPath(undefined);
@@ -11123,7 +11212,13 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               {sessionToolsOpen &&
                 sessionToolsPosition &&
                 createPortal(
-                  <div className="session-tools-popover" data-session-popover role="menu" style={{ ...themeStyle, ...sessionToolsPosition }}>
+                  <div
+                    className="session-tools-popover"
+                    data-session-popover
+                    ref={sessionToolsMenuRef}
+                    role="menu"
+                    style={{ ...themeStyle, ...sessionToolsPosition }}
+                  >
                     <button
                       autoFocus
                       onClick={() => {
@@ -11281,10 +11376,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     pinned={data.session.pinned === true}
                     position={sessionMenuPosition}
                     themeStyle={themeStyle}
+                    onClose={() => {
+                      closeSessionMenu();
+                      restoreSessionPopoverFocus();
+                    }}
                     onArchive={() => {
                       closeSessionMenu();
                       if (data.session?.archived === true) {
-                        void sessionAction(() => api.setSessionMetadata(activeSessionPath, { archived: false }).then(() => undefined));
+                        void sessionAction(() => api.setSessionMetadata(activeSessionPath, { archived: false }).then(() => undefined)).finally(
+                          restoreSessionPopoverFocus,
+                        );
                       } else {
                         setSessionDialog("archive");
                       }
@@ -11307,7 +11408,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     }}
                     onPin={() => {
                       closeSessionMenu();
-                      void sessionAction(() => api.setSessionMetadata(activeSessionPath, { pinned: data.session?.pinned !== true }).then(() => undefined));
+                      void sessionAction(() =>
+                        api.setSessionMetadata(activeSessionPath, { pinned: data.session?.pinned !== true }).then(() => undefined),
+                      ).finally(restoreSessionPopoverFocus);
                     }}
                     onRename={() => {
                       closeSessionMenu();
@@ -11350,10 +11453,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       </span>
                     </button>
                     {!sessionSelectionMode && typeof session.path === "string" && (
+                      /* Named from the same truncated title the row shows. Reading firstMessage raw makes the accessible name the entire first prompt, which a screen reader announces in full before it says what the button does. */
                       <button
                         aria-expanded={sessionMenuOpen && sessionMenuPath === session.path}
                         aria-haspopup="menu"
-                        aria-label={t("会话操作 {name}", { name: value(session.name ?? session.firstMessage, t("未命名会话")) })}
+                        aria-label={t("会话操作 {name}", { name: sessionListTitle(session) })}
                         className="session-row-more"
                         data-session-popover
                         onClick={(event) => {
@@ -11376,10 +11480,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                           pinned={session.pinned === true}
                           position={sessionMenuPosition}
                           themeStyle={themeStyle}
+                          onClose={() => {
+                            closeSessionMenu();
+                            restoreSessionPopoverFocus();
+                          }}
                           onArchive={() => {
                             closeSessionMenu();
                             if (session.archived === true) {
-                              void sessionAction(() => api.setSessionMetadata(session.path as string, { archived: false }).then(() => undefined));
+                              void sessionAction(() => api.setSessionMetadata(session.path as string, { archived: false }).then(() => undefined)).finally(
+                                restoreSessionPopoverFocus,
+                              );
                             } else {
                               setSessionDialog("archive");
                             }
@@ -11402,7 +11512,9 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                           }}
                           onPin={() => {
                             closeSessionMenu();
-                            void sessionAction(() => api.setSessionMetadata(session.path as string, { pinned: session.pinned !== true }).then(() => undefined));
+                            void sessionAction(() =>
+                              api.setSessionMetadata(session.path as string, { pinned: session.pinned !== true }).then(() => undefined),
+                            ).finally(restoreSessionPopoverFocus);
                           }}
                           onRename={() => {
                             closeSessionMenu();
@@ -11622,7 +11734,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   ⋯
                 </button>
                 {sessionMenuOpen && !sessionMenuPath && (
-                  <div className="session-menu-popover compact-session-menu" role="menu">
+                  <div className="session-menu-popover compact-session-menu" ref={headerSessionMenuRef} role="menu">
                     <button
                       className="session-action"
                       disabled={!activeSessionPath || sessionOperationsBusy}
@@ -11737,7 +11849,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             </button>
           </div>
         )}
-        <div className="view-host">
+        <div className="view-host" ref={viewHostRef} tabIndex={-1}>
           {initialRefreshPending ? (
             <div aria-live="polite" className="initial-loading" role="status">
               <span aria-hidden="true"></span>

@@ -6,7 +6,15 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { CURRENT_SESSION_VERSION, SessionManager, type AgentSessionEvent, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import {
+  CURRENT_SESSION_VERSION,
+  migrateSessionEntries,
+  parseSessionEntries,
+  SessionManager,
+  type AgentSessionEvent,
+  type ExtensionUIContext,
+  type FileEntry,
+} from "@earendil-works/pi-coding-agent";
 import type Loader from "@deepseek-ai/cordis-plugin-loader";
 import { atomicWriteFile, isPiToolRegistryLeasedError } from "@pi-harness/core";
 import type { PiPluginUiRegistry, PiRuntimeService, PiModelsService, PiHarnessLaunch } from "@pi-harness/core";
@@ -152,6 +160,22 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
 }
 
 // A multi-byte UTF-8 sequence can straddle a chunk boundary, so the raw bytes are collected and decoded once; decoding each chunk on its own would replace the split sequence with U+FFFD.
+// Reading and parsing the request belongs to the client's half of the exchange. Both provider routes used to do it inside the try whose catch reports an upstream failure, so malformed JSON and an oversized body came back as 502 Bad Gateway — blaming the provider for something the caller sent. This returns the provider name, or sends the error and returns undefined.
+async function providerFromBody(request: IncomingMessage, response: ServerResponse): Promise<string | undefined> {
+  let payload: { provider?: unknown };
+  try {
+    payload = JSON.parse(await bodyText(request)) as { provider?: unknown };
+  } catch (error) {
+    sendJson(response, error instanceof PayloadTooLargeError ? 413 : 400, { error: errorText(error) });
+    return undefined;
+  }
+  if (typeof payload.provider !== "string" || payload.provider.trim() === "") {
+    sendJson(response, 400, { error: "provider is required" });
+    return undefined;
+  }
+  return payload.provider;
+}
+
 async function bodyText(request: IncomingMessage, maxBytes = DEFAULT_BODY_LIMIT_BYTES): Promise<string> {
   const chunks: Buffer[] = [];
   let length = 0;
@@ -400,6 +424,34 @@ function sessionPathInDirectory(path: string, manager: SessionManager): boolean 
  */
 function sessionMissing(path: string, activeSessionFile: string | undefined): boolean {
   return path !== activeSessionFile && !existsSync(path);
+}
+
+function sessionHeaderVersion(content: Buffer): number {
+  const header = parseSessionEntries(content.toString("utf8")).find((entry) => entry.type === "session") as { version?: unknown } | undefined;
+  return typeof header?.version === "number" ? header.version : 1;
+}
+
+/**
+ * forkFrom copies the source's entries verbatim but stamps the new header with CURRENT_SESSION_VERSION, so a fork of
+ * an older session ends up claiming to be current while its entries are still in the old shape. The next reader sees
+ * a current version and skips the migration that would have repaired them, and for a v1 source that migration is the
+ * only thing that assigns id and parentId — without it every entry's parentId is undefined and the walk back from the
+ * leaf stops after one entry, so a whole transcript reads as its last message alone.
+ *
+ * Measured on a constructed v1 session with four entries: the source reads back four entries from the leaf, the fork
+ * reads back one. Restating the source's version on the copy lets migrateSessionEntries do its work, and it stamps
+ * the header itself once it is done. Migration touches only `version` on the header, so the parentSession this route
+ * recorded is preserved.
+ */
+function migratedForkContent(staged: Buffer, sourceContent: Buffer): Buffer {
+  const sourceVersion = sessionHeaderVersion(sourceContent);
+  if (sourceVersion >= CURRENT_SESSION_VERSION) return staged;
+  const entries = parseSessionEntries(staged.toString("utf8"));
+  const header = entries.find((entry): entry is FileEntry & { version?: number } => entry.type === "session");
+  if (!header) return staged;
+  header.version = sourceVersion;
+  migrateSessionEntries(entries);
+  return Buffer.from(entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
 }
 
 function canonicalSessionPath(path: string, manager: SessionManager): string | undefined {
@@ -1646,24 +1698,21 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
+        const provider = await providerFromBody(request, response);
+        if (provider === undefined) return;
         try {
-          const payload = JSON.parse(await bodyText(request)) as { provider?: unknown };
-          if (typeof payload.provider !== "string" || payload.provider.trim() === "") {
-            sendJson(response, 400, { error: "provider is required" });
-            return;
-          }
           const runtime = services.models.runtime as typeof services.models.runtime & { checkAuth?: (provider: string) => Promise<unknown> };
           if (typeof runtime.checkAuth !== "function") {
             sendJson(response, 501, { error: "The active model runtime does not support provider checks" });
             return;
           }
-          const auth = await runtime.checkAuth(payload.provider);
-          if (payload.provider === "everyapi" && auth === undefined && !process.env.EVERYAPI_RELAY_KEY?.trim()) {
+          const auth = await runtime.checkAuth(provider);
+          if (provider === "everyapi" && auth === undefined && !process.env.EVERYAPI_RELAY_KEY?.trim()) {
             const cliAuth = await probeEveryApiCliAuth();
-            sendJson(response, 200, { provider: payload.provider, reachable: false, auth: cliAuth });
+            sendJson(response, 200, { provider, reachable: false, auth: cliAuth });
             return;
           }
-          sendJson(response, 200, jsonSafe({ provider: payload.provider, reachable: auth !== undefined, auth }));
+          sendJson(response, 200, jsonSafe({ provider, reachable: auth !== undefined, auth }));
         } catch (error) {
           sendJson(response, 502, { error: errorText(error) });
         }
@@ -1676,19 +1725,23 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
+        const provider = await providerFromBody(request, response);
+        if (provider === undefined) return;
         try {
-          const payload = JSON.parse(await bodyText(request)) as { provider?: unknown };
-          if (typeof payload.provider !== "string" || payload.provider.trim() === "") {
-            sendJson(response, 400, { error: "provider is required" });
-            return;
-          }
-          const runtime = services.models.runtime as typeof services.models.runtime & { getAvailable?: (provider: string) => Promise<readonly unknown[]> };
+          const runtime = services.models.runtime as typeof services.models.runtime & {
+            getAvailable?: (provider: string) => Promise<readonly unknown[]>;
+          };
           if (typeof runtime.getAvailable !== "function") {
             sendJson(response, 501, { error: "The active model runtime does not support provider refresh" });
             return;
           }
-          const models = await runtime.getAvailable(payload.provider);
-          sendJson(response, 200, jsonSafe({ provider: payload.provider, models }));
+          // getAvailable filters an unknown id out and answers with an empty list, which reads exactly like a registered provider that returned no models. /api/providers/add already asks getProvider whether the id is known; asking it here too keeps "we do not have that provider" separate from "that provider has nothing for you".
+          if (runtime.getProvider(provider) === undefined) {
+            sendJson(response, 404, { error: `Provider not found: ${provider}` });
+            return;
+          }
+          const models = await runtime.getAvailable(provider);
+          sendJson(response, 200, jsonSafe({ provider, models }));
         } catch (error) {
           sendJson(response, 502, { error: errorText(error) });
         }
@@ -2804,8 +2857,12 @@ export default {
         try {
           const payload = JSON.parse(await bodyText(request)) as { path?: unknown; archived?: unknown; pinned?: unknown };
           const manager = services.runtime.session.sessionManager;
-          const path = typeof payload.path === "string" ? payload.path : "";
-          if (!sessionPathInDirectory(path, manager)) {
+          // The key has to be the canonical path, which is what /api/sessions reads back and what delete and batch
+          // write. Keying on the request string instead gives a session two identities as soon as the caller names
+          // it any other way — a relative path, a symlinked directory, a differently cased spelling — and the entry
+          // written under the second one is read by nothing and removed by nothing.
+          const path = canonicalSessionPath(typeof payload.path === "string" ? payload.path : "", manager) ?? "";
+          if (path === "") {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
           }
@@ -2980,7 +3037,7 @@ export default {
               if (!stagedPath) throw new Error("Unable to persist forked session");
               sessionId = forked.getSessionId();
               sessionFile = join(manager.getSessionDir(), basename(stagedPath));
-              content = await readFile(stagedPath);
+              content = migratedForkContent(await readFile(stagedPath), await readFile(source.path));
             } finally {
               await rm(stagingDirectory, { recursive: true, force: true });
             }

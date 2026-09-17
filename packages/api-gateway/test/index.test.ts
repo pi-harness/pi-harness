@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
 import timerPlugin from "@deepseek-ai/cordis-plugin-timer";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { CURRENT_SESSION_VERSION, SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import webServerPlugin from "@pi-harness/host-webserver";
 import { PiPluginUiRegistry, PiToolRegistry, PiToolRegistryLeasedError } from "@pi-harness/core";
@@ -59,6 +59,18 @@ const contexts: Context[] = [];
 const temporaryDirectories: string[] = [];
 const execFile = promisify(execFileCallback);
 const sleep = (ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms));
+const legacyUserSession = (id: string, cwd: string, texts: readonly string[]) =>
+  [
+    JSON.stringify({ type: "session", version: 1, id, timestamp: new Date().toISOString(), cwd }),
+    ...texts.map((text) =>
+      JSON.stringify({
+        type: "message",
+        timestamp: new Date().toISOString(),
+        message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() },
+      }),
+    ),
+  ].join("\n") + "\n";
+
 const persistedUserSession = (id: string, cwd: string, text: string) =>
   `${JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd })}\n${JSON.stringify({ type: "message", id: `${id}-message`, parentId: null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() } })}\n`;
 
@@ -1987,6 +1999,40 @@ describe("API gateway plugin", () => {
     await expect(post("/api/session/rename", { path: sessionFile, name: "Real session" }).then((r) => r.status)).resolves.toBe(200);
   });
 
+  test("metadata keys one session once, however the caller spells its path", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-metadata-key-"));
+    temporaryDirectories.push(workspace);
+    const sessionDir = join(workspace, "sessions");
+    const sessionManager = SessionManager.create(workspace, sessionDir);
+    const sessionFile = sessionManager.newSession();
+    if (!sessionFile) throw new Error("Unable to create test session");
+    await writeFile(sessionFile, persistedUserSession("keyed-session", workspace, "hello"), "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: sessionManager.getSessionId(), sessionFile, sessionManager, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const post = (body: unknown) =>
+      fetch(context.webServer.url + "/api/session/metadata", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    // The same file named two ways. /api/sessions reads metadata by the path SessionManager reports, and delete
+    // removes by the canonical one, so a second key spelled any other way is read by nothing and removed by nothing.
+    // Built by hand, because join() would collapse the "." and hand back the identical string.
+    const detour = `${sessionDir}${sep}.${sep}${basename(sessionFile)}`;
+    expect(detour).not.toBe(sessionFile);
+    await expect(post({ path: sessionFile, pinned: true }).then((r) => r.status)).resolves.toBe(200);
+    await expect(post({ path: detour, archived: true }).then((r) => r.status)).resolves.toBe(200);
+
+    const metadataFile = join(sessionDir, ".pi-harness-session-meta.json");
+    const stored = JSON.parse(await readFile(metadataFile, "utf8")) as Record<string, unknown>;
+    expect(Object.keys(stored)).toHaveLength(1);
+    expect(stored[sessionFile]).toEqual({ pinned: true, archived: true });
+  });
+
   test("persists the current session name before an empty session is replaced", async () => {
     const context = new Context();
     contexts.push(context);
@@ -2409,6 +2455,49 @@ describe("API gateway plugin", () => {
     await expect(response.json()).resolves.toMatchObject({ sessionId: "active-session", sessionFile: path, messages: [{ role: "user" }] });
   });
 
+  test("a fork of a pre-current session keeps its whole transcript readable", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-legacy-fork-"));
+    temporaryDirectories.push(directory);
+    const cwd = join(directory, "workspace");
+    const path = join(directory, "2026-08-30T00-00-00-000Z_legacy.jsonl");
+    await writeFile(path, legacyUserSession("legacy-session", cwd, ["first", "second", "third", "fourth"]), "utf8");
+    const manager = SessionManager.create(cwd, directory);
+    const session = { sessionId: "current", sessionFile: undefined, messages: [], isStreaming: false, sessionManager: manager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, sessionRuntime: { cwd }, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd, agentDir: directory, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    expect(response.status).toBe(200);
+    const fork = (await response.json()) as { sessionId: string; sessionFile: string };
+
+    // forkFrom stamps the copy with the current version, so without migration the next reader skips the very
+    // step that assigns id and parentId, every entry's parentId stays undefined, and the walk back from the
+    // leaf stops after one entry — a four-message transcript reads as its last message alone.
+    const entries = (await readFile(fork.sessionFile, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const header = entries[0];
+    const messages = entries.slice(1);
+    expect(header).toMatchObject({ type: "session", version: CURRENT_SESSION_VERSION, parentSession: path });
+    expect(messages).toHaveLength(4);
+    for (const entry of messages) expect(typeof entry.id).toBe("string");
+    expect(messages[0]?.parentId).toBeNull();
+    const byId = new Map(messages.map((entry) => [entry.id as string, entry]));
+    let reachable = 0;
+    for (let cursor = messages.at(-1); cursor; cursor = cursor.parentId ? byId.get(cursor.parentId as string) : undefined) reachable += 1;
+    expect(reachable).toBe(4);
+  });
+
   test("forks a persisted session from the active runtime workspace after a workspace switch", async () => {
     const context = new Context();
     contexts.push(context);
@@ -2672,6 +2761,50 @@ describe("API gateway plugin", () => {
     const response = await fetch(context.webServer.url + "/api/providers");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ items: [{ provider: "active" }, { provider: "configured" }] });
+  });
+
+  test("refuses to refresh a provider the runtime does not have, and blames the caller for the caller's own mistakes", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { model: { provider: "known", id: "model" }, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const modelRuntime = {
+      getProviders: () => [{ id: "known", name: "Known" }],
+      getModels: () => [{ provider: "known", id: "model", name: "model" }],
+      getProvider: (provider: string) => (provider === "known" ? { id: "known", name: "Known" } : undefined),
+      // The real runtime filters an unknown id out and answers with an empty list, which is indistinguishable
+      // from a registered provider that happens to have no models.
+      getAvailable: () => Promise.resolve([]),
+      getProviderAuthStatus: () => ({ configured: true }),
+      getModel: () => session.model,
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: session.model, runtime: modelRuntime } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const refresh = (body: BodyInit) =>
+      fetch(context.webServer.url + "/api/providers/refresh", { method: "POST", headers: { "content-type": "application/json" }, body });
+
+    const missing = await refresh(JSON.stringify({ provider: "nope" }));
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({ error: "Provider not found: nope" });
+
+    // A registered provider with nothing to offer is still a 200 with an empty list, which is a different answer.
+    const known = await refresh(JSON.stringify({ provider: "known" }));
+    expect(known.status).toBe(200);
+    await expect(known.json()).resolves.toEqual({ provider: "known", models: [] });
+
+    // Malformed JSON is the caller's mistake, not an upstream failure, so it is a 400 like every other POST here.
+    const malformed = await refresh("{not json");
+    expect(malformed.status).toBe(400);
+
+    const malformedTest = await fetch(context.webServer.url + "/api/providers/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    expect(malformedTest.status).toBe(400);
   });
 
   test("explains when EveryAPI CLI auth is not injected into the process", async () => {

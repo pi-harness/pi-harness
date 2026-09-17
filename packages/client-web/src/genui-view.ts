@@ -34,6 +34,11 @@ function count(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
 }
 
+// Cutting with String.slice measures UTF-16 units, so a limit landing between the two halves of a surrogate pair leaves a lone surrogate the renderer draws as a replacement character. The plugin already bounds these strings; the console is the only thing that shortens them for display, so it cuts by code point the way every other panel here does.
+function displayText(value: string, maximum: number): string {
+  return [...value].slice(0, maximum).join("");
+}
+
 function block(value: unknown): GenUiBlockView | undefined {
   if (!isRecord(value) || typeof value.type !== "string" || !blockTypes.has(value.type as BlockType)) return undefined;
   if (typeof value.label !== "string" || value.label.trim() === "" || typeof value.tone !== "string" || !tones.has(value.tone as Tone)) return undefined;
@@ -41,10 +46,10 @@ function block(value: unknown): GenUiBlockView | undefined {
   const tone = value.tone as Tone;
   if (type === "progress") {
     if (typeof value.value !== "number" || !Number.isFinite(value.value) || value.value < 0 || value.value > 100) return undefined;
-    return { type, label: value.label.slice(0, defaultLimits.label), value: value.value, tone };
+    return { type, label: displayText(value.label, defaultLimits.label), value: value.value, tone };
   }
   if (typeof value.value !== "string") return undefined;
-  return { type, label: value.label.slice(0, defaultLimits.label), value: value.value.slice(0, visibleValueLimit), tone };
+  return { type, label: displayText(value.label, defaultLimits.label), value: displayText(value.value, visibleValueLimit), tone };
 }
 
 function card(value: unknown): GenUiCardView | null {
@@ -55,7 +60,7 @@ function card(value: unknown): GenUiCardView | null {
     .filter((item): item is GenUiBlockView => item !== undefined);
   const renderedAt = typeof value.renderedAt === "string" && Number.isFinite(Date.parse(value.renderedAt)) ? new Date(value.renderedAt).toISOString() : null;
   return {
-    title: value.title.slice(0, defaultLimits.title),
+    title: displayText(value.title, defaultLimits.title),
     renderedAt,
     blocks,
     truncated:

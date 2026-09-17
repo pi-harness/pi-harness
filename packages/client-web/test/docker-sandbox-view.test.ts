@@ -143,3 +143,30 @@ describe("Docker sandbox panel view", () => {
     expect(getterCalls).toBe(0);
   });
 });
+
+describe("Docker sandbox truncation badge", () => {
+  const run = (command: readonly string[], image = "alpine:3.20") =>
+    dockerSandboxPanelView({
+      latest: { image, command: [...command], write: false, exitCode: 0, status: "completed", output: "ok" },
+      defaults: { ...defaultSettings },
+    });
+
+  // displayText cuts by code point; the badge used to count UTF-16 units. An astral character is one code
+  // point and two units, so a value that fit exactly was reported as truncated when nothing had been dropped.
+  test("an argument of exactly the visible length is not flagged", () => {
+    const view = run(["\u{1F600}".repeat(256)]);
+    expect([...(view?.latest?.command[0] ?? "")]).toHaveLength(256);
+    expect(view?.latest?.truncated).toBe(false);
+  });
+
+  test("an argument one code point over the visible length is still flagged", () => {
+    const view = run(["\u{1F600}".repeat(257)]);
+    expect([...(view?.latest?.command[0] ?? "")]).toHaveLength(256);
+    expect(view?.latest?.truncated).toBe(true);
+  });
+
+  test("the image is measured the same way", () => {
+    expect(run(["echo"], "\u{1F600}".repeat(512))?.latest?.truncated).toBe(false);
+    expect(run(["echo"], "\u{1F600}".repeat(513))?.latest?.truncated).toBe(true);
+  });
+});
