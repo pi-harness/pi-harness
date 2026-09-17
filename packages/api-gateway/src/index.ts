@@ -78,11 +78,38 @@ const MAX_WORKSPACE_DEPTH = 16;
 const MAX_WORKSPACE_FILE_PREVIEW_BYTES = 512 * 1024;
 const WORKSPACE_FILE_CACHE_MS = 1_000;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set([".git", "node_modules", ".pi", "dist", "build"]);
+const SESSION_HEADER_PROBE_BYTES = 64 * 1024;
 
 class PayloadTooLargeError extends Error {
   constructor() {
     super("Request body is too large");
     this.name = "PayloadTooLargeError";
+  }
+}
+
+/** A session header version this build can read. The import route has always refused anything newer, and a file that is already in the session directory is exactly as unreadable, so the read paths ask the same question rather than adopting a format the gateway has declared it cannot parse and then appending current-version records to it. */
+function supportedSessionVersion(version: unknown): boolean {
+  return typeof version === "number" && Number.isInteger(version) && version >= 1 && version <= CURRENT_SESSION_VERSION;
+}
+
+/** Reads the version off a session file's header without pulling a whole transcript into memory: the header is the first line, and the session list would otherwise read every file it lists end to end a second time. Undefined when no header could be read, which leaves such a file exactly as it is treated today. */
+async function sessionFileVersion(path: string): Promise<number | undefined> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(path, "r");
+    const buffer = Buffer.alloc(SESSION_HEADER_PROBE_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, SESSION_HEADER_PROBE_BYTES, 0);
+    const text = buffer.toString("utf8", 0, bytesRead);
+    const newline = text.indexOf("\n");
+    if (newline === -1 && bytesRead === SESSION_HEADER_PROBE_BYTES) return undefined;
+    const header: unknown = JSON.parse(newline === -1 ? text : text.slice(0, newline));
+    if (header === null || typeof header !== "object" || (header as { type?: unknown }).type !== "session") return undefined;
+    const version = (header as { version?: unknown }).version ?? 1;
+    return typeof version === "number" ? version : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
   }
 }
 
@@ -108,9 +135,7 @@ function validateImportedSession(content: string): void {
     if (!hasHeader) {
       if (entry.type !== "session" || typeof entry.id !== "string" || !entry.id) invalid(lineNumber, "expected a session header");
       const requestedVersion = entry.version ?? 1;
-      if (typeof requestedVersion !== "number" || !Number.isInteger(requestedVersion) || requestedVersion < 1 || requestedVersion > CURRENT_SESSION_VERSION) {
-        invalid(lineNumber, "unsupported session version");
-      }
+      if (!supportedSessionVersion(requestedVersion)) invalid(lineNumber, "unsupported session version");
       version = requestedVersion as number;
       hasHeader = true;
       continue;
@@ -424,6 +449,13 @@ function sessionPathInDirectory(path: string, manager: SessionManager): boolean 
  */
 function sessionMissing(path: string, activeSessionFile: string | undefined): boolean {
   return path !== activeSessionFile && !existsSync(path);
+}
+
+/**
+ * When a session was last itself. Pi derives `modified` from the activity time of the last message in the transcript, and a duplicate copies the source's messages verbatim, so a copy made a minute ago reports the activity time of the conversation it was copied from: `created` is today and `modified` is four days ago on the very same item, and the copy sorts last in a list ordered by `modified`. The header stamp the fork route writes is the one moment the copy can prove about itself, so the later of the two is what the list orders and groups on.
+ */
+function sessionRecency(item: { readonly created: Date; readonly modified: Date }): number {
+  return Math.max(item.modified.getTime(), item.created.getTime());
 }
 
 function sessionHeaderVersion(content: Buffer): number {
@@ -2732,6 +2764,11 @@ export default {
               sendJson(response, 404, { error: "Session not found" });
               return;
             }
+            const targetVersion = await sessionFileVersion(target.path);
+            if (targetVersion !== undefined && !supportedSessionVersion(targetVersion)) {
+              sendJson(response, 409, { error: "Cannot open a session with an unsupported session version" });
+              return;
+            }
             if (services.runtime.sessionRuntime) {
               const result = await runWebSessionChange(services, () => services.runtime.sessionRuntime.switchSession(target.path, { cwdOverride: target.cwd }));
               if (result.cancelled) {
@@ -3026,6 +3063,12 @@ export default {
               sendJson(response, 404, { error: "Session not found" });
               return;
             }
+            // The copy is written with a current-version header whatever the source said, so forking a session the gateway has just refused to open would launder a transcript it cannot parse into one that claims it can, and the copy would then pass every check the original failed.
+            const sourceVersion = await sessionFileVersion(source.path);
+            if (sourceVersion !== undefined && !supportedSessionVersion(sourceVersion)) {
+              sendJson(response, 409, { error: "Cannot duplicate a session with an unsupported session version" });
+              return;
+            }
             const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : source.cwd || activeCwd(services);
             const stagingDirectory = await mkdtemp(join(tmpdir(), "pi-harness-session-fork-"));
             let sessionId: string;
@@ -3201,25 +3244,29 @@ export default {
             return `${item.name ?? ""} ${item.firstMessage ?? ""} ${item.id}`.toLowerCase().includes(query);
           });
           const sorted = filtered.sort(
-            (a, b) => Number(metadata[b.path]?.pinned === true) - Number(metadata[a.path]?.pinned === true) || b.modified.getTime() - a.modified.getTime(),
+            (a, b) => Number(metadata[b.path]?.pinned === true) - Number(metadata[a.path]?.pinned === true) || sessionRecency(b) - sessionRecency(a),
           );
           const paged = sorted.slice(page * pageSize, (page + 1) * pageSize);
+          // Only the page that is about to be sent is probed: reading a header per listed file is bounded work, reading one per session in the directory is not.
+          const versions = await Promise.all(paged.map((item) => sessionFileVersion(item.path)));
           sendJson(
             response,
             200,
             jsonSafe({
-              items: paged.map((item) => ({
+              items: paged.map((item, index) => ({
                 sessionId: item.id,
                 path: item.path,
                 name: item.name,
                 cwd: item.cwd,
                 created: item.created,
                 modified: item.modified,
+                recency: new Date(sessionRecency(item)),
                 messageCount: item.messageCount,
                 firstMessage: item.firstMessage,
                 forked: typeof item.parentSessionPath === "string" && item.parentSessionPath !== "",
                 archived: metadata[item.path]?.archived === true,
                 pinned: metadata[item.path]?.pinned === true,
+                ...(versions[index] !== undefined && !supportedSessionVersion(versions[index]) ? { unsupportedVersion: true } : {}),
               })),
               total: sorted.length,
               page,

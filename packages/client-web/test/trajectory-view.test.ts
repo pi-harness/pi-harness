@@ -37,7 +37,46 @@ describe("trajectory empty state", () => {
   });
 });
 
+describe("trajectory failure state", () => {
+  // The transcript had marked both of these failed from the first render; the trace drew them with the same class and the same blue dot as the calls that worked.
+  test("marks a failed tool result apart from the successful ones", () => {
+    const html = renderTrajectory(
+      [
+        { type: "tool_execution_end", toolName: "bash", isError: false, durationMs: 44 },
+        { type: "tool_execution_end", toolName: "read", isError: true, durationMs: 30 },
+      ],
+      2,
+    );
+
+    expect(html.split("event-row failed").length - 1).toBe(1);
+    expect(html.split("event-dot failed").length - 1).toBe(1);
+  });
+
+  // A background tint and a red dot are the whole signal a screen reader cannot hear and a colourblind reader cannot see, so the outcome has to be in the row's text.
+  test("writes the outcome into the row text rather than only colouring the row", () => {
+    const failed = renderTrajectory([{ type: "tool_execution_end", toolName: "read", isError: true, durationMs: 30 }], 1);
+    const succeeded = renderTrajectory([{ type: "tool_execution_end", toolName: "bash", isError: false, durationMs: 44 }], 1);
+
+    expect(failed).toContain("失败");
+    expect(succeeded).not.toContain("失败");
+  });
+
+  test("leaves a row that reports no outcome unmarked", () => {
+    const html = renderTrajectory([{ type: "turn_start" }], 1);
+
+    expect(html).not.toContain("failed");
+  });
+});
+
 describe("trajectory timeline", () => {
+  // The strip buckets the flat event list by index and its tooltips name event ranges, so a heading of 按轮次 read as eight turns over a run that had two.
+  test("names the strip after what it buckets", () => {
+    const html = renderTrajectory([{ type: "turn_start" }, { type: "tool_execution_start", toolName: "bash" }], 2);
+
+    expect(html).toContain("按事件");
+    expect(html).not.toContain("按轮次");
+  });
+
   const events = (count: number) => Array.from({ length: count }, (_, index) => ({ type: "tool_call", toolName: `tool-${index}` }));
 
   test("gives a short run one bar per event", () => {

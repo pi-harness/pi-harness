@@ -48,6 +48,7 @@ import {
   eventKindLabel,
   eventOrigin,
   eventOutputText,
+  formatEventBatchDuration,
   formatEventClock,
   formatEventDuration,
   mergeTrajectoryEvents,
@@ -145,6 +146,7 @@ interface RoomData {
   sessions: readonly Record<string, unknown>[];
   files: readonly ClientFile[];
   fileRepository: boolean;
+  fileTruncated: boolean;
   workspaceFiles: readonly ClientFile[];
   workspaceFilesTruncated: boolean;
   models: readonly ClientModel[];
@@ -762,24 +764,31 @@ const readQueryState = (): {
   };
 };
 
-type SessionGroupId = "today" | "yesterday" | "earlier";
+type SessionGroupId = "pinned" | "today" | "yesterday" | "earlier";
 
-const SESSION_GROUP_ORDER: readonly SessionGroupId[] = ["today", "yesterday", "earlier"];
+const SESSION_GROUP_ORDER: readonly SessionGroupId[] = ["pinned", "today", "yesterday", "earlier"];
 
 /** The heading of a session group. The bucket is keyed by id rather than by its heading because a key that changes with the language would scatter one day's sessions across three buckets. */
 function sessionGroupLabel(id: SessionGroupId): string {
+  if (id === "pinned") return t("已置顶");
   if (id === "today") return t("今天");
   if (id === "yesterday") return t("昨天");
   return t("更早");
 }
 
-function sessionGroups(sessions: readonly Record<string, unknown>[]): readonly [SessionGroupId, readonly Record<string, unknown>[]][] {
+export function sessionGroups(sessions: readonly Record<string, unknown>[]): readonly [SessionGroupId, readonly Record<string, unknown>[]][] {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterday = start - 86_400_000;
   const groups = new Map<SessionGroupId, Record<string, unknown>[]>();
   for (const session of sessions) {
-    const raw = session.modified ?? session.created;
+    // Pinning is what the user said about a session, and date buckets rendered in date order threw that away: a session pinned last week painted below every unpinned one from today, which is the opposite of what pinning asks for.
+    if (session.pinned === true) {
+      groups.set("pinned", [...(groups.get("pinned") ?? []), session]);
+      continue;
+    }
+    // A duplicated session copies its source's transcript, and Pi reads a session's modified time off the last message in it, so a copy made today reports the activity time of the conversation it came from. `recency` is the gateway's own max(modified, created), which is the first moment the file itself can prove.
+    const raw = session.recency ?? session.modified ?? session.created;
     const timestamp = typeof raw === "number" ? raw : typeof raw === "string" ? Date.parse(raw) : Number.NaN;
     const id: SessionGroupId =
       Number.isFinite(timestamp) && timestamp >= start ? "today" : Number.isFinite(timestamp) && timestamp >= yesterday ? "yesterday" : "earlier";
@@ -998,12 +1007,18 @@ function WorkspaceChooser({
   );
 }
 
+// /api/session/rename answers 400 past this length, so the field stops the name there rather than letting the dialog collect a name the server will refuse.
+const SESSION_NAME_MAX_LENGTH = 120;
+
+type SessionDialogKind = "rename" | "delete" | "archive" | "batch-delete";
+
 function SessionDialog({
   kind,
   name,
   count,
   value: draft,
   busy,
+  error,
   onChange,
   onClose,
   onConfirm,
@@ -1013,6 +1028,7 @@ function SessionDialog({
   count?: number;
   value: string;
   busy: boolean;
+  error?: string;
   onChange: (value: string) => void;
   onClose: () => void;
   onConfirm: () => void;
@@ -1059,6 +1075,7 @@ function SessionDialog({
             <input
               data-dialog-initial-focus
               disabled={busy}
+              maxLength={SESSION_NAME_MAX_LENGTH}
               onChange={(event) => onChange(event.target.value)}
               onKeyDown={(event) => !isComposingKey(event.nativeEvent) && event.key === "Enter" && !busy && onConfirm()}
               value={draft}
@@ -1066,6 +1083,12 @@ function SessionDialog({
           </label>
         )}
         {name && kind !== "rename" && <div className="session-dialog-target">{name}</div>}
+        {/* The dialog is aria-modal with a focus trap, so a failure rendered anywhere else on the page is not merely dimmed behind the backdrop, it is unreachable and unannounced while the dialog that caused it is still open. */}
+        {error && (
+          <p className="session-dialog-error" role="alert">
+            {error}
+          </p>
+        )}
         <footer className="session-dialog-actions">
           <button data-dialog-initial-focus={kind !== "rename" ? "" : undefined} disabled={busy} onClick={onClose} type="button">
             {t("取消")}
@@ -1427,6 +1450,31 @@ export function FileDiff({ diff }: { diff: string }) {
   );
 }
 
+/** Writes text to the clipboard and reports whether it landed. The Clipboard API is absent on a plain-http origin — which is how the README documents LAN access — and rejects outright when the page was never granted the permission, so a fire-and-forget write leaves the user with a button that neither copies nor says it could not. */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  const clipboard = navigator.clipboard as Clipboard | undefined;
+  if (clipboard === undefined || typeof clipboard.writeText !== "function") return false;
+  try {
+    await clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The fallback for a page the clipboard is closed to: open the raw payload, select it, and ask the document to copy the selection. Even when that copy is refused as well, the selection is left behind so the JSON can be taken by hand. */
+function selectRawJsonForManualCopy(disclosure: HTMLDetailsElement | null): boolean {
+  const body = disclosure?.querySelector("pre");
+  const selection = window.getSelection();
+  if (!disclosure || !body || selection === null) return false;
+  disclosure.open = true;
+  const range = document.createRange();
+  range.selectNodeContents(body);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return typeof document.execCommand === "function" && document.execCommand("copy");
+}
+
 export function Details({
   event,
   onClose,
@@ -1435,10 +1483,17 @@ export function Details({
 }: {
   event: Record<string, unknown> | undefined;
   onClose: () => void;
-  onCopy: () => void;
+  onCopy: () => Promise<boolean>;
   returnFocusTarget?: ModalFocusReturnTarget;
 }) {
   const dialogRef = useModalFocus<HTMLElement>(true, onClose, false, returnFocusTarget);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const rawJsonRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const timer = window.setTimeout(() => setCopyState("idle"), 4000);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
   if (!event)
     return (
       <aside aria-label={t("事件详情")} aria-modal="true" className="details-panel" ref={dialogRef} role="dialog" tabIndex={-1}>
@@ -1457,7 +1512,10 @@ export function Details({
   const outputText = eventOutputText(output);
   const fileDetail = event.type === "file" || event.type === "file_diff";
   const title = eventLabel(event);
-  const stats: readonly [string, string][] = fileDetail
+  const batchDuration = formatEventBatchDuration(event);
+  // Only a tool result carries a success flag, and the stat is left out rather than guessed for every event that does not: an agent_start labelled 成功 would be reporting on something nobody measured.
+  const failed = typeof event.isError === "boolean" ? event.isError : undefined;
+  const stats: readonly (readonly [string, string])[] = fileDetail
     ? [
         [t("来源"), value(event.source, "/api/files")],
         [t("文件"), value(event.path)],
@@ -1466,6 +1524,8 @@ export function Details({
         [t("类型"), eventKindLabel(event.type)],
         [t("产生者"), eventOrigin(event)],
         [t("耗时"), formatEventDuration(event)],
+        ...(batchDuration === undefined ? [] : [[t("批次耗时"), batchDuration] as const]),
+        ...(failed === undefined ? [] : [[t("状态"), failed ? t("失败") : t("成功")] as const]),
         [t("时间"), formatEventClock(event)],
       ];
   return (
@@ -1497,18 +1557,28 @@ export function Details({
           </div>
         )}
         <div className="detail-section">
-          <small>{fileDetail ? t("数据来源") : t("经过的插件")}</small>
+          <small>{t("数据来源")}</small>
           <div className="detail-plugin">{eventDataSource(event)}</div>
         </div>
         <div className="detail-actions">
-          <button onClick={onCopy} type="button">
-            {t("复制 JSON")}
+          <button
+            onClick={() => {
+              void onCopy().then((copied) => setCopyState(copied || selectRawJsonForManualCopy(rawJsonRef.current) ? "copied" : "failed"));
+            }}
+            type="button"
+          >
+            {copyState === "copied" ? t("已复制") : copyState === "failed" ? t("复制失败") : t("复制 JSON")}
           </button>
           <button disabled title={t("当前 API 未提供重放接口")} type="button">
             {t("重放")}
           </button>
         </div>
-        <details className="raw-json">
+        {copyState === "failed" && (
+          <p className="detail-copy-note" role="status">
+            {t("剪贴板不可用，下方原始 JSON 已选中，可手动复制。")}
+          </p>
+        )}
+        <details className="raw-json" ref={rawJsonRef}>
           <summary>{t("原始 JSON")}</summary>
           <pre className="raw-json-body">{JSON.stringify(event, null, 2)}</pre>
         </details>
@@ -1576,7 +1646,8 @@ export function Trajectory({
   return (
     <section className="view-panel trajectory-view">
       <div className="trajectory-summary">
-        <span>{t("按轮次")}</span>
+        {/* The strip buckets the flat event list by index and its tooltips name event ranges, so the heading says 按事件: with one bar per event on a short run, 按轮次 read as eight turns over a run that had two. */}
+        <span>{t("按事件")}</span>
         <b>{t("{v0} 个事件", { v0: events.length })}</b>
         {historicalCount > 0 && <small className="trajectory-history">{t("已从会话日志恢复 {count} 个历史事件", { count: historicalCount })}</small>}
         <div className="timeline">
@@ -1635,7 +1706,7 @@ export function Trajectory({
         </div>
         {visible.map((event, index) => (
           <button
-            className="event-row"
+            className={event.isError === true ? "event-row failed" : "event-row"}
             key={index}
             onClick={(clickEvent) => onSelect(event, clickEvent.currentTarget)}
             onFocus={() => setActiveRow(index)}
@@ -1644,8 +1715,10 @@ export function Trajectory({
           >
             <span>{formatEventClock(event)}</span>
             <span title={value(event.type, "event")}>
-              <i className="event-dot"></i>
+              {/* A tool that failed reached the trace with the same blue dot as the five that worked, while the transcript two tabs away had marked it failed all along. The word carries the outcome on its own, because a screen reader reads none of the colour and a colourblind reader sees none of the difference. */}
+              <i className={event.isError === true ? "event-dot failed" : "event-dot"}></i>
               {eventKindLabel(event.type)}
+              {event.isError === true && <em className="event-failed">{t("失败")}</em>}
             </span>
             <strong>{eventLabel(event)}</strong>
             <span>{eventOrigin(event)}</span>
@@ -1665,12 +1738,14 @@ export function Trajectory({
 export function Files({
   files,
   repository = true,
+  truncated = false,
   api,
   onDiff,
   onRefresh,
 }: {
   files: readonly ClientFile[];
   repository?: boolean;
+  truncated?: boolean;
   api: ClientApi;
   onDiff: (path: string, trigger: HTMLButtonElement) => Promise<void>;
   onRefresh: () => void | Promise<void>;
@@ -1749,6 +1824,8 @@ export function Files({
         </div>
         <div className="file-summary">
           {t("{files} 个文件 · {additions} 个新增文件 · {deletions} 个删除文件", { files: files.length, additions, deletions })}
+          {/* git status was killed on its output limit, so this list is a prefix of the worktree's changes and every count above it counts only the prefix. */}
+          {truncated && <span className="file-summary-truncated">{t("列表已截断，工作区的改动多于这里显示的数量。")}</span>}
         </div>
         <div className="file-list">
           {files.length ? (
@@ -1796,7 +1873,12 @@ export function Files({
         <ConfirmDialog
           busy={busy}
           confirmLabel={t("确认撤销")}
-          description={t("这会丢弃当前工作区的全部未提交改动，此操作不可恢复。")}
+          // The revert is sent as the list of paths on screen, so on a truncated list it cannot deliver what "全部未提交改动" promises, and a confirmation that overstates what it is about to destroy is the worst place to be approximate.
+          description={
+            truncated
+              ? t("这会丢弃下面列出的改动；列表已截断，未列出的改动会保留，此操作不可恢复。")
+              : t("这会丢弃当前工作区的全部未提交改动，此操作不可恢复。")
+          }
           onClose={() => setRevertConfirmOpen(false)}
           onConfirm={revert}
           target={t("{count} 个文件", { count: files.length })}
@@ -9271,6 +9353,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     sessions: [],
     files: [],
     fileRepository: true,
+    fileTruncated: false,
     workspaceFiles: [],
     workspaceFilesTruncated: false,
     models: [],
@@ -9303,7 +9386,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [sessionToolsOpen, setSessionToolsOpen] = useState(false);
   const [sessionToolsPosition, setSessionToolsPosition] = useState<{ left: number; top: number }>();
   const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
-  const [sessionDialog, setSessionDialog] = useState<"rename" | "delete" | "archive" | "batch-delete">();
+  const [sessionDialog, setSessionDialogKind] = useState<SessionDialogKind>();
   const [sessionActionTarget, setSessionActionTarget] = useState<{ name: string; path: string }>();
   const [sessionNameDraft, setSessionNameDraft] = useState("");
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(false);
@@ -9479,6 +9562,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     pendingSessionNavigationRef.current?.accepted === false ||
     (initialSessionRestorePending && initialQueryState.sessionPath !== data.session?.sessionFile);
   const [sessionActionError, setSessionActionError] = useState("");
+  // The open dialog announces the failure with role="alert" from inside its own focus trap, so the failure belongs to that dialog and must not outlive it. Every open and every close goes through here because a rename the user cancelled after it failed would otherwise be read out again inside the next dialog, including the delete confirmation the user is being asked to approve.
+  const setSessionDialog = useCallback((kind?: SessionDialogKind) => {
+    setSessionActionError("");
+    setSessionDialogKind(kind);
+  }, []);
   const [includeArchivedSessions, setIncludeArchivedSessions] = useState(false);
   const [sessionPage, setSessionPage] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
@@ -9971,7 +10059,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         (reason: unknown) => apply({ status: "rejected", reason }),
       );
     };
-    observeResource(requests[2], "files", REFRESH_SOURCE_LABELS.files, (result) => ({ files: result.items, fileRepository: result.repository }));
+    observeResource(requests[2], "files", REFRESH_SOURCE_LABELS.files, (result) => ({
+      files: result.items,
+      fileRepository: result.repository,
+      fileTruncated: result.truncated === true,
+    }));
     observeResource(requests[3], "workspaceFiles", REFRESH_SOURCE_LABELS.workspaceFiles, (result) => ({
       workspaceFiles: result.items,
       workspaceFilesTruncated: result.truncated,
@@ -10904,7 +10996,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <div className="context-metrics">
               <span>{contextMessageCountLabel(data.status?.messages ?? 0)}</span>
               <span>
-                <b>{data.status?.events ?? events.length}</b> {t("个事件")}
+                {/* The count is the session's own trace, the same list the Trace tab renders, down to the thinking deltas that list merges into one row. /api/status reports the gateway's process-wide buffer, which is emptied on every session switch, so a reopened session read 0 events here and 8 two tabs away. */}
+                <b>{displayEvents.length}</b> {t("个事件")}
               </span>
               <span>
                 <b>{value(data.status?.model)}</b>
@@ -10926,7 +11019,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <PromptError action="model" message={modelSelectionError} />
           ) : promptError ? (
             <PromptError message={promptError} />
-          ) : sessionActionError ? (
+          ) : sessionActionError && !sessionDialog ? (
+            /* While a session dialog is open the same failure is rendered inside it, and the composer copy would be a second announcement of one event from behind the backdrop. */
             <PromptError action="session" message={sessionActionError} />
           ) : null}
           {annotationSelection ? (
@@ -11169,6 +11263,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       api={api}
       files={data.files}
       repository={data.fileRepository}
+      truncated={data.fileTruncated}
       onDiff={async (file, trigger) => {
         detailsReturnFocusRef.current = trigger;
         const diff = await api.getFileDiff(file);
@@ -11182,7 +11277,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     />
   );
   const groups = sessionGroups(filteredSessions);
-  const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.sessionId === data.session?.sessionId));
+  const showCurrentSession = Boolean(data.session && !search && !filteredSessions.some((session) => session.path === activeSessionPath));
   const visibleCommands = filterCommands(data.commands, commandQuery);
   const commandActiveIndex = Math.min(commandIndex, Math.max(visibleCommands.length - 1, 0));
   const betterSidebarPanel = data.pluginPanels.find((panel) => panel.id === "better-sidebar-panel");
@@ -11583,10 +11678,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                         type="checkbox"
                       />
                     )}
+                    {/* Matched on the file rather than on the session id: a truncated or hand-copied session file keeps the id of the session it was cut from, and two rows then drew themselves as the selected one. A path is unique per row. */}
                     <button
                       aria-checked={sessionSelectionMode ? typeof session.path === "string" && selectedSessionPaths.has(session.path) : undefined}
-                      aria-current={session.sessionId === data.session?.sessionId ? "true" : undefined}
-                      className={`session-row ${session.sessionId === data.session?.sessionId ? "active" : ""}`}
+                      aria-current={session.path === activeSessionPath ? "true" : undefined}
+                      className={`session-row ${session.path === activeSessionPath ? "active" : ""}`}
                       onClick={() => {
                         if (sessionSelectionMode) {
                           if (typeof session.path === "string") toggleSessionSelection(session.path);
@@ -11594,7 +11690,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                         }
                         openSession(session);
                       }}
-                      ref={session.sessionId === data.session?.sessionId ? activeSessionRowRef : undefined}
+                      ref={session.path === activeSessionPath ? activeSessionRowRef : undefined}
                       role={sessionSelectionMode ? "checkbox" : undefined}
                       type="button"
                     >
@@ -11604,6 +11700,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                         <small>
                           {sessionLogMessageCountLabel(value(session.messageCount, "0"))}
                           {sessionStatusSuffix(session)}
+                          {/* /api/session/open answers 409 for a header version this build cannot parse, and the row is the only place the user can learn that before spending a click on it. */}
+                          {session.unsupportedVersion === true && <span className="session-unsupported"> · {t("版本不受支持")}</span>}
                         </small>
                       </span>
                     </button>
@@ -12022,7 +12120,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
           <Details
             event={Object.keys(details).length ? details : undefined}
             onClose={() => setDetails(undefined)}
-            onCopy={() => void navigator.clipboard?.writeText(JSON.stringify(details, null, 2))}
+            onCopy={() => copyTextToClipboard(JSON.stringify(details, null, 2))}
             returnFocusTarget={detailsReturnFocusRef.current}
           />
         </>
@@ -12081,6 +12179,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
         <SessionDialog
           busy={sessionOperationsBusy}
           count={sessionDialog === "batch-delete" ? selectedSessionPaths.size : undefined}
+          error={sessionActionError}
           kind={sessionDialog}
           name={
             sessionDialog === "rename" || sessionDialog === "batch-delete"
