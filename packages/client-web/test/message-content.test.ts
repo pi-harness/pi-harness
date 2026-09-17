@@ -58,7 +58,8 @@ describe("message content projection", () => {
     expect(messageText({ role: "assistant", content: [{ type: "toolResult", text: "not assistant prose" }] })).toBe("");
   });
 
-  test("merges contiguous assistant messages while keeping each message's reasoning where it was written", () => {
+  test("merges contiguous assistant messages into one thinking block", () => {
+    // Reasoning that ran across a message boundary with nothing in between is one pause as far as the reader is concerned, and two parts open two 思考 disclosures for it.
     expect(
       projectChatTurns([
         { role: "user", content: [{ type: "text", text: "修复问题" }] },
@@ -78,12 +79,30 @@ describe("message content projection", () => {
         role: "assistant",
         text: "已修复",
         parts: [
-          { type: "thinking", value: "先检查" },
-          { type: "thinking", value: "再确认" },
+          { type: "thinking", value: "先检查\n\n再确认" },
           { type: "text", value: "已修复" },
         ],
         stopped: false,
       },
+    ]);
+  });
+
+  test("keeps the reasoning either side of a call apart, because the model thought again after seeing the result", () => {
+    expect(
+      projectChatTurns([
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "先读文件" },
+            { type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.ts" } },
+          ],
+        },
+        { role: "assistant", content: [{ type: "thinking", thinking: "文件里没有" }] },
+      ]).at(-1)?.parts,
+    ).toEqual([
+      { type: "thinking", value: "先读文件" },
+      { type: "tool", id: "call-1", name: "read", arguments: { path: "a.ts" }, failed: false },
+      { type: "thinking", value: "文件里没有" },
     ]);
   });
 

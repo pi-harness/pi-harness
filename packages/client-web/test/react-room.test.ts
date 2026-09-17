@@ -38,7 +38,6 @@ import {
   subscribeRuntimeEvents,
   toolArgumentSummary,
   toolSignature,
-  turnPartsSignature,
   withoutInstalledPackages,
   writeRestartPendingPackages,
   nextSessionSearchPage,
@@ -1170,6 +1169,16 @@ describe("marketplace detail resolution", () => {
   });
 });
 
+/** The bottom gap a rule declares, whether it spells it as the margin shorthand the utility classes prefer or as margin-bottom on its own. */
+const cssBottomGap = (css: string, selector: string): string => {
+  const escaped = selector.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const rule = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "u").exec(css)?.[1] ?? "";
+  const shorthand = /\[margin:([^\]]+)\]/u.exec(rule)?.[1];
+  if (shorthand === undefined) return /\[margin-bottom:([^\]]+)\]/u.exec(rule)?.[1] ?? "";
+  const sides = shorthand.split("_");
+  return (sides.length > 2 ? sides[2] : sides[0]) ?? "";
+};
+
 describe("chat transcript turns", () => {
   test("renders a user bubble and an assistant turn with its reasoning", () => {
     const user = renderToStaticMarkup(
@@ -1226,13 +1235,33 @@ describe("chat transcript turns", () => {
     expect((ChatTurnArticle as unknown as { $$typeof?: symbol }).$$typeof).toBe(Symbol.for("react.memo"));
   });
 
-  test("re-renders a turn whose calls only moved among its prose", () => {
-    const tool = { type: "tool", id: "call-1", name: "edit", arguments: { path: "src/calc.js" }, result: "ok", failed: false } as const;
-    const before = [{ type: "text", value: "先修正说明：" }, tool] as const;
-    const after = [tool, { type: "text", value: "先修正说明：" }] as const;
+  test("re-renders a turn whose calls only moved among its prose, and skips one that only arrived in a new array", () => {
+    const onMouseUp = () => {};
+    const tool = { type: "tool" as const, id: "call-1", name: "edit", arguments: { path: "src/calc.js" }, result: "ok", failed: false };
+    const prose = { type: "text" as const, value: "先修正说明：" };
+    const turn = (parts: readonly (typeof tool | typeof prose)[]) => ({ role: "assistant" as const, text: "先修正说明：", parts, onMouseUp });
+    // The comparator React actually runs, rather than the signature it happens to be built on: a memo that compared the calls alone would keep the stale markup on screen.
+    const memoised = ChatTurnArticle as unknown as { compare: (previous: ReturnType<typeof turn>, next: ReturnType<typeof turn>) => boolean };
 
-    expect(turnPartsSignature(before)).not.toBe(turnPartsSignature(after));
-    expect(turnPartsSignature(before)).toBe(turnPartsSignature([{ type: "text", value: "先修正说明：" }, { ...tool }]));
+    expect(memoised.compare(turn([prose, tool]), turn([tool, prose]))).toBe(false);
+    // Every poll hands the turn a freshly built list of parts, and re-running marked + DOMPurify over an unchanged transcript is what the memo exists to avoid.
+    expect(memoised.compare(turn([prose, tool]), turn([{ ...prose }, { ...tool }]))).toBe(true);
+    expect(renderToStaticMarkup(createElement(ChatTurnArticle, turn([prose, tool])))).not.toBe(
+      renderToStaticMarkup(createElement(ChatTurnArticle, turn([tool, prose]))),
+    );
+  });
+
+  test("spaces the parts of a turn apart, now that prose is no longer always the last of them", async () => {
+    const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
+
+    // The tool row and the reasoning disclosure only push away what follows them, so with prose in the middle of a turn the sentence introducing a row sat flush against it while the sentence after it had a gap, and two merged messages ran together into what read as one paragraph. A boundary between parts is worth what a paragraph break inside one document is worth.
+    const paragraph = cssBottomGap(css, ".turn-markdown p");
+    expect(paragraph).toBe("10px");
+    expect(cssBottomGap(css, ".turn-markdown:not(:last-child)")).toBe(paragraph);
+    expect(cssBottomGap(css, ".turn-tool")).toBe(paragraph);
+    expect(cssBottomGap(css, ".message-reasoning")).toBe(paragraph);
+    // The part that ends the turn still ends flush, so the gap between turns stays the one the turn declares.
+    expect(cssBottomGap(css, ".turn-markdown p:last-child")).toBe("0");
   });
 });
 
@@ -1513,25 +1542,31 @@ describe("tool transcript rendering", () => {
 
     expect(summary).toContain("path=src/calc.js");
     expect(summary.indexOf("path=")).toBeLessThan(summary.indexOf("edits="));
-    // The rest of the arguments still follow in the order the tool wrote them.
+    // The other tool set this harness runs spells the same argument file_path and writes it behind two payloads of its own, so the key has to be recognised however it is spelt.
+    const snakeCase = toolArgumentSummary({ old_string: "a".repeat(160), new_string: "b".repeat(160), file_path: "src/calc.js", replace_all: false });
+    expect(snakeCase).toContain("file_path=src/calc.js");
+    expect(snakeCase.indexOf("file_path=")).toBeLessThan(snakeCase.indexOf("old_string="));
+    // The rest of the arguments still follow in the order the tool wrote them, and one identity argument never overtakes another: a grep still names its pattern first.
     expect(toolArgumentSummary({ offset: 10, path: "a.ts", limit: 20 })).toBe("path=a.ts · offset=10 · limit=20");
+    expect(toolArgumentSummary({ pattern: "createServer", path: "packages/core" })).toBe("pattern=createServer · path=packages/core");
   });
 
-  test("animates the thinking dots only while a run is going, and keeps the elapsed clock last", async () => {
+  test("animates the thinking dots only while a run is going, and spells the ellipsis once", async () => {
     const source = await readFile(new URL("../src/react-room.tsx", import.meta.url), "utf8");
     const css = await readFile(new URL("../../../apps/web/src/style.css", import.meta.url), "utf8");
-    const streamingHead = source.slice(source.indexOf('{t("思考中…")}'), source.indexOf('{t("思考中…")}') + 400);
 
-    // Attached to every .reasoning-head, the dots kept cycling on turns that finished hours ago, so a completed run looked like it was still working.
-    expect(css).not.toContain(".reasoning-head::after");
-    expect(css).toContain(".thinking-dots::after");
-    expect(streamingHead).toContain('className="thinking-dots"');
-    expect(streamingHead.indexOf('className="thinking-dots"')).toBeLessThan(streamingHead.indexOf('className="streaming-elapsed"'));
+    // Which selector carries the animation is what decides which headers move. On .reasoning-head the dots kept cycling on turns that had finished hours ago, so a completed run looked like it was still working.
+    expect([...css.matchAll(/([^{}]*)\{[^{}]*animation:\s*thinking-dots[^{}]*\}/gu)].map((match) => (match[1] ?? "").trim().split("\n").at(-1))).toEqual([
+      ".thinking-dots::after",
+    ]);
     const finished = renderToStaticMarkup(
       createElement(ChatTurnArticle, { role: "assistant", text: "已完成", parts: [{ type: "thinking", value: "先读文件" }], onMouseUp: () => {} }),
     );
     expect(finished).toContain("reasoning-head");
     expect(finished).not.toContain("thinking-dots");
+    // The dots are the ellipsis of the running header, so the label beside them must not spell one out as well: 思考中… next to them read as 思考中… …
+    expect(source).not.toContain('{t("思考中…")}');
+    expect(source.match(/className="thinking-dots"/gu)).toHaveLength(1);
   });
 });
 

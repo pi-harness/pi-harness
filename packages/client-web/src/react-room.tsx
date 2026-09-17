@@ -9070,12 +9070,12 @@ function toolSignatureValue(input: unknown): string {
   }
 }
 
-// The arguments that say which thing a call acted on, in the order they win the preview budget when the call also carries a payload large enough to fill it on its own.
-const TOOL_ARGUMENT_IDENTITY_KEYS = ["path", "file", "filePath", "command", "pattern", "url"];
+// The arguments that say which thing a call acted on, so they win the preview budget when the call also carries a payload large enough to fill it on its own. Spelling is not part of the identity: the two tool sets this harness runs name the same argument `path` and `file_path`, so a key is matched with its case and separators removed.
+const TOOL_ARGUMENT_IDENTITY_KEYS = new Set(["path", "file", "filepath", "command", "pattern", "url"]);
 
 function toolArgumentRank(key: string): number {
-  const index = TOOL_ARGUMENT_IDENTITY_KEYS.indexOf(key);
-  return index === -1 ? TOOL_ARGUMENT_IDENTITY_KEYS.length : index;
+  // An identity argument only has to come before the payload, never before another identity argument: a `grep` that names both a pattern and a path still reads in the order the model wrote them.
+  return TOOL_ARGUMENT_IDENTITY_KEYS.has(key.replaceAll(/[^\p{L}\p{N}]/gu, "").toLowerCase()) ? 0 : 1;
 }
 
 /** The arguments of a call as one line, so the row says which file was read rather than only that `read` ran. */
@@ -9098,7 +9098,7 @@ export function toolSignature(tools: readonly ChatToolCall[]): string {
 }
 
 /** A turn is re-rendered when what it says changes, and where a call sits among the prose is part of what it says. */
-export function turnPartsSignature(parts: readonly ChatTurnPart[]): string {
+function turnPartsSignature(parts: readonly ChatTurnPart[]): string {
   return parts.map((part) => (part.type === "tool" ? `tool:${toolSignature([part])}` : `${part.type}:${part.value}`)).join(" ");
 }
 
@@ -10761,7 +10761,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             {streamingAssistant?.thinking && (
               <details className="reasoning message-reasoning" open={false}>
                 <summary className="reasoning-head">
-                  {t("思考中…")}
+                  {/* The label is the same word a finished turn carries, because the trailing ellipsis is now the animated one next to it: spelt out in the label as well it read 思考中… … while the run was going. */}
+                  {t("思考")}
                   {/* The animated dots belong to the run that is still going, so they are rendered here rather than attached to every reasoning header by CSS, where they left finished turns looking like they were still working. */}
                   <span aria-hidden="true" className="thinking-dots" />
                   <span className="streaming-elapsed">{formatRunClock(runTelemetry.elapsedSeconds)}</span>

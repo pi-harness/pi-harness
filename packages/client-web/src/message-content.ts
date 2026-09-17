@@ -77,13 +77,6 @@ export function messageParts(message: Record<string, unknown>): readonly ChatTur
   return parts;
 }
 
-/** The tool calls an assistant message asked for, in the order the model wrote them. */
-export function messageToolCalls(message: Record<string, unknown>): readonly ChatToolCall[] {
-  return messageParts(message).flatMap((part) =>
-    part.type === "tool" ? [{ id: part.id, name: part.name, arguments: part.arguments, failed: part.failed }] : [],
-  );
-}
-
 export interface ChatTurn {
   readonly role: "user" | "assistant" | "compaction";
   /** The prose of the turn on its own: what a user prompt or a compaction summary says, and what an assistant turn reads as with its tool rows taken out. */
@@ -97,6 +90,16 @@ export interface ChatTurn {
 /** Two messages that were merged into one turn were written apart, so their prose is separated by a blank line rather than run together into one sentence. */
 function turnText(parts: readonly ChatTurnPart[]): string {
   return parts.flatMap((part) => (part.type === "text" ? [part.value] : [])).join("\n\n");
+}
+
+/** Reasoning that ran across a message boundary with nothing between it is one train of thought, and kept as two parts it opens two 思考 disclosures for what the reader lived through as a single pause. Prose is not joined the same way: each piece stays its own markdown document so an unclosed code fence in one cannot swallow the next. */
+function mergeTurnParts(previous: readonly ChatTurnPart[], next: readonly ChatTurnPart[]): readonly ChatTurnPart[] {
+  const merged = [...previous];
+  for (const [index, part] of next.entries()) {
+    if (index === 0 && part.type === "thinking") appendProse(merged, "thinking", part.value, "\n\n");
+    else merged.push(part);
+  }
+  return merged;
 }
 
 /** The runtime writes a compactionSummary message where it replaced the history it dropped. */
@@ -153,7 +156,7 @@ export function projectChatTurns(messages: readonly Record<string, unknown>[]): 
     }
     if (role === "assistant" && previous?.role === "assistant") {
       // The merged turn keeps the flag either part carried: an interrupted run whose last message happens to be a normal one is still an interrupted run.
-      const merged = [...previous.parts, ...parts];
+      const merged = mergeTurnParts(previous.parts, parts);
       turns[turns.length - 1] = { role, text: turnText(merged), parts: merged, stopped: previous.stopped || stopped };
     } else {
       turns.push({ role, text: turnText(parts), parts, stopped });
