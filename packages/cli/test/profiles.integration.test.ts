@@ -375,6 +375,9 @@ describe("packaged profiles", () => {
   });
 
   test("keeps the development profile's log records off the stream that carries the assistant's answer", async () => {
+    // This test is about which stream the records land on, so it boots on the selection a bare agent directory already registers rather than on the profile's own default, which needs provisioning a CI checkout has not done.
+    vi.stubEnv("PI_HARNESS_PROVIDER", REGISTERED_WITHOUT_PROVISIONING.provider);
+    vi.stubEnv("PI_HARNESS_MODEL", REGISTERED_WITHOUT_PROVISIONING.model);
     const { harness } = await bootProfile("development");
     const written: Array<{ stream: "stdout" | "stderr"; chunk: string }> = [];
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
