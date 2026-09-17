@@ -31,13 +31,16 @@ function createLaunch(args: string[]): PiHarnessLaunch {
   return { cwd: "/tmp", agentDir: "/tmp", args, requestExit() {} };
 }
 
-function createStdio(prompt: string | Error = ""): PiHarnessStdio & { output: string[]; errors: string[]; reads: number } {
+function createStdio(prompt: string | Error = ""): PiHarnessStdio & { output: string[]; errors: string[]; terminal: string[]; reads: number } {
   const output: string[] = [];
   const errors: string[] = [];
+  // A terminal shows both streams in the order they were written, so the interleaving is its own observable surface and the separate arrays cannot express it.
+  const terminal: string[] = [];
   const state = { reads: 0 };
   return {
     output,
     errors,
+    terminal,
     get reads() {
       return state.reads;
     },
@@ -47,9 +50,11 @@ function createStdio(prompt: string | Error = ""): PiHarnessStdio & { output: st
     },
     writeOutput(text) {
       output.push(text);
+      terminal.push(text);
     },
     writeError(text) {
       errors.push(text);
+      terminal.push(text);
     },
   };
 }
@@ -491,6 +496,38 @@ describe("stdio run outcome", () => {
     expect(stdio.output.join("")).toBe("Let me look.\nNow I will fix it.\n");
   });
 
+  test("starts the tool marker on its own terminal line instead of gluing it to the sentence before it", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "stop" }]);
+    const run = application.run();
+    application.writeSessionEvent(assistantText("Let me look."));
+    application.writeSessionEvent({ type: "tool_execution_start", toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
+    application.writeSessionEvent(assistantText("Now I will fix it."));
+    await run;
+
+    // The tool line goes to stderr and the sentence to stdout, so only the interleaved view shows the defect this guards: "Let me look.> read …" on one line.
+    expect(stdio.terminal.join("")).toBe('Let me look.\n> read {"path":"a.ts"}\nNow I will fix it.\n');
+  });
+
+  test("does not add a blank line when the assistant text already ended in a newline", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "stop" }]);
+    const run = application.run();
+    application.writeSessionEvent(assistantText("Let me look.\n"));
+    application.writeSessionEvent({ type: "tool_execution_start", toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
+    await run;
+
+    expect(stdio.terminal.join("")).toBe('Let me look.\n> read {"path":"a.ts"}\n');
+  });
+
+  test("writes no separator for a tool call that precedes any assistant text", async () => {
+    const { application, stdio } = createApplication([{ role: "assistant", stopReason: "stop" }]);
+    const run = application.run();
+    application.writeSessionEvent({ type: "tool_execution_start", toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
+    application.writeSessionEvent(assistantText("Found it."));
+    await run;
+
+    expect(stdio.terminal.join("")).toBe('> read {"path":"a.ts"}\nFound it.\n');
+  });
+
   test("reports a hostile prompt rejection without inspecting or coercing it", async () => {
     const accessed: PropertyKey[] = [];
     const hostile = new Proxy(
@@ -536,6 +573,42 @@ describe("stdio run outcome", () => {
     expect(stdio.errors[1]).toContain("/tmp/auth.json");
     expect(stdio.errors[1]).toContain("everyapi use pi-web");
     expect(stdio.errors[1]?.split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  test("names the provider the rejection came from instead of asserting deepseek", async () => {
+    const runtime = createRuntime();
+    runtime.prompt = () => Promise.reject(new Error("No API key found for everyapi. Use /login to log into a provider via OAuth or API key."));
+    const stdio = createStdio("prompt");
+    const application = new StdioApplication(runtime, createLaunch(["--prompt", "hi"]), stdio);
+
+    await expect(application.run()).resolves.toBe(1);
+    expect(stdio.errors[1]).toContain("the booted profile selects everyapi");
+    // A profile booted through --config may select any provider, so promising an environment variable that only deepseek reads would contradict the line printed directly above.
+    expect(stdio.errors[1]).not.toContain("DEEPSEEK_API_KEY");
+    expect(stdio.errors[1]).not.toContain("deepseek");
+    expect(stdio.errors[1]?.split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  test("keeps the deepseek environment variable hint when deepseek is the provider that failed", async () => {
+    const runtime = createRuntime();
+    runtime.prompt = () => Promise.reject(new Error("No API key found for deepseek."));
+    const stdio = createStdio("prompt");
+    const application = new StdioApplication(runtime, createLaunch(["--prompt", "hi"]), stdio);
+
+    await expect(application.run()).resolves.toBe(1);
+    expect(stdio.errors[1]).toContain("the booted profile selects deepseek");
+    expect(stdio.errors[1]).toContain("set the DEEPSEEK_API_KEY environment variable");
+  });
+
+  test("falls back to provider-agnostic wording when the rejection names no provider", async () => {
+    const runtime = createRuntime();
+    runtime.prompt = () => Promise.reject(new Error("No API key found."));
+    const stdio = createStdio("prompt");
+    const application = new StdioApplication(runtime, createLaunch(["--prompt", "hi"]), stdio);
+
+    await expect(application.run()).resolves.toBe(1);
+    expect(stdio.errors[1]).toContain("selects a provider this agent directory has no credential for");
+    expect(stdio.errors[1]).not.toContain("DEEPSEEK_API_KEY");
   });
 
   test("names the profile that actually booted when the launch knows it", async () => {

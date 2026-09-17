@@ -108,11 +108,25 @@ function withoutUpstreamCredentialRemedy(message: string): string {
   return message.replace(UPSTREAM_CREDENTIAL_REMEDY_PATTERN, "").trimEnd() || message;
 }
 
-// The guidance is fixed rather than assembled from the provider named upstream so that it stays one bounded, terminal-safe line like every other diagnostic this surface writes. The profile path is the one that was actually booted when the launcher knows it, because telling someone to edit `<PI_HARNESS_HOME or ~/.pi-harness>/profiles/<profile>/cordis.yml` asks them to resolve two placeholders the harness already resolved.
-function missingCredentialGuidance(launch: PiHarnessLaunch): string {
+// Upstream names the provider it could not authenticate, and that name is the one fact the reader needs to act: a profile booted through `--config` may select any provider at all, so guidance that asserts a provider of its own contradicts the line printed directly above it. The pattern is deliberately narrow because the name is untrusted text; anything outside a provider id is left unmatched so the guidance falls back to its provider-agnostic wording.
+const CREDENTIAL_PROVIDER_PATTERN = /(?:No API key found for|Authentication failed for)\s+([A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?)/u;
+
+function credentialProviderName(message: string): string | undefined {
+  return CREDENTIAL_PROVIDER_PATTERN.exec(message)?.[1];
+}
+
+// Only deepseek has an environment variable this launcher can promise, because that is the provider the built-in profiles select and the one whose key Pi reads straight from the environment. Every other provider reaches Pi through an agent directory entry, so naming a `<PROVIDER>_API_KEY` for it would invent a variable nothing reads.
+function credentialEnvironmentHint(provider: string | undefined): string {
+  return provider === "deepseek" ? "set the DEEPSEEK_API_KEY environment variable, " : "";
+}
+
+// The guidance stays one bounded, terminal-safe line like every other diagnostic this surface writes. The profile path is the one that was actually booted when the launcher knows it, because telling someone to edit `<PI_HARNESS_HOME or ~/.pi-harness>/profiles/<profile>/cordis.yml` asks them to resolve two placeholders the harness already resolved.
+function missingCredentialGuidance(launch: PiHarnessLaunch, provider?: string): string {
   const profilePath = launch.configPath ?? "the booted profile under <PI_HARNESS_HOME or ~/.pi-harness>/profiles";
+  const selection =
+    provider === undefined ? "the booted profile selects a provider this agent directory has no credential for" : `the booted profile selects ${provider}`;
   return boundedLine(
-    `pih has no /login command: set the DEEPSEEK_API_KEY environment variable (the built-in profile selects deepseek), or store the credential in ${launch.agentDir}/auth.json, or start through \`everyapi use pi-web\`, or edit ${profilePath} to name a provider that agent directory already registers.`,
+    `pih has no /login command: ${selection}, so ${credentialEnvironmentHint(provider)}store the credential in ${launch.agentDir}/auth.json, or start through \`everyapi use pi-web\`, or edit ${profilePath} to name a provider that agent directory already registers.`,
     DIAGNOSTIC_MESSAGE_LIMIT,
   );
 }
@@ -200,7 +214,6 @@ export class StdioApplication implements PiHarnessApplication {
   readonly #launch: PiHarnessLaunch;
   readonly #stdio: PiHarnessStdio;
   #running = false;
-  #pendingSeparator = false;
   #wroteOutput = false;
   #outputEndsWithNewline = false;
 
@@ -210,6 +223,13 @@ export class StdioApplication implements PiHarnessApplication {
     this.#stdio = stdio;
   }
 
+  /** Terminates a half-written stdout line so whatever is written next starts at column zero, on either stream. */
+  #closeOutputLine(): void {
+    if (!this.#wroteOutput || this.#outputEndsWithNewline) return;
+    this.#stdio.writeOutput("\n");
+    this.#outputEndsWithNewline = true;
+  }
+
   /** Writes one failure line, and for a missing credential swaps Pi's remedy for the one this launcher can honour rather than printing both and contradicting itself. */
   #writeFailure(message: string): void {
     if (!MISSING_CREDENTIAL_PATTERN.test(message)) {
@@ -217,7 +237,7 @@ export class StdioApplication implements PiHarnessApplication {
       return;
     }
     this.#stdio.writeError(`${withoutUpstreamCredentialRemedy(message)}\n`);
-    this.#stdio.writeError(`${missingCredentialGuidance(this.#launch)}\n`);
+    this.#stdio.writeError(`${missingCredentialGuidance(this.#launch, credentialProviderName(message))}\n`);
   }
 
   writeSessionEvent(event: AgentSessionEvent): void {
@@ -227,10 +247,6 @@ export class StdioApplication implements PiHarnessApplication {
     if (dataProperty(assistantEvent, "type") === "text_delta") {
       const delta = dataProperty(assistantEvent, "delta");
       if (typeof delta !== "string" || delta === "") return;
-      if (this.#pendingSeparator) {
-        this.#pendingSeparator = false;
-        if (!this.#outputEndsWithNewline) this.#stdio.writeOutput("\n");
-      }
       this.#wroteOutput = true;
       this.#outputEndsWithNewline = delta.endsWith("\n");
       this.#stdio.writeOutput(delta);
@@ -240,7 +256,8 @@ export class StdioApplication implements PiHarnessApplication {
       const rawToolName = dataProperty(event, "toolName");
       const toolName = typeof rawToolName === "string" ? boundedLine(rawToolName, TOOL_NAME_LIMIT) : "";
       if (toolName === "") return;
-      if (this.#wroteOutput) this.#pendingSeparator = true;
+      // The tool line goes to stderr while the sentence that introduced it went to stdout, and a terminal shows both. Closing the stdout line before the marker is written keeps "Let me look." and "> read …" on separate lines there. The stdout stream itself is unchanged: the separator used to be emitted in front of the next text delta, or by the trailing newline at the end of the run when no text followed, and it still lands at exactly the same offset.
+      this.#closeOutputLine();
       this.#stdio.writeError(`> ${toolName} ${summarizeToolArguments(dataProperty(event, "args"))}\n`);
       return;
     }
@@ -305,7 +322,6 @@ export class StdioApplication implements PiHarnessApplication {
   async run(signal?: AbortSignal): Promise<number> {
     if (this.#running) throw new Error("stdio application is already running");
     this.#running = true;
-    this.#pendingSeparator = false;
     this.#wroteOutput = false;
     this.#outputEndsWithNewline = false;
     const onAbort = () => {
@@ -384,7 +400,6 @@ export class StdioApplication implements PiHarnessApplication {
     } finally {
       signal?.removeEventListener("abort", onAbort);
       this.#running = false;
-      this.#pendingSeparator = false;
       this.#outputEndsWithNewline = false;
       await this.#stdio.flush?.();
     }
