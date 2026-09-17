@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/desktop",
-  "version": "0.1.154",
+  "version": "0.1.155",
   "private": true,
   "type": "module",
   "scripts": {
