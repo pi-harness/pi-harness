@@ -2456,7 +2456,7 @@ describe("API gateway plugin", () => {
   });
 
   // The import route has always refused a header version it cannot migrate. A file already sitting in the session directory is exactly as unreadable, and the gateway used to list it, adopt it, and then append current-version records to it.
-  test("refuses to open a session whose header version the import route would reject", async () => {
+  test("refuses to open or duplicate a session whose header version the import route would reject", async () => {
     const context = new Context();
     contexts.push(context);
     await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
@@ -2513,6 +2513,18 @@ describe("API gateway plugin", () => {
     expect(refused.status).toBe(409);
     const refusal = (await refused.json()) as { error: string };
     expect(refusal.error).toContain("unsupported session version");
+
+    // The fork writes a current-version header whatever the source said, so duplicating this file would hand back a copy that claims a format the gateway can read, and every later check on the copy would believe it.
+    const refusedFork = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: future }),
+    });
+    expect(refusedFork.status).toBe(409);
+    const forkRefusal = (await refusedFork.json()) as { error: string };
+    expect(forkRefusal.error).toContain("unsupported session version");
+    const afterFork = (await (await fetch(context.webServer.url + "/api/sessions?includeArchived=true")).json()) as { items: { path: string }[] };
+    expect(afterFork.items.map((item) => item.path).sort()).toEqual([readable, future].sort());
 
     const accepted = await fetch(context.webServer.url + "/api/session/open", {
       method: "POST",

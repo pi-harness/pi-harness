@@ -1011,6 +1011,8 @@ function WorkspaceChooser({
 // /api/session/rename answers 400 past this length, so the field stops the name there rather than letting the dialog collect a name the server will refuse.
 const SESSION_NAME_MAX_LENGTH = 120;
 
+type SessionDialogKind = "rename" | "delete" | "archive" | "batch-delete";
+
 function SessionDialog({
   kind,
   name,
@@ -1705,7 +1707,7 @@ export function Trajectory({
         </div>
         {visible.map((event, index) => (
           <button
-            className={`event-row ${event.isError === true ? "failed" : ""}`}
+            className={event.isError === true ? "event-row failed" : "event-row"}
             key={index}
             onClick={(clickEvent) => onSelect(event, clickEvent.currentTarget)}
             onFocus={() => setActiveRow(index)}
@@ -1714,9 +1716,10 @@ export function Trajectory({
           >
             <span>{formatEventClock(event)}</span>
             <span title={value(event.type, "event")}>
-              {/* A tool that failed reached the trace with the same blue dot as the five that worked, while the transcript two tabs away had marked it failed all along. */}
-              <i className={`event-dot ${event.isError === true ? "failed" : ""}`}></i>
+              {/* A tool that failed reached the trace with the same blue dot as the five that worked, while the transcript two tabs away had marked it failed all along. The word carries the outcome on its own, because a screen reader reads none of the colour and a colourblind reader sees none of the difference. */}
+              <i className={event.isError === true ? "event-dot failed" : "event-dot"}></i>
               {eventKindLabel(event.type)}
+              {event.isError === true && <em className="event-failed">{t("失败")}</em>}
             </span>
             <strong>{eventLabel(event)}</strong>
             <span>{eventOrigin(event)}</span>
@@ -9347,7 +9350,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [sessionToolsOpen, setSessionToolsOpen] = useState(false);
   const [sessionToolsPosition, setSessionToolsPosition] = useState<{ left: number; top: number }>();
   const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
-  const [sessionDialog, setSessionDialog] = useState<"rename" | "delete" | "archive" | "batch-delete">();
+  const [sessionDialog, setSessionDialogKind] = useState<SessionDialogKind>();
   const [sessionActionTarget, setSessionActionTarget] = useState<{ name: string; path: string }>();
   const [sessionNameDraft, setSessionNameDraft] = useState("");
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(false);
@@ -9523,6 +9526,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     pendingSessionNavigationRef.current?.accepted === false ||
     (initialSessionRestorePending && initialQueryState.sessionPath !== data.session?.sessionFile);
   const [sessionActionError, setSessionActionError] = useState("");
+  // The open dialog announces the failure with role="alert" from inside its own focus trap, so the failure belongs to that dialog and must not outlive it. Every open and every close goes through here because a rename the user cancelled after it failed would otherwise be read out again inside the next dialog, including the delete confirmation the user is being asked to approve.
+  const setSessionDialog = useCallback((kind?: SessionDialogKind) => {
+    setSessionActionError("");
+    setSessionDialogKind(kind);
+  }, []);
   const [includeArchivedSessions, setIncludeArchivedSessions] = useState(false);
   const [sessionPage, setSessionPage] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
@@ -10930,8 +10938,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
             <div className="context-metrics">
               <span>{contextMessageCountLabel(data.status?.messages ?? 0)}</span>
               <span>
-                {/* The count is the session's own trace, the same list the Trace tab renders. /api/status reports the gateway's process-wide buffer, which is emptied on every session switch, so a reopened session read 0 events here and 8 two tabs away. */}
-                <b>{events.length}</b> {t("个事件")}
+                {/* The count is the session's own trace, the same list the Trace tab renders, down to the thinking deltas that list merges into one row. /api/status reports the gateway's process-wide buffer, which is emptied on every session switch, so a reopened session read 0 events here and 8 two tabs away. */}
+                <b>{displayEvents.length}</b> {t("个事件")}
               </span>
               <span>
                 <b>{value(data.status?.model)}</b>
@@ -11617,6 +11625,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                         <small>
                           {sessionLogMessageCountLabel(value(session.messageCount, "0"))}
                           {sessionStatusSuffix(session)}
+                          {/* /api/session/open answers 409 for a header version this build cannot parse, and the row is the only place the user can learn that before spending a click on it. */}
+                          {session.unsupportedVersion === true && <span className="session-unsupported"> · {t("版本不受支持")}</span>}
                         </small>
                       </span>
                     </button>

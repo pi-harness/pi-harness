@@ -420,6 +420,9 @@ button:disabled {
 .session-copy small {
   @apply [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap] [color:var(--color-faint)] [font:10px_var(--font-mono)];
 }
+.session-unsupported {
+  @apply [color:var(--color-red)];
+}
 .runtime-cells {
   @apply [display:flex] [flex-wrap:wrap] [gap:4px_12px] [padding:8px_19px_9px] [color:var(--color-faint)] [font:9.5px_var(--font-mono)] [border-top:1px_solid_rgba(0,_0,_0,_0.06)];
 }
@@ -1236,8 +1239,15 @@ button:disabled {
 .event-row.failed {
   @apply [background:var(--color-red-soft)];
 }
+/* Same specificity as .event-row:hover and written later, so without a hover of its own a failed row would be the one row in the table that stops responding to the pointer. */
+.event-row.failed:hover {
+  @apply [background:rgba(185,_28,_28,_0.1)];
+}
 .event-dot.failed {
   @apply [background:var(--color-red)];
+}
+.event-failed {
+  @apply [flex:none] [color:var(--color-red)] [font-style:normal];
 }
 .files-content {
   @apply [width:100%] [min-height:0] [flex:1] [max-width:none] [overflow:auto] [padding:24px];

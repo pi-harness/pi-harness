@@ -3063,6 +3063,12 @@ export default {
               sendJson(response, 404, { error: "Session not found" });
               return;
             }
+            // The copy is written with a current-version header whatever the source said, so forking a session the gateway has just refused to open would launder a transcript it cannot parse into one that claims it can, and the copy would then pass every check the original failed.
+            const sourceVersion = await sessionFileVersion(source.path);
+            if (sourceVersion !== undefined && !supportedSessionVersion(sourceVersion)) {
+              sendJson(response, 409, { error: "Cannot duplicate a session with an unsupported session version" });
+              return;
+            }
             const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : source.cwd || activeCwd(services);
             const stagingDirectory = await mkdtemp(join(tmpdir(), "pi-harness-session-fork-"));
             let sessionId: string;

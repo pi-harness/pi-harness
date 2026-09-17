@@ -184,4 +184,91 @@ describe("failed session actions", () => {
     expect(document.querySelector(".session-dialog")).not.toBeNull();
     expect(document.querySelector(".session-dialog .session-dialog-error")?.textContent).toContain("Session name must be at most 120 characters");
   });
+
+  // The failure belongs to the dialog that produced it. Carried into the next dialog it is announced again by role="alert", and the dialog it lands in may be the one asking the user to approve a deletion.
+  test("does not carry a cancelled dialog's failure into the next one", async () => {
+    const sessions = [{ name: "Task alpha", sessionId: "alpha", path: "/sessions/alpha.jsonl", messageCount: 2, modified: new Date().toISOString() }];
+    const renameSession = vi.fn(() => Promise.reject(new Error("Session name must be at most 120 characters")));
+    await flush(() =>
+      root.render(
+        createElement(ControlRoomView, {
+          api: api(sessions, { sessionId: "alpha", sessionFile: "/sessions/alpha.jsonl" }, { renameSession }),
+        }),
+      ),
+    );
+
+    const openRowMenu = async (): Promise<void> => {
+      await flush(() => document.querySelector<HTMLButtonElement>('[aria-label="会话操作 Task alpha"]')?.click());
+    };
+    const menuItem = (label: string): HTMLButtonElement | undefined =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === label);
+
+    await openRowMenu();
+    await flush(() => menuItem("重命名")?.click());
+    const save = [...document.querySelectorAll<HTMLButtonElement>(".session-dialog-actions button")].find((button) => button.textContent === "保存名称");
+    await flush(() => save?.click());
+    await flush(() => {});
+    expect(document.querySelector(".session-dialog .session-dialog-error")).not.toBeNull();
+
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>(".session-dialog-actions button")].find((button) => button.textContent === "取消");
+    await flush(() => cancel?.click());
+    expect(document.querySelector(".session-dialog")).toBeNull();
+
+    await openRowMenu();
+    await flush(() => menuItem("删除会话")?.click());
+
+    expect(document.querySelector(".session-dialog")).not.toBeNull();
+    expect(document.querySelector(".session-dialog .session-dialog-error")).toBeNull();
+    expect(document.querySelector('.session-dialog [role="alert"]')).toBeNull();
+  });
+});
+
+describe("a session this build cannot read", () => {
+  // /api/sessions has always known the header version is one the gateway refuses to open; until the row said so the user found out from the 409 after clicking it.
+  test("says so on the row rather than only in the refusal after the click", async () => {
+    const sessions = [
+      { name: "Readable", sessionId: "readable", path: "/sessions/readable.jsonl", messageCount: 2, modified: new Date().toISOString() },
+      {
+        name: "From a newer build",
+        sessionId: "future",
+        path: "/sessions/future.jsonl",
+        messageCount: 2,
+        modified: new Date().toISOString(),
+        unsupportedVersion: true,
+      },
+    ];
+    await flush(() => root.render(createElement(ControlRoomView, { api: api(sessions, { sessionId: "readable", sessionFile: "/sessions/readable.jsonl" }) })));
+
+    const rows = [...document.querySelectorAll(".session-row")];
+    expect(rows.find((row) => row.textContent?.includes("From a newer build"))?.textContent).toContain("版本不受支持");
+    expect(rows.find((row) => row.textContent?.includes("Readable"))?.textContent).not.toContain("版本不受支持");
+  });
+});
+
+describe("live context metrics and the trace they claim to count", () => {
+  // The Trace tab merges consecutive thinking deltas into one row, so counting the raw list made the composer and the trace header disagree by exactly the deltas that were merged.
+  test("counts the rows the trace actually renders", async () => {
+    const sessions = [{ name: "Thinking", sessionId: "thinking", path: "/sessions/thinking.jsonl", messageCount: 2, modified: new Date().toISOString() }];
+    const active = { sessionId: "thinking", sessionFile: "/sessions/thinking.jsonl" };
+    const events = [
+      { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "we " } },
+      { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "think" } },
+      { type: "tool_execution_end", toolName: "bash", isError: false, durationMs: 12 },
+    ];
+    await flush(() =>
+      root.render(
+        createElement(ControlRoomView, {
+          api: api(sessions, active, { getSession: () => Promise.resolve({ ...active, messages: [], entries: [], events }) }),
+        }),
+      ),
+    );
+
+    expect(document.querySelector(".context-metrics")?.textContent).toContain("2 个事件");
+
+    const trace = [...document.querySelectorAll<HTMLButtonElement>(".view-tab")].find((tab) => tab.textContent === "轨迹");
+    await flush(() => trace?.click());
+
+    expect(document.querySelector(".trajectory-summary")?.textContent).toContain("2 个事件");
+    expect(document.querySelectorAll(".event-row")).toHaveLength(2);
+  });
 });

@@ -52,6 +52,15 @@ describe("trajectory failure state", () => {
     expect(html.split("event-dot failed").length - 1).toBe(1);
   });
 
+  // A background tint and a red dot are the whole signal a screen reader cannot hear and a colourblind reader cannot see, so the outcome has to be in the row's text.
+  test("writes the outcome into the row text rather than only colouring the row", () => {
+    const failed = renderTrajectory([{ type: "tool_execution_end", toolName: "read", isError: true, durationMs: 30 }], 1);
+    const succeeded = renderTrajectory([{ type: "tool_execution_end", toolName: "bash", isError: false, durationMs: 44 }], 1);
+
+    expect(failed).toContain("失败");
+    expect(succeeded).not.toContain("失败");
+  });
+
   test("leaves a row that reports no outcome unmarked", () => {
     const html = renderTrajectory([{ type: "turn_start" }], 1);
 
