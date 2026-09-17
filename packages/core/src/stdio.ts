@@ -123,7 +123,8 @@ function credentialEnvironmentHint(provider: string | undefined): string {
 // The guidance stays one bounded, terminal-safe line like every other diagnostic this surface writes. The profile path is the one that was actually booted when the launcher knows it, because telling someone to edit `<PI_HARNESS_HOME or ~/.pi-harness>/profiles/<profile>/cordis.yml` asks them to resolve two placeholders the harness already resolved.
 function missingCredentialGuidance(launch: PiHarnessLaunch, provider?: string): string {
   const profilePath = launch.configPath ?? "the booted profile under <PI_HARNESS_HOME or ~/.pi-harness>/profiles";
-  const selection = provider === undefined ? "the booted profile selects a provider this agent directory has no credential for" : `the booted profile selects ${provider}`;
+  const selection =
+    provider === undefined ? "the booted profile selects a provider this agent directory has no credential for" : `the booted profile selects ${provider}`;
   return boundedLine(
     `pih has no /login command: ${selection}, so ${credentialEnvironmentHint(provider)}store the credential in ${launch.agentDir}/auth.json, or start through \`everyapi use pi-web\`, or edit ${profilePath} to name a provider that agent directory already registers.`,
     DIAGNOSTIC_MESSAGE_LIMIT,
