@@ -9099,7 +9099,7 @@ export function toolSignature(tools: readonly ChatToolCall[]): string {
 
 /** A turn is re-rendered when what it says changes, and where a call sits among the prose is part of what it says. */
 function turnPartsSignature(parts: readonly ChatTurnPart[]): string {
-  return parts.map((part) => (part.type === "tool" ? `tool:${toolSignature([part])}` : `${part.type}:${part.value}`)).join(" ");
+  return parts.map((part) => (part.type === "tool" ? `tool:${toolSignature([part])}` : `${part.type}:${part.value}`)).join("|");
 }
 
 // Memoised on primitive props so a poll that returns an identical transcript does not re-run marked + DOMPurify over every turn. The part list is a fresh array on every poll, so it is compared by content instead of by identity, which is what the default shallow comparison would do.
