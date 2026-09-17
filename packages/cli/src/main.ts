@@ -1,7 +1,15 @@
 import { readFile } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { bootHarness, prepareHarnessProfile, provideLaunchContext, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
+import {
+  bootHarness,
+  prepareHarnessProfile,
+  provideLaunchContext,
+  provideStdioContext,
+  readHarnessProfile,
+  resolveProfileConfig,
+  type BootedHarness,
+} from "@pi-harness/core";
 import { CliUsageError, parseLauncherArgs } from "./args.js";
 import { NodeStdio } from "./node-stdio.js";
 import { BUILTIN_PROFILES, BUILTIN_PROFILES_DIR } from "./profiles.js";
@@ -100,6 +108,29 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
         : { configPath: invocation.configPath }),
       cwd: environment.cwd,
     });
+    // --dump-config is an inspection, so it runs before anything is materialized: preparing the harness home here would create the directory and pull an existing copy forward to the shipped template, which is exactly the state the reader asked to see. The path goes to stderr so stdout stays a YAML document a pipe can consume.
+    if (invocation.dumpConfig) {
+      if (invocation.configPath !== undefined) {
+        environment.stderr.write(`Profile: ${configPath}\n`);
+        environment.stdout.write(await readFile(configPath, "utf8"));
+        return 0;
+      }
+      const profile = await readHarnessProfile({
+        builtinProfilePath: configPath,
+        profileName: invocation.profile ?? "default",
+        directory: environment.harnessHome,
+      });
+      environment.stderr.write(`Profile: ${profile.path}\n`);
+      if (profile.origin === "builtin")
+        environment.stderr.write("No copy exists under the harness home yet; this is the profile the next run would install there.\n");
+      if (profile.origin === "home-outdated")
+        environment.stderr.write(
+          `This copy is untouched since an earlier release, so the next run replaces it with the profile the installation ships at ${configPath}; that replacement is the document printed here.\n`,
+        );
+      if (profile.origin === "home-modified") environment.stderr.write(`This copy differs from the profile the installation ships at ${configPath}.\n`);
+      environment.stdout.write(profile.contents);
+      return 0;
+    }
     // A built-in profile is a template: the copy under the harness home is what boots, because that is the file the web console appends marketplace entries to and the directory those packages are installed beside. An explicit --config already names a file the user owns, so it is booted as given.
     if (invocation.configPath === undefined)
       configPath = await prepareHarnessProfile({
@@ -107,10 +138,6 @@ export async function runCli(_args: readonly string[], _environment: CliEnvironm
         profileName: invocation.profile ?? "default",
         directory: environment.harnessHome,
       });
-    if (invocation.dumpConfig) {
-      environment.stdout.write(await readFile(configPath, "utf8"));
-      return 0;
-    }
     if (environment.checkForUpdates !== undefined) {
       void Promise.resolve()
         .then(() => environment.checkForUpdates?.())

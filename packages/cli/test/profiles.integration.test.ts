@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { bootHarness, provideStdioContext, resolveProfileConfig, type BootedHarness } from "@pi-harness/core";
 import { provideLaunchContext } from "@pi-harness/plugin-api";
 import { BUILTIN_PROFILES_DIR } from "../src/profiles.js";
@@ -338,9 +338,35 @@ describe("packaged profiles", () => {
 
     expect(timer?.fiber?.ctx.get("timer")).toBeDefined();
     expect(hmr?.fiber?.ctx.get("hmr")).toMatchObject({ baseDir: cwd });
-    expect(names).toEqual(
-      expect.arrayContaining(["@deepseek-ai/cordis-plugin-logger-console", "@deepseek-ai/cordis-plugin-timer", "@deepseek-ai/cordis-plugin-hmr"]),
-    );
+    expect(names).toEqual(expect.arrayContaining(["@pi-harness/core/plugins/logger", "@deepseek-ai/cordis-plugin-timer", "@deepseek-ai/cordis-plugin-hmr"]));
+  });
+
+  test("keeps the development profile's log records off the stream that carries the assistant's answer", async () => {
+    const { harness } = await bootProfile("development");
+    const written: Array<{ stream: "stdout" | "stderr"; chunk: string }> = [];
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      written.push({ stream: "stdout", chunk: String(chunk) });
+      return true;
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      written.push({ stream: "stderr", chunk: String(chunk) });
+      return true;
+    });
+    try {
+      const logger = harness.context.logger("profile-test");
+      logger.info("development profile log record info");
+      // A warn record is only reported because the profile's logger entry reaches the console-logger hardening, which injects levels.default = 2; the upstream threshold of 1 drops it. Losing this line is how a rename out of that hardening shows up, so the level belongs in the test that covers the entry.
+      logger.warn("development profile log record warn");
+      logger.error("development profile log record error");
+    } finally {
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+
+    const records = written.filter((entry) => entry.chunk.includes("development profile log record"));
+    expect(records.map((entry) => entry.chunk.match(/\[[A-Z]\]/u)?.[0])).toEqual(["[I]", "[W]", "[E]"]);
+    expect(records.map((entry) => entry.stream)).toEqual(["stderr", "stderr", "stderr"]);
+    expect(written.every((entry) => entry.stream === "stderr")).toBe(true);
   });
 
   test("loads production README tools into the default runtime and writes a current confirmed snapshot", async () => {

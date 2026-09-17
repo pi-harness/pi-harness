@@ -14,6 +14,11 @@ const maxLoaderEntryIdLength = 128;
 const maxLoaderPluginNameLength = 512;
 const consoleLoggerPackageName = "@deepseek-ai/cordis-plugin-logger-console";
 const consoleLoggerEntryUrl = import.meta.resolve(consoleLoggerPackageName);
+const stderrLoggerPackageName = "@pi-harness/core/plugins/logger";
+// The harness exporter is the console exporter with one method replaced, so its module sits beside this one and its entry can be written either as the package subpath or as the URL that subpath resolves to.
+const stderrLoggerEntryUrl = new URL("./plugins/logger.js", import.meta.url).href;
+// Both names mount the same exporter class and therefore take the same config, so the hardening below has to recognize both: a name it does not match keeps an unchecked config and loses the warn-level default, which is a silent change in what the harness reports rather than a startup failure.
+const consoleLoggerNames = new Set([consoleLoggerPackageName, consoleLoggerEntryUrl, stderrLoggerPackageName, stderrLoggerEntryUrl]);
 const timerPackageName = "@deepseek-ai/cordis-plugin-timer";
 const timerEntryUrl = import.meta.resolve(timerPackageName);
 const consoleLoggerConfigKeys = new Set(["colors", "label", "levels", "maxLength", "showDiff", "showTime"]);
@@ -32,7 +37,7 @@ function boundedInteger(value: unknown, minimum: number, maximum: number): value
 }
 
 function normalizeConsoleLoggerConfig(entry: Record<string, unknown>): void {
-  if (entry.name !== consoleLoggerPackageName && entry.name !== consoleLoggerEntryUrl) return;
+  if (typeof entry.name !== "string" || !consoleLoggerNames.has(entry.name)) return;
   const config = entry.config ?? {};
   if (!isRecord(config)) consoleLoggerConfigError("must be an object");
   const unknownKey = Object.keys(config).find((key) => !consoleLoggerConfigKeys.has(key));

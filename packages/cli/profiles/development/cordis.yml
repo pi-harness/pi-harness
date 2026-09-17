@@ -1,5 +1,5 @@
 - id: logger
-  name: "@deepseek-ai/cordis-plugin-logger-console"
+  name: "@pi-harness/core/plugins/logger"
   config: {}
 - id: timer
   name: "@deepseek-ai/cordis-plugin-timer"

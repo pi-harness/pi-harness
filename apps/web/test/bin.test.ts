@@ -96,10 +96,10 @@ async function runLauncher(
 }
 
 // Runs the built launcher until it exits on its own, for the startup guards that must abort before a console URL is ever printed.
-async function runLauncherToExit(extraEnv: Record<string, string>): Promise<LauncherExit> {
+async function runLauncherToExit(extraEnv: Record<string, string>, args: readonly string[] = []): Promise<LauncherExit> {
   const agentDir = await makeTempDir("guard");
   const harnessHome = await makeTempDir("guard-home");
-  const child = spawn(process.execPath, [BIN], {
+  const child = spawn(process.execPath, [BIN, ...args], {
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
@@ -343,5 +343,33 @@ describe("web launcher startup guards", () => {
       expect(run.stdout).not.toContain("Pi Harness web console:");
       expect(run.code).not.toBe(0);
     }
+  }, 60_000);
+
+  test("names the argument a rejected value came from rather than the variable the user never set", async () => {
+    const port = await runLauncherToExit({}, ["--port", "abc"]);
+    const host = await runLauncherToExit({}, ["--host", "10.0.0.5"]);
+
+    expect(port.stderr.trim()).toBe("--port must be an integer between 0 and 65535");
+    expect(host.stderr.trim()).toBe("Refusing non-loopback --host; set PI_HARNESS_ALLOW_REMOTE=1 only on a trusted network");
+  }, 60_000);
+
+  test("reports every pre-boot rejection as one line instead of a Node code frame and stack", async () => {
+    const runs = [
+      await runLauncherToExit({}, ["--port", "abc"]),
+      await runLauncherToExit({}, ["--host", "10.0.0.5"]),
+      await runLauncherToExit({}, ["--port"]),
+      await runLauncherToExit({ PI_HARNESS_ALLOWED_HOSTS: "http://foo.example/" }),
+    ];
+
+    for (const run of runs) {
+      expect(run.stderr).not.toContain("Node.js v");
+      expect(run.stderr).not.toContain("ModuleJob.run");
+      expect(run.stderr).not.toMatch(/^\s+at /mu);
+      expect(run.stderr.trim().split("\n")).toHaveLength(1);
+      expect(run.stdout).not.toContain("Pi Harness web console:");
+      // 2 is the code `pih` returns for a bad --config or --profile, and a value the user typed is the same class of mistake whichever binary reads it.
+      expect(run.code).toBe(2);
+    }
+    expect(runs[2]?.stderr.trim()).toBe("--port requires a value");
   }, 60_000);
 });
