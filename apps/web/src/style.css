@@ -2303,6 +2303,9 @@ button:disabled {
 .marketplace-category.active {
   @apply [background:var(--color-blue-soft)] [color:var(--color-blue)] [font-weight:500];
 }
+.marketplace-category:disabled {
+  @apply [background:none] [color:var(--color-faint)] [cursor:default];
+}
 .marketplace-scroll {
   @apply [min-height:0] [flex:1] [overflow:auto] [padding:0_24px_24px];
 }
@@ -3026,8 +3029,9 @@ body {
   .plugin-switch-button {
     @apply [height:44px];
   }
+  /* The touch-sized hit area is deliberate here, but the base rule paints a surface-coloured fill that is invisible only while the button is transparent. Grown to 44px and forced visible it reads as a detached white card on every row, so the fill is dropped and the :hover rule remains the only thing that paints. */
   .session-row-more {
-    @apply [right:2px] [width:44px] [height:44px] [opacity:1] [pointer-events:auto];
+    @apply [right:2px] [width:44px] [height:44px] [opacity:1] [pointer-events:auto] [background:transparent];
   }
   .session-row {
     @apply [padding-right:50px];

@@ -98,6 +98,15 @@ describe("Pi Harness design contract", () => {
     expect(styles).toMatch(/\.active-heading h1 \{\n\s*@apply \[margin:0\]/);
   });
 
+  it("leaves the always-visible session row menu unpainted on the tablet break", () => {
+    const styles = readFileSync(fileURLToPath(new URL("../../../apps/web/src/style.css", import.meta.url)), "utf8");
+    const tabletBreak = styles.slice(styles.indexOf("@media (min-width: 681px) and (max-width: 900px)"));
+    const rule = tabletBreak.slice(tabletBreak.indexOf(".session-row-more"));
+
+    // The base rule paints a surface-coloured fill that only disappears because the button sits at zero opacity. This break forces the button visible for touch, so the fill has to go with it or every row carries a white square.
+    expect(rule.slice(0, rule.indexOf("}"))).toContain("[background:transparent]");
+  });
+
   it("formats every number in the console for the active language", () => {
     const source = readFileSync(fileURLToPath(new URL("../src/react-room.tsx", import.meta.url)), "utf8");
 
