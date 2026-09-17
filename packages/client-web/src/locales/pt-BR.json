@@ -585,7 +585,7 @@
   "异常面板数据已按固定安全边界丢弃或截断。": "Dados de painel malformados foram descartados ou truncados em um limite de segurança fixo.",
   "归档": "Arquivar",
   "归档会话": "Arquivar sessão",
-  "归档后会从默认列表隐藏，之后仍可在会话工具中恢复。": "Arquivar oculta a sessão da lista padrão; você pode restaurá-la depois pelas ferramentas de sessão.",
+  "归档后会从默认列表隐藏；在会话工具中打开「显示归档会话」，再对该会话选择「恢复会话」。": "Arquivar oculta a sessão da lista padrão; para trazê-la de volta, ative Mostrar as sessões arquivadas nas ferramentas de sessão e escolha Restaurar sessão na linha dela.",
   "当前": "Atual",
   "当前 API 未提供修改接口": "Esta API não oferece nenhuma forma de alterar isso",
   "当前 API 未提供重放接口": "Esta API não oferece endpoint de reprodução",

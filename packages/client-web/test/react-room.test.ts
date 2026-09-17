@@ -1113,6 +1113,8 @@ describe("run telemetry", () => {
     expect(view(quiet, "reconnecting", true, now)).toEqual({ phase: "thinking", tone: "reconnecting", elapsedSeconds: 70, quietSeconds: 40 });
     expect(view(quiet, "closed", false, now)).toEqual({ phase: "thinking", tone: "offline", elapsedSeconds: 70, quietSeconds: 40 });
     expect(view(active, "connecting", true, now)).toEqual({ phase: "thinking", tone: "connecting", elapsedSeconds: 70, quietSeconds: 2 });
+    // An EventSource can sit in the "open" state long after the socket has died, and the last successful status payload keeps claiming the run is live, so a failing status poll alone has to be enough to stop the pill promising the model is still answering.
+    expect(view(active, "open", false, now)).toEqual({ phase: "thinking", tone: "offline", elapsedSeconds: 70, quietSeconds: 2 });
   });
 
   test("renders a running placeholder from status and observes the stable connection ref", async () => {

@@ -585,7 +585,7 @@
   "异常面板数据已按固定安全边界丢弃或截断。": "Fehlerhafte Paneldaten wurden an einer festen Sicherheitsgrenze verworfen oder gekürzt.",
   "归档": "Archivieren",
   "归档会话": "Sitzung archivieren",
-  "归档后会从默认列表隐藏，之后仍可在会话工具中恢复。": "Durch das Archivieren wird sie aus der Standardliste ausgeblendet; du kannst sie später über die Sitzungswerkzeuge wiederherstellen.",
+  "归档后会从默认列表隐藏；在会话工具中打开「显示归档会话」，再对该会话选择「恢复会话」。": "Durch das Archivieren wird sie aus der Standardliste ausgeblendet; aktiviere in den Sitzungswerkzeugen Archivierte Sitzungen anzeigen und wähle dann in der Zeile der Sitzung Sitzung wiederherstellen.",
   "当前": "Aktuell",
   "当前 API 未提供修改接口": "Diese API bietet keine Möglichkeit, das zu ändern",
   "当前 API 未提供重放接口": "Diese API bietet keinen Endpunkt zum erneuten Abspielen",

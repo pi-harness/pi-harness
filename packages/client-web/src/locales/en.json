@@ -585,7 +585,7 @@
   "异常面板数据已按固定安全边界丢弃或截断。": "Malformed panel data was dropped or truncated at a fixed safety boundary.",
   "归档": "Archive",
   "归档会话": "Archive session",
-  "归档后会从默认列表隐藏，之后仍可在会话工具中恢复。": "Archiving hides it from the default list; you can restore it later from the session tools.",
+  "归档后会从默认列表隐藏；在会话工具中打开「显示归档会话」，再对该会话选择「恢复会话」。": "Archiving hides it from the default list; to bring it back, turn on Show archived sessions in the session tools, then choose Restore session on its row.",
   "当前": "Current",
   "当前 API 未提供修改接口": "This API offers no way to modify it",
   "当前 API 未提供重放接口": "This API offers no replay endpoint",

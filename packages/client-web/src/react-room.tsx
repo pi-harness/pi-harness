@@ -1024,7 +1024,7 @@ function SessionDialog({
     kind === "rename"
       ? t("给这个会话一个容易识别的名称。")
       : kind === "archive"
-        ? t("归档后会从默认列表隐藏，之后仍可在会话工具中恢复。")
+        ? t("归档后会从默认列表隐藏；在会话工具中打开「显示归档会话」，再对该会话选择「恢复会话」。")
         : count && count > 1
           ? t("将永久删除 {count} 个会话及其本地记录，此操作不可撤销。", { count })
           : t("将永久删除这个会话及其本地记录，此操作不可撤销。");
@@ -1208,6 +1208,13 @@ const sidebarPopoverPosition = (
     top: Math.round(Math.min(Math.max(gutter, preferredTop), Math.max(gutter, window.innerHeight - estimatedHeight - gutter))),
   };
 };
+
+// Sidebar popovers are positioned once, in viewport coordinates, from the trigger's rect, so only a scroll of a container that actually carries the trigger can move it out from under them. A capture-phase document listener otherwise hears the transcript auto-scrolling on every streamed delta and tears the menu down while the user is reading it.
+export function scrollInvalidatesSessionPopover(target: EventTarget | null, trigger: Node | null): boolean {
+  if (!trigger) return true;
+  if (!(target instanceof Node) || target === document) return true;
+  return target.contains(trigger);
+}
 
 export function ProviderAuthNotice({ model, providers, onConfigure }: { model?: string; providers: readonly ClientProvider[]; onConfigure: () => void }) {
   const provider = providers.find((item) => model?.startsWith(`${item.provider}/`));
@@ -6732,10 +6739,12 @@ function PluginCategoryNav({
       <nav aria-label={label} className="marketplace-categories" onScroll={updateScrollState} ref={navRef}>
         {categories.map((category) => {
           const active = activeCategory === category.id;
+          // A chip whose count the current search drove to zero stays on the rail so the facet a user already picked is never yanked out from under them, but it leads nowhere, so it is not offered as a destination. All always stays clickable: it is the way back out of an emptied facet.
           return (
             <button
               aria-pressed={active}
               className={`marketplace-category ${active ? "active" : ""}`}
+              disabled={category.id !== "" && category.count === 0 && !active}
               key={category.id || "all"}
               onClick={() => onChange(category.id)}
               type="button"
@@ -6790,22 +6799,14 @@ function Plugins({
   const [pluginNotice, setPluginNotice] = useState("");
   const [pendingUninstall, setPendingUninstall] = useState<ClientPlugin>();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const installedCategories = useMemo(() => {
-    const counts = new Map<string, ClientMarketplaceCategory>();
-    for (const plugin of installedPlugins) {
-      const category = catalogByPackage.get(plugin.name)?.category ?? plugin.category ?? { id: "other", label: t("其他") };
-      const current = counts.get(category.id);
-      counts.set(category.id, { ...category, count: (current?.count ?? 0) + 1 });
-    }
-    return marketplaceCategoryTabs(
-      [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, formatLocale())),
-    );
-  }, [catalogByPackage, installedPlugins]);
-  const visiblePlugins = useMemo(() => {
+  const pluginCategory = useCallback(
+    (plugin: ClientPlugin): { id: string; label: string } =>
+      catalogByPackage.get(plugin.name)?.category ?? plugin.category ?? { id: "other", label: t("其他") },
+    [catalogByPackage],
+  );
+  const queryMatchedPlugins = useMemo(() => {
     return installedPlugins.filter((plugin) => {
       const metadata = catalogByPackage.get(plugin.name);
-      const category = metadata?.category ?? plugin.category ?? { id: "other", label: t("其他") };
-      if (categoryFilter && category.id !== categoryFilter) return false;
       const fields = [
         plugin.name,
         metadata?.name,
@@ -6817,7 +6818,27 @@ function Plugins({
       ];
       return matchesPluginQuery(query, fields);
     });
-  }, [capabilityLabel, catalogByPackage, categoryFilter, installedPlugins, query]);
+  }, [capabilityLabel, catalogByPackage, installedPlugins, query]);
+  // Chip counts describe what the current search left behind, so they agree with the "n / m plugins" counter and with the list. Categories the query emptied stay on the rail at zero rather than disappearing, because dropping one would fire the reset effect below and silently throw away the facet the user picked.
+  const installedCategories = useMemo(() => {
+    const counts = new Map<string, ClientMarketplaceCategory>();
+    for (const plugin of installedPlugins) {
+      const category = pluginCategory(plugin);
+      if (!counts.has(category.id)) counts.set(category.id, { ...category, count: 0 });
+    }
+    for (const plugin of queryMatchedPlugins) {
+      const category = pluginCategory(plugin);
+      const current = counts.get(category.id);
+      counts.set(category.id, { ...category, count: (current?.count ?? 0) + 1 });
+    }
+    return marketplaceCategoryTabs(
+      [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, formatLocale())),
+    );
+  }, [installedPlugins, pluginCategory, queryMatchedPlugins]);
+  const visiblePlugins = useMemo(() => {
+    if (!categoryFilter) return queryMatchedPlugins;
+    return queryMatchedPlugins.filter((plugin) => pluginCategory(plugin).id === categoryFilter);
+  }, [categoryFilter, pluginCategory, queryMatchedPlugins]);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [categoryFilter, query]);
@@ -8364,7 +8385,8 @@ function Settings({
                             }
                             value={config.settings.advanced.mermaid}
                           >
-                            <option value="off">{t("关闭")}</option>
+                            {/* "关闭" is the dialog dismiss verb elsewhere in this file, so every locale translated it as an imperative ("Close", "Schließen"). A select option needs the state word. */}
+                            <option value="off">{t("已关闭")}</option>
                             <option value="final">{t("完成后渲染")}</option>
                             <option value="streaming">{t("流式渲染")}</option>
                           </select>
@@ -8935,8 +8957,9 @@ export function runTelemetryView(
 ): RunTelemetryView {
   const elapsedSeconds = Math.max(0, Math.floor((now - activity.startedAt) / 1000));
   const quietSeconds = Math.max(0, Math.floor((now - activity.lastActivityAt) / 1000));
+  // A failing status poll is on its own enough to call the run offline: the event stream can stay in the "open" state long after the socket has silently died, and the last successful status payload keeps claiming the run is live, so requiring both signals let the pill promise "Model responding" for as long as the partition lasted.
   const tone =
-    statusReachable === false && connection !== "open"
+    statusReachable === false
       ? "offline"
       : connection === "closed"
         ? "disconnected"
@@ -9406,6 +9429,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [selectedSessionPaths, setSelectedSessionPaths] = useState<ReadonlySet<string>>(new Set());
   const importInputRef = useRef<HTMLInputElement>(null);
   const sessionPopoverTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const activeSessionRowRef = useRef<HTMLButtonElement | null>(null);
   const restoreSessionPopoverFocus = () => {
     const trigger = sessionPopoverTriggerRef.current;
     window.requestAnimationFrame(() => {
@@ -9568,7 +9592,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
       setSessionActionTarget(undefined);
       sessionPopoverTriggerRef.current?.focus();
     };
-    const dismissOnViewportChange = () => {
+    const dismissOnViewportChange = (event: Event) => {
+      if (!scrollInvalidatesSessionPopover(event.target, sessionPopoverTriggerRef.current)) return;
       setSessionMenuOpen(false);
       setSessionMenuPath(undefined);
       setSessionMenuPosition(undefined);
@@ -10178,6 +10203,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     });
     return () => window.cancelAnimationFrame(frame);
   }, [data.session?.messages.length, data.status?.events, streamingAssistant?.text.length, streamingAssistant?.thinking.length, pendingPrompt, promptBusy]);
+  // A session can be opened from anywhere — the command palette, global search, a fork — and the sidebar keeps whatever scroll offset it had, so the highlighted row lands off-screen and the list stops saying where you are. The session list is also a dependency because it commonly arrives after the session itself.
+  useEffect(() => {
+    scrollActiveOptionIntoView(activeSessionRowRef.current);
+  }, [data.session?.sessionId, data.sessions]);
   const activeSessionTitle = useMemo(() => sessionHeadingTitle(data.session, data.sessions), [data.session, data.sessions]);
   // The grown height lives in an inline style, so keying it to the draft is what makes it shrink again: submitting, picking a starter card, accepting a completion and switching sessions all replace the draft without a keystroke, and a keystroke-only resize would leave the composer frozen at the height of text that is no longer there.
   useEffect(() => {
@@ -11332,10 +11361,16 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     type="checkbox"
                   />
                 )}
+                {/* Selection mode already suppresses the row's other action, the ⋯ button. Leaving navigation on the row body means a 14 px miss of the checkbox throws away the conversation being read and still selects nothing. */}
                 <button
+                  aria-checked={sessionSelectionMode ? (activeSessionPath ? selectedSessionPaths.has(activeSessionPath) : false) : undefined}
                   aria-current="true"
                   className="session-row active"
                   onClick={() => {
+                    if (sessionSelectionMode) {
+                      if (activeSessionPath) toggleSessionSelection(activeSessionPath);
+                      return;
+                    }
                     setSettings(undefined);
                     setCommandOpen(false);
                     setGlobalSearchOpen(false);
@@ -11345,6 +11380,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                     setSessionMenuOpen(false);
                     void refresh();
                   }}
+                  ref={activeSessionRowRef}
+                  role={sessionSelectionMode ? "checkbox" : undefined}
                   type="button"
                 >
                   <span className="session-dot ok"></span>
@@ -11438,9 +11475,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                       />
                     )}
                     <button
+                      aria-checked={sessionSelectionMode ? typeof session.path === "string" && selectedSessionPaths.has(session.path) : undefined}
                       aria-current={session.sessionId === data.session?.sessionId ? "true" : undefined}
                       className={`session-row ${session.sessionId === data.session?.sessionId ? "active" : ""}`}
-                      onClick={() => openSession(session)}
+                      onClick={() => {
+                        if (sessionSelectionMode) {
+                          if (typeof session.path === "string") toggleSessionSelection(session.path);
+                          return;
+                        }
+                        openSession(session);
+                      }}
+                      ref={session.sessionId === data.session?.sessionId ? activeSessionRowRef : undefined}
+                      role={sessionSelectionMode ? "checkbox" : undefined}
                       type="button"
                     >
                       <span className="session-dot ok"></span>
@@ -11681,7 +11727,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 {formatRunClock(runTelemetry.elapsedSeconds)}
               </span>
               <span className="run-activity">{runToneText(runTelemetry)}</span>
-              <button className="stop-button" onClick={stopRun} title={t("停止当前运行（⌃C）")} type="button">
+              {/* Offering Stop while the runtime is unreachable promises an abort the POST cannot deliver. */}
+              <button className="stop-button" disabled={runTelemetry.tone === "offline"} onClick={stopRun} title={t("停止当前运行（⌃C）")} type="button">
                 {t("停止")}
               </button>
             </div>
