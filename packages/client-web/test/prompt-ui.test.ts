@@ -71,7 +71,47 @@ describe("prompt UI state", () => {
 
     promptUi.writeStoredPromptDraft(storage, "session-one", "saved before oversized input");
     promptUi.writeStoredPromptDraft(storage, "session-one", "x".repeat(128_001));
-    expect(promptUi.readStoredPromptDraft(storage, "session-one")).toBe("");
+    expect(promptUi.readStoredPromptDraft(storage, "session-one")).toBe("x".repeat(128_000));
+  });
+
+  // Deleting the key on overflow threw away the last draft that had fitted as well, so a composer that grew past the cap came back empty after a reload instead of coming back short.
+  test("keeps as much of an oversized draft as fits instead of deleting what was stored", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    const oversized = "y".repeat(130_000);
+
+    promptUi.writeStoredPromptDraft(storage, "session-one", "z".repeat(120_000));
+    promptUi.writeStoredPromptDraft(storage, "session-one", oversized);
+
+    const stored = promptUi.readStoredPromptDraftSnapshot(storage, "session-one");
+    expect(stored?.draft).toBe(oversized.slice(0, 128_000));
+    expect(stored?.truncated).toBe(true);
+    expect(promptUi.readStoredPromptDraft(storage, "session-one").length).toBe(128_000);
+
+    // A draft that fits again is stored whole, and says so.
+    promptUi.writeStoredPromptDraft(storage, "session-one", "back under the cap");
+    const restored = promptUi.readStoredPromptDraftSnapshot(storage, "session-one");
+    expect(restored?.draft).toBe("back under the cap");
+    expect(restored?.truncated).toBeUndefined();
+  });
+
+  test("leaves the stored draft alone when the payload as a whole cannot be written", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+
+    promptUi.writeStoredPromptDraft(storage, "session-one", "the draft worth keeping");
+    expect(
+      promptUi.writeStoredPromptDraft(storage, "session-one", "still typing", undefined, { prompt: "p".repeat(2_000_000), delivery: "prompt" }),
+    ).toBeUndefined();
+    expect(promptUi.readStoredPromptDraft(storage, "session-one")).toBe("the draft worth keeping");
   });
 
   test("keeps the composer usable when prompt draft storage is blocked", () => {

@@ -730,6 +730,19 @@ button:disabled {
 .compaction-body {
   @apply [padding:2px_12px_12px] [border-top:1px_solid_var(--color-line)];
 }
+/* Output a command produced is neither side of the conversation, so it reads as a bordered notice rather than as a bubble anyone spoke in. */
+.turn.custom {
+  @apply [width:100%] [max-width:960px];
+}
+.custom-turn {
+  @apply [border:1px_solid_var(--color-line)] [border-left:2px_solid_var(--color-blue)] [border-radius:8px] [background:var(--color-soft)];
+}
+.custom-turn-head {
+  @apply [display:block] [padding:8px_12px_0] [color:var(--color-muted)] [font:10.5px_var(--font-mono)];
+}
+.custom-turn-body {
+  @apply [padding:2px_12px_10px];
+}
 .turn-tool-output {
   @apply [max-height:320px] [margin:0] [overflow:auto] [border-top:1px_solid_var(--color-line)] [padding:10px] [font:11.5px_var(--font-mono)] [line-height:1.65] [white-space:pre-wrap] [word-break:break-word];
 }
@@ -1092,6 +1105,9 @@ button:disabled {
 }
 .composer-hint {
   @apply [flex:1] [color:var(--color-faint)] [font:10px_var(--font-mono)] [text-align:right];
+}
+.composer-overflow {
+  @apply [margin:0] [border-radius:7px] [background:var(--color-amber-soft)] [padding:6px_10px] [color:var(--color-amber)] [font-size:11.5px];
 }
 .send-button {
   @apply [width:28px] [height:28px] [border-radius:8px] [background:var(--color-ink)] [color:var(--color-inverse)] [font-size:15px];

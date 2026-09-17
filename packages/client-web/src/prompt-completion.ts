@@ -13,6 +13,8 @@ export function getPromptCompletion(text: string, caret: number): PromptCompleti
   const token = text.slice(tokenStart, position);
   const trigger = token[0];
   if (trigger !== "/" && trigger !== "@") return null;
+  // The runtime only expands a command when the whole prompt starts with "/", and a slash anywhere else is sent to the model as prose. Offering the command list mid-text therefore promised an execution that could not happen and billed the turn as chat instead. A file reference has no such rule and stays available at any caret.
+  if (trigger === "/" && tokenStart !== 0) return null;
   const query = token.slice(1);
   if (/\s/.test(query)) return null;
   return { kind: trigger === "/" ? "command" : "file", query, start: tokenStart, end: position };

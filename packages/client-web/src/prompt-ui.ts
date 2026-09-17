@@ -36,7 +36,8 @@ export interface ClientPromptUiState {
 }
 
 const promptDraftStorageKeyPrefix = "pi-harness.prompt-draft";
-const maxStoredPromptDraftCharacters = 128_000;
+/** How much of a draft survives a reload. The composer itself is not capped, so this is also the number it warns about as the draft approaches it. */
+export const maxStoredPromptDraftCharacters = 128_000;
 const maxStoredPromptDraftPayloadCharacters = maxStoredPromptDraftCharacters * 12 + 512;
 let nextPromptDraftRevision = 0;
 
@@ -44,6 +45,8 @@ export interface StoredPromptDraft {
   readonly sessionId: string;
   readonly draft: string;
   readonly revision: string;
+  /** Set when what was stored is only the beginning of what the composer held, so a restore can say the tail did not survive rather than present a short draft as the whole one. */
+  readonly truncated?: boolean;
   readonly submission?: { readonly prompt: string; readonly delivery: "prompt" | "steer"; readonly annotations?: readonly ClientAnnotation[] };
 }
 
@@ -65,8 +68,9 @@ export function readStoredPromptDraftSnapshot(storage: Pick<Storage, "getItem"> 
     if (raw === null || raw.length > maxStoredPromptDraftPayloadCharacters) return undefined;
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== "object") return undefined;
-    const candidate = parsed as { sessionId?: unknown; draft?: unknown; revision?: unknown; submission?: unknown };
+    const candidate = parsed as { sessionId?: unknown; draft?: unknown; revision?: unknown; truncated?: unknown; submission?: unknown };
     if (candidate.sessionId !== sessionId || typeof candidate.draft !== "string" || typeof candidate.revision !== "string") return undefined;
+    if (candidate.truncated !== undefined && typeof candidate.truncated !== "boolean") return undefined;
     if (candidate.draft.length > maxStoredPromptDraftCharacters || candidate.revision.length === 0 || candidate.revision.length > 128) return undefined;
     let submission: StoredPromptDraft["submission"];
     if (candidate.submission !== undefined) {
@@ -85,7 +89,13 @@ export function readStoredPromptDraftSnapshot(storage: Pick<Storage, "getItem"> 
         ...(value.annotations === undefined ? {} : { annotations: value.annotations }),
       };
     }
-    return { sessionId, draft: candidate.draft, revision: candidate.revision, ...(submission === undefined ? {} : { submission }) };
+    return {
+      sessionId,
+      draft: candidate.draft,
+      revision: candidate.revision,
+      ...(candidate.truncated === true ? { truncated: true } : {}),
+      ...(submission === undefined ? {} : { submission }),
+    };
   } catch {
     return undefined;
   }
@@ -108,15 +118,22 @@ export function writeStoredPromptDraft(
 ): string | undefined {
   if (storage === undefined || sessionId === undefined) return undefined;
   try {
-    if ((draft === "" && submission === undefined) || draft.length > maxStoredPromptDraftCharacters) {
+    if (draft === "" && submission === undefined) {
       clearStoredPromptDraft(storage, sessionId);
       return undefined;
     }
-    const payload = JSON.stringify({ sessionId, draft, revision: draftRevision, ...(submission === undefined ? {} : { submission }) });
-    if (payload.length > maxStoredPromptDraftPayloadCharacters) {
-      clearStoredPromptDraft(storage, sessionId);
-      return undefined;
-    }
+    // A draft past the cap keeps as much of itself as fits instead of deleting the key: dropping it took the last draft that had fitted down with it, so a composer that grew past the limit came back empty after a reload rather than coming back short.
+    const stored = draft.length > maxStoredPromptDraftCharacters ? draft.slice(0, maxStoredPromptDraftCharacters) : draft;
+    const truncated = stored.length < draft.length;
+    const payload = JSON.stringify({
+      sessionId,
+      draft: stored,
+      revision: draftRevision,
+      ...(truncated ? { truncated: true } : {}),
+      ...(submission === undefined ? {} : { submission }),
+    });
+    // An oversized payload is one this function cannot honour at all, and the write is abandoned rather than turned into a deletion: whatever was stored before is still the best copy of the draft that exists.
+    if (payload.length > maxStoredPromptDraftPayloadCharacters) return undefined;
     storage.setItem(`${promptDraftStorageKeyPrefix}.${sessionId}`, payload);
     return draftRevision;
   } catch {

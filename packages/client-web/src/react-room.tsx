@@ -28,6 +28,7 @@ import {
   failPromptSubmission,
   finishPromptSubmission,
   acceptedPromptReceipt,
+  maxStoredPromptDraftCharacters,
   promptDelivery,
   promptSubmissionIdentity,
   promptUiDuringSessionRestore,
@@ -547,12 +548,10 @@ export function shouldInterruptRun(
   return !(typeof field?.selectionStart === "number" && typeof field.selectionEnd === "number" && field.selectionStart !== field.selectionEnd);
 }
 
-// Picking a command out of a palette adds to what the user already wrote instead of replacing it: the draft is the reason they went looking for the command name in the first place.
-export function insertCommandDraft(draft: string, caret: number, value: string): { text: string; caret: number } {
-  const position = Math.max(0, Math.min(caret, draft.length));
-  const before = draft.slice(0, position);
-  const insertion = `${before && !/\s$/u.test(before) ? " " : ""}${value} `;
-  return { text: `${before}${insertion}${draft.slice(position)}`, caret: before.length + insertion.length };
+// Picking a command out of a palette adds to what the user already wrote instead of replacing it: the draft is the reason they went looking for the command name in the first place. The command goes to the front regardless of where the caret was, because the runtime only expands a prompt that begins with the command; dropped at the caret it was sent to the model as prose and the command never ran.
+export function insertCommandDraft(draft: string, value: string): { text: string; caret: number } {
+  const rest = draft.trimStart();
+  return { text: rest ? `${value} ${rest}` : `${value} `, caret: value.length + 1 };
 }
 
 // A plugin that needs a restart is installed on disk but absent from every list the gateway builds from the loader, so the console remembers it here to keep saying so across reloads. localStorage is already scoped to the origin serving this console, and one origin is one harness process, so the set needs no key of its own; the profile path the gateway installs into is not exposed over the API.
@@ -8542,10 +8541,7 @@ function PromptCompletionPopover({
   onActiveIndexChange: (index: number) => void;
   onUse: (value: string) => void;
 }) {
-  const items =
-    kind === "command"
-      ? filterCommands(commands, query).slice(0, 12)
-      : files.filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 12);
+  const items = kind === "command" ? filterCommands(commands, query).slice(0, 12) : files.filter((file) => fileMatchesQuery(file, query)).slice(0, 12);
   const activeOptionRef = useRef<HTMLButtonElement>(null);
   useEffect(() => scrollActiveOptionIntoView(activeOptionRef.current), [activeIndex, kind, query]);
   return (
@@ -8650,6 +8646,12 @@ export function sessionHeadingTitle(
   const firstMessage = typeof listed?.firstMessage === "string" ? listed.firstMessage : "";
   if (firstMessage) return truncateSessionTitle(firstMessage);
   return session.messages.length ? session.sessionId.slice(0, 12) : t("新会话");
+}
+
+/** A file query is matched against the path alone. The label beside a path is a constant — every indexed file is labelled "workspace" and every changed one "untracked" — so matching it made each of those words match the whole workspace, and let "spa" pull in files whose path contains nothing of the kind while the file actually being typed was ranked behind them. The label stays visible as detail through fileCompletionDetail. */
+export function fileMatchesQuery(file: Pick<ClientFile, "path">, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  return needle === "" || file.path.toLowerCase().includes(needle);
 }
 
 export function fileCompletionDetail(file: Pick<ClientFile, "label" | "status">): string {
@@ -8784,7 +8786,7 @@ export function GlobalSearch({
     ...(onSearchSessions ? searchedSessions : sessions)
       .filter((session) => matches(`${value(session.name, "")} ${value(session.firstMessage, "")} ${value(session.sessionId, "")}`))
       .map((session) => ({ kind: "session" as const, session })),
-    ...files.filter((file) => matches(`${file.path} ${file.label} ${file.status}`)).map((file) => ({ kind: "file" as const, file })),
+    ...files.filter((file) => fileMatchesQuery(file, query)).map((file) => ({ kind: "file" as const, file })),
   ];
   const selectedIndex = items.length ? Math.min(activeIndex, items.length - 1) : -1;
   const activeItemId = selectedIndex >= 0 ? `global-search-option-${selectedIndex}` : undefined;
@@ -8936,6 +8938,9 @@ export interface RunTelemetryView {
 
 const RUN_QUIET_AFTER_MS = 30_000;
 
+/** How often the console polls /api/status. The run tone reads it to decide whether a failed poll has had time to be confirmed by silence on the event stream, so the two have to be the same number. */
+const STATUS_POLL_INTERVAL_MS = 5_000;
+
 function clampedTimestamp(value: string, fallback: number, now: number): number {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? Math.min(parsed, now) : fallback;
@@ -8962,9 +8967,9 @@ export function runTelemetryView(
 ): RunTelemetryView {
   const elapsedSeconds = Math.max(0, Math.floor((now - activity.startedAt) / 1000));
   const quietSeconds = Math.max(0, Math.floor((now - activity.lastActivityAt) / 1000));
-  // A failing status poll is on its own enough to call the run offline: the event stream can stay in the "open" state long after the socket has silently died, and the last successful status payload keeps claiming the run is live, so requiring both signals let the pill promise "Model responding" for as long as the partition lasted.
+  // A failing status poll calls the run offline as soon as the event stream has also gone silent for a poll interval. The stream is the corroborating witness the connection state cannot be: an EventSource stays in the "open" state long after its socket has silently died, so the tone must not wait for it, but a stream that is still delivering deltas proves the runtime is alive and the pill must not announce it unreachable over an answer the reader is watching arrive.
   const tone =
-    statusReachable === false
+    statusReachable === false && quietSeconds * 1000 >= STATUS_POLL_INTERVAL_MS
       ? "offline"
       : connection === "closed"
         ? "disconnected"
@@ -9140,7 +9145,7 @@ export const ChatTurnArticle = memo(
     tokensBefore,
     onMouseUp,
   }: {
-    role: "user" | "assistant" | "compaction";
+    role: "user" | "assistant" | "compaction" | "custom";
     text: string;
     parts?: readonly ChatTurnPart[];
     stopped?: boolean;
@@ -9166,6 +9171,18 @@ export const ChatTurnArticle = memo(
               {text.trim() ? <MarkdownMessage text={text} /> : <span className="empty-state">{t("运行时没有提供摘要内容。")}</span>}
             </div>
           </details>
+        </article>
+      );
+    // A command answers through a message the runtime marks for display, and that answer is neither something the user said nor something the model said: rendered as an assistant turn it would claim the model wrote it, and dropped it left the reader with a command that silently did nothing.
+    if (role === "custom")
+      return (
+        <article className="turn custom">
+          <div className="custom-turn">
+            <span className="custom-turn-head">{t("命令输出")}</span>
+            <div className="custom-turn-body">
+              <MarkdownMessage text={text} />
+            </div>
+          </div>
         </article>
       );
     return (
@@ -9465,6 +9482,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [eventStreamState, setEventStreamState] = useState<ClientEventStreamState>("connecting");
   const [statusReachable, setStatusReachable] = useState<boolean>();
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  // What the Commands chip wrote into the draft, kept so dismissing the list can take it back. The draft it produced is recorded with it: anything else in the composer by then was typed by the user and is theirs to keep.
+  const commandInsertionRef = useRef<{ readonly start: number; readonly text: string; readonly draft: string; readonly caret: number } | undefined>(undefined);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const refreshTimerRef = useRef<number | undefined>(undefined);
@@ -9526,11 +9545,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     if (!promptCompletion) return [] as readonly (ClientCommand | ClientFile)[];
     return promptCompletion.kind === "command"
       ? filterCommands(data.commands, promptCompletion.query).slice(0, 12)
-      : searchableFiles
-          .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(promptCompletion.query.trim().toLowerCase()))
-          .slice(0, 12);
+      : searchableFiles.filter((file) => fileMatchesQuery(file, promptCompletion.query)).slice(0, 12);
   }, [data.commands, promptCompletion, searchableFiles]);
-  const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed && promptCompletionItems.length);
+  // The popover opens on the token alone, empty or not: a path that matches nothing is exactly the moment the reader needs to be told so, and gating the popover on having items meant a mistyped @ reference looked the same as one that had not been recognised as a reference at all. The keydown handler keeps its own gate on the item count, so Enter still sends the prompt rather than being swallowed by a list with nothing to accept.
+  const promptCompletionOpen = Boolean(promptCompletion && !promptCompletionSuppressed);
   const promptCompletionActiveIndex = Math.min(promptCompletionIndex, Math.max(promptCompletionItems.length - 1, 0));
   const installedPackages = useMemo(
     () => new Set(data.plugins.filter((plugin) => plugin.removable && plugin.state !== RESTART_REQUIRED_PLUGIN_STATE).map((plugin) => plugin.name)),
@@ -10088,7 +10106,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   }, [refreshMarketplace]);
   useEffect(() => subscribeRuntimeEvents(api, handleRuntimeEventRef, handleEventStreamStateRef), [api]);
   useEffect(() => {
-    const timer = window.setInterval(() => void refreshRef.current(), 5000);
+    const timer = window.setInterval(() => void refreshRef.current(), STATUS_POLL_INTERVAL_MS);
     return () => {
       window.clearInterval(timer);
       if (refreshTimerRef.current !== undefined) {
@@ -10374,14 +10392,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const openCommandCompletion = () => {
     const input = promptInputRef.current;
     const caret = input?.selectionStart ?? draft.length;
-    const existing = getPromptCompletion(draft, caret);
-    let nextCaret = caret;
-    if (existing?.kind !== "command") {
-      const separator = caret > 0 && !/\s/.test(draft[caret - 1] ?? "") ? " " : "";
-      const insertion = `${separator}/`;
-      const nextDraft = `${draft.slice(0, caret)}${insertion}${draft.slice(caret)}`;
-      nextCaret = caret + insertion.length;
+    const firstBreak = draft.search(/\s/u);
+    // The slash is written at the front of the draft rather than at the caret: the runtime dispatches a command only when the prompt begins with one, so a slash left mid-text opened a list whose every entry would have been sent to the model as prose.
+    let nextCaret = firstBreak === -1 ? draft.length : firstBreak;
+    if (!draft.startsWith("/")) {
+      const insertion = draft && !/^\s/u.test(draft) ? "/ " : "/";
+      const nextDraft = `${insertion}${draft}`;
+      nextCaret = 1;
       setDraft(nextDraft);
+      commandInsertionRef.current = { start: 0, text: insertion, draft: nextDraft, caret };
     }
     setPromptCaret(nextCaret);
     setPromptCompletionSuppressed(false);
@@ -10764,14 +10783,15 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   ) : view === "chat" ? (
     <section className="view-panel chat-view">
       <div
-        className={`chat-scroll ${data.session?.messages.length || data.status?.status === "running" ? "" : "is-empty"}`}
+        className={`chat-scroll ${chatTurns.length || data.status?.status === "running" ? "" : "is-empty"}`}
         onScroll={(event) => {
           const element = event.currentTarget;
           stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
         }}
         ref={chatScrollRef}
       >
-        {data.session?.messages.length ? (
+        {/* What the pane shows is decided by the turns it can actually draw, not by how many messages the session holds: a history that projects to no turns at all used to suppress the empty state and put nothing in its place, leaving a white pane beside a header counting the messages behind it. */}
+        {chatTurns.length ? (
           chatTurns.map((turn, index) => (
             <ChatTurnArticle
               key={index}
@@ -10933,9 +10953,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
               </button>
             </div>
           ) : null}
+          {/* The composer accepts a draft of any length but the stored copy stops at the cap, and a draft this long is precisely the one nobody wants to find shortened after a reload with no warning that anything was left behind. */}
+          {draft.length > maxStoredPromptDraftCharacters ? (
+            <p className="composer-overflow" role="status">
+              {t("草稿超过 {max} 字符，超出部分不会被保存，刷新后会丢失", { max: maxStoredPromptDraftCharacters.toLocaleString(formatLocale()) })}
+            </p>
+          ) : null}
           <form className="composer" onSubmit={submit}>
             <textarea
-              aria-activedescendant={promptCompletionOpen ? `prompt-completion-option-${promptCompletionActiveIndex}` : undefined}
+              // A list open on a query that matches nothing has no option to point a screen reader at, and naming one that is not rendered would leave it following a dangling id.
+              aria-activedescendant={
+                promptCompletionOpen && promptCompletionItems.length ? `prompt-completion-option-${promptCompletionActiveIndex}` : undefined
+              }
               aria-autocomplete="list"
               aria-controls={promptCompletionOpen ? "prompt-completion-list" : undefined}
               aria-expanded={promptCompletionOpen}
@@ -10954,9 +10983,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 const items = completion
                   ? completion.kind === "command"
                     ? filterCommands(data.commands, completion.query).slice(0, 12)
-                    : searchableFiles
-                        .filter((file) => `${file.path} ${file.label} ${file.status}`.toLowerCase().includes(completion.query.trim().toLowerCase()))
-                        .slice(0, 12)
+                    : searchableFiles.filter((file) => fileMatchesQuery(file, completion.query)).slice(0, 12)
                   : [];
                 const popupOpen = Boolean(completion && !promptCompletionSuppressed && items.length);
                 if (popupOpen && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -10984,6 +11011,18 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                 if (event.key === "Escape" && completion && !promptCompletionSuppressed) {
                   event.preventDefault();
                   setPromptCompletionSuppressed(true);
+                  // Dismissing the list also takes back the slash the Commands chip wrote, which the user never typed: left on an otherwise empty composer it is sent as an unknown command, and in front of a draft it is a stray character the model has to read past. A draft that has moved on since the insertion is the user's own and is left exactly as it is.
+                  const insertion = commandInsertionRef.current;
+                  commandInsertionRef.current = undefined;
+                  if (insertion === undefined || event.currentTarget.value !== insertion.draft) return;
+                  const restored = `${insertion.draft.slice(0, insertion.start)}${insertion.draft.slice(insertion.start + insertion.text.length)}`;
+                  setDraft(restored);
+                  setPromptCaret(insertion.caret);
+                  requestAnimationFrame(() => {
+                    const field = promptInputRef.current;
+                    field?.focus();
+                    field?.setSelectionRange(insertion.caret, insertion.caret);
+                  });
                   return;
                 }
                 const sendOnModifier = sendShortcut === "mod-enter";
@@ -10992,7 +11031,11 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              onClick={() => {
+              // The popover is derived from the caret in state while the keydown handler reads the live one off the field, so a caret moved without typing left the two disagreeing: the list stayed open over a token that was no longer under the caret, and Enter sent the half-typed prompt instead of accepting the item the list was still highlighting. Home and the arrow keys report through keyup, a click through its own handler, and a drag-selection through select.
+              onKeyUp={(event) => setPromptCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
+              onSelect={(event) => setPromptCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
+              onClick={(event) => {
+                setPromptCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
                 if (!workspaceReady) setWorkspaceChooserOpen(true);
               }}
               onFocus={(event) => {
@@ -11118,9 +11161,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const activeTheme = themeStudioData?.theme;
   const insertCommand = useCallback(
     (value: string) => {
-      const input = promptInputRef.current;
-      // selectionStart is read off the field instead of the promptCaret state because the state goes stale as soon as the caret is moved with the mouse, while the field keeps reporting its caret after a dialog blurs it.
-      const replacement = insertCommandDraft(draft, input?.selectionStart ?? draft.length, value);
+      const replacement = insertCommandDraft(draft, value);
       setDraft(replacement.text);
       setPromptCaret(replacement.caret);
       setPromptCompletionSuppressed(false);
