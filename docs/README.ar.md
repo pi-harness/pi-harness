@@ -13,7 +13,7 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
-Use `pih` as the canonical command-line interface. Use `pi-harness` to start the web console.
+استخدم `pih` بوصفه واجهة سطر الأوامر الأساسية، واستخدم `pi-harness` لتشغيل وحدة تحكم الويب.
 
 يكفي عادةً تثبيت الحزمة الرئيسية؛ إذ تُثبّت تبعيات التنفيذ، ومنها `@pi-harness/core`، تلقائياً.
 
@@ -29,9 +29,9 @@ npm run web
 
 عند التشغيل، يتحقق Pi Harness في الخلفية من وجود إصدار متوافق أحدث من `@pi-harness/core`. لا يؤخر ذلك بدء التشغيل، ويعرض الأمر عند توفر تحديث ويتجاهل أخطاء الشبكة. للتحديث شغّل `npm update --global @pi-harness/pi-harness`، أو عطّل التحقق باستخدام `PI_HARNESS_DISABLE_UPDATE_CHECK=1`.
 
-أهم متغيرات البيئة هي `PI_HARNESS_HOST` و`PI_HARNESS_PORT` و`PI_AGENT_DIR` و`PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL`. العنوان الافتراضي هو `http://127.0.0.1:3141`.
+أهم متغيرات البيئة هي `PI_HARNESS_HOST` و`PI_HARNESS_PORT` و`PI_CODING_AGENT_DIR` (أما `PI_AGENT_DIR` فهو اسم بديل للتوافق لا يُقرأ إلا عندما يكون `PI_CODING_AGENT_DIR` غير مضبوط أو فارغاً) و`PI_HARNESS_HOME` و`PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL`. العنوان الافتراضي هو `http://127.0.0.1:3141`.
 
-يختار profile وحدة تحكم الويب ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) النموذج `everyapi/deepseek-v4-flash` افتراضياً. واختيار النموذج fail-closed: إذا لم يكن ذلك المزوّد مسجّلاً في `PI_AGENT_DIR` النشط، يتوقف التشغيل بالخطأ `Pi model is not registered: <provider>/<model>` بدلاً من التحوّل إلى مزوّد آخر. لذلك جهّز كتالوج النماذج أولاً بعد التثبيت الجديد: ثبّت أداة EveryAPI CLI عبر `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (وفي Windows عبر `irm https://dl.everyapi.ai/install.ps1 | iex`) ثم شغّل `everyapi use pi-harness`، فهي تسجّل كتالوج مزوّدي EveryAPI داخل مجلد Pi agent الدائم الذي يحدّده `PI_CODING_AGENT_DIR` لا داخل مجلد معزول خاص بها، أو وجّه `PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL` إلى نموذج مسجّل مسبقاً في ذلك المجلد. كذلك يختار profile‏ `default` و`development` المضمّنان في CLI الزوج نفسه عبر المتغيّرين نفسيهما، فتلك الخطوة الواحدة تسجّل الكتالوج للـ CLI ولوحدة تحكم الويب معاً، لكن `everyapi use pi-harness` لا يسلّم مفتاح مرحّل EveryAPI إلا للعملية التي يشغّلها بنفسه. لذلك شغّل CLI عبره أيضاً بالصيغة `everyapi use pi-harness -- <وسائط pih>` مع shim باسم `pi-harness` على `PATH` ينفّذ pih عبر exec، أو أعطه `PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL` مع بيانات اعتماد خاصة به.
+يختار profile وحدة تحكم الويب ([`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)) النموذج `everyapi/deepseek-v4-flash` افتراضياً. واختيار النموذج fail-closed: إذا لم يكن ذلك المزوّد مسجّلاً في مجلد agent الذي يحدّده `PI_CODING_AGENT_DIR`، يتوقف التشغيل بالخطأ `Pi model is not registered: <provider>/<model>` بدلاً من التحوّل إلى مزوّد آخر. لذلك جهّز كتالوج النماذج أولاً بعد التثبيت الجديد: ثبّت أداة EveryAPI CLI عبر `curl -fsSL https://dl.everyapi.ai/install.sh | bash` (وفي Windows عبر `irm https://dl.everyapi.ai/install.ps1 | iex`) ثم شغّل `everyapi use pi-harness`، فهي تسجّل كتالوج مزوّدي EveryAPI داخل مجلد Pi agent الدائم الذي يحدّده `PI_CODING_AGENT_DIR` لا داخل مجلد معزول خاص بها، أو وجّه `PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL` إلى نموذج مسجّل مسبقاً في ذلك المجلد. كذلك يختار profile‏ `default` و`development` المضمّنان في CLI الزوج نفسه عبر المتغيّرين نفسيهما، فتلك الخطوة الواحدة تسجّل الكتالوج للـ CLI ولوحدة تحكم الويب معاً، لكن `everyapi use pi-harness` لا يسلّم مفتاح مرحّل EveryAPI إلا للعملية التي يشغّلها بنفسه. لذلك شغّل CLI عبره أيضاً بالصيغة `everyapi use pi-harness -- <وسائط pih>` مع shim باسم `pi-harness` على `PATH` ينفّذ pih عبر exec، أو أعطه `PI_HARNESS_PROVIDER` و`PI_HARNESS_MODEL` مع بيانات اعتماد خاصة به.
 
 ## CLI
 

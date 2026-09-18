@@ -84,6 +84,24 @@ describe("reference documentation", () => {
     for (const variable of ["PI_HARNESS_HOME", "PI_CODING_AGENT_DIR"]) expect(readme, `${variable} is undocumented`).toContain(variable);
   });
 
+  it("keeps every README translation translated and current on the agent directory variables", async () => {
+    // A translation is read by someone who chose it over the English page, so an English sentence left in it is a sentence they may not be able to read, and the environment paragraph is where a reader learns which directory their credentials land in: a translation still naming `PI_AGENT_DIR` as the main variable sends them to the alias while the fail-closed clause two lines later names the real one.
+    const translations = (await readdir(resolve(repositoryRoot, "docs"))).filter(
+      (name) => /^README\.[a-zA-Z-]+\.md$/u.test(name) && name !== "README.reference.md",
+    );
+    expect(translations.length).toBeGreaterThanOrEqual(10);
+    for (const name of translations) {
+      const text = await readText(`docs/${name}`);
+      expect(text, `${name} keeps the English CLI sentence`).not.toContain("canonical command-line interface");
+      for (const variable of ["PI_CODING_AGENT_DIR", "PI_AGENT_DIR", "PI_HARNESS_HOME"])
+        expect(text, `${name} does not mention ${variable}`).toContain(variable);
+      expect(text.indexOf("PI_CODING_AGENT_DIR"), `${name} names PI_AGENT_DIR before PI_CODING_AGENT_DIR`).toBeLessThan(text.indexOf("PI_AGENT_DIR"));
+      expect(text, `${name} still calls PI_AGENT_DIR the active agent directory`).not.toMatch(
+        /`PI_AGENT_DIR` (?:النشط|activo|actif|attivo|ativo)|aktiven `PI_AGENT_DIR`|активном `PI_AGENT_DIR`|現在の `PI_AGENT_DIR`|현재 `PI_AGENT_DIR`|当前 `PI_AGENT_DIR`/u,
+      );
+    }
+  });
+
   it("inventories every workspace directory under packages and apps, and no directory that is gone", async () => {
     // These two lists are what a contributor reads instead of running `ls`, so a name that has moved sends them looking for code that is not there, and an omission hides a whole workspace. The reference is narrowed to its own layout section first, because the prose elsewhere names some of these directories in passing and would otherwise satisfy the inventory on their behalf.
     const reference = await readText("docs/README.reference.md");
