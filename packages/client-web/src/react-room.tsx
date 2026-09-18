@@ -178,12 +178,13 @@ const value = (input: unknown, fallback = "—"): string => {
   }
 };
 
+// The catalogs have no plural rules, so a count of one gets its own message the way the delete dialog already does; every other count shares the plural form. The sidebar count arrives as a preformatted string in places, hence the coercion.
 export function contextMessageCountLabel(count: number): string {
-  return t("{count} 条上下文消息", { count });
+  return Number(count) === 1 ? t("1 条上下文消息") : t("{count} 条上下文消息", { count });
 }
 
 export function sessionLogMessageCountLabel(count: number | string): string {
-  return t("{count} 条日志消息", { count });
+  return Number(count) === 1 ? t("1 条日志消息") : t("{count} 条日志消息", { count });
 }
 
 function betterSidebarGitFailureText(reason: BetterSidebarGitFailureReason | null): string {
@@ -3076,7 +3077,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                     {t("{v0} 个文本段 · {v1} bytes", { v0: value(latest.messages ?? 0), v1: value(latest.bytes ?? 0) })}
                   </p>
                   <dl className="mt-2 grid gap-1 text-[10px] text-[var(--color-muted)]">
-                    <dt>{t("会话")}</dt>
+                    <dt>{t("当前会话")}</dt>
                     <dd className="break-all font-mono">{value(latest.sessionId, "—")}</dd>
                     <dt>{t("工作区：")}</dt>
                     <dd className="break-all font-mono">{value(latest.workspace, "—")}</dd>
@@ -3111,7 +3112,13 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
             <div className="flex items-center justify-between rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
               <code className="min-w-0 truncate text-[11px] text-[var(--color-blue)]">{value(data.query)}</code>
               <strong className="ml-3 shrink-0 text-[11px] text-[var(--color-blue)]">
-                {t(typeof data.nextCursor === "string" || data.nextCursor === null ? "本页匹配 {v0} 个会话" : "{v0} 个会话", { v0: value(data.total ?? 0) })}
+                {typeof data.nextCursor === "string" || data.nextCursor === null
+                  ? data.total === 1
+                    ? t("本页匹配 1 个会话")
+                    : t("本页匹配 {v0} 个会话", { v0: value(data.total ?? 0) })
+                  : data.total === 1
+                    ? t("1 个会话")
+                    : t("{v0} 个会话", { v0: value(data.total ?? 0) })}
               </strong>
             </div>
           ) : (
@@ -3319,7 +3326,13 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <span
                     className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${view.clean ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : view.gitAvailable ? "bg-[var(--color-red-soft)] text-[var(--color-red)]" : "bg-[var(--color-soft)] text-[var(--color-faint)]"}`}
                   >
-                    {!view.gitAvailable ? t("不可用") : view.clean ? "clean" : t("{count} 个变更", { count: view.changedCount })}
+                    {!view.gitAvailable
+                      ? t("不可用")
+                      : view.clean
+                        ? "clean"
+                        : view.changedCount === 1
+                          ? t("1 个变更")
+                          : t("{count} 个变更", { count: view.changedCount })}
                   </span>
                 </div>
                 <p className="mt-2 whitespace-pre-wrap font-mono text-[10px] text-[var(--color-muted)] [overflow-wrap:anywhere]">
@@ -3436,7 +3449,13 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                     <span
                       className={`shrink-0 text-[10px] ${!git.available ? "text-[var(--color-faint)]" : git.clean ? "text-[var(--color-green)]" : "text-[var(--color-red)]"}`}
                     >
-                      {!git.available ? t("不可用") : git.clean ? "clean" : t("{count} 个变更", { count: git.changedCount })}
+                      {!git.available
+                        ? t("不可用")
+                        : git.clean
+                          ? "clean"
+                          : git.changedCount === 1
+                            ? t("1 个变更")
+                            : t("{count} 个变更", { count: git.changedCount })}
                     </span>
                   </div>
                   {git.available ? (
@@ -6960,7 +6979,7 @@ function Plugins({
         <div className="subnav">
           <div aria-label={t("插件目录")} className="segmented">
             <button aria-pressed="true" className="active" type="button">
-              {t("已安装")}
+              {t("已安装的插件")}
             </button>
             <button aria-pressed="false" onClick={onMarketplace} type="button">
               {t("插件市场")}
@@ -6985,7 +7004,11 @@ function Plugins({
             value={query}
           />
           <span aria-live="polite">
-            {t("{v0} 个插件", { v0: query.trim() || categoryFilter ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}` })}
+            {query.trim() || categoryFilter
+              ? t("{v0} 个插件", { v0: `${visiblePlugins.length} / ${installedPlugins.length}` })
+              : installedPlugins.length === 1
+                ? t("1 个插件")
+                : t("{v0} 个插件", { v0: `${installedPlugins.length}` })}
           </span>
           {/* The outcome of a toggle or an uninstall belongs next to the controls that started it: the list below scrolls, so a message under it sits past the fold of a container nothing scrolls back, and a failed toggle whose switch snapped back then looks like nothing happened at all. The region is always in the markup so a screen reader announces the message that lands in it. */}
           <div aria-live="polite" className="plugins-toolbar-message">
@@ -7016,7 +7039,7 @@ function Plugins({
                         <div className="plugin-title">
                           <strong>{pluginTitle}</strong>
                           <span className={`plugin-state ${awaitingRestart ? "" : plugin.enabled ? "active" : ""}`}>
-                            {awaitingRestart ? t("重启后生效") : plugin.enabled ? t("运行中") : t("已停用")}
+                            {awaitingRestart ? t("重启后生效") : plugin.enabled ? t("运行中") : t("插件已停用")}
                           </span>
                           {categoryLabel && <span className="capability">{categoryLabel}</span>}
                           {categoryLabel !== shortName && <span className="capability">{shortName}</span>}
@@ -7189,7 +7212,7 @@ function InstalledPluginDetail({
               <span
                 className={`rounded px-2 py-1 font-mono text-[10px] ${awaitingRestart ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : plugin.enabled ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-soft)] text-[var(--color-faint)]"}`}
               >
-                {awaitingRestart ? t("重启后生效") : plugin.enabled ? t("运行中") : t("已停用")}
+                {awaitingRestart ? t("重启后生效") : plugin.enabled ? t("运行中") : t("插件已停用")}
               </span>
               <span className="rounded bg-[var(--color-blue-soft)] px-2 py-1 text-[10px] text-[var(--color-blue)]">
                 {metadata?.category.label ?? plugin.category?.label ?? t("运行时插件")}
@@ -7420,7 +7443,7 @@ export function Marketplace({
         <div className="subnav">
           <div aria-label={t("插件目录")} className="segmented">
             <button aria-pressed="false" onClick={onBack} type="button">
-              {t("已安装")}
+              {t("已安装的插件")}
             </button>
             <button aria-pressed="true" className="active" type="button">
               {t("插件市场")}
@@ -7493,7 +7516,7 @@ export function Marketplace({
                             : "rounded bg-[var(--color-amber-soft)] px-1.5 py-px font-mono text-[10px] text-[var(--color-amber)]"
                         }
                       >
-                        {plugin.status === "verified" ? t("已验证") : t("实验性")}
+                        {plugin.status === "verified" ? t("插件已验证") : t("实验性插件")}
                       </span>
                       <span
                         className={
@@ -7567,7 +7590,7 @@ export function Marketplace({
                       : dependencyRepairPackages.has(plugin.packageName)
                         ? t("修复依赖")
                         : installedPackages.has(plugin.packageName)
-                          ? t("已安装")
+                          ? t("插件已安装")
                           : restartPendingPackages.has(plugin.packageName)
                             ? t("重启后生效")
                             : t("安装")}
@@ -7669,7 +7692,7 @@ function MarketplaceDetail({
                     : "rounded bg-[var(--color-amber-soft)] px-2 py-1 font-mono text-[10px] text-[var(--color-amber)]"
                 }
               >
-                {plugin.status === "verified" ? t("已验证") : t("实验性")}
+                {plugin.status === "verified" ? t("插件已验证") : t("实验性插件")}
               </span>
             </div>
             <div className="flex flex-wrap items-end justify-between gap-5">
@@ -7687,7 +7710,7 @@ function MarketplaceDetail({
                   onClick={() => void install()}
                   type="button"
                 >
-                  {busy ? t("安装中…") : dependencyRepair ? t("修复依赖") : installed ? t("已安装") : restartPending ? t("重启后生效") : t("安装插件")}
+                  {busy ? t("安装中…") : dependencyRepair ? t("修复依赖") : installed ? t("插件已安装") : restartPending ? t("重启后生效") : t("安装插件")}
                 </button>
               </div>
             </div>
@@ -8006,7 +8029,7 @@ function Settings({
                 {[
                   [t("工作目录"), status?.cwd],
                   [t("agent 目录"), status?.agentDir],
-                  [t("会话"), status ? `${status.sessionId} · ${contextMessageCountLabel(status.messages)}` : "—"],
+                  [t("当前会话"), status ? `${status.sessionId} · ${contextMessageCountLabel(status.messages)}` : "—"],
                   [t("快捷键"), t("⌘K 命令 · ⌘, 设置 · ⌃C 中断")],
                   [t("权限策略"), t("当前 API 未提供修改接口")],
                 ].map(([key, item]) => (
@@ -8022,7 +8045,7 @@ function Settings({
                     <strong>{t("任务结束提醒插件")}</strong>
                     <small>{t("由 CLI Notifier 提供，具体目标在插件配置中管理")}</small>
                   </div>
-                  <span className={`setting-status ${notifierActive ? "on" : ""}`}>{notifierActive ? t("已加载") : t("未加载")}</span>
+                  <span className={`setting-status ${notifierActive ? "on" : ""}`}>{notifierActive ? t("插件已加载") : t("插件未加载")}</span>
                 </div>
                 <div className="general-row">
                   <div>
@@ -8984,7 +9007,7 @@ export function GlobalSearch({
                       item.kind === "command"
                         ? (item.command.description ?? item.command.source ?? t("由当前运行时注册"))
                         : item.kind === "session"
-                          ? `${t("{count} 条消息", { count: value(item.session.messageCount, "0") })}${sessionStatusSuffix(item.session)}`
+                          ? `${item.session.messageCount === 1 ? t("1 条消息") : t("{count} 条消息", { count: value(item.session.messageCount, "0") })}${sessionStatusSuffix(item.session)}`
                           : item.file.status
                             ? `${item.file.label} · ${item.file.status}`
                             : t("工作区");

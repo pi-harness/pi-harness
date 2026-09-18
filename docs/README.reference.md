@@ -886,7 +886,7 @@ Every route the bundled `@pi-harness/api-gateway` plugin registers is listed bel
 | `/api/session`             | GET       | Active session file, messages, entries, and buffered events.                                                                      |
 | `/api/session/new`         | POST      | Starts a new session; rejected with `409` while a prompt is streaming.                                                            |
 | `/api/session/open`        | POST      | Opens a stored session from the session directory.                                                                                |
-| `/api/session/rename`      | POST      | Renames a stored session; names are limited to 120 characters.                                                                    |
+| `/api/session/rename`      | POST      | Renames a stored session, or the active one when `path` is omitted; `name` is a string of at most 120 characters, "" clears it.   |
 | `/api/session/delete`      | POST      | Deletes a stored session and requires `confirm: true`.                                                                            |
 | `/api/session/metadata`    | POST      | Updates the archived and pinned flags of a stored session.                                                                        |
 | `/api/sessions/batch`      | POST      | Applies delete, archive, unarchive, pin, or unpin to at most 100 stored sessions.                                                 |

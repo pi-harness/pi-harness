@@ -13,7 +13,7 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
-Use `pih` as the canonical command-line interface. Use `pi-harness` to start the web console.
+正規のコマンドラインインターフェースとして `pih` を使い、Web コンソールの起動には `pi-harness` を使ってください。
 
 通常はメインパッケージだけをインストールします。`@pi-harness/core` などの依存パッケージは自動的に入ります。
 
@@ -29,9 +29,9 @@ npm run web
 
 起動時に互換性のある `@pi-harness/core` の更新をバックグラウンドで確認します。起動をブロックせず、更新があればコマンドを表示し、ネットワーク障害は無視します。`npm update --global @pi-harness/pi-harness` で更新し、`PI_HARNESS_DISABLE_UPDATE_CHECK=1` で確認を無効化できます。
 
-主な環境変数は `PI_HARNESS_HOST`、`PI_HARNESS_PORT`、`PI_AGENT_DIR`、`PI_HARNESS_PROVIDER`、`PI_HARNESS_MODEL` です。既定の URL は `http://127.0.0.1:3141` です。
+主な環境変数は `PI_HARNESS_HOST`、`PI_HARNESS_PORT`、`PI_CODING_AGENT_DIR`（`PI_AGENT_DIR` は互換用の別名で、`PI_CODING_AGENT_DIR` が未設定または空のときにだけ読まれます）、`PI_HARNESS_HOME`、`PI_HARNESS_PROVIDER`、`PI_HARNESS_MODEL` です。既定の URL は `http://127.0.0.1:3141` です。
 
-Web コンソールの profile（[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)）は既定で `everyapi/deepseek-v4-flash` を選択します。モデル選択は fail-closed で、その provider が現在の `PI_AGENT_DIR` に登録されていない場合は別の provider にフォールバックせず `Pi model is not registered: <provider>/<model>` で起動が中断します。新規インストール直後はまずモデルカタログを用意してください。EveryAPI CLI を `curl -fsSL https://dl.everyapi.ai/install.sh | bash`（Windows では `irm https://dl.everyapi.ai/install.ps1 | iex`）で導入し、`everyapi use pi-harness` を実行すると、独立したディレクトリではなく `PI_CODING_AGENT_DIR` が指す永続的な Pi agent ディレクトリに EveryAPI の provider カタログを登録します。あるいは `PI_HARNESS_PROVIDER` と `PI_HARNESS_MODEL` に、その agent ディレクトリへ登録済みのモデルを指定します。CLI 組み込みの `default` と `development` profile も同じ 2 つの変数を介して同じ組み合わせを選択するため、この一手順でカタログは CLI と Web コンソールの両方に登録されます。ただし `everyapi use pi-harness` は EveryAPI の中継キーを自身が起動したプロセスにしか渡さないので、CLI もこのツール経由で起動してください。`PATH` 上に pih を exec する `pi-harness` シムを置き、`everyapi use pi-harness -- <pih の引数>` として実行します。あるいは CLI に `PI_HARNESS_PROVIDER` と `PI_HARNESS_MODEL` を設定し、CLI 自身の認証情報を与えます。
+Web コンソールの profile（[`apps/web/profile/cordis.yml`](../apps/web/profile/cordis.yml)）は既定で `everyapi/deepseek-v4-flash` を選択します。モデル選択は fail-closed で、その provider が`PI_CODING_AGENT_DIR` が指す agent ディレクトリに登録されていない場合は別の provider にフォールバックせず `Pi model is not registered: <provider>/<model>` で起動が中断します。新規インストール直後はまずモデルカタログを用意してください。EveryAPI CLI を `curl -fsSL https://dl.everyapi.ai/install.sh | bash`（Windows では `irm https://dl.everyapi.ai/install.ps1 | iex`）で導入し、`everyapi use pi-harness` を実行すると、独立したディレクトリではなく `PI_CODING_AGENT_DIR` が指す永続的な Pi agent ディレクトリに EveryAPI の provider カタログを登録します。あるいは `PI_HARNESS_PROVIDER` と `PI_HARNESS_MODEL` に、その agent ディレクトリへ登録済みのモデルを指定します。CLI 組み込みの `default` と `development` profile も同じ 2 つの変数を介して同じ組み合わせを選択するため、この一手順でカタログは CLI と Web コンソールの両方に登録されます。ただし `everyapi use pi-harness` は EveryAPI の中継キーを自身が起動したプロセスにしか渡さないので、CLI もこのツール経由で起動してください。`PATH` 上に pih を exec する `pi-harness` シムを置き、`everyapi use pi-harness -- <pih の引数>` として実行します。あるいは CLI に `PI_HARNESS_PROVIDER` と `PI_HARNESS_MODEL` を設定し、CLI 自身の認証情報を与えます。
 
 ## CLI
 
