@@ -72,7 +72,7 @@ describe("packaged profiles", () => {
   test.each(["default", "development"])(
     "selects the same everyapi model the web profile does from the shipped %s profile",
     async (profile) => {
-      // `everyapi use pi-web` is the one provisioning step the quickstart names, and it registers everyapi alone. A CLI profile pinning a different provider would leave that step unable to boot the CLI at all, so both shipped profiles have to ask for the same pair the web profile asks for.
+      // `everyapi use pi-harness` is the one provisioning step the quickstart names, and it registers everyapi alone. A CLI profile pinning a different provider would leave that step unable to boot the CLI at all, so both shipped profiles have to ask for the same pair the web profile asks for.
       // The default is only observable when neither override is present, and these are exactly the two variables the README tells a reader to export, so the run has to start from them being unset rather than from whatever the machine happens to carry.
       vi.stubEnv("PI_HARNESS_PROVIDER", undefined);
       vi.stubEnv("PI_HARNESS_MODEL", undefined);

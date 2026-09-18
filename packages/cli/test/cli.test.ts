@@ -305,7 +305,7 @@ describe("runCli", () => {
 
     expect(exitCode).toBe(1);
     expect(reported).toContain("https://dl.everyapi.ai/install.sh");
-    expect(reported).toContain("everyapi use pi-web");
+    expect(reported).toContain("everyapi use pi-harness");
     expect(reported).toContain("PI_HARNESS_PROVIDER and PI_HARNESS_MODEL");
     expect(reported).toContain("Pi model is not registered: everyapi/deepseek-v4-flash");
     expect(reported).not.toMatch(/^\s+at /mu);

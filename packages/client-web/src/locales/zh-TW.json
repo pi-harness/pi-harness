@@ -1157,7 +1157,7 @@
   "请求失败（HTTP {status}）：请确认 Pi Harness 仍在运行，然后重试。": "請求失敗（HTTP {status}）：請確認 Pi Harness 仍在執行，然後重試。",
   "请求已接受，但确认记录保存失败。重启后重试前，请先检查执行结果。": "請求已接受，但確認記錄儲存失敗。重新啟動後重試前，請先檢查執行結果。",
   "请求未正常结束。请先检查会话中的执行结果，再决定是否重试。": "請求未正常結束。請先檢查對話中的執行結果，再決定是否重試。",
-  "请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。": "請用 everyapi use pi-web 啟動，或設定 EVERYAPI_RELAY_KEY 後重新啟動。",
+  "请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。": "請用 everyapi use pi-harness 啟動，或設定 EVERYAPI_RELAY_KEY 後重新啟動。",
   "读取 MCP 运行状态；工具列表通过 mcp_panel 的 tools 操作查询，健康建议通过 health 操作查看。": "讀取 MCP 執行狀態；工具清單透過 mcp_panel 的 tools 操作查詢，健康建議透過 health 操作查看。",
   "读取中": "讀取中",
   "读取中…": "讀取中…",

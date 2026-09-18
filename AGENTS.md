@@ -41,7 +41,7 @@ npm run pih-local
 # 或直接执行：./scripts/pih-local.sh
 ```
 
-脚本会先执行 `npm run build:web`，再通过临时 `pi-web` PATH shim 让 EveryAPI 的认证启动流程运行当前工作区构建出的 `apps/web/server-dist/bin.js`。这样既能使用 EveryAPI relay 认证，也不会误用 PATH 中可能过期的全局 Pi Harness。模型可在控制台的模型选择器中切换；传给脚本的参数会原样转发给本地服务。
+脚本会先执行 `npm run build:web`，再通过临时 `pi-harness` PATH shim 让 `everyapi use pi-harness` 的认证启动流程运行当前工作区构建出的 `apps/web/server-dist/bin.js`（`pi-web` 是 EveryAPI 给 Pi 自带浏览器 UI 的集成，是另一个产品，不要用它）。这样既能使用 EveryAPI relay 认证，也不会误用 PATH 中可能过期的全局 Pi Harness。传给脚本的参数会原样转发给本地服务：`everyapi use pi-harness` 会自己导出 `PI_HARNESS_MODEL` 覆盖你导出的值，所以要指定模型请用 `npm run pih-local -- --model <id>`；启动后也可在控制台的模型选择器中切换。
 
 隔离测试状态时设置 Pi 上游原生变量 `PI_CODING_AGENT_DIR`；兼容别名 `PI_AGENT_DIR` 也可用，`pih-local` 会把它桥接给 EveryAPI。若两者都设置，以 `PI_CODING_AGENT_DIR` 为准。
 

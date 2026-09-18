@@ -276,13 +276,14 @@ describe("web launcher", () => {
 });
 
 describe("web launcher startup guards", () => {
-  test("points at the supported EveryAPI pi-web launcher when its model catalog is missing", async () => {
+  test("points at EveryAPI's pi-harness tool when its model catalog is missing", async () => {
     const run = await runLauncherToExit({ PI_HARNESS_PROVIDER: "everyapi", PI_HARNESS_MODEL: "missing-model" });
 
-    expect(run.stderr).toContain("everyapi use pi-web");
+    expect(run.stderr).toContain("everyapi use pi-harness");
     // This launcher is the first command the quickstart gives, so it is where an unprovisioned catalog is met first; naming the command without naming where the binary comes from leaves that reader with nothing to run.
     expect(run.stderr).toContain("https://dl.everyapi.ai/install.sh");
-    expect(run.stderr).not.toContain("everyapi use pi-harness");
+    // pi-web is EveryAPI's integration for Pi's own browser UI, a different product; sending this launcher's users through it starts the wrong console.
+    expect(run.stderr).not.toContain("everyapi use pi-web");
     expect(run.stdout).not.toContain("Pi Harness web console:");
     expect(run.code).not.toBe(0);
   }, 60_000);
@@ -344,6 +345,44 @@ describe("web launcher startup guards", () => {
       expect(run.stderr).toContain("PI_HARNESS_PORT must be an integer between 0 and 65535");
       expect(run.stdout).not.toContain("Pi Harness web console:");
       expect(run.code).not.toBe(0);
+    }
+  }, 60_000);
+
+  test("lets --provider and --model win over the variables and reports the flagged model as the current runtime", async () => {
+    // `everyapi use pi-harness` exports PI_HARNESS_MODEL over whatever the caller set and tells the user to pass `--model` after `--` instead, so a launcher that let the variable win would leave that integration with no way to choose a model at all. Both ids are ones Pi registers out of the box, so the boot exercises the flag path and not the catalog.
+    const statuses: string[] = [];
+    const flagged = await runLauncher(
+      "SIGINT",
+      {},
+      undefined,
+      async (consoleUrl) => {
+        const status = (await (await fetch(`${consoleUrl}/api/status`)).json()) as { model: string };
+        statuses.push(status.model);
+      },
+      ["--provider", "openai", "--model", "gpt-4.1-mini"],
+    );
+    const unflagged = await runLauncher("SIGINT", {}, undefined, async (consoleUrl) => {
+      const status = (await (await fetch(`${consoleUrl}/api/status`)).json()) as { model: string };
+      statuses.push(status.model);
+    });
+
+    expect(statuses).toEqual(["openai/gpt-4.1-mini", "anthropic/claude-sonnet-4-5"]);
+    expect(flagged.code).toBe(130);
+    expect(unflagged.code).toBe(130);
+  }, 60_000);
+
+  test("rejects --provider and --model without a value as one line and the usage exit code", async () => {
+    for (const [args, message] of [
+      [["--model"], "--model requires a value"],
+      [["--model", "--port", "0"], "--model requires a value"],
+      [["--model="], "--model requires a value"],
+      [["--provider"], "--provider requires a value"],
+    ] as const) {
+      const run = await runLauncherToExit({}, args);
+
+      expect(run.stderr.trim()).toBe(message);
+      expect(run.stdout).not.toContain("Pi Harness web console:");
+      expect(run.code).toBe(2);
     }
   }, 60_000);
 

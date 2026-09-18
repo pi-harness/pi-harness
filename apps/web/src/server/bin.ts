@@ -37,6 +37,11 @@ interface NetworkOptions {
   readonly allowedHosts: readonly string[];
 }
 
+interface ModelOptions {
+  readonly provider: string | undefined;
+  readonly model: string | undefined;
+}
+
 const DEFAULT_PI_HARNESS_PORT = 3141;
 // The web server compares each entry against a Host header hostname, so an entry carrying a scheme, port, path or credentials can never match; rejecting it here turns a silently ineffective deployment setting into a startup error.
 const isBareHostname = (entry: string): boolean => {
@@ -48,6 +53,16 @@ const isBareHostname = (entry: string): boolean => {
   }
   return url.hostname !== "" && url.port === "" && url.pathname === "/" && url.username === "" && url.password === "" && url.search === "" && url.hash === "";
 };
+
+// `everyapi use pi-harness` exports PI_HARNESS_MODEL itself, overwriting whatever the caller exported, and its own usage text tells the user to pass `--model <id>` after `--` instead. That flag reaches this launcher, so it has to win over the variable or there is no way to pick a model through that integration at all. The value is not validated here beyond being present: the profile asks the model catalog for it and fail-closes on a name the agent directory does not register, which is the check that knows the catalog.
+function resolveModelOptions(args: readonly string[], env: NodeJS.ProcessEnv): ModelOptions {
+  const selection = (name: string, variable: string): string | undefined => {
+    const argument = commandLineValue(args, name);
+    if (argument !== undefined && argument.trim() === "") throw new StartupOptionError(`${name} requires a value`);
+    return argument ?? env[variable];
+  };
+  return { provider: selection("--provider", "PI_HARNESS_PROVIDER"), model: selection("--model", "PI_HARNESS_MODEL") };
+}
 
 // Every rejection here names the source the value actually came from, because a user who typed `--port abc` cannot act on advice about PI_HARNESS_PORT, a variable they never set. The caller runs this inside the same guard as the boot itself so a wrong argument reports one line instead of a Node code frame.
 function resolveNetworkOptions(args: readonly string[], env: NodeJS.ProcessEnv): NetworkOptions {
@@ -109,7 +124,7 @@ const formatStartupError = (error: unknown, network: NetworkOptions | undefined)
   }
   const unregistered = UNREGISTERED_EVERYAPI_MODEL.exec(message);
   if (unregistered === null) return debug ? message : `${message}\n${DEBUG_HINT}`;
-  const remedy = `The EveryAPI model catalog is not provisioned in PI_CODING_AGENT_DIR (or its PI_AGENT_DIR compatibility alias). Install the EveryAPI CLI with \`curl -fsSL https://dl.everyapi.ai/install.sh | bash\` and start with \`everyapi use pi-web\`, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
+  const remedy = `The EveryAPI model catalog is not provisioned in PI_CODING_AGENT_DIR (or its PI_AGENT_DIR compatibility alias). Install the EveryAPI CLI with \`curl -fsSL https://dl.everyapi.ai/install.sh | bash\` and start the web console with \`everyapi use pi-harness\`, which registers the catalog and injects the relay key for that run, or set PI_HARNESS_PROVIDER and PI_HARNESS_MODEL to a model already registered in that agent directory.`;
   // Under the debug flag the message already carries the frames bootHarness kept, and a reader who asked for them wants the remedy as well as the detail, not instead of it.
   return debug ? `${remedy}\n${message}` : `${remedy}\nPi model is not registered: ${unregistered[1]}`;
 };
@@ -156,6 +171,10 @@ try {
   process.env.PI_HARNESS_HOST = network.host;
   process.env.PI_HARNESS_PORT = String(network.port);
   process.env.PI_HARNESS_ALLOWED_HOSTS = network.allowedHosts.join(",");
+  // The profile reads the two variables, not the arguments, so a flag is handed over the same way --host and --port are: by becoming the variable before the profile is loaded. An absent flag leaves the variable exactly as the environment set it, including unset, so the profile's own default still applies.
+  const selection = resolveModelOptions(commandLineArgs, process.env);
+  if (selection.provider !== undefined) process.env.PI_HARNESS_PROVIDER = selection.provider;
+  if (selection.model !== undefined) process.env.PI_HARNESS_MODEL = selection.model;
   if (process.env.PI_HARNESS_DISABLE_UPDATE_CHECK !== "1") {
     void coreUpdateNotice().then(
       (notice) => {
