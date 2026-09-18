@@ -539,11 +539,3 @@ export function marketplaceCategoriesFor(plugins: readonly MarketplacePlugin[], 
   if (catalog === undefined) return categories;
   return categories.sort((left, right) => left.label.localeCompare(right.label, locale));
 }
-
-export function marketplaceCapabilities(locale = ""): readonly MarketplaceCapability[] {
-  return marketplaceCapabilitiesFor(MARKETPLACE_PLUGINS, locale);
-}
-
-export function marketplaceCategories(locale = ""): readonly MarketplaceCategory[] {
-  return marketplaceCategoriesFor(MARKETPLACE_PLUGINS, locale);
-}

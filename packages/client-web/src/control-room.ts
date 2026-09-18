@@ -4,7 +4,7 @@ export interface ClientStatus {
   /** Identifies the harness process answering this console, so state the console holds on behalf of the next start can be dropped once that start has happened. */
   readonly processStartedAt?: string;
   readonly model: string;
-  /** The thinking level the running session was started with. Absent when the runtime does not report one. */
+  /** The level the session is thinking at now: pi-runtime seeds it from the booted profile and Pi clamps it to the levels the chosen model offers, so it is neither the profile's literal value nor fixed for the session's life. Absent when the runtime does not report one. */
   readonly thinkingLevel?: string;
   readonly messages: number;
   readonly events: number;
@@ -219,7 +219,7 @@ export interface ClientApi {
   listPlugins(): Promise<readonly ClientPlugin[]>;
   listPluginPanels(): Promise<readonly ClientPluginPanel[]>;
   togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin; restartRequired?: boolean; configPath?: string }>;
-  uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string; configPath?: string }>;
+  uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string }>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number, category?: string, locale?: string): Promise<ClientMarketplacePage>;
   installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean; configPath?: string }>;
   listCommands(): Promise<readonly ClientCommand[]>;
@@ -390,7 +390,7 @@ export function createClientApi(): ClientApi {
         body: JSON.stringify({ id, enabled }),
       }),
     uninstallPlugin: (id) =>
-      requestJson<{ uninstalled: boolean; id: string; configPath?: string }>("/api/plugins/uninstall", {
+      requestJson<{ uninstalled: boolean; id: string }>("/api/plugins/uninstall", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id }),

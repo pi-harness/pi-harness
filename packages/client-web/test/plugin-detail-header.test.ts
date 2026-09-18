@@ -139,3 +139,13 @@ test("prints the installed version and names the catalogue pin only when it has 
   expect(infoRows()).toContain("Installed version0.1.34");
   expect(infoRows().some((row) => row.startsWith("Latest reviewed"))).toBe(false);
 });
+
+// The gateway leaves the installed version out when it cannot read the package's manifest, and the catalogue's pin is the version an install would take today rather than the one on disk. Printing it under "Installed version" would state as fact something nobody read off this machine.
+test("falls back to the catalogue pin under a neutral label when nothing read a version off disk", async () => {
+  const unread: ClientPlugin = { id: "marketplace-yaml-validator", name: packageName, enabled: true, state: "active", removable: true };
+  await flush(() => root.render(createElement(ControlRoomView, { api: apiFor(unread) })));
+
+  expect(infoRows()).toContain("Version0.1.34");
+  expect(infoRows().some((row) => row.startsWith("Installed version"))).toBe(false);
+  expect(infoRows().some((row) => row.startsWith("Latest reviewed"))).toBe(false);
+});

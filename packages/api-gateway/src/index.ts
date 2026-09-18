@@ -259,7 +259,7 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
     processStartedAt: PROCESS_STARTED_AT,
     status: sessionIsBusy(services) ? "running" : "ready",
     model: activeModel.provider + "/" + activeModel.id,
-    // The thinking level the profile handed this session. Reported because the settings file's own default never reaches it, so the console has nothing else to show for what the session is actually running at.
+    // The level the session is running at, which is not the level any file names: pi-runtime seeds it from the booted profile and Pi then clamps it to the levels the chosen model offers, so a profile asking for `medium` reports `off` on a model that cannot reason at all. Reported because that clamped value is the only answer to what this session is thinking at, and nothing else the console can read carries it.
     ...(typeof services.runtime.session.thinkingLevel === "string" ? { thinkingLevel: services.runtime.session.thinkingLevel } : {}),
     messages: services.runtime.session.messages.length,
     events: events.length,
@@ -2137,7 +2137,7 @@ export default {
             try {
               await updateMarketplaceProfile(configPath, pending.id, { remove: true });
               await runProcess("npm", ["uninstall", "--package-lock=false", marketplaceNpmPackageName(pendingPlugin.packageName)], pendingInstallDirectory);
-              sendJson(response, 200, { uninstalled: true, id: payload.id, configPath });
+              sendJson(response, 200, { uninstalled: true, id: payload.id });
             } catch (error) {
               await writeFile(configPath, pendingProfileBefore, "utf8").catch(() => {});
               sendJson(response, 502, { error: errorText(error) });
@@ -2170,7 +2170,7 @@ export default {
           try {
             await updateMarketplaceProfile(configPath, profileEntryId, { remove: true });
             await runProcess("npm", ["uninstall", "--package-lock=false", marketplaceNpmPackageName(plugin.packageName)], installDirectory);
-            sendJson(response, 200, { uninstalled: true, id: payload.id, configPath });
+            sendJson(response, 200, { uninstalled: true, id: payload.id });
           } catch (error) {
             await writeFile(configPath, profileBefore, "utf8").catch(() => {});
             if (packageJsonBefore !== undefined) await writeFile(packageJsonPath, packageJsonBefore, "utf8").catch(() => {});

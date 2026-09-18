@@ -4547,7 +4547,7 @@ describe("API gateway plugin", () => {
     }
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ uninstalled: true, id: "marketplace-reviewer-bot", configPath });
+    await expect(response.json()).resolves.toEqual({ uninstalled: true, id: "marketplace-reviewer-bot" });
     expect(remove).toHaveBeenCalledWith("marketplace-reviewer-bot");
     await expect(readFile(configPath, "utf8")).resolves.not.toContain('name: "@pi-harness/plugin-reviewer-bot"');
   });

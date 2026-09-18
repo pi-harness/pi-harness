@@ -7149,7 +7149,7 @@ function InstalledPluginDetail({
   const [notice, setNotice] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState(false);
   const title = metadata?.name ?? displayPluginName(plugin.name);
-  // What is on disk is what this page describes; the catalogue's version is only what an install would pin today, and it is worth its own row when the two have drifted apart.
+  // What is on disk is what this page describes; the catalogue's version is only what an install would pin today, and it is worth its own row when the two have drifted apart. The gateway leaves the installed version out whenever it cannot read the package's manifest, and the catalogue's pin is no substitute for it: the row falls back to the pin under the neutral label it deserves rather than asserting a version nobody read off this machine.
   const shownVersion = plugin.installedVersion ?? metadata?.version;
   const outdated = plugin.installedVersion !== undefined && metadata !== undefined && metadata.version !== plugin.installedVersion;
   const run = async (action: "toggle" | "uninstall", callback: () => Promise<{ restartRequired?: boolean; configPath?: string } | void>) => {
@@ -7306,7 +7306,7 @@ function InstalledPluginDetail({
                 </div>
                 {shownVersion === undefined ? null : (
                   <div className="flex justify-between gap-4 py-3">
-                    <dt className="text-[var(--color-faint)]">{t("已安装版本")}</dt>
+                    <dt className="text-[var(--color-faint)]">{plugin.installedVersion === undefined ? t("版本") : t("已安装版本")}</dt>
                     <dd className="font-mono text-[var(--color-ink)]">{shownVersion}</dd>
                   </div>
                 )}
@@ -8333,11 +8333,13 @@ function Settings({
                     </div>
                   ) : (
                     <div className="config-sections">
-                      {/* The model a session runs with comes from the booted profile: pi-models resolves the provider and model pair, pi-runtime hands the session its thinking level, and neither consults settings.json. This section used to write those three settings keys and nothing ever read them back, so it reports what the session is actually running rather than offering a control the runtime ignores. */}
+                      {/* These three settings keys were written here and never read back by anything, because the session takes none of them from the settings file: pi-models resolves the pair the harness boots with, the composer's model picker replaces it at runtime, and pi-runtime seeds a thinking level the session then holds. So the section reports what the session is running rather than offering a control the runtime ignores, and it says so as a live reading instead of claiming a default the console itself overwrites. */}
                       <section className="config-section">
                         <header>
-                          <strong>{t("模型默认值")}</strong>
-                          <small>{t("由启动 profile 决定，控制台不能修改；改 profile 的 pi-models / pi-runtime 条目后重启生效")}</small>
+                          <strong>{t("当前模型与思考级别")}</strong>
+                          <small>
+                            {t("当前会话正在运行的值。模型用输入框的模型选择器切换；思考级别来自启动 profile 的 pi-runtime 条目，并收敛到当前模型支持的档位。")}
+                          </small>
                         </header>
                         <div className="config-field">
                           <span>{t("提供商")}</span>
