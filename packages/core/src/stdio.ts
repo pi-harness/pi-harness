@@ -126,7 +126,7 @@ function missingCredentialGuidance(launch: PiHarnessLaunch, provider?: string): 
   const selection =
     provider === undefined ? "the booted profile selects a provider this agent directory has no credential for" : `the booted profile selects ${provider}`;
   return boundedLine(
-    `pih has no /login command: ${selection}, so ${credentialEnvironmentHint(provider)}store the credential in ${launch.agentDir}/auth.json, or start through \`everyapi use pi-web\`, or edit ${profilePath} to name a provider that agent directory already registers.`,
+    `pih has no /login command: ${selection}, so ${credentialEnvironmentHint(provider)}store the credential in ${launch.agentDir}/auth.json, or launch pih as \`everyapi use pi-harness -- <pih arguments>\` with a \`pi-harness\` PATH shim that execs pih, because that tool injects the EveryAPI relay key only into the process it starts, or edit ${profilePath} to name a provider that agent directory already registers.`,
     DIAGNOSTIC_MESSAGE_LIMIT,
   );
 }

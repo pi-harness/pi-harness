@@ -20,7 +20,7 @@ npm install --global @pi-harness/pi-harness
 pi-harness
 ```
 
-`pi-harness` starts the web console, which listens on `http://127.0.0.1:3141` by default. Both surfaces boot with `everyapi/deepseek-v4-flash` and model selection is fail-closed, so the provider must be registered in the agent directory first: provision it with the EveryAPI CLI (install it with `curl -fsSL https://dl.everyapi.ai/install.sh | bash`, or `irm https://dl.everyapi.ai/install.ps1 | iex` on Windows, then run `everyapi use pi-web`), or set `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` to a model that agent directory already knows — a fresh Pi installation registers `deepseek/deepseek-v4-flash` and only needs `DEEPSEEK_API_KEY`. That one step provisions the CLI and the web console together. For the terminal workflow, use the shorter `pih` command:
+`pi-harness` starts the web console, which listens on `http://127.0.0.1:3141` by default. Both surfaces boot with `everyapi/deepseek-v4-flash` and model selection is fail-closed, so the provider must be registered in the agent directory first: provision it with the EveryAPI CLI (install it with `curl -fsSL https://dl.everyapi.ai/install.sh | bash`, or `irm https://dl.everyapi.ai/install.ps1 | iex` on Windows, then run `everyapi use pi-harness`, EveryAPI's tool for this product — `pi-web` is its integration for Pi's own browser UI), or set `PI_HARNESS_PROVIDER` and `PI_HARNESS_MODEL` to a model that agent directory already knows — a fresh Pi installation registers `deepseek/deepseek-v4-flash` and only needs `DEEPSEEK_API_KEY`. That one step registers the catalog for the CLI and the web console together, but it hands the EveryAPI relay key only to the process it starts, so the CLI is launched through it the way [`scripts/pih-local.sh`](scripts/pih-local.sh) launches the console: `everyapi use pi-harness -- <arguments>` with a `pi-harness` shim on `PATH` that execs the binary. For the terminal workflow, use the shorter `pih` command:
 
 ```sh
 pih "Summarize the current directory"
@@ -34,7 +34,7 @@ npm run build
 npm run web
 ```
 
-For local development with EveryAPI relay authentication, use `npm run pih-local`. It builds the current workspace and launches the local web entry point through a temporary `pi-web` shim, so an older globally installed Pi Harness is not used.
+For local development with EveryAPI relay authentication, use `npm run pih-local`. It builds the current workspace and launches the local web entry point through `everyapi use pi-harness` with a temporary `pi-harness` shim on `PATH`, so an older globally installed Pi Harness is not used. Arguments after `--` reach the local server, so `npm run pih-local -- --model <id>` picks the model for that run.
 
 ## Web console
 
@@ -75,6 +75,8 @@ Common environment variables:
 | `PI_HARNESS_ALLOW_REMOTE`         | Allow a non-loopback host when set to `1`                                   | unset               |
 | `PI_HARNESS_ALLOWED_HOSTS`        | Extra `Host` header names accepted, comma-separated                         | unset               |
 | `PI_HARNESS_DISABLE_UPDATE_CHECK` | Disable the background update check when set to `1`                         | unset               |
+
+The web launcher also takes `--host <host>`, `--port <port>`, `--provider <id>` and `--model <id>`, each winning over the variable of the same name for that run. `everyapi use pi-harness` exports `PI_HARNESS_MODEL` itself, overriding one you exported, so the way to pick a model through it is `everyapi use pi-harness -- --model <id>`.
 
 The web server answers only requests whose `Host` header names loopback, the configured bind host, or (on a wildcard bind such as `0.0.0.0`) one of this machine's own addresses or its hostname; anything else is rejected as a DNS-rebinding attempt. `PI_HARNESS_ALLOWED_HOSTS` adds names the machine does not know about itself, such as a LAN alias or a reverse proxy.
 

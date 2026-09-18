@@ -534,7 +534,7 @@ export function providerTestAuthText(auth: unknown): string | undefined {
   if (auth === null || typeof auth !== "object") return undefined;
   const status = "status" in auth ? auth.status : undefined;
   if (status === "cli-auth-missing") return t("未检测到认证");
-  if (status === "relay-key-missing") return t("请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。");
+  if (status === "relay-key-missing") return t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。");
   return "label" in auth && typeof auth.label === "string" ? auth.label : undefined;
 }
 
@@ -1255,7 +1255,7 @@ export function ProviderAuthNotice({ model, providers, onConfigure }: { model?: 
         <span>{provider.name}</span>
         <span>
           {provider.provider === "everyapi"
-            ? t("请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
+            ? t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
             : t("请在设置 → 提供商中配置 API key，然后重试。")}
         </span>
       </div>
@@ -1357,7 +1357,7 @@ export function PromptError({ message, action = "prompt" }: { message: string; a
         </strong>
         <span>
           {everyApiAuth
-            ? t("请用 everyapi use pi-web 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
+            ? t("请用 everyapi use pi-harness 启动，或设置 EVERYAPI_RELAY_KEY 后重启。")
             : requiresAuth
               ? t("请在设置 → 提供商中配置 API key，然后重试。")
               : (explanation ??

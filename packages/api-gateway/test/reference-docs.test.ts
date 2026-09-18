@@ -62,8 +62,18 @@ describe("reference documentation", () => {
     // The console is fail-closed on an unprovisioned catalog, so a reader who cannot get this binary cannot reach the UI at all, and the tool is not on npm.
     for (const path of ["README.md", "docs/README.reference.md"]) {
       const text = await readText(path);
-      expect(text, `${path} mentions the EveryAPI CLI`).toContain("everyapi use pi-web");
+      expect(text, `${path} mentions the EveryAPI CLI`).toContain("everyapi use pi-harness");
+      // pi-web is EveryAPI's integration for Pi's own browser UI, another product, and a reader sent there never reaches this console.
+      expect(text, `${path} routes the reader through another product's tool`).not.toContain("everyapi use pi-web");
       expect(text, `${path} says where to get the EveryAPI CLI`).toContain("https://dl.everyapi.ai/install.sh");
+    }
+  });
+
+  it("documents the launcher flags that pick a model through the EveryAPI tool", async () => {
+    // `everyapi use pi-harness` exports PI_HARNESS_MODEL over the caller's value and points at the flag after `--`, so a reader who only finds the variables documented has no working way to choose a model through it.
+    for (const path of ["README.md", "docs/README.reference.md"]) {
+      const text = await readText(path);
+      for (const flag of ["--provider", "--model"]) expect(text, `${path} documents ${flag}`).toContain(`\`${flag} <id>\``);
     }
   });
 

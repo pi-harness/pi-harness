@@ -48,6 +48,11 @@ The audit is incomplete. The current count is 53 of 75 plugins with partial real
 - The current implementation passed all 68 focused MCP Client tests. Local verification also passed the plugin API prerequisite build, MCP Client build and typecheck, scoped ESLint, and `git diff --check`; no new defect was reproduced in this checkpoint.
 - The suite does not replace authenticated model or headed-browser evidence. Long-running remote-server timeout behavior and external-service interoperability remain explicit follow-ups for the incomplete 53/75 audit.
 
+### EveryAPI first-class pi-harness tool (2026-09-18)
+
+- EveryAPI now ships `everyapi use pi-harness` as a first-class tool for this product, listed beside `pi-web`, which is its integration for Pi's own browser UI. Every user-facing reference, the `pih-local` launcher's shim and the console's own relay-key message were moved from `pi-web` to `pi-harness`; the 2026-09-13 entry below records the state of the handbook at that time and is left as written.
+- `everyapi use pi-harness` exports `PI_HARNESS_MODEL` over the caller's value and refuses its own `--model`, pointing at the tool's flag after `--`, which the web launcher ignored. The launcher now accepts `--provider` and `--model` beside `--host` and `--port`, each winning over its variable, so `everyapi use pi-harness -- --model <id>` selects the model the console reports.
+
 ### EveryAPI local launcher guidance correction (2026-09-13)
 
 - The current EveryAPI CLI handbook lists `pi-web` as the supported browser tool, while the repository's startup guard, stdio diagnostics, README files and provider-auth notices told users to run the nonexistent `everyapi use pi-harness`. The local `pih-local` launcher already uses the supported `pi-web` integration and was the source-of-truth comparison.

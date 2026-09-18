@@ -29,7 +29,7 @@ describe("pih-local launcher", () => {
     }
   });
 
-  test("builds and makes the authenticated pi-web launcher run the local server", () => {
+  test("builds and makes the authenticated pi-harness launcher run the local server", () => {
     const directory = mkdtempSync(join(tmpdir(), "pih-local-test-"));
     const fakeBin = join(directory, "bin");
     const marker = join(directory, "marker.json");
@@ -50,7 +50,7 @@ writeFileSync(process.env.PIH_LOCAL_MARKER, JSON.stringify({
   cwd: process.cwd(),
   serverEntry: process.env.PIH_LOCAL_SERVER_ENTRY,
   codingAgentDir: process.env.PI_CODING_AGENT_DIR,
-  wrapper: readFileSync(join(shim, "pi-web"), "utf8"),
+  wrapper: readFileSync(join(shim, "pi-harness"), "utf8"),
 }));
 process.exit(7);
 `,
@@ -84,7 +84,8 @@ process.exit(7);
       expect(invocation.serverEntry).toBe(join(process.cwd(), "apps", "web", "server-dist", "bin.js"));
       expect(invocation.codingAgentDir).toBe(join(directory, "agent"));
       expect(invocation.wrapper).toContain('exec node "$PIH_LOCAL_SERVER_ENTRY" "$@"');
-      expect(invocation.args).toEqual(["use", "pi-web", "--", "--smoke"]);
+      // pi-harness is EveryAPI's tool for this product; pi-web is its integration for Pi's own browser UI, which would exec a shim of that name and never reach this checkout.
+      expect(invocation.args).toEqual(["use", "pi-harness", "--", "--smoke"]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
