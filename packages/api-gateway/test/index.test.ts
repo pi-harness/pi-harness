@@ -3588,7 +3588,7 @@ describe("API gateway plugin", () => {
     expect(payload.items?.[0]).toMatchObject({ packageName: "@deepseek-ai/cordis-plugin-timer", status: "verified" });
     expect(payload).toMatchObject({ total: 1, page: 0, pageSize: 1, hasNext: false });
     expect(payload.capabilities).toEqual(expect.arrayContaining([expect.objectContaining({ id: "read-only", label: "只读运行" })]));
-    expect(payload.categories).toEqual(expect.arrayContaining([expect.objectContaining({ id: "workflow", label: "工作流", count: 20 })]));
+    expect(payload.categories).toEqual(expect.arrayContaining([expect.objectContaining({ id: "workflow", label: "工作流", count: 1 })]));
     const englishResponse = await fetch(context.webServer.url + "/api/marketplace?q=lifecycle-managed%20asynchronous%20timers&locale=en&page=0&pageSize=1");
     expect(englishResponse.status).toBe(200);
     const englishPayload = (await englishResponse.json()) as {
@@ -3607,6 +3607,88 @@ describe("API gateway plugin", () => {
     expect(invalidPage.status).toBe(400);
     const invalidSort = await fetch(context.webServer.url + "/api/marketplace?sort=popular");
     expect(invalidSort.status).toBe(400);
+  });
+
+  // Install writes the whole dependency plan, not just the entry the reader clicked, so the entry carries that plan and the console can say which packages come with it.
+  test("carries the install plan of an entry that pulls in dependencies", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-plan-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/marketplace?pageSize=100&locale=en");
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      items: readonly {
+        id: string;
+        profile: unknown;
+        plan?: readonly { id: string; packageName: string; version: string; repository: string; profile: unknown }[];
+      }[];
+    };
+    const verifier = payload.items.find((item) => item.id === "change-verifier");
+    const dependencies = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === "change-verifier")?.dependencies ?? [];
+    expect(dependencies.length).toBeGreaterThan(0);
+    expect(verifier?.plan?.map((entry) => entry.id)).toEqual([...dependencies, "change-verifier"]);
+    // Each plan member carries what the reader needs to review it before installing: its package, the version the install pins, and the repository the code comes from.
+    const first = verifier?.plan?.[0];
+    const catalogued = MARKETPLACE_PLUGINS.find((plugin) => plugin.id === dependencies[0]);
+    expect(first?.packageName).toBe(catalogued?.packageName);
+    expect(first?.version).toBe(catalogued?.version);
+    expect(first?.repository).toBe(catalogued?.repository);
+    // The last plan entry is this plugin's own profile row, so the block the console prints is the whole thing the install writes.
+    expect(verifier?.plan?.at(-1)?.profile).toEqual(verifier?.profile);
+    // An entry that installs nothing but itself carries no plan, because repeating the item would only make the catalogue bigger.
+    expect(payload.items.find((item) => item.id === "cordis-timer")).not.toHaveProperty("plan");
+  });
+
+  // A facet count is a promise about what picking it returns, and the console disables a chip whose count is zero. Answering with whole-registry tallies while a filter is in force made "Security 10" a live chip that opens an empty grid.
+  test("counts the marketplace facets against the filters already in force", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-facet-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const read = async (search: string) => {
+      const response = await fetch(context.webServer.url + "/api/marketplace" + search);
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        items: readonly { id: string }[];
+        total: number;
+        capabilities: readonly { id: string; count: number }[];
+        categories: readonly { id: string; count: number }[];
+      };
+      return {
+        ids: payload.items.map((item) => item.id),
+        total: payload.total,
+        capability: (id: string) => payload.capabilities.find((item) => item.id === id)?.count,
+        category: (id: string) => payload.categories.find((item) => item.id === id)?.count,
+      };
+    };
+
+    const filtered = await read("?q=git&capability=network-access&pageSize=100");
+    expect(filtered.ids).toEqual(["plugin-radar", "plugin-stars"]);
+    expect(filtered.category("security")).toBe(0);
+    expect(filtered.category("discovery")).toBe(2);
+    // The capability tally ignores the capability filter, or picking one would drive every other option to zero and leave no way to move to another.
+    expect(filtered.capability("network-access")).toBe(2);
+    expect(filtered.capability("runs-commands")).toBe(5);
+
+    // With nothing filtering, the tallies are still the whole registry's.
+    const unfiltered = await read("?pageSize=100");
+    expect(unfiltered.category("security")).toBe(10);
+    expect(unfiltered.capability("network-access")).toBe(6);
+
+    // A facet the other filters emptied stays on the rail at zero rather than disappearing, because the console holds the chosen facet as its control's value.
+    const emptied = await read("?q=git&category=security&pageSize=100");
+    expect(emptied.total).toBe(0);
+    expect(emptied.capability("runs-commands")).toBe(0);
   });
 
   // The console renders nothing until every one of its startup requests has answered, so the recommended sort is served from the npm statistics already cached and the misses are warmed behind the response. A registry that never answers must cost the page nothing.
@@ -3736,7 +3818,8 @@ describe("API gateway plugin", () => {
     }
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: false, plugin: { id: "skill-guard" } });
+    // The console names this file in the restart notice, and `--config` can put it anywhere, so the install reports the file it wrote rather than leaving the console to guess.
+    await expect(response.json()).resolves.toMatchObject({ installed: true, restartRequired: false, plugin: { id: "skill-guard" }, configPath });
     expect((await readFile(npmLog, "utf8")).trim()).toMatch(/^install --save-exact --package-lock=false @pi-harness\/plugin-skill-guard@\d/u);
     expect(created).toEqual([expect.objectContaining({ name: "@pi-harness/plugin-skill-guard" })]);
     await expect(readFile(configPath, "utf8")).resolves.toContain('name: "@pi-harness/plugin-skill-guard"');
@@ -4505,7 +4588,7 @@ describe("API gateway plugin", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ restartRequired: true, plugin: { id: "marketplace-skill-guard" } });
+    await expect(response.json()).resolves.toMatchObject({ restartRequired: true, plugin: { id: "marketplace-skill-guard" }, configPath });
     await expect(readFile(configPath, "utf8")).resolves.not.toContain("disabled: true");
   });
 
@@ -4609,6 +4692,51 @@ describe("API gateway plugin", () => {
         },
       ],
     });
+  });
+
+  // An install pins one version and there is no update path, so the catalogue's pin moves on while the package on disk does not. The list has to report the package that is actually loaded.
+  test("reports the plugin version resolved on disk rather than the catalogue's pin", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-plugin-version-"));
+    temporaryDirectories.push(directory);
+    await writeFile(join(directory, "package.json"), '{ "name": "harness" }\n', "utf8");
+    const configPath = join(directory, "profile.yml");
+    await writeFile(
+      configPath,
+      '- id: runtime\n  name: "@pi-harness/core/plugins/runtime"\n  config: {}\n- id: marketplace-yaml-validator\n  name: "@pi-harness/plugin-yaml-validator"\n  config: {}\n',
+      "utf8",
+    );
+    const packageDirectory = join(directory, "node_modules", "@pi-harness", "plugin-token-guard");
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, "package.json"), '{ "name": "@pi-harness/plugin-token-guard", "version": "0.0.7" }\n', "utf8");
+    const pendingDirectory = join(directory, "node_modules", "@pi-harness", "plugin-yaml-validator");
+    await mkdir(pendingDirectory, { recursive: true });
+    await writeFile(join(pendingDirectory, "package.json"), '{ "name": "@pi-harness/plugin-yaml-validator", "version": "0.0.8" }\n', "utf8");
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "plugin-version-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: directory, agentDir: directory, configPath, args: [], requestExit() {} });
+    context.reflect.provide("loader", {
+      *entries() {
+        yield { options: { id: "marketplace-token-guard", name: "@pi-harness/plugin-token-guard" } };
+        // A plugin with no package on disk keeps the field absent instead of inventing one.
+        yield { options: { id: "marketplace-session-bridge", name: "@pi-harness/plugin-session-bridge" } };
+      },
+    });
+    await context.plugin(apiPlugin);
+
+    const response = await fetch(context.webServer.url + "/api/plugins");
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { items: readonly { id: string; installedVersion?: string }[] };
+    const versions = new Map(payload.items.map((item) => [item.id, item.installedVersion]));
+    expect(versions.get("marketplace-token-guard")).toBe("0.0.7");
+    // The entry waiting for a restart is on disk too, so it reports its version the same way.
+    expect(versions.get("marketplace-yaml-validator")).toBe("0.0.8");
+    expect(versions.get("marketplace-session-bridge")).toBeUndefined();
+    const pinned = MARKETPLACE_PLUGINS.find((plugin) => plugin.packageName === "@pi-harness/plugin-token-guard")?.version;
+    expect(pinned).not.toBe("0.0.7");
   });
 
   test("toggles a legacy marketplace entry using its existing profile id", async () => {

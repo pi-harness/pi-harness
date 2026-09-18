@@ -26,9 +26,10 @@ import {
   paginateMarketplace,
   searchMarketplace,
   marketplaceInstallPlan,
+  marketplaceInstallPlanSummary,
   marketplaceNpmPackageName,
-  marketplaceCapabilities,
-  marketplaceCategories,
+  marketplaceCapabilitiesFor,
+  marketplaceCategoriesFor,
   sortMarketplaceByRecommendation,
   type MarketplacePlugin,
 } from "./marketplace.js";
@@ -258,6 +259,8 @@ function createStatus(services: ApiServices, events: readonly AgentSessionEvent[
     processStartedAt: PROCESS_STARTED_AT,
     status: sessionIsBusy(services) ? "running" : "ready",
     model: activeModel.provider + "/" + activeModel.id,
+    // The level the session is running at, which is not the level any file names: pi-runtime seeds it from the booted profile and Pi then clamps it to the levels the chosen model offers, so a profile asking for `medium` reports `off` on a model that cannot reason at all. Reported because that clamped value is the only answer to what this session is thinking at, and nothing else the console can read carries it.
+    ...(typeof services.runtime.session.thinkingLevel === "string" ? { thinkingLevel: services.runtime.session.thinkingLevel } : {}),
     messages: services.runtime.session.messages.length,
     events: events.length,
     sessionId: services.runtime.session.sessionId,
@@ -624,7 +627,7 @@ function marketplaceActivePackages(loaderEntries: readonly LoaderEntrySummary[],
   );
 }
 
-function pluginSummary(entry: LoaderEntrySummary) {
+function pluginSummary(entry: LoaderEntrySummary, installedVersions: ReadonlyMap<string, string> = new Map()) {
   const states = ["pending", "loading", "active", "failed", "disposed", "unloading"];
   const marketplacePlugin = marketplacePluginForEntry(entry);
   const rawState = entry.fiber?.state;
@@ -636,6 +639,7 @@ function pluginSummary(entry: LoaderEntrySummary) {
         : rawState === undefined || rawState === null
           ? "unloaded"
           : "unknown";
+  const installedVersion = installedVersions.get(entry.options.name);
   return {
     id: entry.options.id,
     name: entry.options.name,
@@ -643,7 +647,30 @@ function pluginSummary(entry: LoaderEntrySummary) {
     state,
     removable: entry.options.id.startsWith("marketplace-") || marketplacePlugin !== undefined,
     category: marketplacePlugin?.category,
+    ...(installedVersion === undefined ? {} : { installedVersion }),
   };
+}
+
+/** The version npm resolved into the install directory, which is not the version the catalogue pins: an install pins the version once and there is no update path, so every later pin bump in the registry leaves the entry's version describing a package that is not the one on disk. A package whose manifest cannot be read leaves the field absent, and the console falls back to the pin. */
+async function installedMarketplaceVersions(services: ApiServices, packageNames: readonly string[]): Promise<ReadonlyMap<string, string>> {
+  const configPath = services.launch.configPath;
+  if (configPath === undefined || packageNames.length === 0) return new Map();
+  const installDirectory = await marketplaceInstallDirectory(configPath, services.launch.cwd);
+  const versions = await Promise.all(
+    packageNames.map(async (packageName): Promise<readonly [string, string] | undefined> => {
+      const manifestPath = join(installDirectory, "node_modules", marketplaceNpmPackageName(packageName), "package.json");
+      const manifest = await readFile(manifestPath, "utf8").catch(() => undefined);
+      if (manifest === undefined) return undefined;
+      // Whatever npm left on disk is untrusted input here: a half-written or hand-edited manifest must cost the list its version, not its answer.
+      try {
+        const version = (JSON.parse(manifest) as { version?: unknown }).version;
+        return typeof version === "string" && version !== "" ? [packageName, version] : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return new Map(versions.filter((entry) => entry !== undefined));
 }
 
 /** The state a marketplace plugin is in between the install that wrote it and the restart that loads it. It is not a loader state because the loader has no entry for it at all. */
@@ -1782,9 +1809,21 @@ export default {
     const disposePlugins = services.webServer.register({
       path: "/api/plugins",
       async handler(_request, response) {
-        const loaded = services.loader ? [...services.loader.entries()].map(pluginSummary) : [];
+        const entries = services.loader ? [...services.loader.entries()] : [];
+        const pending = await restartPendingSummaries(services);
+        // Only a catalogued package carries a version the console prints, so only those manifests are read.
+        const catalogued = [...new Set([...entries.map((entry) => entry.options.name), ...pending.map((entry) => entry.name)])].filter((name) =>
+          MARKETPLACE_PLUGINS.some((plugin) => plugin.packageName === name),
+        );
+        const installedVersions = await installedMarketplaceVersions(services, catalogued);
         // The pending entries follow the loaded ones so a list that was stable before an install stays in the same order after it.
-        const items = [...loaded, ...(await restartPendingSummaries(services))];
+        const items = [
+          ...entries.map((entry) => pluginSummary(entry, installedVersions)),
+          ...pending.map((entry) => {
+            const installedVersion = installedVersions.get(entry.name);
+            return installedVersion === undefined ? entry : { ...entry, installedVersion };
+          }),
+        ];
         sendJson(response, 200, jsonSafe({ items }));
       },
     });
@@ -1838,10 +1877,14 @@ export default {
         // Recommendation is only applied once the whole catalogue has been looked up. Scoring a half-warm cache would reorder the grid under the reader's cursor on every poll as the background lookups land, which costs more than the few seconds the first sort is delayed.
         const items =
           sort === "recommended" && cached.ready ? sortMarketplaceByRecommendation(attachMarketplaceStatistics(filtered, cached.statistics)) : filtered;
+        const paged = paginateMarketplace(items, page, pageSize);
+        // Each facet is counted against the other filters but not against itself: counted against itself, picking a category would report zero for every other category and the rail would offer no way out of the one that is selected. Counted against the whole registry, which is what this answered before, a chip reading "Security 10" opens an empty grid.
         sendJson(response, 200, {
-          ...paginateMarketplace(items, page, pageSize),
-          capabilities: marketplaceCapabilities(locale),
-          categories: marketplaceCategories(locale),
+          ...paged,
+          // The plan rides along only for an entry that pulls something else in, so a reader can see what Install writes besides the plugin they asked for. An entry that installs nothing but itself would only repeat what the item already says.
+          items: paged.items.map((plugin) => (plugin.dependencies?.length ? { ...plugin, plan: marketplaceInstallPlanSummary(plugin, locale) } : plugin)),
+          capabilities: marketplaceCapabilitiesFor(capability === "" ? filtered : searchMarketplace(query, "", category, locale), locale),
+          categories: marketplaceCategoriesFor(category === "" ? filtered : searchMarketplace(query, capability, "", locale), locale),
         });
       },
     });
@@ -1895,7 +1938,7 @@ export default {
           }
           // A complete plugin plan already waiting for a restart is installed even though the loader has no entry for it, so installing it again would re-run npm and report a fresh restart for work that is already done.
           if (missing.length === 0 && disabledDependencies.length === 0) {
-            sendJson(response, 200, { plugin, installed: true, restartRequired: true });
+            sendJson(response, 200, { plugin, installed: true, restartRequired: true, configPath });
             return;
           }
           const installDirectory = await marketplaceInstallDirectory(configPath, services.launch.cwd);
@@ -1930,7 +1973,7 @@ export default {
             }
             // Re-enabled and profile-only dependencies are not available to the running tool snapshot. The whole dependency-first profile is complete, so defer every activation to the next start instead of exposing a partially usable target.
             if (disabledDependencies.length > 0 || pendingDependencies.length > 0) {
-              sendJson(response, 200, { plugin, installed: true, restartRequired: true });
+              sendJson(response, 200, { plugin, installed: true, restartRequired: true, configPath });
               return;
             }
             for (const [index, pluginEntry] of missing.entries()) {
@@ -1949,12 +1992,12 @@ export default {
               if (entry.fiber === undefined) throw new Error(`Plugin ${pluginEntry.packageName} did not create a runtime fiber`);
               await entry.fiber.await();
             }
-            sendJson(response, 200, { plugin, installed: true, restartRequired: false });
+            sendJson(response, 200, { plugin, installed: true, restartRequired: false, configPath });
           } catch (error) {
             for (const entryId of entryIds.reverse()) await loader.remove(entryId).catch(() => {});
             // The runtime holds the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools cannot join a harness that is already running. The package and its profile entry stay in place and the plugin arrives on the next start; rolling the install back would leave the user unable to install it at all.
             if (isPiToolRegistryLeasedError(error)) {
-              sendJson(response, 200, { plugin, installed: true, restartRequired: true });
+              sendJson(response, 200, { plugin, installed: true, restartRequired: true, configPath });
               return;
             }
             if (profileBefore !== undefined) await writeFile(configPath, profileBefore, "utf8").catch(() => {});
@@ -2031,11 +2074,11 @@ export default {
           const before = await updateMarketplaceProfile(configPath, profileEntryId, { disabled: !payload.enabled });
           try {
             await entry.update({ disabled: !payload.enabled });
-            sendJson(response, 200, { plugin: pluginSummary(entry), restartRequired: false });
+            sendJson(response, 200, { plugin: pluginSummary(entry), restartRequired: false, configPath });
           } catch (error) {
             // Re-enabling a plugin that contributes tools cannot take effect in a harness the runtime already leased, so the profile keeps the change and the plugin comes back on the next start. Reverting it would leave a plugin that can be switched off but never on again.
             if (isPiToolRegistryLeasedError(error)) {
-              sendJson(response, 200, { plugin: pluginSummary(entry), restartRequired: true });
+              sendJson(response, 200, { plugin: pluginSummary(entry), restartRequired: true, configPath });
               return;
             }
             await writeFile(configPath, before, "utf8").catch(() => {});

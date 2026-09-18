@@ -1421,14 +1421,36 @@ describe("restart pending plugins", () => {
 });
 
 describe("restart required notice", () => {
-  test("names the profile file and the terminal action, without a start command it cannot know", () => {
-    const notice = restartRequiredNotice();
+  test("names the file the gateway actually wrote and the terminal action, without a start command it cannot know", () => {
+    const notice = restartRequiredNotice("/srv/project/cordis.yml");
 
-    expect(notice).toContain("~/.pi-harness/profiles/");
+    expect(notice).toContain("/srv/project/cordis.yml");
     expect(notice).toContain("Ctrl-C");
     // The console is reachable through more than one launcher, so the sentence tells the user to repeat their own command instead of naming one.
     expect(notice).not.toContain("pih");
     expect(notice).not.toContain("everyapi");
+  });
+
+  // `--config` puts the profile wherever the caller asked, so a path the console guessed would name a file the change was never written to.
+  test("guesses no path when the gateway reports none", () => {
+    const notice = restartRequiredNotice();
+
+    expect(notice).not.toContain("~/.pi-harness/profiles/");
+    expect(notice).not.toContain("<profile>");
+    expect(notice).toContain("Ctrl-C");
+  });
+
+  // The installed list shows the plugin the moment it is installed, marked as pending, so the notice must not tell the reader to go looking for something that is missing.
+  test("describes how the pending plugin appears in the installed list", async () => {
+    const locale = activeLocale();
+    await setLocale("en");
+    try {
+      expect(restartRequiredNotice()).toContain("appears in the Installed list");
+      expect(restartRequiredNotice()).toContain("Effective after restart");
+      expect(restartRequiredNotice()).not.toContain("will not appear");
+    } finally {
+      await setLocale(locale);
+    }
   });
 });
 

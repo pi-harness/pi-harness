@@ -5,8 +5,8 @@ import {
   MARKETPLACE_PLUGINS,
   attachMarketplaceStatistics,
   createMarketplaceStatisticsLoader,
-  marketplaceCapabilities,
-  marketplaceCategories,
+  marketplaceCapabilitiesFor,
+  marketplaceCategoriesFor,
   marketplaceNpmPackageName,
   paginateMarketplace,
   searchMarketplace,
@@ -85,8 +85,8 @@ describe("plugin marketplace registry", () => {
     expect(timer[0]?.description).toBe("Provide lifecycle-managed asynchronous timers, throttling, and debouncing.");
     expect(timer[0]?.category.label).toBe("Workflow");
     expect(timer[0]?.hooks).toContain("Plugin panel");
-    expect(marketplaceCapabilities("en").find((capability) => capability.id === "runs-commands")?.label).toBe("Run local commands");
-    expect(marketplaceCategories("en").find((category) => category.id === "security")?.label).toBe("Security");
+    expect(marketplaceCapabilitiesFor(MARKETPLACE_PLUGINS, "en").find((capability) => capability.id === "runs-commands")?.label).toBe("Run local commands");
+    expect(marketplaceCategoriesFor(MARKETPLACE_PLUGINS, "en").find((category) => category.id === "security")?.label).toBe("Security");
   });
 
   test("publishes the high-value official plugins in the same marketplace registry", () => {
