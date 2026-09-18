@@ -4,6 +4,8 @@ export interface ClientStatus {
   /** Identifies the harness process answering this console, so state the console holds on behalf of the next start can be dropped once that start has happened. */
   readonly processStartedAt?: string;
   readonly model: string;
+  /** The thinking level the running session was started with. Absent when the runtime does not report one. */
+  readonly thinkingLevel?: string;
   readonly messages: number;
   readonly events: number;
   readonly sessionId: string;
@@ -45,6 +47,8 @@ export interface ClientPlugin {
   readonly state: string;
   readonly removable: boolean;
   readonly category?: { readonly id: string; readonly label: string };
+  /** The version resolved in the install directory, which drifts from the catalogue's pin as the registry moves on. Absent when the package manifest could not be read. */
+  readonly installedVersion?: string;
 }
 export interface ClientPluginPanel {
   readonly id: string;
@@ -85,7 +89,18 @@ export interface ClientMarketplacePlugin {
   readonly hooks: readonly string[];
   readonly dependencies?: readonly string[];
   readonly profile: { readonly name: string; readonly config: Record<string, unknown> | readonly unknown[]; readonly group?: boolean };
+  /** Everything an install of this entry writes, dependencies first and this plugin last, in the order the gateway walks it. Absent when the entry installs nothing but itself. */
+  readonly plan?: readonly ClientMarketplaceInstallPlanEntry[];
   readonly statistics?: { readonly downloads30d?: number; readonly quality?: number; readonly updatedAt?: string };
+}
+export interface ClientMarketplaceInstallPlanEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly packageName: string;
+  readonly version: string;
+  readonly repository: string;
+  readonly description: string;
+  readonly profile: ClientMarketplacePlugin["profile"];
 }
 export interface ClientMarketplaceCategory {
   readonly id: string;
@@ -203,10 +218,10 @@ export interface ClientApi {
   }): Promise<{ provider: ClientProvider }>;
   listPlugins(): Promise<readonly ClientPlugin[]>;
   listPluginPanels(): Promise<readonly ClientPluginPanel[]>;
-  togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin; restartRequired?: boolean }>;
-  uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string }>;
+  togglePlugin(id: string, enabled: boolean): Promise<{ plugin: ClientPlugin; restartRequired?: boolean; configPath?: string }>;
+  uninstallPlugin(id: string): Promise<{ uninstalled: boolean; id: string; configPath?: string }>;
   listMarketplace(query?: string, capability?: string, page?: number, pageSize?: number, category?: string, locale?: string): Promise<ClientMarketplacePage>;
-  installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean }>;
+  installMarketplace(id: string): Promise<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean; configPath?: string }>;
   listCommands(): Promise<readonly ClientCommand[]>;
   selectModel(provider: string, model: string): Promise<{ model: ClientModel }>;
   getConfig(): Promise<ClientPiConfig>;
@@ -369,13 +384,13 @@ export function createClientApi(): ClientApi {
     listPlugins: async () => (await requestJson<{ items: readonly ClientPlugin[] }>("/api/plugins")).items,
     listPluginPanels: async () => (await requestJson<{ items: readonly ClientPluginPanel[] }>("/api/plugin-ui")).items,
     togglePlugin: (id, enabled) =>
-      requestJson<{ plugin: ClientPlugin; restartRequired?: boolean }>("/api/plugins/toggle", {
+      requestJson<{ plugin: ClientPlugin; restartRequired?: boolean; configPath?: string }>("/api/plugins/toggle", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id, enabled }),
       }),
     uninstallPlugin: (id) =>
-      requestJson<{ uninstalled: boolean; id: string }>("/api/plugins/uninstall", {
+      requestJson<{ uninstalled: boolean; id: string; configPath?: string }>("/api/plugins/uninstall", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id }),
@@ -385,7 +400,7 @@ export function createClientApi(): ClientApi {
         `/api/marketplace?q=${encodeURIComponent(query)}&capability=${encodeURIComponent(capability)}&category=${encodeURIComponent(category)}&locale=${encodeURIComponent(locale)}&page=${page}&pageSize=${pageSize}&sort=recommended`,
       ),
     installMarketplace: (id) =>
-      requestJson<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean }>("/api/marketplace/install", {
+      requestJson<{ plugin: ClientMarketplacePlugin; installed: boolean; restartRequired?: boolean; configPath?: string }>("/api/marketplace/install", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id }),

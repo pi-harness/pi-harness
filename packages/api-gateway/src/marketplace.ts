@@ -21,6 +21,16 @@ export interface MarketplacePlugin {
   readonly statistics?: MarketplaceStatistics;
 }
 
+export interface MarketplaceInstallPlanEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly packageName: string;
+  readonly version: string;
+  readonly repository: string;
+  readonly description: string;
+  readonly profile: MarketplacePlugin["profile"];
+}
+
 export interface MarketplaceStatistics {
   readonly downloads30d?: number;
   readonly quality?: number;
@@ -189,6 +199,22 @@ export function marketplaceInstallPlan(plugin: MarketplacePlugin, catalog: reado
   };
   visit(plugin);
   return plan;
+}
+
+/** What an install of this entry writes, dependency first and the entry itself last, in the order the install walks it. Serialised with the entry so the console can tell the reader which packages Install pulls in, instead of recomputing the topological order and risking a different answer from the one the gateway acts on. */
+export function marketplaceInstallPlanSummary(plugin: MarketplacePlugin, locale = ""): readonly MarketplaceInstallPlanEntry[] {
+  return marketplaceInstallPlan(plugin).map((entry) => {
+    const localized = localizeMarketplacePlugin(entry, locale);
+    return {
+      id: entry.id,
+      name: entry.name,
+      packageName: entry.packageName,
+      version: entry.version,
+      repository: entry.repository,
+      description: localized.description,
+      profile: entry.profile,
+    };
+  });
 }
 
 function loadMarketplacePlugins(): readonly MarketplacePlugin[] {
@@ -490,16 +516,34 @@ export const MARKETPLACE_CATEGORIES: readonly MarketplaceCategory[] = [
   .map((category) => ({ ...category, count: MARKETPLACE_PLUGINS.filter((plugin) => plugin.category.id === category.id).length }))
   .sort((a, b) => a.label.localeCompare(b.label));
 
-export function marketplaceCapabilities(locale = ""): readonly MarketplaceCapability[] {
+/** Tallies the capability vocabulary against the plugins it is handed rather than the whole registry, so a count answers "how many entries would I get if I picked this" under the filters already in force. A capability the other filters emptied keeps its place at zero: the id is what the filter control holds as its value, so dropping the option a reader already picked would blank the control instead of telling them the facet is empty. */
+export function marketplaceCapabilitiesFor(plugins: readonly MarketplacePlugin[], locale = ""): readonly MarketplaceCapability[] {
   const catalog = MARKETPLACE_LOCALES.get(locale);
-  if (catalog === undefined) return MARKETPLACE_CAPABILITIES;
-  return MARKETPLACE_CAPABILITIES.map((capability) => ({ ...capability, label: catalog.capabilities[capability.id] ?? capability.label }));
+  return MARKETPLACE_CAPABILITIES.map((capability) => ({
+    ...capability,
+    label: catalog?.capabilities[capability.id] ?? capability.label,
+    count: plugins.filter((plugin) => plugin.capabilities.includes(capability.id)).length,
+  }));
+}
+
+/** The category rail counted the same way, keeping every catalogued category on the rail so a facet the current filters emptied is shown at zero rather than disappearing from under the reader. */
+export function marketplaceCategoriesFor(plugins: readonly MarketplacePlugin[], locale = ""): readonly MarketplaceCategory[] {
+  const counts = new Map<string, number>();
+  for (const plugin of plugins) counts.set(plugin.category.id, (counts.get(plugin.category.id) ?? 0) + 1);
+  const catalog = MARKETPLACE_LOCALES.get(locale);
+  const categories = MARKETPLACE_CATEGORIES.map((category) => ({
+    ...category,
+    label: catalog?.categories[category.id] ?? category.label,
+    count: counts.get(category.id) ?? 0,
+  }));
+  if (catalog === undefined) return categories;
+  return categories.sort((left, right) => left.label.localeCompare(right.label, locale));
+}
+
+export function marketplaceCapabilities(locale = ""): readonly MarketplaceCapability[] {
+  return marketplaceCapabilitiesFor(MARKETPLACE_PLUGINS, locale);
 }
 
 export function marketplaceCategories(locale = ""): readonly MarketplaceCategory[] {
-  const catalog = MARKETPLACE_LOCALES.get(locale);
-  if (catalog === undefined) return MARKETPLACE_CATEGORIES;
-  return MARKETPLACE_CATEGORIES.map((category) => ({ ...category, label: catalog.categories[category.id] ?? category.label })).sort((left, right) =>
-    left.label.localeCompare(right.label, locale),
-  );
+  return marketplaceCategoriesFor(MARKETPLACE_PLUGINS, locale);
 }

@@ -38,6 +38,12 @@ describe("installed plugin card content", () => {
     });
   });
 
+  // The catalogue's version is the pin an install would take today. Once the registry moves on, the package on disk is the older one, and that is the one the card describes.
+  it("prints the version installed on this machine rather than the catalogue's pin", () => {
+    expect(installedPluginCardContent({ ...plugin, installedVersion: "1.2.0" }, metadata, capabilityLabel).packageLabel).toBe(`${plugin.name} · v1.2.0`);
+    expect(installedPluginCardContent(plugin, metadata, capabilityLabel).packageLabel).toBe(`${plugin.name} · v1.2.3`);
+  });
+
   // A capability the catalog does not label still has to render as something, and its id is the only honest thing left to show.
   it("falls back to the capability id when the catalog carries no label for it", () => {
     expect(installedPluginCardContent(plugin, { ...metadata, capabilities: ["unknown-capability"] }, capabilityLabel).tags).toEqual([

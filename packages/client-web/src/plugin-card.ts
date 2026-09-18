@@ -15,7 +15,8 @@ export function installedPluginCardContent(
 ): InstalledPluginCardContent {
   if (metadata) {
     return {
-      packageLabel: `${plugin.name} · v${metadata.version}`,
+      // The catalogue's version is the one an install would pin today, not the one this machine installed; printing the pin made every card claim a version that had drifted out from under it.
+      packageLabel: `${plugin.name} · v${plugin.installedVersion ?? metadata.version}`,
       description: metadata.description,
       tags: [...metadata.capabilities.map(capabilityLabel), ...metadata.hooks.map((hook) => `hook:${hook}`)],
     };

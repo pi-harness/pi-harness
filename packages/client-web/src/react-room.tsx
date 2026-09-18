@@ -493,10 +493,15 @@ const capability = (name: string): string => {
 };
 // The state the gateway reports for a plugin that is installed in the profile but has no loader entry yet, which is every marketplace install until the next start.
 const RESTART_REQUIRED_PLUGIN_STATE = "restart-required";
-// The runtime leases the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools joins on the next start rather than immediately. The notice names no start command because the harness is reachable through more than one of them, and it covers enabling as well as installing because both actions share it.
-export function restartRequiredNotice(): string {
+// The runtime leases the tool registry for its whole life and snapshots the tool set when it takes it, so a plugin that contributes tools joins on the next start rather than immediately. The notice names no start command because the harness is reachable through more than one of them, and it covers enabling as well as installing because both actions share it. The path is the file the gateway just wrote, which `--config` can move anywhere, so it is reported rather than guessed; a gateway that does not report it leaves the sentence without one.
+export function restartRequiredNotice(configPath?: string): string {
+  if (configPath === undefined || configPath === "")
+    return t(
+      "改动已写入当前运行 profile。控制台无法自行重启，请回到启动 Pi Harness 的终端按 Ctrl-C，再用原来的命令重新启动；在那之前这次改动不会生效，刚安装的插件会出现在「已安装」列表里并标记为「重启后生效」，重启前无法启用或停用。",
+    );
   return t(
-    "改动已写入 profile（~/.pi-harness/profiles/<profile>/cordis.yml）。控制台无法自行重启，请回到启动 Pi Harness 的终端按 Ctrl-C，再用原来的命令重新启动；在那之前这次改动不会生效，刚安装的插件也不会出现在「已安装」列表里。",
+    "改动已写入 profile（{v0}）。控制台无法自行重启，请回到启动 Pi Harness 的终端按 Ctrl-C，再用原来的命令重新启动；在那之前这次改动不会生效，刚安装的插件会出现在「已安装」列表里并标记为「重启后生效」，重启前无法启用或停用。",
+    { v0: configPath },
   );
 }
 
@@ -6867,7 +6872,7 @@ function Plugins({
   onMarketplace: () => void;
   onOpenDetail: (plugin: ClientPlugin) => void;
   onToml: () => void;
-  onToggle: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean }>;
+  onToggle: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean; configPath?: string }>;
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const catalogByPackage = useMemo(() => new Map(catalog.map((plugin) => [plugin.packageName, plugin])), [catalog]);
@@ -6931,13 +6936,16 @@ function Plugins({
   useEffect(() => {
     if (categoryFilter && !installedCategories.some((category) => category.id === categoryFilter)) setCategoryFilter("");
   }, [categoryFilter, installedCategories]);
-  const runPluginAction = async (plugin: ClientPlugin, action: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean } | void>): Promise<boolean> => {
+  const runPluginAction = async (
+    plugin: ClientPlugin,
+    action: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean; configPath?: string } | void>,
+  ): Promise<boolean> => {
     setPluginError("");
     setPluginNotice("");
     setBusyPlugin(plugin.id);
     try {
       const result = await action(plugin);
-      if (result?.restartRequired === true) setPluginNotice(restartRequiredNotice());
+      if (result?.restartRequired === true) setPluginNotice(restartRequiredNotice(result.configPath));
       return true;
     } catch (error) {
       setPluginError(error instanceof Error ? error.message : String(error));
@@ -6979,6 +6987,15 @@ function Plugins({
           <span aria-live="polite">
             {t("{v0} 个插件", { v0: query.trim() || categoryFilter ? `${visiblePlugins.length} / ${installedPlugins.length}` : `${installedPlugins.length}` })}
           </span>
+          {/* The outcome of a toggle or an uninstall belongs next to the controls that started it: the list below scrolls, so a message under it sits past the fold of a container nothing scrolls back, and a failed toggle whose switch snapped back then looks like nothing happened at all. The region is always in the markup so a screen reader announces the message that lands in it. */}
+          <div aria-live="polite" className="plugins-toolbar-message">
+            {pluginError && (
+              <p className="plugin-action-error" role="alert">
+                {pluginActionErrorText(pluginError)}
+              </p>
+            )}
+            {pluginNotice && <p className="plugin-action-notice">{pluginNotice}</p>}
+          </div>
         </div>
         <PluginCategoryNav activeCategory={categoryFilter} categories={installedCategories} label={t("已安装插件分类")} onChange={setCategoryFilter} />
         <div className="plugins-scroll" ref={scrollRef}>
@@ -7070,16 +7087,6 @@ function Plugins({
               <div className="empty-state">{t("没有匹配当前搜索与分类条件的已安装插件。")}</div>
             ) : null}
           </div>
-          {pluginError && (
-            <p className="plugin-action-error" role="alert">
-              {pluginActionErrorText(pluginError)}
-            </p>
-          )}
-          {pluginNotice && (
-            <p aria-live="polite" className="plugin-action-notice">
-              {pluginNotice}
-            </p>
-          )}
           {panels.length > installedPlugins.length && (
             <section className="mt-4 border-t border-[var(--color-line)] pt-4">
               <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -7133,7 +7140,7 @@ function InstalledPluginDetail({
   metadata?: ClientMarketplacePlugin;
   capabilityLabel: (id: string) => string;
   onBack: () => void;
-  onToggle: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean }>;
+  onToggle: (plugin: ClientPlugin) => Promise<{ restartRequired?: boolean; configPath?: string }>;
   onUninstall: (plugin: ClientPlugin) => Promise<void>;
 }) {
   const [busyAction, setBusyAction] = useState<"toggle" | "uninstall">();
@@ -7142,13 +7149,16 @@ function InstalledPluginDetail({
   const [notice, setNotice] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState(false);
   const title = metadata?.name ?? displayPluginName(plugin.name);
-  const run = async (action: "toggle" | "uninstall", callback: () => Promise<{ restartRequired?: boolean } | void>) => {
+  // What is on disk is what this page describes; the catalogue's version is only what an install would pin today, and it is worth its own row when the two have drifted apart.
+  const shownVersion = plugin.installedVersion ?? metadata?.version;
+  const outdated = plugin.installedVersion !== undefined && metadata !== undefined && metadata.version !== plugin.installedVersion;
+  const run = async (action: "toggle" | "uninstall", callback: () => Promise<{ restartRequired?: boolean; configPath?: string } | void>) => {
     setError("");
     setNotice("");
     setBusyAction(action);
     try {
       const result = await callback();
-      if (result?.restartRequired === true) setNotice(restartRequiredNotice());
+      if (result?.restartRequired === true) setNotice(restartRequiredNotice(result.configPath));
       return true;
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -7175,10 +7185,11 @@ function InstalledPluginDetail({
         <div className="plugin-detail-content">
           <header className="border-b border-[var(--color-line)] pb-7">
             <div className="mb-4 flex flex-wrap items-center gap-2">
+              {/* The gateway reports a plugin waiting for a restart as enabled, so reading only `enabled` here put a green "running" badge on the same screen as this page's own "waiting for a restart" button and run status. The list card resolves it the same way. */}
               <span
-                className={`rounded px-2 py-1 font-mono text-[10px] ${plugin.enabled ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-soft)] text-[var(--color-faint)]"}`}
+                className={`rounded px-2 py-1 font-mono text-[10px] ${awaitingRestart ? "bg-[var(--color-amber-soft)] text-[var(--color-amber)]" : plugin.enabled ? "bg-[var(--color-green-soft)] text-[var(--color-green)]" : "bg-[var(--color-soft)] text-[var(--color-faint)]"}`}
               >
-                {plugin.enabled ? t("运行中") : t("已停用")}
+                {awaitingRestart ? t("重启后生效") : plugin.enabled ? t("运行中") : t("已停用")}
               </span>
               <span className="rounded bg-[var(--color-blue-soft)] px-2 py-1 text-[10px] text-[var(--color-blue)]">
                 {metadata?.category.label ?? plugin.category?.label ?? t("运行时插件")}
@@ -7191,7 +7202,7 @@ function InstalledPluginDetail({
                 <h2 className="text-3xl font-semibold tracking-[-0.03em] text-[var(--color-ink)]">{title}</h2>
                 <code className="mt-3 block break-all text-[12px] text-[var(--color-faint)]">
                   {plugin.name}
-                  {metadata ? ` · v${metadata.version}` : ""}
+                  {shownVersion === undefined ? "" : ` · v${shownVersion}`}
                 </code>
               </div>
               {plugin.removable ? (
@@ -7293,9 +7304,15 @@ function InstalledPluginDetail({
                   <dt className="text-[var(--color-faint)]">{t("管理方式")}</dt>
                   <dd className="text-right text-[var(--color-ink)]">{plugin.removable ? t("可配置") : t("随运行时加载")}</dd>
                 </div>
-                {metadata ? (
+                {shownVersion === undefined ? null : (
                   <div className="flex justify-between gap-4 py-3">
-                    <dt className="text-[var(--color-faint)]">{t("版本")}</dt>
+                    <dt className="text-[var(--color-faint)]">{t("已安装版本")}</dt>
+                    <dd className="font-mono text-[var(--color-ink)]">{shownVersion}</dd>
+                  </div>
+                )}
+                {outdated && metadata ? (
+                  <div className="flex justify-between gap-4 py-3">
+                    <dt className="text-[var(--color-faint)]">{t("最新审核版本")}</dt>
                     <dd className="font-mono text-[var(--color-ink)]">{metadata.version}</dd>
                   </div>
                 ) : null}
@@ -7374,10 +7391,11 @@ export function Marketplace({
   installedPackages: ReadonlySet<string>;
   dependencyRepairPackages: ReadonlySet<string>;
   restartPendingPackages: ReadonlySet<string>;
-  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean; configPath?: string }>;
 }) {
   const [installing, setInstalling] = useState<string>();
   const [installError, setInstallError] = useState("");
+  const [installedConfigPath, setInstalledConfigPath] = useState<string>();
   // The notice states what the pending set means, so it is read from that set rather than remembered here: leaving the marketplace unmounts this panel, and a restart that empties the set has to take the notice with it instead of leaving a message telling the user to do what they already did.
   const [noticeDismissed, setNoticeDismissed] = useState(false);
   const showInstallNotice = !noticeDismissed && restartPendingPackages.size > 0;
@@ -7387,7 +7405,9 @@ export function Marketplace({
     setNoticeDismissed(false);
     setInstalling(plugin.id);
     try {
-      await onInstall(plugin);
+      // The notice outlives the install that raised it, including across a reload that restores the pending set from storage, so the path is remembered here and the notice does without one when this browser did not perform the install.
+      const result = await onInstall(plugin);
+      setInstalledConfigPath(result.configPath);
     } catch (error) {
       setInstallError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -7448,7 +7468,7 @@ export function Marketplace({
             )}
             {showInstallNotice && (
               <p className="marketplace-message notice">
-                {restartRequiredNotice()}
+                {restartRequiredNotice(installedConfigPath)}
                 <button className="marketplace-message-dismiss" onClick={() => setNoticeDismissed(true)} type="button">
                   {t("知道了")}
                 </button>
@@ -7598,19 +7618,22 @@ function MarketplaceDetail({
   dependencyRepair: boolean;
   restartPending: boolean;
   capabilityLabel: (id: string) => string;
-  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean }>;
+  onInstall: (plugin: ClientMarketplacePlugin) => Promise<{ restartRequired?: boolean; configPath?: string }>;
   onBack: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // The plan the gateway will act on, this plugin last. Its dependencies are what Install pulls in besides the entry the reader is looking at.
+  const dependencies = (plugin.plan ?? []).slice(0, -1);
+  const profileEntries = plugin.plan === undefined ? plugin.profile : plugin.plan.map((entry) => entry.profile);
   const install = async () => {
     setError("");
     setNotice("");
     setBusy(true);
     try {
       const result = await onInstall(plugin);
-      if (result.restartRequired === true) setNotice(restartRequiredNotice());
+      if (result.restartRequired === true) setNotice(restartRequiredNotice(result.configPath));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -7702,11 +7725,34 @@ function MarketplaceDetail({
                   ))}
                 </div>
               </section>
+              {dependencies.length > 0 && (
+                // Install writes the whole plan, not just this entry, so the packages it pulls in are named here rather than left for the reader to discover after the fact.
+                <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
+                  <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("依赖插件")}</h3>
+                  <p className="mt-1 text-[12px] text-[var(--color-faint)]">{t("安装这个插件会一并安装下列插件，并按依赖在前的顺序写入 profile。")}</p>
+                  <ul className="mt-4 space-y-3">
+                    {dependencies.map((dependency) => (
+                      <li className="rounded-md bg-[var(--color-soft)] px-3 py-3" key={dependency.id}>
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <strong className="text-[12px] font-semibold text-[var(--color-ink)]">{dependency.name}</strong>
+                          <a className="text-[11px] text-[var(--color-blue)]" href={dependency.repository} rel="noreferrer" target="_blank">
+                            {t("查看源码 ↗")}
+                          </a>
+                        </div>
+                        <code className="mt-1 block break-all font-mono text-[11px] text-[var(--color-faint)]">
+                          {dependency.packageName} · v{dependency.version}
+                        </code>
+                        <p className="mt-2 text-[12px] leading-6 text-[var(--color-muted)]">{dependency.description}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
               <section className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
                 <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">{t("运行配置")}</h3>
                 <p className="mt-1 text-[12px] text-[var(--color-faint)]">{t("安装后会写入当前运行 profile。")}</p>
                 <pre className="mt-4 overflow-auto rounded-lg bg-[var(--color-soft)] p-4 text-[11px] leading-6 text-[var(--color-ink)]">
-                  <code>{JSON.stringify(plugin.profile, null, 2)}</code>
+                  <code>{JSON.stringify(profileEntries, null, 2)}</code>
                 </pre>
               </section>
             </div>
@@ -7806,6 +7852,12 @@ function Settings({
   onRefresh: () => Promise<void>;
 }) {
   const status = data.status;
+  // /api/status reports the running pair as "provider/id", and a model id may itself contain a slash, so only the first separator divides them.
+  const activeModelSelection = useMemo(() => {
+    const separator = status?.model.indexOf("/") ?? -1;
+    if (status === undefined || separator < 0) return { provider: status?.model, model: undefined };
+    return { provider: status.model.slice(0, separator), model: status.model.slice(separator + 1) };
+  }, [status]);
   const [providerState, setProviderState] = useState<Record<string, string>>({});
   const [providerBusy, setProviderBusy] = useState<Record<string, "add" | "test" | "refresh" | undefined>>({});
   const [providerAddOpen, setProviderAddOpen] = useState(false);
@@ -8281,55 +8333,24 @@ function Settings({
                     </div>
                   ) : (
                     <div className="config-sections">
+                      {/* The model a session runs with comes from the booted profile: pi-models resolves the provider and model pair, pi-runtime hands the session its thinking level, and neither consults settings.json. This section used to write those three settings keys and nothing ever read them back, so it reports what the session is actually running rather than offering a control the runtime ignores. */}
                       <section className="config-section">
                         <header>
                           <strong>{t("模型默认值")}</strong>
-                          <small>{t("新会话启动时使用的模型和思考级别")}</small>
+                          <small>{t("由启动 profile 决定，控制台不能修改；改 profile 的 pi-models / pi-runtime 条目后重启生效")}</small>
                         </header>
-                        <label className="config-field">
+                        <div className="config-field">
                           <span>{t("提供商")}</span>
-                          <select
-                            disabled={configBusy}
-                            onChange={(event) => updateConfig({ defaultProvider: event.target.value }, t("保存提供商…"))}
-                            value={config.settings.defaultProvider ?? ""}
-                          >
-                            <option value="">{t("跟随运行时")}</option>
-                            {data.providers.map((provider) => (
-                              <option key={provider.provider} value={provider.provider}>
-                                {provider.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="config-field">
+                          <span className="config-value">{value(activeModelSelection.provider)}</span>
+                        </div>
+                        <div className="config-field">
                           <span>{t("模型")}</span>
-                          <select
-                            disabled={configBusy}
-                            onChange={(event) => updateConfig({ defaultModel: event.target.value }, t("保存模型…"))}
-                            value={config.settings.defaultModel ?? ""}
-                          >
-                            <option value="">{t("跟随提供商")}</option>
-                            {data.models.map((model) => (
-                              <option key={`${model.provider}/${model.id}`} value={model.id}>
-                                {model.provider}/{model.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="config-field">
+                          <span className="config-value">{value(activeModelSelection.model)}</span>
+                        </div>
+                        <div className="config-field">
                           <span>{t("思考级别")}</span>
-                          <select
-                            disabled={configBusy}
-                            onChange={(event) => updateConfig({ defaultThinkingLevel: event.target.value }, t("保存思考级别…"))}
-                            value={config.settings.defaultThinkingLevel ?? "medium"}
-                          >
-                            {["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => (
-                              <option key={level} value={level}>
-                                {level}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                          <span className="config-value">{value(status?.thinkingLevel)}</span>
+                        </div>
                       </section>
                       <section className="config-section">
                         <header>
@@ -9535,7 +9556,8 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     locale: "",
     plugins: EMPTY_MARKETPLACE_PLUGINS,
   });
-  const marketplaceCatalog = marketplaceCatalogState.locale === locale ? marketplaceCatalogState.plugins : EMPTY_MARKETPLACE_PLUGINS;
+  const marketplaceCatalogLocale = marketplaceCatalogState.locale;
+  const marketplaceCatalog = marketplaceCatalogLocale === locale ? marketplaceCatalogState.plugins : EMPTY_MARKETPLACE_PLUGINS;
   const marketplacePageCurrent = data.marketplaceLocale === locale;
   const marketplacePagePlugins = marketplacePageCurrent ? data.marketplace : EMPTY_MARKETPLACE_PLUGINS;
   const marketplacePageCapabilities = marketplacePageCurrent ? data.marketplaceCapabilities : EMPTY_MARKETPLACE_CAPABILITIES;
@@ -9618,7 +9640,10 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
   const [promptCompletionIndex, setPromptCompletionIndex] = useState(0);
   const [initialRefreshPending, setInitialRefreshPending] = useState(true);
   const [refreshIssues, setRefreshIssues] = useState<readonly string[]>([]);
+  // The whole catalogue is read page by page, which is only worth its requests on the two pages that consume it: the installed list's metadata lookup and the capability labeller. Reading it on every load spent the registry's every page on a reader who never opened either. It is kept in state across page changes, so returning to the plugins page costs nothing and only a language change reads it again.
   useEffect(() => {
+    if (page !== "plugins" && page !== "marketplace") return;
+    if (marketplaceCatalogLocale === locale) return;
     let cancelled = false;
     void loadMarketplaceCatalog(api, locale)
       .then((items) => {
@@ -9630,7 +9655,7 @@ export function ControlRoomView({ api = createClientApi(), appVersion }: { api?:
     return () => {
       cancelled = true;
     };
-  }, [api, locale]);
+  }, [api, locale, marketplaceCatalogLocale, page]);
   useEffect(() => {
     if (!selectedSessionPath && data.session?.sessionFile) setSelectedSessionPath(data.session.sessionFile);
   }, [data.session?.sessionFile, selectedSessionPath]);
