@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
