@@ -40,6 +40,8 @@ For local development with EveryAPI relay authentication, use `npm run pih-local
 
 ![Pi Harness web console](docs/assets/pi-harness-web-console.png)
 
+The public product website lives in `apps/website`. Run it locally with `npm run dev -w @pi-harness/website`; the production bundle is built by `npm run build` alongside the web console.
+
 ## What you get
 
 - A Cordis plugin tree for models, resources, sessions, tools, runtime, Web/API, and stdio.

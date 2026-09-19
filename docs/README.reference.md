@@ -945,6 +945,7 @@ For a plugin-only hotfix, bump `packages/core/package.json`, run `npm run build 
 - `packages/client-web`: browser-side Cordis plugin tree and console surface
 - `packages/bundle-web-app`: static frontend and SPA fallback plugin
 - `apps/web`: Vite entrypoint and production web launcher
+- `apps/website`: public product website built with TanStack Router, Zustand, Zod, Tailwind CSS, and Vite+
 - `apps/desktop`: Tauri shell wrapping the same web build for desktop and mobile targets
 - `examples/plugin-hello`: lifecycle-safe external Pi tool plugin
 - `docs/plans`: accepted architecture and implementation plan
