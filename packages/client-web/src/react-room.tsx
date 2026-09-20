@@ -6268,7 +6268,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
             </p>
           ) : (
             <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("还没有同步笔记。")}
+              {/* Same reason as Web Research: without the vault path the tool refuses every call, and the setting's name lives only in the plugin's own schema. */}
+              {data?.configured === true ? t("还没有同步笔记。") : t("还没有配置 vault：在插件 profile 条目里设置 vaultPath 指向目标仓库目录。")}
             </div>
           )}
         </div>
@@ -6322,7 +6323,10 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
             })()
           ) : (
             <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("还没有联网搜索。可让 Agent 调用 web_search；单页读取使用 read_page。")}
+              {/* A plugin that cannot work until it is configured has to name the setting: the status chip only reports that a key is missing, and nothing else in the console says which one. */}
+              {data?.keyless === true
+                ? t("还没有联网搜索。web_search 需要搜索 API key：在插件 profile 条目里设置 apiKey，或导出 FIRECRAWL_API_KEY。")
+                : t("还没有联网搜索。可让 Agent 调用 web_search；单页读取使用 read_page。")}
             </div>
           )}
           <p className="text-[10px] text-[var(--color-faint)]">
