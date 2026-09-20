@@ -101,6 +101,118 @@ describe("browser session boundaries", () => {
     }
   });
 
+  test("names the endpoint and the remedy when nothing is listening on it", async () => {
+    const originalFetch = globalThis.fetch;
+    const refused = new TypeError("fetch failed");
+    refused.cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9222"), { code: "ECONNREFUSED" });
+    globalThis.fetch = () => Promise.reject(refused);
+    const context = await createBrowserSession({ endpoint: "http://127.0.0.1:9333" });
+    try {
+      const failure = await browserTool(context, "browser_tabs")
+        .execute("tabs", {}, undefined, undefined, {} as never)
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain("http://127.0.0.1:9333");
+      expect((failure as Error).message).toContain("ECONNREFUSED");
+      expect((failure as Error).message).toContain("--remote-debugging-port=9333");
+      expect((failure as Error).message).not.toMatch(/^fetch failed$/u);
+      // The transport failure stays reachable for diagnosis rather than being replaced.
+      expect((failure as Error).cause).toBe(refused);
+      const panel = await context.piPluginUi.snapshot();
+      expect(panel[0]?.data).toMatchObject({ connected: false });
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
+  // An endpoint that answered must never be described as absent. fetch raises TypeError for a refused redirect and
+  // for a socket that dies after the headers arrived, so neither the class nor a bare "fetch failed" is evidence
+  // that nothing is listening; both of these keep the original error instead of asserting unreachability.
+  test.each([
+    ["a redirect the fetch was told to refuse", Object.assign(new TypeError("fetch failed"), { cause: new Error("unexpected redirect") }), "fetch failed"],
+    [
+      "a socket that died after the response headers",
+      Object.assign(new TypeError("terminated"), { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }),
+      "terminated",
+    ],
+    ["a transport failure carrying no cause at all", new TypeError("fetch failed"), "fetch failed"],
+  ])("does not claim the endpoint is unreachable for %s", async (_label, raised, expectedMessage) => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.reject(raised);
+    const context = await createBrowserSession();
+    try {
+      const failure = await browserTool(context, "browser_tabs")
+        .execute("tabs", {}, undefined, undefined, {} as never)
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      expect((failure as Error).message).toBe(expectedMessage);
+      expect((failure as Error).message).not.toContain("is not reachable");
+      expect((failure as Error).message).not.toContain("UND_ERR_SOCKET");
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
+  test("does not claim the endpoint is unreachable once a response has already arrived", async () => {
+    const originalFetch = globalThis.fetch;
+    const dropped = Object.assign(new TypeError("terminated"), { cause: Object.assign(new Error("aborted"), { code: "ECONNRESET" }) });
+    // Headers arrive, then the body read fails with an errno that would otherwise read as a connection failure.
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(dropped);
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    const context = await createBrowserSession();
+    try {
+      const failure = await browserTool(context, "browser_tabs")
+        .execute("tabs", {}, undefined, undefined, {} as never)
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      expect((failure as Error).message).not.toContain("is not reachable");
+      expect((failure as Error).message).not.toContain("--remote-debugging-port");
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
+  test("names the port the plugin actually dials when the endpoint declares none", async () => {
+    const originalFetch = globalThis.fetch;
+    const refused = new TypeError("fetch failed");
+    refused.cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:80"), { code: "ECONNREFUSED" });
+    globalThis.fetch = () => Promise.reject(refused);
+    const context = await createBrowserSession({ endpoint: "http://127.0.0.1" });
+    try {
+      const failure = await browserTool(context, "browser_tabs")
+        .execute("tabs", {}, undefined, undefined, {} as never)
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      // localDebuggerUrl compares this same endpoint against port 80, so the remedy may not name a different one.
+      expect((failure as Error).message).toContain("--remote-debugging-port=80");
+      expect((failure as Error).message).not.toContain("9222");
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
   test("strictly validates raw tool parameters without invoking accessors", async () => {
     const originalFetch = globalThis.fetch;
     let fetches = 0;

@@ -1948,7 +1948,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           {panel.icon ?? "◈"}
         </span>
         <div className="min-w-0 flex-1">
-          <strong className="block text-[13px] font-semibold text-[var(--color-ink)]">{panel.title}</strong>
+          {/* A plugin authors its panel title and description in the source language, so both go through the catalog: four shipped titles are Chinese, and leaving the title raw printed them untranslated in every other locale. */}
+          <strong className="block text-[13px] font-semibold text-[var(--color-ink)]">{t(panel.title)}</strong>
           <p className="mt-1 text-[11px] leading-4 text-[var(--color-faint)]">{t(panel.description ?? panel.pluginId.replace(/cordis/gi, "runtime"))}</p>
         </div>
       </header>
@@ -2596,10 +2597,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <p className="mt-2 text-[11px] leading-4 text-[var(--color-faint)]">{t("还没有执行验证脚本。可让 Agent 调用 run_project_tests。")}</p>
                 ) : (
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--color-muted)]">
-                    <span className="w-full break-all">
-                      {t("执行目录：")}
-                      {run.cwd}
-                    </span>
+                    <span className="w-full break-all">{t("执行目录：{v0}", { v0: run.cwd })}</span>
                     <span>exit {run.exitCode ?? "—"}</span>
                     {run.signal === null ? null : <span>{run.signal}</span>}
                     <span>{run.durationMs} ms</span>
@@ -3385,10 +3383,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           const git = view.git;
           return (
             <div className="mt-3 grid min-w-0 gap-3">
-              <p className="whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
-                {t("工作区：")}
-                {view.cwd}
-              </p>
+              <p className="whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">{t("工作区：{v0}", { v0: view.cwd })}</p>
               {latest !== null ? (
                 <>
                   <div className="flex min-w-0 items-start justify-between gap-2 rounded-lg border border-[#dce5f5] bg-[var(--color-blue-soft)] px-3 py-3">
@@ -3643,9 +3638,10 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <p className="mt-2">{t("{v0} · {v1} 个风险项", { v0: value(latest.name ?? t("未命名 Skill")), v1: value(findings.length) })}</p>
                   {findings.length > 0 ? (
                     <p className="mt-1 text-[10px] opacity-80">
+                      {/* Array.isArray passes for an array holding null, and there is no error boundary around a panel, so an unnarrowed dereference here takes the whole console down rather than one card. Every sibling branch narrows first. */}
                       {findings
                         .slice(0, 2)
-                        .map((item) => value((item as Record<string, unknown>).message))
+                        .map((item) => value(item !== null && typeof item === "object" ? (item as Record<string, unknown>).message : item))
                         .join(" · ")}
                     </p>
                   ) : null}
@@ -4191,10 +4187,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                 </p>
               ) : null}
               <div className="flex items-center justify-between rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2 text-[10px]">
-                <span className="text-[var(--color-muted)]">
-                  {t("当前工作区任务：")}
-                  {view.workspace}
-                </span>
+                <span className="text-[var(--color-muted)]">{t("当前工作区任务：{v0}", { v0: view.workspace })}</span>
                 <strong className="font-mono text-[var(--color-blue)]">{t("{v0} 个", { v0: view.total })}</strong>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -4257,8 +4250,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                           {task.dueDate ? <span>{t("截止 {v0}", { v0: value(task.dueDate) })}</span> : null}
                           {Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? (
                             <span className="min-w-0 basis-full whitespace-pre-wrap [overflow-wrap:anywhere]">
-                              {t("前置任务：")}
-                              {task.dependsOn.map((key) => value(key)).join(", ")}
+                              {t("前置任务：{v0}", { v0: task.dependsOn.map((key) => value(key)).join(", ") })}
                             </span>
                           ) : null}
                         </div>
@@ -4437,10 +4429,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           const savepoints = Array.isArray(data?.savepoints) ? data.savepoints : [];
           return (
             <div className="mt-3 grid min-w-0 grid-cols-1 gap-3">
-              <p className="break-all text-[10px] text-[var(--color-faint)]">
-                {t("工作区：")}
-                {value(data?.cwd)}
-              </p>
+              <p className="break-all text-[10px] text-[var(--color-faint)]">{t("工作区：{v0}", { v0: value(data?.cwd) })}</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-[#e3eaf8] bg-[var(--color-blue-soft)] px-3 py-2">
                   <span className="block text-[10px] text-[var(--color-faint)]">{t("保存点")}</span>
@@ -4855,7 +4844,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           };
           return (
             <div className="mt-3 grid gap-3 text-[11px]">
-              <p>
+              {/* The gap is what separates the label from the path: a full-width colon spaces itself, a Latin one renders "Current session:/tmp/...". */}
+              <p className="flex flex-wrap items-baseline gap-1">
                 {t("当前会话：")}
                 <code>{value(data?.currentSessionPath ?? t("未持久化"))}</code>
               </p>
@@ -5109,10 +5099,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           const report = view.latest;
           return (
             <div className="mt-3 grid min-w-0 gap-3">
-              <p className="whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">
-                {t("工作区：")}
-                {view.cwd}
-              </p>
+              <p className="whitespace-pre-wrap text-[10px] text-[var(--color-faint)] [overflow-wrap:anywhere]">{t("工作区：{v0}", { v0: view.cwd })}</p>
               <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px]">
                 <span className="font-medium text-[var(--color-ink)]">{t("工作区文本检索")}</span>
                 <span className="shrink-0 font-mono text-[var(--color-blue)]">{t("{v0} 个匹配", { v0: view.matchCount })}</span>
@@ -5313,12 +5300,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   {view.status.error === null ? null : <p className="mt-1">{t("原因：{v0}", { v0: view.status.error })}</p>}
                 </div>
               ) : null}
-              {data?.query ? (
-                <p className="text-[10px] text-[var(--color-faint)]">
-                  {t("最近完成扫描的查询：")}
-                  {value(data.query)}
-                </p>
-              ) : null}
+              {data?.query ? <p className="text-[10px] text-[var(--color-faint)]">{t("最近完成扫描的查询：{v0}", { v0: value(data.query) })}</p> : null}
               <div className="grid grid-cols-3 gap-2">
                 {[
                   [t("已扫描"), view.total],
@@ -5543,9 +5525,10 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               : t("尚未收到遥测事件。")}
           </div>
           <p className="text-[10px] text-[var(--color-faint)]">
-            {t("最多保留 100 个事件名，界面显示前 8 个；")}
-            {data?.namesTruncated === true ? t("事件名已截断。") : ""}
-            {t("不读取或保存事件属性。此服务不拦截网络，也不阻止其他事件监听器。")}
+            {/* One key per variant rather than three fragments glued together: the spacing between these sentences is the translator's to decide, and Chinese punctuation carries it while a Latin full stop does not. */}
+            {data?.namesTruncated === true
+              ? t("最多保留 100 个事件名，界面显示前 8 个；事件名已截断。不读取或保存事件属性。此服务不拦截网络，也不阻止其他事件监听器。")
+              : t("最多保留 100 个事件名，界面显示前 8 个；不读取或保存事件属性。此服务不拦截网络，也不阻止其他事件监听器。")}
           </p>
         </div>
       ) : panel.id === "plugin-dev-panel" ? (
@@ -5767,10 +5750,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               ) : null}
               {report !== null ? (
                 <>
-                  <p className="break-all text-[10px] text-[var(--color-faint)]">
-                    {t("查询工作区：")}
-                    {report.cwd}
-                  </p>
+                  <p className="break-all text-[10px] text-[var(--color-faint)]">{t("查询工作区：{v0}", { v0: report.cwd })}</p>
                   <div className="rounded-lg bg-[var(--color-soft)] px-3 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate font-mono text-[11px] text-[var(--color-ink)]" title={report.database}>
@@ -5783,8 +5763,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                     </code>
                   </div>
                   <p className="break-words text-[10px] text-[var(--color-faint)]">
-                    {t("列：")}
-                    {report.columns.map((column) => sqlLensDisplayText(column)).join(", ")}
+                    {t("列：{v0}", { v0: report.columns.map((column) => sqlLensDisplayText(column)).join(", ") })}
                   </p>
                   <pre className="max-h-56 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3 text-[10px] leading-4 text-[var(--color-muted)]">
                     {sqlLensRowsJson(report.rows)}
@@ -5823,10 +5802,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
               <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3">
                 <strong className="block text-[12px] text-[var(--color-ink)]">{theme.label}</strong>
                 <p className="mt-1 text-[10px] text-[var(--color-muted)]">{theme.description}</p>
-                <p className="mt-1 break-all text-[10px] text-[var(--color-muted)]">
-                  {t("会话：")}
-                  {theme.sessionId}
-                </p>
+                <p className="mt-1 break-all text-[10px] text-[var(--color-muted)]">{t("会话：{v0}", { v0: theme.sessionId })}</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {["light", "midnight", "paper", "high-contrast"].map((id) => (
@@ -5837,8 +5813,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                 ))}
               </div>
               <p className="text-[10px] leading-4 text-[var(--color-muted)]">
-                {t("可让 Agent 调用 theme_set 切换预设。")}
-                {theme.changedAt ? t("最近选择：{v0}", { v0: theme.changedAt }) : t("使用配置默认主题。")}
+                {/* Two sentences in one paragraph: the Chinese full stop sets them apart on its own, a Latin one does not, so the separator is explicit. */}
+                {t("可让 Agent 调用 theme_set 切换预设。")} {theme.changedAt ? t("最近选择：{v0}", { v0: theme.changedAt }) : t("使用配置默认主题。")}
               </p>
             </div>
           );
@@ -5958,10 +5934,7 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
           const report = view.latest;
           return (
             <div className="mt-3 grid gap-3">
-              <p className="break-all text-[10px] text-[var(--color-faint)]">
-                {t("工作区：")}
-                {view.cwd}
-              </p>
+              <p className="break-all text-[10px] text-[var(--color-faint)]">{t("工作区：{v0}", { v0: view.cwd })}</p>
               {view.status.state === "failed" || view.status.state === "cancelled" ? (
                 <div className="rounded-lg border border-[#f4caca] bg-[var(--color-red-soft)] px-3 py-2 text-[11px] text-[var(--color-red)]">
                   {t("最近一次校验{v0}。{v1}", { v0: view.status.state === "cancelled" ? t("已取消") : t("失败"), v1: view.status.error ?? "" })}
@@ -6216,12 +6189,15 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                 </ul>
               ) : (
                 <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-                  {data?.available === false ? `MCP ${t("不可用")}` : t("当前没有 MCP 服务器快照。")}
+                  {data?.available === false ? t("MCP 不可用：先启用 MCP Client 插件，再由 Agent 调用 mcp_panel。") : t("当前没有 MCP 服务器快照。")}
                 </div>
               )}
               <div className="text-[10px] text-[var(--color-faint)]">
                 {t("读取 MCP 运行状态；工具列表通过 mcp_panel 的 tools 操作查询，健康建议通过 health 操作查看。")}
-                {data?.writesEnabled === true ? ` 已启用 profile patch 写入：${value(data.patchPath)}` : t(" profile patch 写入未配置，apply 会被拒绝。")}
+                {/* The enabled branch was the one bare Chinese template literal left in the console: it never reached the catalog, so it printed Chinese in all nine other locales. */}
+                {data?.writesEnabled === true
+                  ? t(" 已启用 profile patch 写入：{v0}", { v0: value(data.patchPath) })
+                  : t(" profile patch 写入未配置，apply 会被拒绝。")}
               </div>
             </div>
           );
@@ -6296,7 +6272,8 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
             </p>
           ) : (
             <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("还没有同步笔记。")}
+              {/* Same reason as Web Research: without the vault path the tool refuses every call, and the setting's name lives only in the plugin's own schema. */}
+              {data?.configured === true ? t("还没有同步笔记。") : t("还没有配置 vault：在插件 profile 条目里设置 vaultPath 指向目标仓库目录。")}
             </div>
           )}
         </div>
@@ -6320,8 +6297,9 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   </div>
                   {report.status === "degraded" ? (
                     <p className="rounded-lg bg-[var(--color-amber-soft)] px-3 py-2 text-[11px] text-[var(--color-amber)]">
+                      {/* The summary follows a full sentence, so it carries its own separator: a Latin full stop does not space the next word the way the Chinese one does. */}
                       {t("搜索结果不完整或没有可用来源。")}
-                      {value(report.summary, "")}
+                      {((summary) => (summary === "" ? "" : ` ${summary}`))(value(report.summary, ""))}
                     </p>
                   ) : null}
                   <div className="grid gap-2">
@@ -6349,13 +6327,17 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
             })()
           ) : (
             <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-              {t("还没有联网搜索。可让 Agent 调用 web_search；单页读取使用 read_page。")}
+              {/* A plugin that cannot work until it is configured has to name the setting: the status chip only reports that a key is missing, and nothing else in the console says which one. */}
+              {data?.keyless === true
+                ? t("还没有联网搜索。web_search 需要搜索 API key：在插件 profile 条目里设置 apiKey，或导出 FIRECRAWL_API_KEY。")
+                : t("还没有联网搜索。可让 Agent 调用 web_search；单页读取使用 read_page。")}
             </div>
           )}
           <p className="text-[10px] text-[var(--color-faint)]">
-            {t("搜索词会发送到 Firecrawl；页面读取{v0}。", {
-              v0: data?.readPageAvailable === true ? t("已复用本地 Browser Fetch") : t("需要启用 Browser Fetch"),
-            })}
+            {/* The clause has to agree with the sentence around it, which a substituted fragment cannot do across languages: it arrived capitalised and unspaced as "page readsReused the local Browser Fetch". */}
+            {data?.readPageAvailable === true
+              ? t("搜索词会发送到 Firecrawl；页面读取已复用本地 Browser Fetch。")
+              : t("搜索词会发送到 Firecrawl；页面读取需要启用 Browser Fetch。")}
           </p>
         </div>
       ) : panel.id === "browser-fetch-panel" ? (

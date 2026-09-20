@@ -163,6 +163,27 @@ function cancelledError(scope: string, reason: unknown): Error {
   return new Error(`${scope} was cancelled`, { cause: reason });
 }
 
+// Only a connection that never happened may be reported as one. fetch raises TypeError for that, but also for a
+// redirect it was told to refuse and for a socket that dies after the response headers arrived — both of which mean
+// the endpoint answered. The errno on the cause is the marker; the TypeError alone is not, and neither is the
+// absence of an errno. Anything outside this set keeps the original error, exactly as before this was introduced.
+const unreachableCauseCodes = new Set(["EADDRNOTAVAIL", "EAI_AGAIN", "ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "ETIMEDOUT"]);
+
+function unreachableEndpointError(endpoint: URL, error: unknown): Error | undefined {
+  if (!(error instanceof TypeError)) return undefined;
+  const cause: unknown = error.cause;
+  const code =
+    cause !== null && typeof cause === "object" && typeof (cause as { code?: unknown }).code === "string" ? (cause as { code: string }).code : undefined;
+  if (code === undefined || !unreachableCauseCodes.has(code)) return undefined;
+  // The endpoint is constrained to http:, so one without an explicit port is dialled on 80. Naming 9222 here would
+  // contradict the port localDebuggerUrl compares against for the very same URL.
+  const port = endpoint.port === "" ? "80" : endpoint.port;
+  return new Error(
+    `Chrome DevTools is not reachable at ${endpoint.origin} (${code}); start the browser with --remote-debugging-port=${port} or point the plugin's endpoint at a running one`,
+    { cause: error },
+  );
+}
+
 function tabString(raw: unknown, index: number, field: string, maxLength: number, allowEmpty = true): string {
   if (typeof raw !== "string") throw new Error(`Chrome DevTools tab ${index} ${field} must be a string`);
   const minimum = allowEmpty ? 0 : 1;
@@ -198,8 +219,11 @@ async function tabs(endpoint: URL, signal?: AbortSignal): Promise<BrowserTab[]> 
   }, requestTimeoutMs);
   timer.unref();
   let payload: unknown;
+  // Once the response settles, the endpoint has answered, and no later failure can mean "nothing is listening".
+  let responded = false;
   try {
     const response = await fetch(new URL("/json/list", endpoint), { signal: controller.signal, redirect: "error" });
+    responded = true;
     if (!response.ok) {
       await cancelResponseBody(response);
       throw new Error(`Chrome DevTools returned HTTP ${response.status}`);
@@ -212,7 +236,7 @@ async function tabs(endpoint: URL, signal?: AbortSignal): Promise<BrowserTab[]> 
   } catch (error) {
     if (timedOut) throw new Error(`Chrome DevTools discovery timed out after ${requestTimeoutMs} ms`, { cause: error });
     if (controller.signal.aborted) throw cancelledError("Chrome DevTools discovery", error);
-    throw error;
+    throw (responded ? undefined : unreachableEndpointError(endpoint, error)) ?? error;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abortFromCaller);

@@ -157,7 +157,7 @@ This catalog is a selection, not the complete set: [`packages/plugins`](../packa
 | Docker Sandbox     | `sandbox_exec`                                                                            | Run a direct argv command in a fixed-resource, no-network container using a local image only.                       |
 | Browser Fetch      | `browser_fetch`                                                                           | Fetch bounded textual HTTP responses with per-hop SSRF validation, DNS pinning, cancellation, and timeout.          |
 | Browser Session    | `browser_tabs`, `browser_navigate`, `browser_read`, `browser_click`, `browser_screenshot` | Inspect and control an isolated local Chrome session through a loopback-only, bounded CDP connection.               |
-| Plugin Stars       | `plugin_stars_search`                                                                     | Search a strictly validated, bounded snapshot of the curated public DSH plugin ranking without installing anything. |
+| Plugin Stars       | `plugin_stars_search`                                                                     | Search a strictly validated, bounded snapshot of the configured plugin ranking without installing anything.         |
 | YAML Validator     | `yaml_validate`                                                                           | Parse bounded workspace YAML as strict UTF-8 and report line-aware errors and warnings without modifying the file.  |
 | Plugin Dev         | `plugin_dev_reload`                                                                       | Safely reload Pi session extensions and resources after trusted local development changes.                          |
 | OpenPets           | `pet_react`                                                                               | Maintain a bounded companion state from session events without retaining message contents.                          |
@@ -497,13 +497,15 @@ Every discovery or CDP request has a 15-second timeout and honors caller cancell
 
 ### Plugin Stars
 
-`plugin_stars_search` fetches the public `dsh-plugin-stars` snapshot, validates it, filters locally by name, repository, description, or topic, and sorts matches by Star count. It is read-only and never downloads or installs a listed repository. The optional descriptor-safe `query` is limited to 120 characters.
+`plugin_stars_search` fetches the ranking snapshot named by `sourceUrl`, validates it, filters locally by name, repository, description, or topic, and sorts matches by Star count. It is read-only and never downloads or installs a listed repository. The optional descriptor-safe `query` is limited to 120 characters.
+
+There is no default feed: the plugin ships without a `sourceUrl`, so `plugin_stars_search` fails before it opens a socket and the panel reports the missing configuration instead. Point it at your own curated ranking JSON, which must satisfy the schema described below.
 
 ```yaml
 - id: plugin-stars
   name: "@pi-harness/plugin-plugin-stars"
   config:
-    sourceUrl: "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json"
+    sourceUrl: "https://raw.githubusercontent.com/<owner>/<repository>/<ref>/plugins.json"
     limit: 10
     timeoutMs: 15000
 ```
