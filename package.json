@@ -84,7 +84,7 @@
     "@pi-harness/plugin-code2skill": "0.1.33",
     "@pi-harness/plugin-colleague-skill": "0.1.31",
     "@pi-harness/plugin-context": "0.1.33",
-    "@pi-harness/plugin-context-doctor": "0.1.34",
+    "@pi-harness/plugin-context-doctor": "0.1.35",
     "@pi-harness/plugin-cost-meter": "0.1.35",
     "@pi-harness/plugin-dependency-checker": "0.1.34",
     "@pi-harness/plugin-docker-sandbox": "0.1.34",
