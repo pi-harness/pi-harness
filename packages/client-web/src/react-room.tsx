@@ -3638,9 +3638,10 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                   <p className="mt-2">{t("{v0} · {v1} 个风险项", { v0: value(latest.name ?? t("未命名 Skill")), v1: value(findings.length) })}</p>
                   {findings.length > 0 ? (
                     <p className="mt-1 text-[10px] opacity-80">
+                      {/* Array.isArray passes for an array holding null, and there is no error boundary around a panel, so an unnarrowed dereference here takes the whole console down rather than one card. Every sibling branch narrows first. */}
                       {findings
                         .slice(0, 2)
-                        .map((item) => value((item as Record<string, unknown>).message))
+                        .map((item) => value(item !== null && typeof item === "object" ? (item as Record<string, unknown>).message : item))
                         .join(" · ")}
                     </p>
                   ) : null}
@@ -6188,12 +6189,15 @@ export function PluginPanelCard({ panel, inline = false, activeSessionId }: { pa
                 </ul>
               ) : (
                 <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-soft)] px-3 py-3 text-[11px] text-[var(--color-faint)]">
-                  {data?.available === false ? `MCP ${t("不可用")}` : t("当前没有 MCP 服务器快照。")}
+                  {data?.available === false ? t("MCP 不可用：先启用 MCP Client 插件，再由 Agent 调用 mcp_panel。") : t("当前没有 MCP 服务器快照。")}
                 </div>
               )}
               <div className="text-[10px] text-[var(--color-faint)]">
                 {t("读取 MCP 运行状态；工具列表通过 mcp_panel 的 tools 操作查询，健康建议通过 health 操作查看。")}
-                {data?.writesEnabled === true ? ` 已启用 profile patch 写入：${value(data.patchPath)}` : t(" profile patch 写入未配置，apply 会被拒绝。")}
+                {/* The enabled branch was the one bare Chinese template literal left in the console: it never reached the catalog, so it printed Chinese in all nine other locales. */}
+                {data?.writesEnabled === true
+                  ? t(" 已启用 profile patch 写入：{v0}", { v0: value(data.patchPath) })
+                  : t(" profile patch 写入未配置，apply 会被拒绝。")}
               </div>
             </div>
           );

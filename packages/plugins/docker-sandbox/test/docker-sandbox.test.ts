@@ -72,6 +72,32 @@ if (process.argv[2] === "run") process.stdout.write(${JSON.stringify(output)});
 }
 
 describe("Docker sandbox production boundaries", () => {
+  // spawn raises ENOENT both for an executable that is not on PATH and for a cwd that no longer exists, and a
+  // workspace can be renamed out from under a live session. Blaming PATH for the second sends the reader hunting
+  // for an installation that is already there.
+  test("tells a missing workspace apart from a missing Docker executable", async () => {
+    if (process.platform === "win32") return;
+    const fixture = await createFixture();
+    // The fake docker lives outside the workspace, so removing the workspace leaves the executable resolvable.
+    const toolsDirectory = await mkdtemp(join(tmpdir(), "pi-harness-docker-sandbox-bin-"));
+    temporaryDirectories.push(toolsDirectory);
+    const executable = join(toolsDirectory, "docker");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(executable, 0o755);
+    process.env.PATH = `${toolsDirectory}${delimiter}${originalPath ?? ""}`;
+    await rm(fixture.cwd, { recursive: true, force: true });
+    try {
+      const failure = await fixture.tool.execute("gone", { command: ["printf", "ok"] }, undefined, undefined, {} as never).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect((failure as Error).message).toBe("Docker sandbox workspace directory no longer exists");
+      expect((failure as Error).message).not.toContain("PATH");
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test("does not prefix an unreachable daemon with the empty inspect payload", async () => {
     if (process.platform === "win32") return;
     const fixture = await createFixture();
@@ -92,7 +118,9 @@ process.exit(1);
         () => undefined,
         (error: unknown) => error,
       );
-      expect((failure as Error).message).toBe("Docker daemon is not reachable; start Docker and retry");
+      expect((failure as Error).message).toContain("Docker daemon is not reachable; start Docker or point DOCKER_HOST at a running daemon");
+      // The daemon address lives in stderr and is what makes the remedy actionable for a remote DOCKER_HOST.
+      expect((failure as Error).message).toContain("docker.sock");
       expect((failure as Error).message).not.toContain("[]");
       // The raw diagnostic stays on the cause for anyone debugging the socket path itself.
       expect(String(((failure as Error).cause as { stderr?: string } | undefined)?.stderr)).toContain("docker.sock");
@@ -104,7 +132,7 @@ process.exit(1);
   test.each([
     // A daemon that is not running is a setup miss with one fix, so it is named like the missing executable and the
     // missing image rather than being folded into the generic inspection failure.
-    ["Cannot connect to the Docker daemon", "Docker daemon is not reachable; start Docker and retry"],
+    ["Cannot connect to the Docker daemon", "Docker daemon is not reachable; start Docker or point DOCKER_HOST at a running daemon"],
     // A socket that refuses this user is a different problem with a different fix, so its diagnostic still reaches the caller.
     ["permission denied while trying to connect to the Docker daemon socket", "Docker image inspection failed"],
     ["Error response from daemon: No such image: alpine:3.20", "Docker image is not available locally: alpine:3.20"],
