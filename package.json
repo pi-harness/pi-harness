@@ -153,7 +153,7 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.68.0",
     "vite-plus": "0.3.0",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   },
   "bundledDependencies": [
     "@earendil-works/pi-agent-core",
