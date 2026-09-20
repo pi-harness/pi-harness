@@ -152,7 +152,7 @@
     "happy-dom": "^20.14.5",
     "typescript": "5.9.3",
     "typescript-eslint": "8.68.0",
-    "vite-plus": "0.3.0",
+    "vite-plus": "0.3.2",
     "vitest": "4.1.11"
   },
   "bundledDependencies": [
