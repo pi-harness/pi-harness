@@ -163,6 +163,19 @@ function cancelledError(scope: string, reason: unknown): Error {
   return new Error(`${scope} was cancelled`, { cause: reason });
 }
 
+// The transport failure that every other error in this file is careful to avoid: fetch reports an endpoint nothing is listening on as a bare `TypeError: fetch failed`, which names neither the endpoint nor the one thing the reader has to do about it. Every error the plugin raises itself is a plain Error, so the TypeError is an unambiguous marker for "the connection never happened".
+function unreachableEndpointError(endpoint: URL, error: unknown): Error | undefined {
+  if (!(error instanceof TypeError)) return undefined;
+  const cause: unknown = error.cause;
+  const code =
+    cause !== null && typeof cause === "object" && typeof (cause as { code?: unknown }).code === "string" ? (cause as { code: string }).code : undefined;
+  const port = endpoint.port === "" ? "9222" : endpoint.port;
+  return new Error(
+    `Chrome DevTools is not reachable at ${endpoint.origin}${code === undefined ? "" : ` (${code})`}; start the browser with --remote-debugging-port=${port} or point the plugin's endpoint at a running one`,
+    { cause: error },
+  );
+}
+
 function tabString(raw: unknown, index: number, field: string, maxLength: number, allowEmpty = true): string {
   if (typeof raw !== "string") throw new Error(`Chrome DevTools tab ${index} ${field} must be a string`);
   const minimum = allowEmpty ? 0 : 1;
@@ -212,7 +225,7 @@ async function tabs(endpoint: URL, signal?: AbortSignal): Promise<BrowserTab[]> 
   } catch (error) {
     if (timedOut) throw new Error(`Chrome DevTools discovery timed out after ${requestTimeoutMs} ms`, { cause: error });
     if (controller.signal.aborted) throw cancelledError("Chrome DevTools discovery", error);
-    throw error;
+    throw unreachableEndpointError(endpoint, error) ?? error;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abortFromCaller);

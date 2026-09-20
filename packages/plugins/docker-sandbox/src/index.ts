@@ -263,6 +263,12 @@ export default {
               if (failure.code === "ENOENT") throw new Error("Docker executable is not available on PATH", { cause: error });
               const detail = outputFromFailure(failure);
               if (/No such image:/iu.test(detail)) throw new Error(`Docker image is not available locally: ${image}`, { cause: error });
+              // An installed CLI with no daemon behind it is the other routine setup miss, and it is the one the raw
+              // output reports worst: `docker inspect` prints an empty JSON array on stdout first, so the reader is
+              // handed "[]" before the sentence that explains anything. Naming it matches how the missing executable
+              // and the missing image are already reported.
+              if (/(?:Cannot connect to the Docker daemon|failed to connect to the docker API|Is the docker daemon running)/iu.test(detail))
+                throw new Error("Docker daemon is not reachable; start Docker and retry", { cause: error });
               throw new Error(`Docker image inspection failed: ${detail || "unknown Docker error"}`, { cause: error });
             }
 

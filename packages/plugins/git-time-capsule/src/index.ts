@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { link, lstat, mkdir, mkdtemp, opendir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
@@ -158,6 +158,17 @@ async function patchFileCount(cwd: string, patchPath: string, timeoutMs: number,
     .filter((line) => line !== "").length;
 }
 
+// A capsule named by the model is routinely absent — it was already restored, or the name was guessed. The raw ENOENT answers that with an errno and the capsule store's absolute path, while every other miss in this plugin (a missing store, a store that changed mid-listing) is reported by name. This keeps the name the caller used and drops the path.
+async function readCapsule(capsulePath: string, signal?: AbortSignal): Promise<Buffer> {
+  try {
+    return await readBoundedFile(capsulePath, maxCapsuleBytes, "Git capsule", signal);
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT")
+      throw new Error(`Git capsule was not found: ${basename(capsulePath)}`, { cause: error });
+    throw error;
+  }
+}
+
 async function applyCapsuleWithMetadata(
   cwd: string,
   capsulePath: string,
@@ -167,7 +178,7 @@ async function applyCapsuleWithMetadata(
 ): Promise<{ bytes: number; files: number }> {
   if (signal !== undefined) throwIfAborted(signal);
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
-  const capsule = await readBoundedFile(capsulePath, maxCapsuleBytes, "Git capsule", signal);
+  const capsule = await readCapsule(capsulePath, signal);
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-harness-capsule-"));
   const verifiedPath = join(temporaryDirectory, "capsule.patch");
   let writeStarted = false;

@@ -101,6 +101,48 @@ describe("browser session boundaries", () => {
     }
   });
 
+  test("names the endpoint and the remedy when nothing is listening on it", async () => {
+    const originalFetch = globalThis.fetch;
+    const refused = new TypeError("fetch failed");
+    refused.cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9222"), { code: "ECONNREFUSED" });
+    globalThis.fetch = () => Promise.reject(refused);
+    const context = await createBrowserSession({ endpoint: "http://127.0.0.1:9333" });
+    try {
+      const failure = await browserTool(context, "browser_tabs")
+        .execute("tabs", {}, undefined, undefined, {} as never)
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain("http://127.0.0.1:9333");
+      expect((failure as Error).message).toContain("ECONNREFUSED");
+      expect((failure as Error).message).toContain("--remote-debugging-port=9333");
+      expect((failure as Error).message).not.toMatch(/^fetch failed$/u);
+      // The transport failure stays reachable for diagnosis rather than being replaced.
+      expect((failure as Error).cause).toBe(refused);
+      const panel = await context.piPluginUi.snapshot();
+      expect(panel[0]?.data).toMatchObject({ connected: false });
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
+  test("keeps a transport failure without a cause code readable", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.reject(new TypeError("fetch failed"));
+    const context = await createBrowserSession();
+    try {
+      await expect(browserTool(context, "browser_tabs").execute("tabs", {}, undefined, undefined, {} as never)).rejects.toThrow(
+        /Chrome DevTools is not reachable at http:\/\/127\.0\.0\.1:9222; start the browser with --remote-debugging-port=9222/u,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      await context.fiber.dispose();
+    }
+  });
+
   test("strictly validates raw tool parameters without invoking accessors", async () => {
     const originalFetch = globalThis.fetch;
     let fetches = 0;

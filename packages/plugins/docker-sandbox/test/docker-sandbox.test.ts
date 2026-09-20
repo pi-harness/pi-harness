@@ -72,8 +72,40 @@ if (process.argv[2] === "run") process.stdout.write(${JSON.stringify(output)});
 }
 
 describe("Docker sandbox production boundaries", () => {
+  test("does not prefix an unreachable daemon with the empty inspect payload", async () => {
+    if (process.platform === "win32") return;
+    const fixture = await createFixture();
+    await installFakeDocker(fixture.cwd);
+    await writeFile(
+      join(fixture.cwd, "bin", "docker"),
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.appendFileSync(process.env.PI_HARNESS_FAKE_DOCKER_LOG, JSON.stringify(process.argv.slice(2)) + "\\n");
+process.stdout.write("[]\\n");
+process.stderr.write("failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running");
+process.exit(1);
+`,
+      "utf8",
+    );
+    try {
+      const failure = await fixture.tool.execute("inspect", { command: ["printf", "ok"] }, undefined, undefined, {} as never).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect((failure as Error).message).toBe("Docker daemon is not reachable; start Docker and retry");
+      expect((failure as Error).message).not.toContain("[]");
+      // The raw diagnostic stays on the cause for anyone debugging the socket path itself.
+      expect(String(((failure as Error).cause as { stderr?: string } | undefined)?.stderr)).toContain("docker.sock");
+    } finally {
+      await fixture.context.fiber.dispose();
+    }
+  });
+
   test.each([
-    ["Cannot connect to the Docker daemon", "Docker image inspection failed"],
+    // A daemon that is not running is a setup miss with one fix, so it is named like the missing executable and the
+    // missing image rather than being folded into the generic inspection failure.
+    ["Cannot connect to the Docker daemon", "Docker daemon is not reachable; start Docker and retry"],
+    // A socket that refuses this user is a different problem with a different fix, so its diagnostic still reaches the caller.
     ["permission denied while trying to connect to the Docker daemon socket", "Docker image inspection failed"],
     ["Error response from daemon: No such image: alpine:3.20", "Docker image is not available locally: alpine:3.20"],
   ])("reports image-inspection failures accurately: %s", async (diagnostic, expected) => {

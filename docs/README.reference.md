@@ -497,13 +497,15 @@ Every discovery or CDP request has a 15-second timeout and honors caller cancell
 
 ### Plugin Stars
 
-`plugin_stars_search` fetches the public `dsh-plugin-stars` snapshot, validates it, filters locally by name, repository, description, or topic, and sorts matches by Star count. It is read-only and never downloads or installs a listed repository. The optional descriptor-safe `query` is limited to 120 characters.
+`plugin_stars_search` fetches the ranking snapshot named by `sourceUrl`, validates it, filters locally by name, repository, description, or topic, and sorts matches by Star count. It is read-only and never downloads or installs a listed repository. The optional descriptor-safe `query` is limited to 120 characters.
+
+There is no default feed: the plugin ships without a `sourceUrl`, so `plugin_stars_search` fails before it opens a socket and the panel reports the missing configuration instead. Point it at your own curated ranking JSON, which must satisfy the schema described below.
 
 ```yaml
 - id: plugin-stars
   name: "@pi-harness/plugin-plugin-stars"
   config:
-    sourceUrl: "https://raw.githubusercontent.com/ywsldxk/dsh-plugin-stars/main/data/plugins.json"
+    sourceUrl: "https://raw.githubusercontent.com/<owner>/<repository>/<ref>/plugins.json"
     limit: 10
     timeoutMs: 15000
 ```
