@@ -1,0 +1,29 @@
+{
+  "name": "@pi-harness/website",
+  "version": "0.1.157",
+  "private": true,
+  "description": "Pi Harness public product website",
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "dev": "vp dev",
+    "preview": "vp preview",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "1.170.38",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "6.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite-plus": "0.3.0"
+  }
+}

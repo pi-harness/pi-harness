@@ -28,8 +28,8 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "npm run build -w @pi-harness/plugin-api && npm run build -w @pi-harness/core && npm run build:plugins && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
-    "build:web": "npm run build -w @pi-harness/plugin-api && npm run build -w @pi-harness/core && npm run build:plugins && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web",
+    "build": "npm run build -w @pi-harness/plugin-api && npm run build -w @pi-harness/core && npm run build:plugins && npm run build -w @pi-harness/plugin-hello && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web && npm run build -w @pi-harness/website",
+    "build:web": "npm run build -w @pi-harness/plugin-api && npm run build -w @pi-harness/core && npm run build:plugins && npm run build -w @pi-harness/cli && npm run build -w @pi-harness/host-webserver && npm run build -w @pi-harness/api-gateway && npm run build -w @pi-harness/client-web && npm run build -w @pi-harness/web-app && npm run build -w @pi-harness/web && npm run build -w @pi-harness/website",
     "web": "npm run build:web && node apps/web/server-dist/bin.js",
     "pih-local": "./scripts/pih-local.sh",
     "format": "vp fmt . --write",
@@ -42,7 +42,7 @@
     "lint:check": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js .",
     "test": "npm run build && vitest run",
     "typecheck": "npm run build && npm run typecheck:workspaces",
-    "typecheck:workspaces": "npm run typecheck -w @pi-harness/plugin-api && npm run typecheck -w @pi-harness/core && node scripts/build-plugins.mjs --typecheck && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web",
+    "typecheck:workspaces": "npm run typecheck -w @pi-harness/plugin-api && npm run typecheck -w @pi-harness/core && node scripts/build-plugins.mjs --typecheck && npm run typecheck -w @pi-harness/plugin-hello && npm run typecheck -w @pi-harness/cli && npm run typecheck -w @pi-harness/host-webserver && npm run typecheck -w @pi-harness/api-gateway && npm run typecheck -w @pi-harness/client-web && npm run typecheck -w @pi-harness/web-app && npm run typecheck -w @pi-harness/web && npm run typecheck -w @pi-harness/website",
     "build:plugins": "node scripts/build-plugins.mjs",
     "create-plugin": "node create-plugin.mjs",
     "lint:fast": "oxlint --ignore-pattern \"**/dist/**\" --ignore-pattern \"**/target/**\" ."
