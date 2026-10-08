@@ -1329,8 +1329,8 @@ describe("marketplace install feedback", () => {
     expect(/<button disabled=""[^>]*>重启后生效<\/button>/u.test(pending)).toBe(true);
   });
 
-  test("keeps 已安装 for a loaded plugin and 安装 for one nobody touched", () => {
-    expect(marketplaceMarkup({ installed: ["example-cordis-timer"] })).toContain(">已安装</button>");
+  test("keeps 插件已安装 for a loaded plugin and 安装 for one nobody touched", () => {
+    expect(marketplaceMarkup({ installed: ["example-cordis-timer"] })).toContain(">插件已安装</button>");
     expect(marketplaceMarkup()).toContain(">安装</button>");
   });
 

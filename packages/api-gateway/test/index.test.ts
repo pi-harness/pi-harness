@@ -1490,7 +1490,7 @@ describe("API gateway plugin", () => {
         {
           id: "context-insight-panel",
           pluginId: "@pi-harness/plugin-context",
-          title: "上下文洞察",
+          title: "Context Insights",
           data: {
             tokens: 2_000,
             contextWindow: 8_000,
@@ -6753,5 +6753,525 @@ describe("API gateway plugin", () => {
     await expect(readFile(realSettings, "utf8")).resolves.toBe('{\n  "defaultProvider": "test"\n}\n');
     expect((await readdir(dotfiles)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
     expect((await readdir(agentDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("answers every method a read-only route did not declare with 405 before the handler runs", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "method-guard-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    // These twelve handlers had no method check of their own: the dispatcher answered them by pathname alone, so a POST to /api/events opened the SSE stream and a DELETE to /api/status returned the status snapshot.
+    const readOnly = [
+      "/api/status",
+      "/api/models",
+      "/api/providers",
+      "/api/plugins",
+      "/api/commands",
+      "/api/workspaces",
+      "/api/files",
+      "/api/workspace/files",
+      "/api/events",
+      "/api/session",
+      "/api/session/export",
+      "/api/sessions",
+    ];
+    for (const path of readOnly) {
+      for (const method of ["POST", "PUT", "DELETE", "OPTIONS"]) {
+        const response = await fetch(context.webServer.url + path, {
+          method,
+          headers: { "content-type": "application/json" },
+          body: method === "OPTIONS" ? undefined : "{}",
+        });
+        expect([path, method, response.status, response.headers.get("content-type")]).toEqual([path, method, 405, "application/json; charset=utf-8"]);
+        await expect(response.json()).resolves.toEqual({ error: "Method not allowed" });
+      }
+    }
+  });
+
+  test("reports a malformed, null or oversized body on /api/session/new as the caller's error, never as a 500", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-new-body-"));
+    temporaryDirectories.push(workspace);
+    const sessionManager = SessionManager.create(workspace, join(workspace, "sessions"));
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      get sessionId() {
+        return sessionManager.getSessionId();
+      },
+      get sessionFile() {
+        return sessionManager.getSessionFile();
+      },
+      sessionManager,
+      messages: [],
+      isStreaming: false,
+      agent: { state: { messages: [] } },
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (body: string) => fetch(context.webServer.url + "/api/session/new", { method: "POST", headers: { "content-type": "application/json" }, body });
+
+    const malformed = await post("{bad");
+    expect(malformed.status).toBe(400);
+    expect(((await malformed.json()) as { error: string }).error).toMatch(/JSON/u);
+    const oversized = await post(JSON.stringify({ cwd: "x".repeat(70 * 1024) }));
+    expect(oversized.status).toBe(413);
+    await expect(oversized.json()).resolves.toEqual({ error: "Request body is too large" });
+    // A JSON null carries no options, so it is the same request as an empty body rather than a crash on reading `.cwd` of null.
+    const before = sessionManager.getSessionId();
+    const nullBody = await post("null");
+    expect(nullBody.status).toBe(200);
+    expect(sessionManager.getSessionId()).not.toBe(before);
+  });
+
+  test("answers an oversized body with 413 on every route that reads one", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-body-limit-"));
+    temporaryDirectories.push(workspace);
+    const sessionManager = SessionManager.create(workspace, join(workspace, "sessions"));
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const settingsManager = new Proxy({}, { get: () => () => ({}) });
+    const session = {
+      sessionId: sessionManager.getSessionId(),
+      sessionFile: sessionManager.getSessionFile(),
+      sessionManager,
+      settingsManager,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    const modelRuntime = {
+      getProviders: () => [],
+      getModels: () => [],
+      getModel: () => undefined,
+      getProvider: () => undefined,
+      checkAuth: () => Promise.resolve(undefined),
+      getAvailable: () => Promise.resolve([]),
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: modelRuntime } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    // The same body used to come back as 400 on most of these, 413 on the provider routes and 500 on /api/session/new. /api/config/source has a larger limit of its own and is covered by its own test.
+    const body = JSON.stringify({ padding: "x".repeat(70 * 1024) });
+    for (const path of [
+      "/api/prompt",
+      "/api/config",
+      "/api/providers/add",
+      "/api/providers/test",
+      "/api/providers/refresh",
+      "/api/model",
+      "/api/files/commit",
+      "/api/files/revert",
+      "/api/session/new",
+      "/api/session/open",
+      "/api/session/rename",
+      "/api/session/delete",
+      "/api/session/metadata",
+      "/api/sessions/batch",
+      "/api/session/fork",
+    ]) {
+      const response = await fetch(context.webServer.url + path, { method: "POST", headers: { "content-type": "application/json" }, body });
+      expect([path, response.status]).toEqual([path, 413]);
+      expect(((await response.json()) as { error: string }).error).toBe("Request body is too large");
+    }
+  });
+
+  test("accepts a settings document up to the documented 128 KiB through the config source route", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-api-config-source-size-"));
+    temporaryDirectories.push(agentDir);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const settingsManager = new Proxy({}, { get: () => () => ({}) });
+    const session = { sessionId: "config-size-session", sessionFile: undefined, messages: [], isStreaming: false, settingsManager, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (source: string) =>
+      fetch(context.webServer.url + "/api/config/source", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source }),
+      });
+
+    // 100 KiB is inside the limit the reference promises, and used to be refused by the 64 KiB default body limit before the route's own check could run.
+    const accepted = await post(JSON.stringify({ defaultProvider: "test", note: "x".repeat(100 * 1024) }));
+    expect(accepted.status).toBe(200);
+    expect(JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"))).toMatchObject({ defaultProvider: "test" });
+    const tooLarge = await post(JSON.stringify({ note: "x".repeat(129 * 1024) }));
+    expect(tooLarge.status).toBe(400);
+    await expect(tooLarge.json()).resolves.toEqual({ error: "source must be a JSON document smaller than 128 KiB" });
+    const bodyTooLarge = await fetch(context.webServer.url + "/api/config/source", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "x".repeat(200 * 1024),
+    });
+    expect(bodyTooLarge.status).toBe(413);
+  });
+
+  test("answers a JSON null body on the provider routes with 400", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "provider-null-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    for (const path of ["/api/providers/test", "/api/providers/refresh"]) {
+      const response = await fetch(context.webServer.url + path, { method: "POST", headers: { "content-type": "application/json" }, body: "null" });
+      expect([path, response.status]).toEqual([path, 400]);
+      await expect(response.json()).resolves.toEqual({ error: "provider is required" });
+    }
+  });
+
+  test("answers a provider check for an unknown provider with 404 like the refresh route", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "provider-missing-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    const checkAuth = vi.fn(() => Promise.resolve(undefined));
+    const modelRuntime = { getModels: () => [], getModel: () => undefined, getProvider: (id: string) => (id === "known" ? { id } : undefined), checkAuth };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: modelRuntime } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (provider: string) =>
+      fetch(context.webServer.url + "/api/providers/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+
+    const missing = await post("nope-provider");
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({ error: "Provider not found: nope-provider" });
+    expect(checkAuth).not.toHaveBeenCalled();
+    const known = await post("known");
+    expect(known.status).toBe(200);
+    await expect(known.json()).resolves.toEqual({ provider: "known", reachable: false, auth: null });
+  });
+
+  test("refuses a settings payload that is not an object or names a value a setter would drop", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const applied: string[] = [];
+    const settingsManager = new Proxy(
+      {},
+      {
+        get: (_target, property: string) => (value: unknown) => {
+          if (property.startsWith("set")) applied.push(`${property}=${String(value)}`);
+          return {};
+        },
+      },
+    );
+    const session = {
+      sessionId: "config-validate-session",
+      sessionFile: undefined,
+      messages: [],
+      isStreaming: false,
+      settingsManager,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (body: unknown) =>
+      fetch(context.webServer.url + "/api/config", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    for (const body of ["hello", 42, [], null]) {
+      const response = await post(body);
+      expect([body, response.status]).toEqual([body, 400]);
+      await expect(response.json()).resolves.toEqual({ error: "settings payload must be a JSON object" });
+    }
+    const badEnum = await post({ transport: "carrier-pigeon" });
+    expect(badEnum.status).toBe(400);
+    await expect(badEnum.json()).resolves.toEqual({ error: "transport must be one of sse, websocket, auto" });
+    const badNested = await post({ advanced: { mermaid: "sometimes" } });
+    expect(badNested.status).toBe(400);
+    await expect(badNested.json()).resolves.toEqual({ error: "advanced.mermaid must be one of off, final, streaming" });
+    const badBoolean = await post({ hideThinkingBlock: "yes" });
+    expect(badBoolean.status).toBe(400);
+    await expect(badBoolean.json()).resolves.toEqual({ error: "hideThinkingBlock must be a boolean" });
+    // Everything is checked before anything is applied, so a payload with one bad field changes nothing.
+    const mixed = await post({ transport: "sse", steeringMode: "nope" });
+    expect(mixed.status).toBe(400);
+    expect(applied).toEqual([]);
+    const accepted = await post({ transport: "sse", advanced: { mermaid: "final", enableAnalytics: true } });
+    expect(accepted.status).toBe(200);
+    expect(applied).toEqual(["setTransport=sse", "setMermaidRenderingMode=final"]);
+  });
+
+  test("refuses a rename without a string name instead of clearing the name", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-rename-name-"));
+    temporaryDirectories.push(workspace);
+    const sessionDir = join(workspace, "sessions");
+    const stored = SessionManager.create(workspace, sessionDir);
+    stored.appendMessage({ role: "user", content: "hello", timestamp: Date.now() });
+    stored.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "saved" }],
+      api: "test",
+      provider: "test",
+      model: "model",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    } as never);
+    const storedPath = stored.getSessionFile();
+    if (!storedPath) throw new Error("Unable to create test session");
+    const sessionManager = SessionManager.create(workspace, sessionDir);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: sessionManager.getSessionId(),
+      sessionFile: sessionManager.getSessionFile(),
+      sessionManager,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (body: unknown) =>
+      fetch(context.webServer.url + "/api/session/rename", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const listedName = async () => {
+      const list = (await (await fetch(context.webServer.url + "/api/sessions")).json()) as { items: { path: string; name?: string | null }[] };
+      return list.items.find((item) => item.path === storedPath)?.name ?? null;
+    };
+
+    await expect(post({ path: storedPath, name: "verify-07" }).then((r) => r.status)).resolves.toBe(200);
+    await expect(listedName()).resolves.toBe("verify-07");
+    for (const body of [{ path: storedPath }, { path: storedPath, name: 123 }, { path: storedPath, name: null }]) {
+      const response = await post(body);
+      expect([body, response.status]).toEqual([body, 400]);
+      await expect(response.json()).resolves.toEqual({ error: "name must be a string (empty string clears the name)" });
+      await expect(listedName()).resolves.toBe("verify-07");
+    }
+    // The console's explicit clear is still an empty string.
+    await expect(post({ path: storedPath, name: "" }).then((r) => r.status)).resolves.toBe(200);
+    await expect(listedName()).resolves.toBeNull();
+  });
+
+  test("renames an active session whose file another console removed into a file that still parses", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-api-rename-after-delete-"));
+    temporaryDirectories.push(workspace);
+    const sessionDir = join(workspace, "sessions");
+    const manager = SessionManager.create(workspace, sessionDir);
+    manager.appendMessage({ role: "user", content: "hello", timestamp: Date.now() });
+    manager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "saved" }],
+      api: "test",
+      provider: "test",
+      model: "model",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    } as never);
+    const path = manager.getSessionFile();
+    if (!path) throw new Error("Unable to create test session");
+    expect(existsSync(path)).toBe(true);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      get sessionId() {
+        return manager.getSessionId();
+      },
+      get sessionFile() {
+        return manager.getSessionFile();
+      },
+      sessionManager: manager,
+      messages: [],
+      isStreaming: false,
+      subscribe: () => () => {},
+    };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir: workspace, args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+
+    // Another console deleted the file. Pi has already flushed this session, so its next append goes straight to appendFileSync and used to recreate the file as a single headerless session_info line.
+    await unlink(path);
+    const rename = await fetch(context.webServer.url + "/api/session/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "after-delete" }),
+    });
+    expect(rename.status).toBe(200);
+    const lines = (await readFile(path, "utf8")).trimEnd().split("\n");
+    expect((JSON.parse(lines[0] ?? "{}") as { type?: string }).type).toBe("session");
+    expect(lines.some((line) => line.includes('"role":"assistant"'))).toBe(true);
+    expect(JSON.parse(lines[lines.length - 1] ?? "{}") as { type?: string; name?: string }).toMatchObject({ type: "session_info", name: "after-delete" });
+    const reopened = SessionManager.open(path, sessionDir);
+    expect(reopened.getSessionName()).toBe("after-delete");
+    expect(reopened.buildSessionContext().messages).toHaveLength(2);
+    const sessions = (await (await fetch(context.webServer.url + "/api/sessions")).json()) as { items: { path: string; name?: string | null }[] };
+    expect(sessions.items.find((item) => item.path === path)?.name).toBe("after-delete");
+  });
+
+  test("lists an imported session as its own rather than as a duplicate of the deleted staging file", async () => {
+    const context = new Context();
+    contexts.push(context);
+    const directory = await mkdtemp(join(tmpdir(), "pi-harness-api-import-provenance-"));
+    temporaryDirectories.push(directory);
+    const sourceDir = join(directory, "source");
+    const targetDir = join(directory, "target");
+    await mkdir(sourceDir);
+    await mkdir(targetDir);
+    const source = SessionManager.create("/tmp", sourceDir);
+    source.appendMessage({ role: "user", content: "hello", timestamp: Date.now() });
+    source.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "saved" }],
+      api: "test",
+      provider: "test",
+      model: "model",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    } as never);
+    const content = await readFile(source.getSessionFile() ?? "", "utf8");
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = {
+      sessionId: "import-provenance-session",
+      sessionFile: undefined as string | undefined,
+      messages: [],
+      isStreaming: false,
+      sessionManager: SessionManager.create("/tmp", targetDir),
+      extensionRunner: { setUIContext() {} },
+      subscribe: () => () => {},
+    };
+    const sessionRuntime = {
+      cwd: "/tmp",
+      switchSession(path: string) {
+        // Adopt the file the way the real runtime does, so /api/session reads the imported header.
+        session.sessionManager = SessionManager.open(path, targetDir);
+        session.sessionFile = path;
+        session.sessionId = session.sessionManager.getSessionId();
+        return Promise.resolve({ cancelled: false });
+      },
+    };
+    context.provide("piRuntime", { session, sessionRuntime, prompt: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    const post = (body: unknown) =>
+      fetch(context.webServer.url + "/api/session/import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    const imported = await post({ content, filename: "verify-orig.jsonl", cwd: "/tmp" });
+    expect(imported.status).toBe(200);
+    const { sessionFile } = (await imported.json()) as { sessionFile: string };
+    // forkFrom stamps the header with the temporary staging file it copied from, a path the route deletes before answering; the fork route's duplicate badge keys off exactly that field.
+    const header = JSON.parse((await readFile(sessionFile, "utf8")).split("\n")[0] ?? "{}") as { type?: string; parentSession?: unknown };
+    expect(header.type).toBe("session");
+    expect(header.parentSession).toBeUndefined();
+    await expect(fetch(context.webServer.url + "/api/session").then((r) => r.json())).resolves.toMatchObject({ forked: false, sessionFile });
+    const sessions = (await (await fetch(context.webServer.url + "/api/sessions")).json()) as { items: { path: string; forked: boolean }[] };
+    expect(sessions.items.find((item) => item.path === sessionFile)?.forked).toBe(false);
+    // The fork route keeps the stamp, because its source is a real session the copy is a duplicate of.
+    const forked = await fetch(context.webServer.url + "/api/session/fork", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: sessionFile }),
+    });
+    expect(forked.status).toBe(200);
+    const fork = (await forked.json()) as { sessionFile: string };
+    expect((JSON.parse((await readFile(fork.sessionFile, "utf8")).split("\n")[0] ?? "{}") as { parentSession?: unknown }).parentSession).toBe(sessionFile);
+
+    // A path import is bounded by the same 10 MiB the content branch enforces, and the size is asked before the file is read.
+    const bigPath = join(sourceDir, "big.jsonl");
+    const lines = content.trimEnd().split("\n");
+    const leaf = (JSON.parse(lines[lines.length - 1] ?? "{}") as { id?: string }).id ?? null;
+    const padded = JSON.stringify({
+      type: "message",
+      id: "padded",
+      parentId: leaf,
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: [{ type: "text", text: "x".repeat(11 * 1024 * 1024) }], timestamp: Date.now() },
+    });
+    await writeFile(bigPath, `${lines.join("\n")}\n${padded}\n`, "utf8");
+    const filesBefore = (await readdir(targetDir)).sort();
+    const tooBig = await post({ path: bigPath });
+    expect(tooBig.status).toBe(413);
+    await expect(tooBig.json()).resolves.toEqual({ error: "Imported session must be at most 10 MiB" });
+    expect(session.sessionFile).toBe(sessionFile);
+    expect((await readdir(targetDir)).sort()).toEqual(filesBefore);
+
+    // A working directory that does not exist is reported in the route's own words, not as the stat call's ENOENT.
+    const missingCwd = await post({ content, cwd: join(directory, "missing") });
+    expect(missingCwd.status).toBe(400);
+    await expect(missingCwd.json()).resolves.toEqual({ error: "Session import requires an existing working directory" });
+  });
+
+  test("serves the marketplace in every console locale, and in English for a locale it has no catalog for", async () => {
+    const context = new Context();
+    contexts.push(context);
+    await context.plugin(webServerPlugin, { host: "127.0.0.1", port: 0 });
+    const session = { sessionId: "marketplace-locales-session", sessionFile: undefined, messages: [], isStreaming: false, subscribe: () => () => {} };
+    context.provide("piRuntime", { session, prompt: () => Promise.resolve(), abort: () => Promise.resolve(), dispose: () => Promise.resolve() } as never);
+    context.provide("piModels", { model: { provider: "test", id: "model" }, runtime: { getModels: () => [], getModel: () => undefined } } as never);
+    context.provide("piHarnessLaunch", { cwd: "/tmp", agentDir: "/tmp/agent", args: [], requestExit() {} });
+    await context.plugin(apiPlugin);
+    type Page = {
+      items: readonly { id: string; description: string; category: { label: string }; hooks: readonly string[] }[];
+      capabilities: readonly { id: string; label: string }[];
+      categories: readonly { id: string; label: string }[];
+    };
+    const read = async (locale: string): Promise<Page> => {
+      const response = await fetch(context.webServer.url + `/api/marketplace?q=cordis-plugin-timer&locale=${encodeURIComponent(locale)}&pageSize=1`);
+      expect(response.status).toBe(200);
+      return (await response.json()) as Page;
+    };
+    const cjk = /[぀-ヿ㐀-鿿가-힯]/u;
+    const source = await read("");
+    expect(source.items[0]?.id).toBe("cordis-timer");
+
+    // The console's own locale list, minus its Chinese source: each one used to be answered with the source strings because only en.json existed.
+    const { LOCALES, SOURCE_LOCALE } = (await import("../../client-web/src/i18n.js")) as { LOCALES: readonly { id: string }[]; SOURCE_LOCALE: string };
+    for (const { id } of LOCALES.filter((locale) => locale.id !== SOURCE_LOCALE)) {
+      const page = await read(id);
+      const item = page.items[0];
+      expect([id, item?.id]).toEqual([id, "cordis-timer"]);
+      expect([id, item?.description]).not.toEqual([id, source.items[0]?.description]);
+      expect([id, item?.category.label]).not.toEqual([id, id === "zh-TW" ? "" : source.items[0]?.category.label]);
+      expect([id, item?.hooks]).not.toEqual([id, source.items[0]?.hooks]);
+      expect([id, page.capabilities.map((capability) => capability.label)]).not.toEqual([id, source.capabilities.map((capability) => capability.label)]);
+      if (!["zh-TW", "ja", "ko"].includes(id)) {
+        for (const text of [
+          item?.description ?? "",
+          item?.category.label ?? "",
+          ...(item?.hooks ?? []),
+          ...page.capabilities.map((capability) => capability.label),
+          ...page.categories.map((category) => category.label),
+        ])
+          expect([id, text]).not.toEqual([id, expect.stringMatching(cjk)]);
+      }
+    }
+    // A locale nobody ships a catalog for reads in English rather than in the source.
+    const fallback = await read("is");
+    expect(fallback.items[0]?.description).toBe((await read("en")).items[0]?.description);
+    expect(fallback.categories.map((category) => category.label)).toEqual((await read("en")).categories.map((category) => category.label));
+    // The source locale by name is the source, as an empty locale is.
+    expect((await read("zh-CN")).items[0]?.description).toBe(source.items[0]?.description);
   });
 });

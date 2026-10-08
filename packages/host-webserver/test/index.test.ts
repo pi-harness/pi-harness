@@ -92,6 +92,32 @@ describe("web server plugin", () => {
     expect(() => context.webServer.register({ path: "/health/", handler() {} })).toThrow(/trailing slash/);
   });
 
+  test("refuses every method a route did not declare before its handler runs", async () => {
+    const server = await startServer({ host: "127.0.0.1", port: 0 });
+    let calls = 0;
+    server.register({
+      path: "/read-only",
+      methods: ["GET"],
+      handler(_request, response) {
+        calls += 1;
+        response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+        response.end("ok");
+      },
+    });
+    registerHealth(server);
+
+    for (const method of ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"]) {
+      const response = await fetch(server.url + "/read-only", { method, ...(method === "OPTIONS" ? {} : { body: "{}" }) });
+      expect([method, response.status, response.headers.get("allow")]).toEqual([method, 405, "GET"]);
+      await expect(response.json()).resolves.toEqual({ error: "Method not allowed" });
+    }
+    expect(calls).toBe(0);
+    await expect(fetch(server.url + "/read-only")).resolves.toMatchObject({ status: 200 });
+    expect(calls).toBe(1);
+    // A route that declares nothing keeps answering every method, which is what the routes registered before the field existed relied on.
+    await expect(fetch(server.url + "/health", { method: "POST", body: "{}" })).resolves.toMatchObject({ status: 200 });
+  });
+
   test("turns a synchronous handler throw into a 500 response and keeps serving", async () => {
     const server = await startServer({ host: "127.0.0.1", port: 0 });
     server.register({

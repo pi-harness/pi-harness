@@ -131,6 +131,42 @@ describe("catalog integrity", () => {
     }
   });
 
+  // The catalogs carry no plural rules: a count of one has its own key, and every other count shares the plural form. A count string that ships without its singular sibling renders "1 sessions" in every language that inflects, so the ones that have a sibling in English must have one everywhere, and the number without one is a ratchet like the reference documentation's: it may only ever go down. Lower the budget whenever it drops.
+  test("every count message that has a singular form has it in every catalog, and no new one ships without", () => {
+    const pluralOnlyBudget = 23;
+    const reference = readCatalog("en");
+    const singularOf = (key: string): string => key.replace(/\{(?:count|v0)\}/u, "1");
+    const countKeys = Object.keys(reference).filter((key) => /^(?:本页匹配 )?\{(?:count|v0)\} [个条]/u.test(key));
+    const withSingular = countKeys.filter((key) => singularOf(key) in reference);
+    expect(withSingular).toEqual(
+      expect.arrayContaining([
+        "{count} 条日志消息",
+        "{count} 条上下文消息",
+        "{v0} 个会话",
+        "本页匹配 {v0} 个会话",
+        "{count} 个变更",
+        "{v0} 个插件",
+        "{count} 条消息",
+      ]),
+    );
+    const pluralOnly = countKeys.filter((key) => !(singularOf(key) in reference));
+    expect(pluralOnly.length, `count messages without a singular form: ${pluralOnly.join(", ")}`).toBeLessThanOrEqual(pluralOnlyBudget);
+    for (const name of catalogFiles) {
+      const catalog = readCatalog(name.replace(".json", ""));
+      const missing = withSingular.map(singularOf).filter((singular) => typeof catalog[singular] !== "string" || catalog[singular].trim() === "");
+      expect([name, missing]).toEqual([name, []]);
+    }
+  });
+
+  // French calls a plugin "extension", which is feminine, so the states that qualify one carry their own keys and are inflected here; the shared adjectives stay masculine for the dependency heading and the notifier that still use them.
+  test("inflects the plugin state adjectives for the feminine noun French uses", () => {
+    const fr = readCatalog("fr");
+    expect(fr["插件"]).toBe("Extensions");
+    for (const key of ["已安装的插件", "插件已安装", "插件已停用", "插件已验证", "实验性插件", "插件已加载", "插件未加载"])
+      expect([key, fr[key]]).toEqual([key, expect.stringMatching(/ées?$|ale$/u)]);
+    expect(fr["已安装"]).toBe("Installé");
+  });
+
   test("every translation keeps the leading and trailing spacing its key declares", () => {
     for (const name of catalogFiles) {
       const mismatched = Object.entries(readCatalog(name.replace(".json", "")))

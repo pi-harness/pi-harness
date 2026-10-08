@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -260,9 +261,26 @@ export default {
             } catch (error) {
               assertCurrent();
               const failure = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
-              if (failure.code === "ENOENT") throw new Error("Docker executable is not available on PATH", { cause: error });
+              // spawn reports a missing executable and a missing cwd with the same errno, and the workspace can be
+              // renamed out from under a session, so the two are told apart rather than both blamed on PATH.
+              if (failure.code === "ENOENT")
+                throw new Error(
+                  existsSync(operationScope.cwd) ? "Docker executable is not available on PATH" : "Docker sandbox workspace directory no longer exists",
+                  { cause: error },
+                );
               const detail = outputFromFailure(failure);
               if (/No such image:/iu.test(detail)) throw new Error(`Docker image is not available locally: ${image}`, { cause: error });
+              // An installed CLI with no daemon behind it is the other routine setup miss, and it is the one the raw
+              // output reports worst: `docker inspect` prints an empty JSON array on stdout first, so the reader is
+              // handed "[]" before the sentence that explains anything. Only stdout is dropped: the daemon address
+              // lives in stderr, and without it the remedy is wrong for a remote DOCKER_HOST or a non-default context.
+              if (/(?:Cannot connect to the Docker daemon|failed to connect to the docker API|Is the docker daemon running)/iu.test(detail)) {
+                const diagnostic = safeOutput(failure.stderr ?? failure.message ?? "").trim();
+                throw new Error(
+                  `Docker daemon is not reachable; start Docker or point DOCKER_HOST at a running daemon${diagnostic === "" ? "" : `: ${diagnostic}`}`,
+                  { cause: error },
+                );
+              }
               throw new Error(`Docker image inspection failed: ${detail || "unknown Docker error"}`, { cause: error });
             }
 

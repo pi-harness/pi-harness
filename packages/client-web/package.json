@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/client-web",
-  "version": "0.1.157",
+  "version": "0.1.160",
   "private": true,
   "description": "Browser-side Cordis client plugins for the Pi Harness web surface",
   "homepage": "https://github.com/pi-harness/pi-harness#readme",
@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "dompurify": "3.4.14",
+    "dompurify": "3.4.15",
     "marked": "18.0.12",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

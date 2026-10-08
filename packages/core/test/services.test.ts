@@ -483,7 +483,7 @@ describe("Pi domain plugins", () => {
       {
         id: "context-insight-panel",
         pluginId: "@pi-harness/plugin-context",
-        title: "上下文洞察",
+        title: "Context Insights",
         description: "查看当前上下文占用、消息规模和压缩事件。",
         icon: "◒",
         data: {

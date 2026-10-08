@@ -282,10 +282,28 @@ function loadMarketplaceLocale(locale: string): MarketplaceLocale {
   return { categories, capabilities, hooks, plugins };
 }
 
-const MARKETPLACE_LOCALES = new Map<string, MarketplaceLocale>([["en", loadMarketplaceLocale("en")]]);
+// The catalog entries are written in Simplified Chinese, so that locale, like an empty one, reads the entries as they are. Every other console locale has a catalog of its own here; the list is the console's own locale list minus its source.
+const MARKETPLACE_SOURCE_LOCALE = "zh-CN";
+const MARKETPLACE_LOCALE_IDS: readonly string[] = ["zh-TW", "en", "ja", "ko", "es", "fr", "de", "pt-BR", "ru"];
+const MARKETPLACE_LOCALES = new Map<string, MarketplaceLocale>(MARKETPLACE_LOCALE_IDS.map((id) => [id, loadMarketplaceLocale(id)]));
+const MARKETPLACE_FALLBACK_LOCALE = "en";
+
+interface ResolvedMarketplaceLocale {
+  readonly id: string;
+  readonly catalog: MarketplaceLocale;
+}
+
+// The catalog a locale reads, or undefined for the source. A locale without a catalog of its own is answered in English rather than in the source: a reader who asked for Icelandic is far more likely to get by in English than in Chinese, and the catalog's own id is what the labels are then sorted by.
+function resolveMarketplaceLocale(locale: string): ResolvedMarketplaceLocale | undefined {
+  if (locale === "" || locale === MARKETPLACE_SOURCE_LOCALE) return undefined;
+  const own = MARKETPLACE_LOCALES.get(locale);
+  if (own !== undefined) return { id: locale, catalog: own };
+  const fallback = MARKETPLACE_LOCALES.get(MARKETPLACE_FALLBACK_LOCALE);
+  return fallback === undefined ? undefined : { id: MARKETPLACE_FALLBACK_LOCALE, catalog: fallback };
+}
 
 function localizeMarketplacePlugin(plugin: MarketplacePlugin, locale = ""): MarketplacePlugin {
-  const catalog = MARKETPLACE_LOCALES.get(locale);
+  const catalog = resolveMarketplaceLocale(locale)?.catalog;
   if (catalog === undefined) return plugin;
   return {
     ...plugin,
@@ -463,7 +481,7 @@ export function searchMarketplace(query = "", capability = "", category = "", lo
   return MARKETPLACE_PLUGINS.map((plugin) => ({ source: plugin, localized: localizeMarketplacePlugin(plugin, locale) }))
     .filter(({ source, localized }) => {
       // The capability labels are searched alongside their ids: the ids are what the filter and the URL carry, and the labels are what the reader sees on the card.
-      const localeCatalog = MARKETPLACE_LOCALES.get(locale);
+      const localeCatalog = resolveMarketplaceLocale(locale)?.catalog;
       const capabilities = source.capabilities.flatMap((item) => [
         item,
         marketplaceCapabilityLabels.get(item) ?? item,
@@ -518,7 +536,7 @@ export const MARKETPLACE_CATEGORIES: readonly MarketplaceCategory[] = [
 
 /** Tallies the capability vocabulary against the plugins it is handed rather than the whole registry, so a count answers "how many entries would I get if I picked this" under the filters already in force. A capability the other filters emptied keeps its place at zero: the id is what the filter control holds as its value, so dropping the option a reader already picked would blank the control instead of telling them the facet is empty. */
 export function marketplaceCapabilitiesFor(plugins: readonly MarketplacePlugin[], locale = ""): readonly MarketplaceCapability[] {
-  const catalog = MARKETPLACE_LOCALES.get(locale);
+  const catalog = resolveMarketplaceLocale(locale)?.catalog;
   return MARKETPLACE_CAPABILITIES.map((capability) => ({
     ...capability,
     label: catalog?.capabilities[capability.id] ?? capability.label,
@@ -530,12 +548,12 @@ export function marketplaceCapabilitiesFor(plugins: readonly MarketplacePlugin[]
 export function marketplaceCategoriesFor(plugins: readonly MarketplacePlugin[], locale = ""): readonly MarketplaceCategory[] {
   const counts = new Map<string, number>();
   for (const plugin of plugins) counts.set(plugin.category.id, (counts.get(plugin.category.id) ?? 0) + 1);
-  const catalog = MARKETPLACE_LOCALES.get(locale);
+  const resolved = resolveMarketplaceLocale(locale);
   const categories = MARKETPLACE_CATEGORIES.map((category) => ({
     ...category,
-    label: catalog?.categories[category.id] ?? category.label,
+    label: resolved?.catalog.categories[category.id] ?? category.label,
     count: counts.get(category.id) ?? 0,
   }));
-  if (catalog === undefined) return categories;
-  return categories.sort((left, right) => left.label.localeCompare(right.label, locale));
+  if (resolved === undefined) return categories;
+  return categories.sort((left, right) => left.label.localeCompare(right.label, resolved.id));
 }

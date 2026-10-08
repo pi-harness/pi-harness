@@ -51,6 +51,9 @@ const { readCached: readCachedMarketplaceStatistics } = createMarketplaceStatist
 const RUNTIME_ENTRY_NAME = "@pi-harness/core/plugins/runtime";
 
 const DEFAULT_BODY_LIMIT_BYTES = 64 * 1024;
+const CONFIG_SOURCE_LIMIT_BYTES = 128 * 1024;
+// The settings document arrives as a JSON string, so quotes and newlines are escaped; leave headroom above the documented source limit for that overhead, otherwise the default body limit refuses a 100 KiB document the route promises to accept.
+const CONFIG_SOURCE_BODY_LIMIT_BYTES = CONFIG_SOURCE_LIMIT_BYTES + 64 * 1024;
 const IMPORT_CONTENT_LIMIT_BYTES = 10 * 1024 * 1024;
 // The import body carries the JSONL content as a JSON string, so quotes and newlines are escaped; leave headroom above the content limit for that overhead.
 const IMPORT_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
@@ -185,21 +188,32 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
   response.end(body);
 }
 
+// The status a request the caller sent earns: an oversized body is 413 and everything else the body-reading helpers throw, from malformed JSON up, is 400. Every handler that reads a body reports through this so the same body is not 400 on one route and 413 on the next.
+function requestErrorStatus(error: unknown): 400 | 413 {
+  return error instanceof PayloadTooLargeError ? 413 : 400;
+}
+
+function sendRequestError(response: ServerResponse, error: unknown): void {
+  sendJson(response, requestErrorStatus(error), { error: errorText(error) });
+}
+
 // A multi-byte UTF-8 sequence can straddle a chunk boundary, so the raw bytes are collected and decoded once; decoding each chunk on its own would replace the split sequence with U+FFFD.
 // Reading and parsing the request belongs to the client's half of the exchange. Both provider routes used to do it inside the try whose catch reports an upstream failure, so malformed JSON and an oversized body came back as 502 Bad Gateway — blaming the provider for something the caller sent. This returns the provider name, or sends the error and returns undefined.
 async function providerFromBody(request: IncomingMessage, response: ServerResponse): Promise<string | undefined> {
-  let payload: { provider?: unknown };
+  let payload: unknown;
   try {
-    payload = JSON.parse(await bodyText(request)) as { provider?: unknown };
+    payload = JSON.parse(await bodyText(request));
   } catch (error) {
-    sendJson(response, error instanceof PayloadTooLargeError ? 413 : 400, { error: errorText(error) });
+    sendRequestError(response, error);
     return undefined;
   }
-  if (typeof payload.provider !== "string" || payload.provider.trim() === "") {
+  // A JSON `null` parses cleanly and then throws on the property read, which the dispatcher would report as a 500 for what is a malformed request.
+  const provider = payload !== null && typeof payload === "object" ? (payload as { provider?: unknown }).provider : undefined;
+  if (typeof provider !== "string" || provider.trim() === "") {
     sendJson(response, 400, { error: "provider is required" });
     return undefined;
   }
-  return payload.provider;
+  return provider;
 }
 
 async function bodyText(request: IncomingMessage, maxBytes = DEFAULT_BODY_LIMIT_BYTES): Promise<string> {
@@ -348,6 +362,74 @@ function piConfig(services: ApiServices) {
   };
 }
 
+type SettingsFieldRule =
+  | { readonly kind: "enum"; readonly values: readonly string[] }
+  | { readonly kind: "boolean" }
+  | { readonly kind: "integer" }
+  | { readonly kind: "string" };
+
+// What POST /api/config accepts for each field it knows, mirroring the setters below. The setters used to apply only a value that matched and say nothing about one that did not, so a typo in an enum answered 200 with the previous value still in place. Unknown keys stay ignored: the console posts back whole sections of the snapshot, which carry read-only fields such as advanced.enableAnalytics.
+const SETTINGS_RULES: Readonly<Record<string, SettingsFieldRule | Readonly<Record<string, SettingsFieldRule>>>> = {
+  defaultProvider: { kind: "string" },
+  defaultModel: { kind: "string" },
+  defaultThinkingLevel: { kind: "enum", values: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+  transport: { kind: "enum", values: ["sse", "websocket", "auto"] },
+  steeringMode: { kind: "enum", values: ["all", "one-at-a-time"] },
+  followUpMode: { kind: "enum", values: ["all", "one-at-a-time"] },
+  hideThinkingBlock: { kind: "boolean" },
+  retry: { enabled: { kind: "boolean" } },
+  compaction: { enabled: { kind: "boolean" } },
+  terminal: { showImages: { kind: "boolean" }, imageAutoResize: { kind: "boolean" }, autocompleteMaxVisible: { kind: "integer" } },
+  advanced: {
+    quietStartup: { kind: "boolean" },
+    projectTrust: { kind: "enum", values: ["ask", "always", "never"] },
+    showCacheMissNotices: { kind: "boolean" },
+    enableInstallTelemetry: { kind: "boolean" },
+    shellPath: { kind: "string" },
+    doubleEscapeAction: { kind: "enum", values: ["fork", "tree", "none"] },
+    treeFilterMode: { kind: "enum", values: ["default", "no-tools", "user-only", "labeled-only", "all"] },
+    mermaid: { kind: "enum", values: ["off", "final", "streaming"] },
+  },
+};
+
+function isSettingsFieldRule(rule: SettingsFieldRule | Readonly<Record<string, SettingsFieldRule>>): rule is SettingsFieldRule {
+  return typeof rule.kind === "string";
+}
+
+function settingsFieldError(name: string, value: unknown, rule: SettingsFieldRule): string | undefined {
+  switch (rule.kind) {
+    case "enum":
+      return typeof value === "string" && rule.values.includes(value) ? undefined : `${name} must be one of ${rule.values.join(", ")}`;
+    case "boolean":
+      return typeof value === "boolean" ? undefined : `${name} must be a boolean`;
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value) ? undefined : `${name} must be an integer`;
+    case "string":
+      return typeof value === "string" ? undefined : `${name} must be a string`;
+  }
+}
+
+/** The first field of a settings payload that names a known key with a value the setters would not accept, or undefined when every present field is valid. Everything is checked before anything is applied, so a payload with one bad field changes nothing. */
+function settingsPayloadError(payload: Readonly<Record<string, unknown>>): string | undefined {
+  for (const [name, rule] of Object.entries(SETTINGS_RULES)) {
+    if (!Object.hasOwn(payload, name)) continue;
+    const value = payload[name];
+    if (isSettingsFieldRule(rule)) {
+      const error = settingsFieldError(name, value, rule);
+      if (error !== undefined) return error;
+      continue;
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return `${name} must be a JSON object`;
+    const section = value as Readonly<Record<string, unknown>>;
+    for (const [field, fieldRule] of Object.entries(rule)) {
+      if (!Object.hasOwn(section, field)) continue;
+      const error = settingsFieldError(`${name}.${field}`, section[field], fieldRule);
+      if (error !== undefined) return error;
+    }
+  }
+  return undefined;
+}
+
 interface SessionMetadata {
   readonly archived?: boolean;
   readonly pinned?: boolean;
@@ -486,6 +568,17 @@ function migratedForkContent(staged: Buffer, sourceContent: Buffer): Buffer {
   if (!header) return staged;
   header.version = sourceVersion;
   migrateSessionEntries(entries);
+  return Buffer.from(entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
+}
+
+/**
+ * forkFrom stamps the copy's header with the path it was forked from, which for an import is the private temporary file the route deletes before it answers. The fork route keeps that stamp because its source is a real session and the console marks the copy as a duplicate of it; an import has no such original, so the stamp is dropped and the adopted session is listed as its own.
+ */
+function importedSessionContent(staged: Buffer): Buffer {
+  const entries = parseSessionEntries(staged.toString("utf8"));
+  const header = entries.find((entry): entry is FileEntry & { parentSession?: string } => entry.type === "session");
+  if (header === undefined || header.parentSession === undefined) return staged;
+  delete header.parentSession;
   return Buffer.from(entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
 }
 
@@ -1492,6 +1585,7 @@ export default {
       : services.runtime.session.subscribe(handleEvent);
     const disposeStatus = services.webServer.register({
       path: "/api/status",
+      methods: ["GET"],
       handler(_request, response) {
         const session = services.runtime.session;
         // Branch summaries share the compaction state but do not emit compaction_start, so polling also reconciles activity from the runtime.
@@ -1520,7 +1614,17 @@ export default {
           return;
         }
         try {
-          const payload = JSON.parse(await bodyText(request)) as Record<string, unknown>;
+          const parsed: unknown = JSON.parse(await bodyText(request));
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            sendJson(response, 400, { error: "settings payload must be a JSON object" });
+            return;
+          }
+          const payload = parsed as Record<string, unknown>;
+          const invalid = settingsPayloadError(payload);
+          if (invalid !== undefined) {
+            sendJson(response, 400, { error: invalid });
+            return;
+          }
           const settings = services.runtime.session.settingsManager;
           // The settings form uses an empty value for "follow the runtime/provider". Passing undefined removes the persisted override; ignoring the empty value would leave a previous default stuck forever.
           if (typeof payload.defaultProvider === "string" && Object.hasOwn(payload, "defaultProvider"))
@@ -1582,7 +1686,7 @@ export default {
           await settings.flush();
           sendJson(response, 200, piConfig(services));
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -1609,8 +1713,8 @@ export default {
           return;
         }
         try {
-          const payload = JSON.parse(await bodyText(request)) as { source?: unknown };
-          if (typeof payload.source !== "string" || payload.source.length > 128 * 1024) {
+          const payload = JSON.parse(await bodyText(request, CONFIG_SOURCE_BODY_LIMIT_BYTES)) as { source?: unknown };
+          if (typeof payload.source !== "string" || payload.source.length > CONFIG_SOURCE_LIMIT_BYTES) {
             sendJson(response, 400, { error: "source must be a JSON document smaller than 128 KiB" });
             return;
           }
@@ -1629,12 +1733,13 @@ export default {
           await services.runtime.session.settingsManager.reload();
           sendJson(response, 200, piConfig(services));
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
     const disposeModels = services.webServer.register({
       path: "/api/models",
+      methods: ["GET"],
       handler(_request, response) {
         const active = services.runtime.session.model ?? services.models.model;
         const visible = visibleProviderIds(services.models.runtime, active.provider);
@@ -1652,6 +1757,7 @@ export default {
     });
     const disposeProviders = services.webServer.register({
       path: "/api/providers",
+      methods: ["GET"],
       handler(_request, response) {
         const active = services.runtime.session.model ?? services.models.model;
         const runtime = services.models.runtime as typeof services.models.runtime & {
@@ -1746,7 +1852,7 @@ export default {
             },
           });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -1763,6 +1869,11 @@ export default {
           const runtime = services.models.runtime as typeof services.models.runtime & { checkAuth?: (provider: string) => Promise<unknown> };
           if (typeof runtime.checkAuth !== "function") {
             sendJson(response, 501, { error: "The active model runtime does not support provider checks" });
+            return;
+          }
+          // checkAuth answers undefined for an id it has never heard of, which the console shows as missing credentials for a provider that does not exist. /api/providers/refresh already asks getProvider first; the typeof guard is for runtimes (and the test doubles) that do not implement it.
+          if (typeof runtime.getProvider === "function" && runtime.getProvider(provider) === undefined) {
+            sendJson(response, 404, { error: `Provider not found: ${provider}` });
             return;
           }
           const auth = await runtime.checkAuth(provider);
@@ -1808,6 +1919,7 @@ export default {
     });
     const disposePlugins = services.webServer.register({
       path: "/api/plugins",
+      methods: ["GET"],
       async handler(_request, response) {
         const entries = services.loader ? [...services.loader.entries()] : [];
         const pending = await restartPendingSummaries(services);
@@ -2009,7 +2121,7 @@ export default {
             sendJson(response, 502, { error: errorText(error) });
           }
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         } finally {
           marketplaceMutationInFlight = false;
         }
@@ -2085,7 +2197,7 @@ export default {
             sendJson(response, 502, { error: errorText(error) });
           }
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         } finally {
           marketplaceMutationInFlight = false;
         }
@@ -2186,7 +2298,7 @@ export default {
             sendJson(response, 502, { error: errorText(error) });
           }
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         } finally {
           marketplaceMutationInFlight = false;
         }
@@ -2194,6 +2306,7 @@ export default {
     });
     const disposeCommands = services.webServer.register({
       path: "/api/commands",
+      methods: ["GET"],
       handler(_request, response) {
         const commands = services.runtime.session.extensionRunner.getRegisteredCommands();
         const items = commands.map((command) => ({
@@ -2207,6 +2320,7 @@ export default {
     });
     const disposeWorkspaces = services.webServer.register({
       path: "/api/workspaces",
+      methods: ["GET"],
       async handler(_request, response) {
         try {
           sendJson(response, 200, { items: await listWorkspaces(activeCwd(services)) });
@@ -2262,12 +2376,13 @@ export default {
           await services.runtime.setModel(model);
           sendJson(response, 200, jsonSafe({ model: modelSummary(model, true) }));
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
     const disposeFiles = services.webServer.register({
       path: "/api/files",
+      methods: ["GET"],
       async handler(_request, response) {
         let status: GitStatusResult;
         try {
@@ -2290,6 +2405,7 @@ export default {
     });
     const disposeWorkspaceFiles = services.webServer.register({
       path: "/api/workspace/files",
+      methods: ["GET"],
       async handler(_request, response) {
         try {
           const catalogue = await readWorkspaceFiles(activeCwd(services));
@@ -2463,7 +2579,7 @@ export default {
           const head = await gitCommand(root, ["rev-parse", "--short", "HEAD"]);
           sendJson(response, 200, { committed: true, message: payload.message.trim(), commit: head.stdout.trim() });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -2520,12 +2636,13 @@ export default {
           }
           sendJson(response, 200, { reverted: true, paths });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
     const disposeEvents = services.webServer.register({
       path: "/api/events",
+      methods: ["GET"],
       handler(_request, response) {
         response.writeHead(200, {
           "content-type": "text/event-stream; charset=utf-8",
@@ -2626,8 +2743,9 @@ export default {
                 digest,
               };
               try {
-                session.sessionManager.appendCustomEntry("pi-harness.prompt-receipt", receipt);
+                // Same order as the rename route: a receipt appended to a session whose file another console removed would recreate that file without its header.
                 persistSessionBeforeFirstAssistant(session.sessionManager);
+                session.sessionManager.appendCustomEntry("pi-harness.prompt-receipt", receipt);
               } catch (error) {
                 // Receipt I/O must not throw from Pi's acceptance callback: ordinary prompts have not started yet, while extension commands and queued prompts may already have taken effect.
                 receiptPersistenceError = `Prompt accepted; receipt persistence failed. Check the result before retrying after a restart: ${errorText(error)}`;
@@ -2689,7 +2807,7 @@ export default {
             ...(last?.role === "assistant" && last.stopReason === "aborted" ? { aborted: true } : {}),
           });
         } catch (error) {
-          sendJson(response, 400, { error: [errorText(error), receiptPersistenceError].filter(Boolean).join("\n"), accepted });
+          sendJson(response, requestErrorStatus(error), { error: [errorText(error), receiptPersistenceError].filter(Boolean).join("\n"), accepted });
         } finally {
           unsubscribe?.();
           if (requestKey !== undefined) pendingPromptRequests.delete(requestKey);
@@ -2716,6 +2834,7 @@ export default {
     });
     const disposeSession = services.webServer.register({
       path: "/api/session",
+      methods: ["GET"],
       async handler(_request, response) {
         try {
           sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, events, context.logger)));
@@ -2731,9 +2850,17 @@ export default {
           sendJson(response, 405, { error: "Method not allowed" });
           return;
         }
+        // Reading the body belongs to the caller's half of the exchange: parsed inside the try below, malformed JSON, a bare `null` and an oversized body all came back as 500, the status that says the gateway failed.
+        let payload: { cwd?: unknown };
         try {
           const raw = await bodyText(request);
-          const payload = raw.trim() ? (JSON.parse(raw) as { cwd?: unknown }) : {};
+          const parsed: unknown = raw.trim() ? JSON.parse(raw) : {};
+          payload = parsed !== null && typeof parsed === "object" ? parsed : {};
+        } catch (error) {
+          sendRequestError(response, error);
+          return;
+        }
+        try {
           await runSessionOperation(response, "Cannot create a session while a prompt is running", async () => {
             const currentCwd = activeCwd(services);
             const requestedCwd = typeof payload.cwd === "string" ? resolve(payload.cwd) : resolve(currentCwd);
@@ -2828,7 +2955,7 @@ export default {
             sendJson(response, 200, jsonSafe(await createSessionSnapshot(services, [], context.logger)));
           });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -2843,7 +2970,12 @@ export default {
           const payload = JSON.parse(await bodyText(request)) as { path?: unknown; name?: unknown };
           const manager = services.runtime.session.sessionManager;
           const path = typeof payload.path === "string" ? payload.path : services.runtime.session.sessionFile;
-          const name = typeof payload.name === "string" ? payload.name.trim() : "";
+          // A missing or non-string name used to be coerced to "", which is the console's explicit clear, so a request that forgot the field silently wiped the name it meant to keep.
+          if (typeof payload.name !== "string") {
+            sendJson(response, 400, { error: "name must be a string (empty string clears the name)" });
+            return;
+          }
+          const name = payload.name.trim();
           if (!path || !sessionPathInDirectory(path, manager)) {
             sendJson(response, 400, { error: "Invalid session path" });
             return;
@@ -2858,14 +2990,15 @@ export default {
             return;
           }
           if (path === services.runtime.session.sessionFile && typeof manager.appendSessionInfo === "function") {
-            manager.appendSessionInfo(name);
+            // Materialize before appending, not after. Once Pi has flushed a session it appends to the file bare, so when another console has deleted that file the append recreates it as a single session_info line with no header, which nothing can open again; the persist that ran afterwards then saw a file and did nothing. Writing the header and entries first leaves the append landing in a file that parses, and for a fresh session that has no file yet the bytes on disk come out the same as before.
             if (name) persistSessionBeforeFirstAssistant(manager);
+            manager.appendSessionInfo(name);
           } else {
             SessionManager.open(path, manager.getSessionDir()).appendSessionInfo(name);
           }
           sendJson(response, 200, { path, name: name || undefined });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -2923,7 +3056,7 @@ export default {
             sendJson(response, 200, { deleted: true, path, sessionFile: services.runtime.session.sessionFile });
           });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -2964,7 +3097,7 @@ export default {
           });
           sendJson(response, 200, { path, metadata: nextMetadata });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -3068,7 +3201,7 @@ export default {
           });
           sendJson(response, 200, { action, count: paths.length });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -3131,7 +3264,7 @@ export default {
             sendJson(response, 200, { sessionId, sessionFile, cwd: targetCwd });
           });
         } catch (error) {
-          sendJson(response, 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
@@ -3167,13 +3300,23 @@ export default {
           }
           const targetCwd = typeof payload.cwd === "string" && payload.cwd.trim() ? resolve(payload.cwd) : activeCwd(services);
           await runSessionOperation(response, "Cannot import a session while a prompt is running", async () => {
+            // The content branch is bounded by the body limit before it is ever read; a path names a file of any size, so its size is asked before the whole file is pulled into memory and handed back to every /api/session reader. A missing file still falls through to the read, whose ENOENT is the 400 it has always been.
+            if (content === undefined) {
+              const sourceSize = (await stat(suppliedPath).catch(() => undefined))?.size ?? 0;
+              if (sourceSize > IMPORT_CONTENT_LIMIT_BYTES) {
+                sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
+                return;
+              }
+            }
             const importContent = content ?? (await readFile(suppliedPath, "utf8"));
-            if (content !== undefined && Buffer.byteLength(importContent, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
+            if (Buffer.byteLength(importContent, "utf8") > IMPORT_CONTENT_LIMIT_BYTES) {
               sendJson(response, 413, { error: "Imported session must be at most 10 MiB" });
               return;
             }
             validateImportedSession(importContent);
-            if (!(await stat(targetCwd)).isDirectory()) throw new Error("Session import requires an existing working directory");
+            // stat rejects before isDirectory can run, so a directory that does not exist used to surface as its raw ENOENT text instead of this message.
+            const targetStat = await stat(targetCwd).catch(() => undefined);
+            if (targetStat === undefined || !targetStat.isDirectory()) throw new Error("Session import requires an existing working directory");
             // Fork a validated snapshot: the upstream reader repairs missing final newlines and must not modify the user's source file.
             const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-harness-import-"));
             const requestedName = basename(typeof payload.filename === "string" && payload.filename.trim() ? payload.filename : "import.jsonl");
@@ -3195,7 +3338,7 @@ export default {
               if (!stagedPath) throw new Error("Unable to persist imported session");
               importedPath = join(manager.getSessionDir(), basename(stagedPath));
               await mkdir(manager.getSessionDir(), { recursive: true });
-              await atomicWriteFile(importedPath, await readFile(stagedPath), { overwrite: false, mode: 0o600 });
+              await atomicWriteFile(importedPath, importedSessionContent(await readFile(stagedPath)), { overwrite: false, mode: 0o600 });
               published = true;
               const result = await runWebSessionChange(services, () =>
                 services.runtime.sessionRuntime.switchSession(importedPath!, { cwdOverride: targetCwd }),
@@ -3229,12 +3372,13 @@ export default {
             else sendJson(response, 200, receipt);
           });
         } catch (error) {
-          sendJson(response, error instanceof PayloadTooLargeError ? 413 : 400, { error: errorText(error) });
+          sendRequestError(response, error);
         }
       },
     });
     const disposeExportSession = services.webServer.register({
       path: "/api/session/export",
+      methods: ["GET"],
       async handler(request, response) {
         try {
           const url = new URL(request.url ?? "/api/session/export", "http://localhost");
@@ -3267,6 +3411,7 @@ export default {
     });
     const disposeSessions = services.webServer.register({
       path: "/api/sessions",
+      methods: ["GET"],
       async handler(_request, response) {
         try {
           const session = services.runtime.session;

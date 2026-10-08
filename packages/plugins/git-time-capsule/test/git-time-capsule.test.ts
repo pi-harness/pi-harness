@@ -424,6 +424,37 @@ require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(work
     }
   });
 
+  test("reports a missing capsule by name without disclosing the capsule store path", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-missing-workspace-"));
+    const agentDir = await mkdtemp(join(tmpdir(), "pi-harness-capsule-missing-agent-"));
+    temporaryDirectories.push(workspace, agentDir);
+    await mkdir(join(agentDir, "capsules"), { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "main"], { cwd: workspace });
+    const context = new Context();
+    const tools = new PiToolRegistry();
+    const panels = new PiPluginUiRegistry();
+    context.provide("piHarnessLaunch", { cwd: workspace, agentDir, args: [], requestExit() {} });
+    context.provide("piTools", tools);
+    context.provide("piPluginUi", panels);
+    try {
+      await context.plugin(gitTimeCapsulePlugin);
+      const tool = tools.snapshot().customTools.find((candidate) => candidate.name === "git_restore");
+      const failure = await tool!.execute("call-1", { name: "absent.patch", confirm: true }, undefined, undefined, {} as never).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("Git capsule was not found: absent.patch");
+      expect((failure as Error).message).not.toContain(agentDir);
+      expect((failure as Error).message).not.toContain("ENOENT");
+      // The errno stays on the cause chain so a maintainer reading it still sees what the filesystem said.
+      const errno = ((failure as Error).cause as Error | undefined)?.cause as NodeJS.ErrnoException | undefined;
+      expect(errno?.code).toBe("ENOENT");
+    } finally {
+      await context.fiber.dispose();
+    }
+  });
+
   test("reports a completed restore even if the source capsule disappears afterward", async () => {
     if (process.platform === "win32") return;
     const workspace = await mkdtemp(join(tmpdir(), "pi-harness-capsule-restore-race-workspace-"));

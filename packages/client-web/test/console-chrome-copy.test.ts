@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createClientApi, type ClientApi, type ClientMarketplacePage, type ClientPiConfig } from "../src/control-room.js";
 import { activeLocale, setLocale } from "../src/i18n.js";
-import { ControlRoomView } from "../src/react-room.js";
+import { ControlRoomView, contextMessageCountLabel, sessionLogMessageCountLabel } from "../src/react-room.js";
 
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
@@ -123,6 +123,39 @@ describe("console chrome copy", () => {
       expect([id, option]).toEqual([id, expect.stringMatching(/\S/u)]);
       expect([id, option === entries["关闭"], option === entries["已关闭"]]).toEqual([id, false, false]);
     }
+  });
+
+  // The catalogs carry no plural rules, so a count of one has its own key; before it did, every language that inflects read "1 log messages" on every sidebar row.
+  test("renders a count of one in the singular and every other count in the plural", async () => {
+    expect([sessionLogMessageCountLabel(1), sessionLogMessageCountLabel("1"), sessionLogMessageCountLabel(2)]).toEqual([
+      "1 log message",
+      "1 log message",
+      "2 log messages",
+    ]);
+    expect([contextMessageCountLabel(1), contextMessageCountLabel(0)]).toEqual(["1 context message", "0 context messages"]);
+    await setLocale("de");
+    expect([sessionLogMessageCountLabel(1), sessionLogMessageCountLabel(3)]).toEqual(["1 Protokollnachricht", "3 Protokollnachrichten"]);
+    expect(contextMessageCountLabel(1)).toBe("1 Kontextnachricht");
+  });
+
+  // The general tab labels one live session, and the key it borrowed is the plural heading of the session list.
+  test("labels the single active session in Settings with the singular", async () => {
+    window.history.replaceState({}, "", "/?settings=general");
+    await flush(() => root.render(createElement(ControlRoomView, { api })));
+    await act(async () => {
+      for (let step = 0; step < 8; step += 1) await Promise.resolve();
+    });
+    const rows = [...document.querySelectorAll(".general-row strong")].map((item) => item.textContent ?? "");
+    expect(rows).toContain("Current session");
+    expect(rows).not.toContain("Sessions");
+    // The notifier row qualifies an extension, so it reads the plugin-specific state that French inflects for the feminine noun.
+    const notifier = document.querySelector(".general-row .setting-status")?.textContent ?? "";
+    expect(["Loaded", "Not loaded"]).toContain(notifier);
+    await setLocale("fr");
+    await act(async () => {
+      for (let step = 0; step < 8; step += 1) await Promise.resolve();
+    });
+    expect(["Chargée", "Non chargée"]).toContain(document.querySelector(".general-row .setting-status")?.textContent ?? "");
   });
 
   test("names the real restore path in the archive confirmation, in every catalog", async () => {

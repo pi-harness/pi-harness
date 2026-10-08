@@ -4,6 +4,8 @@ import type { Context } from "@deepseek-ai/cordis";
 
 export interface WebRoute {
   readonly path: string;
+  // The request methods this route answers. Every other method is refused with 405 before the handler runs, so a handler that only ever reads cannot be reached by a POST that a cross-site form or a script guessed at. A route that leaves this out answers every method, which is what routes registered before this field existed did.
+  readonly methods?: readonly string[];
   readonly handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>;
 }
 
@@ -136,16 +138,22 @@ export default {
     const allowedHosts = config.allowedHosts ?? [];
     // A wildcard bind (including the empty host, which listen() accepts) has no hostname of its own, and "http://" + "" is not a parsable URL base, so resolving a request path against it threw out of the request listener. Loopback is the address such a bind always answers on, so it stands in both as the base for request URLs and as the advertised URL.
     const urlHost = WILDCARD_HOSTS.has(host) ? "127.0.0.1" : hostForUrl(host);
-    const routes = new Map<string, WebRoute["handler"]>();
+    const routes = new Map<string, Pick<WebRoute, "methods" | "handler">>();
     let fallback: WebRoute["handler"] | undefined;
     // Assigned once listen() completes; tests bind port 0 so the configured port is not the one clients address.
     let boundPort = 0;
     const server = createServer((request, response) => {
       if (rejectForeignRequest(request, response, host, boundPort, allowedHosts)) return;
       const path = new URL(request.url ?? "/", "http://" + urlHost).pathname;
-      const handler = routes.get(path) ?? fallback;
+      const route = routes.get(path);
+      const handler = route?.handler ?? fallback;
       if (handler === undefined) {
         notFound(response);
+        return;
+      }
+      if (route?.methods !== undefined && !route.methods.includes(request.method ?? "")) {
+        response.writeHead(405, { "content-type": "application/json; charset=utf-8", allow: route.methods.join(", ") });
+        response.end(JSON.stringify({ error: "Method not allowed" }));
         return;
       }
       // Invoke inside an async function so a synchronous throw is routed into the same 500 path as an async rejection instead of escaping the request listener as an uncaught exception.
@@ -175,7 +183,7 @@ export default {
       register(route) {
         const path = normalizePath(route.path);
         if (routes.has(path)) throw new Error("Web route already registered: " + path);
-        routes.set(path, route.handler);
+        routes.set(path, route);
         return () => routes.delete(path);
       },
       registerFallback(handler) {
