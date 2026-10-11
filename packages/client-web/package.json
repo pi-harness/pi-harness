@@ -30,7 +30,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "4.0.4",
     "dompurify": "3.4.15",
     "marked": "18.0.12",
     "react": "^19.1.1",
