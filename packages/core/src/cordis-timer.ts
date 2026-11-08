@@ -102,6 +102,6 @@ export default class HardenedTimerService extends TimerService {
   override debounce<F extends (...args: never[]) => void>(callback: F, delay: number): DisposableFunction<F> {
     assertCallback("debounce", callback);
     assertTimerDelay("debounce", delay, false);
-    return super.debounce(callback, delay);
+    return super.debounce(callback, delay) as unknown as DisposableFunction<F>;
   }
 }
