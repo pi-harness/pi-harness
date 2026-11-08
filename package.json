@@ -64,7 +64,7 @@
     "@pi-harness/core": "^0.1.162",
     "@pi-harness/host-webserver": "0.1.162",
     "@pi-harness/web-app": "0.1.162",
-    "semver": "7.8.5"
+    "semver": "7.8.6"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
