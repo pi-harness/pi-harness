@@ -1,6 +1,6 @@
 {
   "name": "@pi-harness/website",
-  "version": "0.1.162",
+  "version": "0.1.163",
   "private": true,
   "description": "Pi Harness public product website",
   "type": "module",
